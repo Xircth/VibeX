@@ -1649,7 +1649,7 @@ impl ServerApplicationDomains {
             AgentOperationStatus::Queued,
             Some(5),
             Some(format!(
-                "$ vibex agent {} {}",
+                "$ dimo agent {} {}",
                 operation_kind_key(kind),
                 agent_id.as_str()
             )),
@@ -2561,7 +2561,7 @@ mod tests {
     #[test]
     fn plugin_path_args_still_require_a_filesystem_path() {
         let parsed = serde_json::from_value::<PluginPathArgs>(json!({
-            "pluginId": "vibex.plugin-development",
+            "pluginId": "dimo.plugin-development",
             "allAgents": true,
             "agents": []
         }));

@@ -12,7 +12,7 @@
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(b"traex-binary").unwrap();
         let bytes = encoder.finish().unwrap();
-        let destination = std::env::temp_dir().join(format!("vibex-gz-test-{}", Uuid::new_v4()));
+        let destination = std::env::temp_dir().join(format!("dimo-gz-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&destination).unwrap();
         extract_archive(
             &bytes,
@@ -60,7 +60,7 @@
 
     #[test]
     fn managed_node_runtime_is_under_the_user_toolchain_root() {
-        let root = PathBuf::from("/tmp/vibex-share");
+        let root = PathBuf::from("/tmp/dimo-share");
         let runtime = managed_node_runtime(&root).expect("current platform has managed Node");
         let path = runtime.node.to_string_lossy().replace('\\', "/");
         assert!(

@@ -232,7 +232,7 @@ impl VendorLogRoots {
                 .map(|root| root.join("projects")),
             codex_sessions: env_or_home("CODEX_HOME", ".codex").map(|root| root.join("sessions")),
             grok_sessions: agents::grok_home_dir().map(|home| home.join("sessions")),
-            acp_transcripts: Some(agents::acp_transcript::vibex_acp_transcripts_root()),
+            acp_transcripts: Some(agents::acp_transcript::dimo_acp_transcripts_root()),
             kimi_sessions: env_or_home("KIMI_CODE_HOME", ".kimi-code")
                 .map(|root| root.join("sessions")),
             qoder_projects: env_or_home("QODER_CONFIG_DIR", ".qoder")

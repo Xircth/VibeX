@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import {
   commandRegistry,
-  defineVibeXPlugin,
+  defineDimoPlugin,
   disposePluginRegistrations,
   globalServices,
   providerRegistry,
   slotRegistry,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { createContext, useContext } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,7 +56,7 @@ describe('PluginBoundary & Slot same-tree architecture', () => {
   });
 
   it('renders plugin slot components inside the same React Context tree without a separate root', async () => {
-    const plugin = defineVibeXPlugin({
+    const plugin = defineDimoPlugin({
       id: 'acme.demo',
       activate(ctx) {
         ctx.registerSlot({
@@ -103,15 +103,15 @@ describe('PluginBoundary & Slot same-tree architecture', () => {
       'dark'
     );
     const styleEl = document.head.querySelector(
-      'style[data-vibex-plugin="acme.demo"]'
+      'style[data-dimo-plugin="acme.demo"]'
     );
-    expect(styleEl?.textContent).toContain('@layer vibex-plugins');
+    expect(styleEl?.textContent).toContain('@layer dimo-plugins');
 
     act(() => {
       unloadPluginRuntime('acme.demo');
     });
     expect(
-      document.head.querySelector('style[data-vibex-plugin="acme.demo"]')
+      document.head.querySelector('style[data-dimo-plugin="acme.demo"]')
     ).toBeNull();
   });
 

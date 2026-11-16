@@ -332,21 +332,21 @@ impl Default for ManagedBrowserSection {
     }
 }
 
-/// `VIBEX_POLICY_FILE` when set (tests, unusual deployments), else the
+/// `DIMO_POLICY_FILE` when set (tests, unusual deployments), else the
 /// machine-wide location for the platform. The file is optional.
 pub fn managed_policy_path() -> PathBuf {
-    if let Some(explicit) = std::env::var_os("VIBEX_POLICY_FILE") {
+    if let Some(explicit) = std::env::var_os("DIMO_POLICY_FILE") {
         return PathBuf::from(explicit);
     }
     if cfg!(target_os = "macos") {
-        PathBuf::from("/Library/Application Support/vibex/policy.json")
+        PathBuf::from("/Library/Application Support/dimo/policy.json")
     } else if cfg!(target_os = "windows") {
         let base = std::env::var_os("PROGRAMDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        base.join("vibex").join("policy.json")
+        base.join("dimo").join("policy.json")
     } else {
-        PathBuf::from("/etc/vibex/policy.json")
+        PathBuf::from("/etc/dimo/policy.json")
     }
 }
 
@@ -836,11 +836,11 @@ mod tests {
         let json = serde_json::to_value(BrowserPolicyStatus {
             enabled: true,
             managed_rules: vec![rule("a.example", HostRuleAction::Block)],
-            managed_source: Some("/etc/vibex/policy.json".into()),
+            managed_source: Some("/etc/dimo/policy.json".into()),
         })
         .unwrap();
         assert_eq!(json["managedRules"][0]["action"], "block");
-        assert_eq!(json["managedSource"], "/etc/vibex/policy.json");
+        assert_eq!(json["managedSource"], "/etc/dimo/policy.json");
         let rule: HostRule = serde_json::from_str(r#"{"pattern":"*","action":"builtin"}"#).unwrap();
         assert_eq!(rule.action, HostRuleAction::Builtin);
     }

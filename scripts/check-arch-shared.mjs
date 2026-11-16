@@ -25,7 +25,7 @@ export const CONTRIBUTION_KINDS =
 export const CAPABILITY_BROKER = "crates/plugins/src/host_capability_broker.rs";
 // Data-layer crate whose dependency direction I4 pins.
 export const DB_CARGO = "crates/db/Cargo.toml";
-// Official plugin packages ship a manifest under .vibex-plugin/plugin.json.
+// Official plugin packages ship a manifest under .dimo-plugin/plugin.json.
 export const OFFICIAL_PLUGIN_ROOTS = ["plugins", "assets/plugins"];
 
 export function toPosix(path) {

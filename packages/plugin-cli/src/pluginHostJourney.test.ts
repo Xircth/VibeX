@@ -68,8 +68,8 @@ describe("hostJourneyKindsFromIntegrations", () => {
 
 describe("live contribution catalog", () => {
   const items = [
-    { pluginId: "vibex.host-chrome", kind: "command" },
-    { pluginId: "vibex.host-chrome", kind: "status" },
+    { pluginId: "dimo.host-chrome", kind: "command" },
+    { pluginId: "dimo.host-chrome", kind: "status" },
     { pluginId: "other.plugin", kind: "command" },
   ];
 
@@ -82,7 +82,7 @@ describe("live contribution catalog", () => {
   });
 
   it("only counts the plugin under test", () => {
-    expect(liveKindsForPlugin(items, "vibex.host-chrome")).toEqual([
+    expect(liveKindsForPlugin(items, "dimo.host-chrome")).toEqual([
       "command",
       "status",
     ]);
@@ -90,33 +90,33 @@ describe("live contribution catalog", () => {
 
   it("treats enable as every declared kind present", () => {
     expect(
-      catalogHasKinds(items, "vibex.host-chrome", ["app.command", "app.status"]),
+      catalogHasKinds(items, "dimo.host-chrome", ["app.command", "app.status"]),
     ).toBe(true);
     expect(
-      catalogHasKinds(items, "vibex.host-chrome", ["app.command", "app.toolbar"]),
+      catalogHasKinds(items, "dimo.host-chrome", ["app.command", "app.toolbar"]),
     ).toBe(false);
   });
 
   it("treats disable as every declared kind gone", () => {
-    expect(catalogLacksKinds(items, "vibex.host-chrome", ["app.toolbar"])).toBe(
+    expect(catalogLacksKinds(items, "dimo.host-chrome", ["app.toolbar"])).toBe(
       true,
     );
-    expect(catalogLacksKinds(items, "vibex.host-chrome", ["app.command"])).toBe(
+    expect(catalogLacksKinds(items, "dimo.host-chrome", ["app.command"])).toBe(
       false,
     );
   });
 
   it("accepts the installed Host snake_case catalog kind", () => {
     const catalogItems = [
-      { pluginId: "vibex.provider-switch", kind: "provider_catalog" },
+      { pluginId: "dimo.provider-switch", kind: "provider_catalog" },
     ];
     expect(
-      catalogHasKinds(catalogItems, "vibex.provider-switch", [
+      catalogHasKinds(catalogItems, "dimo.provider-switch", [
         "provider.model.catalog",
       ]),
     ).toBe(true);
     expect(
-      catalogLacksKinds(catalogItems, "vibex.provider-switch", [
+      catalogLacksKinds(catalogItems, "dimo.provider-switch", [
         "provider.model.catalog",
       ]),
     ).toBe(false);

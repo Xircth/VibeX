@@ -1,4 +1,4 @@
-import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
+import { useSlotContributions, useViews } from '@dimoai/plugin-sdk';
 import { MoreHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

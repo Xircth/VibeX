@@ -300,7 +300,7 @@ impl McpClient {
                 json!({
                     "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": { "name": "vibex-computer-helper", "version": env!("CARGO_PKG_VERSION") },
+                    "clientInfo": { "name": "dimo-computer-helper", "version": env!("CARGO_PKG_VERSION") },
                 }),
                 timeout,
             )

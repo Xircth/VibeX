@@ -34,7 +34,7 @@ impl ProjectionFold {
             ConversationSessionNotice {
                         title: "此会话包含较新版本的记录".into(),
                         message: Some(
-                            "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。"
+                            "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 Dimo 后可再次查看。"
                                 .into(),
                         ),
                         severity: "warning".into(),
@@ -43,7 +43,7 @@ impl ProjectionFold {
         } else {
             ConversationSessionNotice {
                 title: "部分会话记录无法显示".into(),
-                message: Some("VibeX 无法读取其中一条历史记录，其余会话内容不受影响。".into()),
+                message: Some("Dimo 无法读取其中一条历史记录，其余会话内容不受影响。".into()),
                 severity: "warning".into(),
                 ..Default::default()
             }

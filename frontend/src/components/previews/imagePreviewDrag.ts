@@ -1,4 +1,4 @@
-export const ANNOTATED_IMAGE_DROP_EVENT = 'vibex-annotated-image-drop';
+export const ANNOTATED_IMAGE_DROP_EVENT = 'dimo-annotated-image-drop';
 export const LONG_PRESS_MS = 450;
 export const LONG_PRESS_MOVE_TOLERANCE = 8;
 

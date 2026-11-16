@@ -30,7 +30,7 @@ impl InstallRunner for ConcurrencyRunner {
         self.max_active.fetch_max(active, Ordering::SeqCst);
         let resource = invocation
             .env
-            .get("VIBEX_SHARED_RESOURCE")
+            .get("DIMO_SHARED_RESOURCE")
             .cloned()
             .unwrap_or_else(|| "none".to_string());
         {

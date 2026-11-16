@@ -155,8 +155,8 @@ impl GitService {
         file_path: &str,
         content: &str,
     ) -> Result<crate::WriteConflictResolutionResult, GitServiceError> {
-        const STAGE_OURS_SENTINEL: &str = "__VIBEX_CONFLICT_STAGE_OURS__";
-        const STAGE_THEIRS_SENTINEL: &str = "__VIBEX_CONFLICT_STAGE_THEIRS__";
+        const STAGE_OURS_SENTINEL: &str = "__DIMO_CONFLICT_STAGE_OURS__";
+        const STAGE_THEIRS_SENTINEL: &str = "__DIMO_CONFLICT_STAGE_THEIRS__";
 
         let target = validate_conflict_file_path(worktree_path, file_path)?;
         let git = GitCli::new();
@@ -464,7 +464,7 @@ mod tests {
 
         // Resolving via stage sentinel preserves exact binary bytes.
         let res = service
-            .write_conflict_resolution(&path, "blob.bin", "__VIBEX_CONFLICT_STAGE_THEIRS__")
+            .write_conflict_resolution(&path, "blob.bin", "__DIMO_CONFLICT_STAGE_THEIRS__")
             .unwrap();
         assert!(res.is_resolved);
         assert_eq!(

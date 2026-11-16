@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-import { AstryxStep, AstryxStepItem } from './AstryxStep';
 import { BasicGuideSpotlight } from './BasicGuideSpotlight';
 import { useOptionalBasicGuide } from './BasicGuideContext';
 import { GuideCopy } from './GuideCopy';
@@ -25,7 +24,6 @@ import {
   isGuideVisible,
   isKanbanGuideSurface,
   isSettingsRoute,
-  mainStepIndex,
   substepSpotlights,
 } from './basicGuideState';
 import './basicGuide.css';
@@ -40,7 +38,6 @@ export function BasicGuideOverlay() {
   const { state, exitOpen } = ctx;
   const showingEnd = state.endCopy !== 'none';
   const meta = SUBSTEP_META[state.substep];
-  const current = showingEnd ? 3 : mainStepIndex(state.substep);
   const showCoaching = !showingEnd && state.substep !== 'show-end';
   const spotlightTargets = showCoaching ? substepSpotlights(state.substep) : [];
   const showStepPanel = !isSettingsRoute(location.pathname);
@@ -98,42 +95,35 @@ export function BasicGuideOverlay() {
                 />
               </div>
             ) : (
-              <>
-                <AstryxStep current={current} aria-label={t('stepsAria')}>
-                  <AstryxStepItem>{t('steps.createProject')}</AstryxStepItem>
-                  <AstryxStepItem>{t('steps.createSession')}</AstryxStepItem>
-                  <AstryxStepItem>{t('steps.learnLayout')}</AstryxStepItem>
-                </AstryxStep>
-                <div className="basic-guide-panel__footer">
-                  {state.substep === 'show-end' ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      data-basic-guide="guide-finish"
-                      onClick={ctx.finish}
-                    >
-                      {t('finish')}
-                    </Button>
-                  ) : null}
-                  {meta.continueVisible && meta.targets.length === 0 ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={ctx.continueStep}
-                    >
-                      {t('continue')}
-                    </Button>
-                  ) : null}
+              <div className="basic-guide-panel__footer">
+                {state.substep === 'show-end' ? (
                   <Button
                     type="button"
-                    variant="outline"
-                    onClick={ctx.requestExit}
+                    size="sm"
+                    data-basic-guide="guide-finish"
+                    onClick={ctx.finish}
                   >
-                    {t('exit')}
+                    {t('finish')}
                   </Button>
-                </div>
-              </>
+                ) : null}
+                {meta.continueVisible && meta.targets.length === 0 ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={ctx.continueStep}
+                  >
+                    {t('continue')}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={ctx.requestExit}
+                >
+                  {t('exit')}
+                </Button>
+              </div>
             )}
           </div>
         </aside>

@@ -1,6 +1,6 @@
 //! Map an ACP turn's stop reason onto a [`DelegationOutcome`].
 //!
-//! VibeX surfaces a turn's stop reason as `Option<String>`: for a real turn it
+//! Dimo surfaces a turn's stop reason as `Option<String>`: for a real turn it
 //! is the `Debug` form of `agent_client_protocol::StopReason` (PascalCase, e.g.
 //! `"EndTurn"`, `"MaxTokens"`), and a few code paths hardcode snake forms
 //! (`"end_turn"`, `"cancelled"`). We normalize case + separators so both forms

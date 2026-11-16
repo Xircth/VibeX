@@ -136,7 +136,7 @@ use services::services::{
     },
 };
 use ts_rs::TS;
-use vibex::commands::{
+use dimo::commands::{
     artifact_preview::ArtifactPreviewLeaseDto,
     attention::{AttentionInbox, AttentionItem, AttentionItemKind},
     conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
@@ -503,7 +503,7 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "UpdateAgentPreferences",
             "ReorderAgentsRequest",
             // Plugins: agent-driven console contract replaced the
-            // VibeX-spawned console process (PluginConsoleStart → PluginActivation).
+            // Dimo-spawned console process (PluginConsoleStart → PluginActivation).
             "PluginConsoleStart",
             "Plugin",
             "PluginInput",

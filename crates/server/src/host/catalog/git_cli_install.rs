@@ -17,7 +17,7 @@ use tar::Archive;
 use super::release_download::{GithubReleaseAsset, github_latest_release};
 
 const MAX_ARCHIVE_BYTES: usize = 256 * 1024 * 1024;
-const USER_AGENT: &str = "VibeX Git installer";
+const USER_AGENT: &str = "Dimo Git installer";
 
 static INSTALL_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 

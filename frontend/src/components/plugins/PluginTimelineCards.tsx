@@ -1,4 +1,4 @@
-import { useSlotContributions } from '@vibex/plugin-sdk';
+import { useSlotContributions } from '@dimoai/plugin-sdk';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
 import { Slot } from '@/components/plugins/Slot';
 import {

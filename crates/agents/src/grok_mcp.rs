@@ -147,13 +147,13 @@ mod tests {
     #[test]
     fn peels_the_use_tool_envelope_to_the_inner_mcp_name() {
         let peeled = unwrap_grok_use_tool(Some(&json!({
-            "tool_name": "vibex-delegation-mcp__delegate_to_agent",
+            "tool_name": "dimo-delegation-mcp__delegate_to_agent",
             "tool_input": { "agent_type": "codex", "task": "introduce yourself" }
         })));
         assert_eq!(
             peeled,
             Some((
-                "vibex-delegation-mcp__delegate_to_agent".into(),
+                "dimo-delegation-mcp__delegate_to_agent".into(),
                 json!({ "agent_type": "codex", "task": "introduce yourself" })
             ))
         );
@@ -200,7 +200,7 @@ mod tests {
             "call-1",
             Some("use_tool"),
             Some(&json!({
-                "tool_name": "vibex-delegation-mcp__delegate_to_agent",
+                "tool_name": "dimo-delegation-mcp__delegate_to_agent",
                 "tool_input": { "agent_type": "codex", "task": "hi" }
             })),
             None,
@@ -244,15 +244,15 @@ mod tests {
     #[test]
     fn strips_host_prefixes_from_mcp_tool_names() {
         assert_eq!(
-            mcp_bare_tool_name("vibex-delegation-mcp__delegate_to_agent"),
+            mcp_bare_tool_name("dimo-delegation-mcp__delegate_to_agent"),
             "delegate_to_agent"
         );
         assert_eq!(
-            mcp_bare_tool_name("mcp__vibex-delegation-mcp__get_delegation_status"),
+            mcp_bare_tool_name("mcp__dimo-delegation-mcp__get_delegation_status"),
             "get_delegation_status"
         );
         assert_eq!(
-            mcp_bare_tool_name("vibex-delegation-mcp/cancel_delegation"),
+            mcp_bare_tool_name("dimo-delegation-mcp/cancel_delegation"),
             "cancel_delegation"
         );
     }

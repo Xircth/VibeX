@@ -492,9 +492,9 @@ impl AgentConnectionRunner {
         let mode_env = self
             .snapshot
             .env
-            .get("VIBEX_ENGINE_MODE")
+            .get("DIMO_ENGINE_MODE")
             .cloned()
-            .or_else(|| std::env::var("VIBEX_ENGINE_MODE").ok());
+            .or_else(|| std::env::var("DIMO_ENGINE_MODE").ok());
         let force_native = mode_env
             .as_deref()
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("native"));

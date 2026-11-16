@@ -81,11 +81,11 @@ describe('workspaceGroupLabel', () => {
       workspaceGroupLabel(
         session({
           workspace: workspace({
-            name: 'VibeX',
+            name: 'Dimo',
             branch: 'feature/session-list',
             use_worktree: false,
           }),
-          workspaceName: 'VibeX',
+          workspaceName: 'Dimo',
           branch: 'feature/session-list',
         })
       )

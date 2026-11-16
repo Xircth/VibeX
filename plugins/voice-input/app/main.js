@@ -1,6 +1,6 @@
-export const PLUGIN_ID = 'vibex.voice-input';
-export const VOICE_STORAGE_KEY = 'vibex.voice-input.config';
-export const VOICE_HISTORY_STORAGE_KEY = 'vibex.voice-input.history';
+export const PLUGIN_ID = 'dimo.voice-input';
+export const VOICE_STORAGE_KEY = 'dimo.voice-input.config';
+export const VOICE_HISTORY_STORAGE_KEY = 'dimo.voice-input.history';
 
 export const DEFAULT_VOICE_CONFIG = Object.freeze({
   enabled: true,
@@ -14,7 +14,7 @@ export const DEFAULT_VOICE_CONFIG = Object.freeze({
   shortcut: 'Alt+V',
   cleanupMode: 'auto-clean',
   vocabulary:
-    'VibeX, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex',
+    'Dimo, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex',
   audioDeviceId: 'default',
   showFloatingHud: true,
 });
@@ -48,7 +48,7 @@ export function parseVocabularyList(rawVocabulary) {
 }
 
 const PHONETIC_TERM_ALIASES = Object.freeze({
-  VibeX: [/\bvibe\s*[-_]?\s*x\b/gi, /\bvibex\b/gi],
+  Dimo: [/\bvibe\s*[-_]?\s*x\b/gi, /\bdimo\b/gi],
   Tauri: [/\btauri\b/gi, /淘瑞/g],
   Monaco: [/\bmonaco\b/gi],
   TypeScript: [/\btype\s*script\b/gi, /\btypescript\b/gi],
@@ -930,7 +930,7 @@ export class VoiceSessionController {
       return { inserted: true, target: 'monaco-editor', text: clean };
     }
 
-    // 2. Insert into VibeX Session Composer via `conversation.draft.insert`
+    // 2. Insert into Dimo Session Composer via `conversation.draft.insert`
     try {
       const inserted = await this.insertIntoComposer(clean);
       if (inserted) {
@@ -1011,9 +1011,9 @@ export default {
   id: PLUGIN_ID,
 
   activate(context) {
-    if (typeof globalThis.__vibexVoiceInputActiveCleanup__ === 'function') {
+    if (typeof globalThis.__dimoVoiceInputActiveCleanup__ === 'function') {
       try {
-        globalThis.__vibexVoiceInputActiveCleanup__();
+        globalThis.__dimoVoiceInputActiveCleanup__();
       } catch {
         // ignore
       }
@@ -1045,7 +1045,7 @@ export default {
     const getEditorBridge = () => {
       if (typeof context?.services?.get === 'function') {
         try {
-          return context.services.get('vibex.code-editor');
+          return context.services.get('dimo.code-editor');
         } catch {
           return null;
         }
@@ -1080,7 +1080,7 @@ export default {
       }
       if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
         window.dispatchEvent(
-          new CustomEvent('vibex:plugin-config-updated', {
+          new CustomEvent('dimo:plugin-config-updated', {
             detail: { pluginId: PLUGIN_ID, config: next },
           }),
         );
@@ -1092,7 +1092,7 @@ export default {
     const disposers = [];
     if (typeof context?.services?.provide === 'function') {
       try {
-        const disp = context.services.provide('vibex.voice-input', {
+        const disp = context.services.provide('dimo.voice-input', {
           startRecording: () => controller.startRecording(),
           stopRecording: (opts) => controller.stopRecording(opts),
           toggleRecording: () => controller.toggleRecording(),
@@ -1106,7 +1106,7 @@ export default {
     }
 
     // Register React UI components if React is available in Host
-    const React = globalThis.React || globalThis.__VIBEX_HOST_MODULES__?.react;
+    const React = globalThis.React || globalThis.__DIMO_HOST_MODULES__?.react;
     if (React && typeof React.createElement === 'function') {
       const h = React.createElement;
       const { useState, useEffect } = React;
@@ -1397,7 +1397,7 @@ export default {
               : null,
           ),
 
-          // Recording Trigger Mode (Custom Select matching VibeX Select UI)
+          // Recording Trigger Mode (Custom Select matching Dimo Select UI)
           h(
             'div',
             {
@@ -1574,7 +1574,7 @@ export default {
     }
 
     // 3. Compact Translucent Frosted Glass Capsule HUD in DOM
-    const VOICE_HUD_POSITION_STORAGE_KEY = 'vibex.voice-input.hud-position';
+    const VOICE_HUD_POSITION_STORAGE_KEY = 'dimo.voice-input.hud-position';
     const loadPersistedHudPosition = () => {
       try {
         if (typeof localStorage !== 'undefined') {
@@ -1690,7 +1690,7 @@ export default {
         }
         if (typeof document.querySelectorAll === 'function') {
           document
-            .querySelectorAll('[data-vibex-voice-hud]')
+            .querySelectorAll('[data-dimo-voice-hud]')
             .forEach((node) => node.remove());
         }
         return;
@@ -1702,7 +1702,7 @@ export default {
 
       if (!hudRoot) {
         hudRoot = document.createElement('div');
-        hudRoot.setAttribute('data-vibex-voice-hud', 'true');
+        hudRoot.setAttribute('data-dimo-voice-hud', 'true');
         hudRoot.style.cssText = [
           'position:fixed',
           'left:50%',
@@ -2017,7 +2017,7 @@ export default {
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('keydown', onWindowKeyDown, true);
       window.addEventListener('keyup', onWindowKeyUp, true);
-      window.addEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+      window.addEventListener('dimo:plugin-config-updated', onWindowConfigUpdated);
     }
 
     // 5. Register command & status handlers
@@ -2081,13 +2081,13 @@ export default {
     });
 
     const disposeInstance = () => {
-      if (globalThis.__vibexVoiceInputActiveCleanup__ === disposeInstance) {
-        globalThis.__vibexVoiceInputActiveCleanup__ = null;
+      if (globalThis.__dimoVoiceInputActiveCleanup__ === disposeInstance) {
+        globalThis.__dimoVoiceInputActiveCleanup__ = null;
       }
       if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
         window.removeEventListener('keydown', onWindowKeyDown, true);
         window.removeEventListener('keyup', onWindowKeyUp, true);
-        window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+        window.removeEventListener('dimo:plugin-config-updated', onWindowConfigUpdated);
       }
       if (hudDragCleanup) {
         hudDragCleanup();
@@ -2111,7 +2111,7 @@ export default {
       controller.dispose();
     };
 
-    globalThis.__vibexVoiceInputActiveCleanup__ = disposeInstance;
+    globalThis.__dimoVoiceInputActiveCleanup__ = disposeInstance;
 
     return Object.assign(disposeInstance, {
       controller,

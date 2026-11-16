@@ -3,9 +3,9 @@
 // Enforces two rules:
 //
 //   Rule A — official plugin packages import only the public SDK surface:
-//     `@vibex/plugin-sdk` (and subpaths), `node:` builtins, relative paths
+//     `@dimoai/plugin-sdk` (and subpaths), `node:` builtins, relative paths
 //     that stay inside the package, and third-party packages declared in the
-//     plugin's own package.json. Anything else (other `@vibex/*` packages,
+//     plugin's own package.json. Anything else (other `@dimo/*` packages,
 //     relative escapes into the Host source tree, undeclared bare imports)
 //     is a privilege violation.
 //
@@ -24,7 +24,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, resolve, dirname, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const PUBLIC_SDK_PACKAGE = "@vibex/plugin-sdk";
+export const PUBLIC_SDK_PACKAGE = "@dimoai/plugin-sdk";
 
 // Rule B allowlist: Host files that legitimately hold official plugin IDs as
 // data (catalog metadata, display copy). Every entry needs a reason.
@@ -35,7 +35,7 @@ export const HOST_ID_ALLOWLIST = new Map([
   ],
   [
     "crates/plugins/src/official_catalog.rs",
-    "读取仓库根 vibex-plugin.json 的官方插件目录（数据面，非行为特判）",
+    "读取仓库根 dimo-plugin.json 的官方插件目录（数据面，非行为特判）",
   ],
   [
     "frontend/src/pages/plugins/officialPlugins.ts",
@@ -54,7 +54,7 @@ const SKIPPED_DIR_NAMES = new Set([
   "target",
   "tests",
   ".git",
-  ".vibex-plugin",
+  ".dimo-plugin",
 ]);
 
 const NODE_BUILTINS = new Set(builtinModules);
@@ -95,8 +95,8 @@ export function classifyImport(specifier, { filePath, pluginRoot, declaredDeps }
   const packageName = packageNameOf(specifier);
   if (NODE_BUILTINS.has(packageName)) return null;
   if (packageName === PUBLIC_SDK_PACKAGE) return null;
-  if (packageName.startsWith("@vibex/")) {
-    return `导入了公开 SDK 之外的 @vibex 包：'${specifier}'（只允许 ${PUBLIC_SDK_PACKAGE}）`;
+  if (packageName.startsWith("@dimo/")) {
+    return `导入了公开 SDK 之外的 @dimo 包：'${specifier}'（只允许 ${PUBLIC_SDK_PACKAGE}）`;
   }
   if (!declaredDeps.has(packageName)) {
     return `导入了未在插件 package.json 声明的包：'${specifier}'`;
@@ -162,7 +162,7 @@ function isTestFile(relativePath) {
   const normalized = relativePath.split(sep).join("/");
   return (
     /\.(test|spec)\.[a-z]+$/.test(normalized) ||
-    /(^|\/)tests?\.rs$/.test(normalized) ||
+    /(^|\/|_)tests?(?:_[^/]*)?\.rs$/.test(normalized) ||
     normalized
       .split("/")
       .some(
@@ -200,7 +200,7 @@ export function collectOfficialPlugins(rootDir, violations = []) {
   for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const dir = join(pluginsRoot, entry.name);
-    const manifestPath = join(dir, ".vibex-plugin", "plugin.json");
+    const manifestPath = join(dir, ".dimo-plugin", "plugin.json");
     if (!existsSync(manifestPath)) continue;
     let manifest;
     try {
@@ -299,7 +299,7 @@ export function checkHostIdBranches(rootDir, ids) {
 }
 
 export function officialIdsFromCatalog(rootDir, violations = []) {
-  const catalogPath = join(rootDir, "vibex-plugin.json");
+  const catalogPath = join(rootDir, "dimo-plugin.json");
   if (!existsSync(catalogPath)) return [];
   let catalog;
   try {
@@ -307,8 +307,8 @@ export function officialIdsFromCatalog(rootDir, violations = []) {
   } catch (error) {
     violations.push({
       rule: "B",
-      file: "vibex-plugin.json",
-      reason: `vibex-plugin.json 不是合法 JSON：${error.message}`,
+      file: "dimo-plugin.json",
+      reason: `dimo-plugin.json 不是合法 JSON：${error.message}`,
     });
     return [];
   }
@@ -361,7 +361,7 @@ function main() {
   if (plugins.length === 0) {
     console.log(
       "plugin:no-privilege 通过：仓库内没有官方插件包；" +
-        "宿主代码无 vibex-plugin.json 中的官方插件 ID 条件分支。"
+        "宿主代码无 dimo-plugin.json 中的官方插件 ID 条件分支。"
     );
     return;
   }

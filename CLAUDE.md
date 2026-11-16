@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and other coding agents when working in this repository.
 
-VibeX is an all-in-one **Agent-Native Development Platform & Vibe Coding Toolkit** powered by a Single-Seam Rust Host (`vibex` Tauri v2 desktop app + `vibex-server` headless daemon). It orchestrates **20+ built-in coding agents** (**dedicated native Agent engine adapters first**, with **ACP + Official ACP Registry as secondary compatibility fallback**) across a **Dual-Stage Workbench** (Dockview IDE ↔ 24-window Infinite Spatial Canvas), Git-worktree-isolated workspaces, Collaboration Space, `&Agent` delegation, versioned DAG Workflows, full-trust v4 plugins, WebUI, E2EE WebRTC remote workstations, native iOS/Android companions, and 6 IM channels.
+Dimo is an all-in-one **Agent-Native Development Platform & Vibe Coding Toolkit** powered by a Single-Seam Rust Host (`dimo` Tauri v2 desktop app + `dimo-server` headless daemon). It orchestrates **20+ built-in coding agents** (**dedicated native Agent engine adapters first**, with **ACP + Official ACP Registry as secondary compatibility fallback**) across a **Dual-Stage Workbench** (Dockview IDE ↔ 24-window Infinite Spatial Canvas), Git-worktree-isolated workspaces, Collaboration Space, `&Agent` delegation, versioned DAG Workflows, full-trust v4 plugins, WebUI, E2EE WebRTC remote workstations, native iOS/Android companions, and 6 IM channels.
 
 ## Required task bootstrap
 
@@ -60,7 +60,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagram and 26-c
 
 ### 1. Single-Seam Host & Frontend `BackendTransport`
 
-- **Single-Seam Host ([ADR-0078](docs/adr/0078-host-command-registry-single-seam.md))**: Product commands are registered once in `HostCommandRegistry` (`crates/application`, mirrored in `shared/hostCommands.ts`), and push streams flow through `HostEventBus`. Both the Tauri desktop binary (`src-tauri`) and the headless HTTP/WS binary (`crates/server` → `vibex-server`) are thin adapters over `HostRuntime` and the `Deployment` trait (`crates/deployment`, implemented by `crates/local-deployment`).
+- **Single-Seam Host ([ADR-0078](docs/adr/0078-host-command-registry-single-seam.md))**: Product commands are registered once in `HostCommandRegistry` (`crates/application`, mirrored in `shared/hostCommands.ts`), and push streams flow through `HostEventBus`. Both the Tauri desktop binary (`src-tauri`) and the headless HTTP/WS binary (`crates/server` → `dimo-server`) are thin adapters over `HostRuntime` and the `Deployment` trait (`crates/deployment`, implemented by `crates/local-deployment`).
 - **Transport-agnostic Frontend (`frontend/src/lib/transport/`)**: UI code talks to `BackendTransport` (`TauriTransport` on local desktop, `WebTransport` on browser WebUI `:17891`, `RemoteDesktopTransport` over HTTPS/WS or E2EE WebRTC DataChannels for paired remote Hosts) — never hardcode Tauri-only calls for shared product features. Path aliases: `@` → `frontend/src`, `shared` → `shared/`.
 
 ### 2. Agent Subsystems — Dedicated Agent Engine First, ACP Fallback
@@ -80,8 +80,8 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagram and 26-c
 
 ### 4. Multi-Agent Orchestration & Plugin Platform v4
 
-- **Collaboration Space & `&Agent` Delegation**: `crates/delegation` + `crates/delegation-proto` + `crates/vibex-mcp` implement built-in Collaboration Space (persistent Bot identities in `collaboration_members` owning hidden `direct:<member_id>` and per-group seat conversations) and LLM-mediated `delegate_to_agent` / `create_conversation`.
-- **Workflows & Automations**: `crates/workflows` + `crates/vibex-workflow-mcp` run immutable published DAG definitions with checkpoints, pause/resume, and step debugging; `crates/automation` runs lease-owned scheduled/manual triggers in isolated Git worktrees.
+- **Collaboration Space & `&Agent` Delegation**: `crates/delegation` + `crates/delegation-proto` + `crates/dimo-mcp` implement built-in Collaboration Space (persistent Bot identities in `collaboration_members` owning hidden `direct:<member_id>` and per-group seat conversations) and LLM-mediated `delegate_to_agent` / `create_conversation`.
+- **Workflows & Automations**: `crates/workflows` + `crates/dimo-workflow-mcp` run immutable published DAG definitions with checkpoints, pause/resume, and step debugging; `crates/automation` runs lease-owned scheduled/manual triggers in isolated Git worktrees.
 - **Plugin Platform v4 ([ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md))**: `crates/plugins` + `crates/tool-runtime` + `crates/artifacts` + `packages/*` host full-trust v4 packages (`plugins/*`) across 23 contribution kinds with atomic Activation Generations and zero official-plugin privilege.
 
 ## Cross-cutting rules & gotchas

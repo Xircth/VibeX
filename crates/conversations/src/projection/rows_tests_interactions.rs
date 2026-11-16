@@ -690,7 +690,7 @@ use super::*;
         assert!(images[0].data.is_empty());
         assert_eq!(images[0].mime_type, "image/png");
         assert!(images[0].uri.as_deref().is_some_and(
-            |uri| uri.starts_with("vibex-image:") && uri.len() == "vibex-image:".len() + 64
+            |uri| uri.starts_with("dimo-image:") && uri.len() == "dimo-image:".len() + 64
         ));
     }
 

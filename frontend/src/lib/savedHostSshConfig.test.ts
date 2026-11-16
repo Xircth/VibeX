@@ -21,7 +21,7 @@ describe('savedHostSshConfig', () => {
       })
     ).toBe(
       [
-        '# VibeX Host: Lab',
+        '# Dimo Host: Lab',
         'Host lab',
         '  HostName 203.0.113.8',
         '  User root',
@@ -36,7 +36,7 @@ describe('savedHostSshConfig', () => {
     expect(sshHostAlias('Root @ Lab')).toBe('root-lab');
     expect(sshHostFileName('Lab', 'ssh-lab-id')).toBe('lab-sshlabid.sshconfig');
     expect(sshHostWorkspacePath('lab-sshlabid.sshconfig')).toBe(
-      '.vibex/ssh-hosts/lab-sshlabid.sshconfig'
+      '.dimo/ssh-hosts/lab-sshlabid.sshconfig'
     );
   });
 
@@ -55,11 +55,11 @@ describe('savedHostSshConfig', () => {
   it('collects mentioned Host files from composer tokens', () => {
     expect(
       mentionedHostFileNames(
-        'deploy [@:Lab](.vibex/ssh-hosts/lab-abc.sshconfig) and [@:本机](.vibex/ssh-hosts/local.sshconfig)'
+        'deploy [@:Lab](.dimo/ssh-hosts/lab-abc.sshconfig) and [@:本机](.dimo/ssh-hosts/local.sshconfig)'
       )
     ).toEqual(['lab-abc.sshconfig', 'local.sshconfig']);
     expect(
-      mentionedHostFileNames('[@:x](.vibex/ssh-hosts/../etc/passwd)')
+      mentionedHostFileNames('[@:x](.dimo/ssh-hosts/../etc/passwd)')
     ).toEqual([]);
   });
 });

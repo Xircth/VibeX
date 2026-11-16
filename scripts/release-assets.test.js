@@ -16,16 +16,16 @@ const {
 const ROOT = path.join(__dirname, '..');
 
 test('asset names match the archives CI already publishes', () => {
-  assert.equal(archiveName('0.1.9', 'linux-x86_64'), 'VibeX-0.1.9-linux-x86_64-server.tar.gz');
-  assert.equal(archiveName('v0.1.9', 'darwin-aarch64'), 'VibeX-0.1.9-darwin-aarch64-server.tar.gz');
+  assert.equal(archiveName('0.1.9', 'linux-x86_64'), 'Dimo-0.1.9-linux-x86_64-server.tar.gz');
+  assert.equal(archiveName('v0.1.9', 'darwin-aarch64'), 'Dimo-0.1.9-darwin-aarch64-server.tar.gz');
   assert.equal(
     checksumName('0.1.9', 'windows-x86_64'),
-    'VibeX-0.1.9-windows-x86_64-server.tar.gz.sha256'
+    'Dimo-0.1.9-windows-x86_64-server.tar.gz.sha256'
   );
   assert.equal(versionFromTag('v0.1.9'), '0.1.9');
   assert.equal(
-    releaseBaseUrl('Xircth/VibeX', 'v0.1.9'),
-    'https://github.com/Xircth/VibeX/releases/download/v0.1.9'
+    releaseBaseUrl('DimoADE/Dimo', 'v0.1.9'),
+    'https://github.com/DimoADE/Dimo/releases/download/v0.1.9'
   );
 });
 
@@ -64,18 +64,18 @@ test('npx, install.sh, and install.ps1 all ask for the CI archive name', () => {
     assert.equal(familyAssetName(platform), archive);
     assert.equal(
       familyAssetUrl(platform),
-      `https://github.com/Xircth/VibeX/releases/download/${tag}/${archive}`
+      `https://github.com/DimoADE/Dimo/releases/download/${tag}/${archive}`
     );
     assert.equal(familyAssetUrl(platform, '.sha256'), `${familyAssetUrl(platform)}.sha256`);
   }
   assert.equal(CLI_VERSION, require('../package.json').version);
 
   const installSh = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8');
-  assert.match(installSh, /archive="VibeX-\$\{version\}-\$\{platform\}-server\.tar\.gz"/);
+  assert.match(installSh, /archive="Dimo-\$\{version\}-\$\{platform\}-server\.tar\.gz"/);
   assert.match(installSh, /SUPPORTED_PLATFORMS="linux-x86_64 linux-aarch64 darwin-aarch64 windows-x86_64 windows-aarch64"/);
 
   const installPs1 = fs.readFileSync(path.join(ROOT, 'install.ps1'), 'utf8');
-  assert.match(installPs1, /\$archive = "VibeX-\$version-\$platform-server\.tar\.gz"/);
+  assert.match(installPs1, /\$archive = "Dimo-\$version-\$platform-server\.tar\.gz"/);
   for (const platform of PLATFORMS) {
     assert.match(installPs1, new RegExp(`"${platform}"`));
   }
@@ -90,7 +90,7 @@ test('the release workflow derives the archive name from the naming module', () 
     workflow,
     /ARCHIVE="\$\(node npx-cli\/bin\/release-assets\.js archive "\$\{VERSION\}" "\$\{\{ matrix\.release_name \}\}"\)"/
   );
-  assert.doesNotMatch(workflow, /ARCHIVE="VibeX-\$\{VERSION\}-/);
+  assert.doesNotMatch(workflow, /ARCHIVE="Dimo-\$\{VERSION\}-/);
   for (const platform of PLATFORMS) {
     assert.match(workflow, new RegExp(`release_name: ${platform}`));
   }

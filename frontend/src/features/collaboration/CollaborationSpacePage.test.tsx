@@ -84,7 +84,7 @@ vi.mock('@/components/ui/toast', async (importOriginal) => {
 });
 
 vi.mock('./collaborationApi', () => ({
-  COLLABORATION_SPACE_CHANGED_EVENT: 'vibex://collaboration-space-changed',
+  COLLABORATION_SPACE_CHANGED_EVENT: 'dimo://collaboration-space-changed',
   collaborationCall,
   currentWindowLabel: vi.fn(async () => 'main'),
   listenCollaborationSpaceChanged: vi.fn(
@@ -1894,7 +1894,7 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           spaceId: 'direct:m-created',
           content: expect.stringMatching(
-            /<vibex-private-bootstrap>[\s\S]*你刚被设为用户的总管 Bot[\s\S]*如果人设另有说明，以人设为准。[\s\S]*<\/vibex-private-bootstrap>/
+            /<dimo-private-bootstrap>[\s\S]*你刚被设为用户的总管 Bot[\s\S]*如果人设另有说明，以人设为准。[\s\S]*<\/dimo-private-bootstrap>/
           ),
         })
       );
@@ -1999,12 +1999,12 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           spaceId: 'direct:m-created',
           content: expect.stringMatching(
-            /<vibex-private-bootstrap>[\s\S]*用户刚创建了你。请用一句简短的话向用户打个招呼[\s\S]*如果人设另有说明，以人设为准。[\s\S]*<\/vibex-private-bootstrap>/
+            /<dimo-private-bootstrap>[\s\S]*用户刚创建了你。请用一句简短的话向用户打个招呼[\s\S]*如果人设另有说明，以人设为准。[\s\S]*<\/dimo-private-bootstrap>/
           ),
         })
       );
     });
-    expect(screen.queryByText(/vibex-private-bootstrap/)).toBeNull();
+    expect(screen.queryByText(/dimo-private-bootstrap/)).toBeNull();
     await act(async () => {
       for (const listener of spaceEventListeners) {
         listener({
@@ -2245,8 +2245,8 @@ describe('CollaborationSpacePage', () => {
         }
         if (method === 'space.listCollection') {
           return {
-            collectionDir: 'C:/Users/test/.vibex/spaces/s1/collection',
-            collection_dir: 'C:/Users/test/.vibex/spaces/s1/collection',
+            collectionDir: 'C:/Users/test/.dimo/spaces/s1/collection',
+            collection_dir: 'C:/Users/test/.dimo/spaces/s1/collection',
             items: [
               {
                 id: 'col-1',
@@ -2255,7 +2255,7 @@ describe('CollaborationSpacePage', () => {
                 kind: 'text',
                 name: 'api-contract.md',
                 file_path:
-                  'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
+                  'C:/Users/test/.dimo/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
                 mime_type: 'text/plain',
                 byte_size: 42,
                 note: currentNote,
@@ -2281,7 +2281,7 @@ describe('CollaborationSpacePage', () => {
                 kind: 'text',
                 name: 'user-note.md',
                 file_path:
-                  'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_user-note.md',
+                  'C:/Users/test/.dimo/proj-1/TeamSpaces/s1/Collection/col-2_user-note.md',
                 mime_type: 'text/plain',
                 byte_size: 16,
                 note: '用户备注',
@@ -2303,7 +2303,7 @@ describe('CollaborationSpacePage', () => {
             kind: 'text',
             name: 'api-contract.md',
             file_path:
-              'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
+              'C:/Users/test/.dimo/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
             byte_size: 42,
             note: currentNote,
             creator_nickname: '小A',
@@ -2321,7 +2321,7 @@ describe('CollaborationSpacePage', () => {
               kind: 'text',
               name: 'note.txt',
               file_path:
-                'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_note.txt',
+                'C:/Users/test/.dimo/proj-1/TeamSpaces/s1/Collection/col-2_note.txt',
               byte_size: 12,
               note: '新增备注',
               creator_nickname: '你',
@@ -3440,7 +3440,7 @@ describe('CollaborationSpacePage', () => {
       ).toBeNull();
       expect(
         window.localStorage.getItem(
-          'vibex.collaboration.contactGroups.collapsed.workspace-1'
+          'dimo.collaboration.contactGroups.collapsed.workspace-1'
         )
       ).toBe('["g1"]');
       await user.click(
@@ -3469,7 +3469,7 @@ describe('CollaborationSpacePage', () => {
 
       // Drop on a section header moves to that group.
       const data = new Map<string, string>([
-        ['application/x-vibex-contact', 'direct:mem-a'],
+        ['application/x-dimo-contact', 'direct:mem-a'],
       ]);
       const dataTransfer = {
         types: [...data.keys()],
@@ -3598,7 +3598,7 @@ describe('CollaborationSpacePage', () => {
       expect(
         JSON.parse(
           window.localStorage.getItem(
-            'vibex.collaboration.contactChrome.workspace-1'
+            'dimo.collaboration.contactChrome.workspace-1'
           ) ?? '{}'
         ).pinned
       ).toEqual(['direct:mem-a']);
@@ -5170,7 +5170,7 @@ describe('CollaborationSpacePage', () => {
     fireEvent.drop(emptySlot, {
       dataTransfer: {
         getData: (type: string) =>
-          type === 'application/x-vibex-space-member'
+          type === 'application/x-dimo-space-member'
             ? JSON.stringify({
                 fromSpaceId: 'unassigned:workspace-1',
                 conversationId: 'conv-1',
@@ -5204,7 +5204,7 @@ describe('CollaborationSpacePage', () => {
     fireEvent.drop(screen.getByTestId('collaboration-supervisor-slot'), {
       dataTransfer: {
         getData: (type: string) =>
-          type === 'application/x-vibex-space-member'
+          type === 'application/x-dimo-space-member'
             ? JSON.stringify({
                 fromSpaceId: 'unassigned:workspace-1',
                 conversationId: 'conv-master',

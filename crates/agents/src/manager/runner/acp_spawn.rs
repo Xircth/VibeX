@@ -173,11 +173,11 @@ impl AgentConnectionRunner {
         {
             command.env_remove(key);
         }
-        // This is a VibeX-side policy toggle, not an environment variable Pi
+        // This is a Dimo-side policy toggle, not an environment variable Pi
         // or pi-acp should observe.
         command.env_remove(PI_TRUST_WORKSPACE_ENV);
         // The child inherits the full parent env. A blank `OPENAI_API_KEY=""`
-        // (or `OPENAI_BASE_URL=""`) leaked from the shell that launched VibeX
+        // (or `OPENAI_BASE_URL=""`) leaked from the shell that launched Dimo
         // makes codex think an API key is present but empty, derailing its
         // ChatGPT-oauth auth. Drop such empty, non-user-configured creds so the
         // agent authenticates the same way it does when launched from a clean
@@ -304,7 +304,7 @@ impl AgentConnectionRunner {
 
         let acp_run = acp::Client
             .builder()
-            .name("VibeX")
+            .name("Dimo")
             .on_receive_request(
                 async move |request: AgentRequest, responder, cx| {
                     // agent-client-protocol awaits each handler inside the

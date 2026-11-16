@@ -11,7 +11,7 @@ import {
 
 describe('watchPluginSources', () => {
   it('debounces changes, serializes reloads, and reruns when source changes during a reload', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-watch-'));
+    const root = await mkdtemp(join(tmpdir(), 'dimo-plugin-watch-'));
     const source = join(root, 'worker.mjs');
     await writeFile(source, 'export default 1;');
     const controller = new AbortController();
@@ -45,7 +45,7 @@ describe('watchPluginSources', () => {
   });
 
   it('continues watching after a candidate reload fails', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-watch-'));
+    const root = await mkdtemp(join(tmpdir(), 'dimo-plugin-watch-'));
     const source = join(root, 'worker.mjs');
     await writeFile(source, 'export default 1;');
     const controller = new AbortController();
@@ -93,7 +93,7 @@ describe('watchPluginSources', () => {
   });
 
   it('does not reload when ignored compiler caches change', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-watch-cache-'));
+    const root = await mkdtemp(join(tmpdir(), 'dimo-plugin-watch-cache-'));
     const source = join(root, 'worker.mjs');
     await writeFile(source, 'export default 1;');
     await mkdir(join(root, 'target'), { recursive: true });

@@ -29,7 +29,7 @@ import { backendListen } from '@/lib/backendTransport';
 
 import { OnboardingAgents } from './OnboardingAgents';
 import { OnboardingAccount } from './OnboardingAccount';
-import { useVibeXAccount } from '@/features/model-router/useVibeXAccount';
+import { useDimoAccount } from '@/features/model-router/useDimoAccount';
 import { useAccountDeviceLogin } from '@/pages/settings/useAccountDeviceLogin';
 import { isNativeEngineAgent } from '@/pages/settings/agentProvisioning';
 import { OnboardingHistoryImport } from './OnboardingHistoryImport';
@@ -145,7 +145,7 @@ export function FirstRunExperience({
   const allowAutoRosterForAgent = useCallback((id: AgentId) => {
     userModifiedAgentIdsRef.current.delete(id);
   }, []);
-  const account = useVibeXAccount();
+  const account = useDimoAccount();
   const accountLogin = useAccountDeviceLogin(account);
   const applyAgentSelection = useCallback((enabledIds: Set<AgentId>) => {
     enabledAgentIdsRef.current = enabledIds;

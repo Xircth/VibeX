@@ -30,20 +30,20 @@ use ring::{
 };
 use sha2::Sha256;
 
-pub const HEADER_E2EE: &str = "x-vibex-e2ee";
-pub const HEADER_E2EE_CLIENT_PUB: &str = "x-vibex-e2ee-client-pub";
-pub const HEADER_E2EE_SERVER_PUB: &str = "x-vibex-e2ee-server-pub";
-pub const HEADER_E2EE_SESSION: &str = "x-vibex-e2ee-session";
-pub const HEADER_E2EE_AUTH: &str = "x-vibex-e2ee-auth";
+pub const HEADER_E2EE: &str = "x-dimo-e2ee";
+pub const HEADER_E2EE_CLIENT_PUB: &str = "x-dimo-e2ee-client-pub";
+pub const HEADER_E2EE_SERVER_PUB: &str = "x-dimo-e2ee-server-pub";
+pub const HEADER_E2EE_SESSION: &str = "x-dimo-e2ee-session";
+pub const HEADER_E2EE_AUTH: &str = "x-dimo-e2ee-auth";
 pub const E2EE_VERSION: &str = "v1";
 
-pub const HKDF_SALT: &[u8] = b"vibex-e2ee-v1-salt";
-pub const HKDF_INFO: &[u8] = b"vibex-e2ee-v1-aes256gcm";
+pub const HKDF_SALT: &[u8] = b"dimo-e2ee-v1-salt";
+pub const HKDF_INFO: &[u8] = b"dimo-e2ee-v1-aes256gcm";
 
-pub const AAD_AUTH: &[u8] = b"vibex-e2ee-auth-v1";
-pub const AAD_REQ: &[u8] = b"vibex-e2ee-req-v1";
-pub const AAD_RESP: &[u8] = b"vibex-e2ee-resp-v1";
-pub const AAD_WS: &[u8] = b"vibex-e2ee-ws-v1";
+pub const AAD_AUTH: &[u8] = b"dimo-e2ee-auth-v1";
+pub const AAD_REQ: &[u8] = b"dimo-e2ee-req-v1";
+pub const AAD_RESP: &[u8] = b"dimo-e2ee-resp-v1";
+pub const AAD_WS: &[u8] = b"dimo-e2ee-ws-v1";
 
 const MAX_E2EE_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CACHED_SESSIONS: usize = 512;
@@ -221,7 +221,7 @@ fn ws_session_from_protocols(protocols: &str) -> Option<E2eeSession> {
     protocols
         .split(',')
         .map(str::trim)
-        .find_map(|protocol| protocol.strip_prefix("vibex.e2ee."))
+        .find_map(|protocol| protocol.strip_prefix("dimo.e2ee."))
         .and_then(lookup_session_by_id)
 }
 
@@ -287,7 +287,7 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
         let Some(active_session) = session.as_mut() else {
             return (
                 StatusCode::PRECONDITION_FAILED,
-                "E2EE session not established; provide x-vibex-e2ee-client-pub",
+                "E2EE session not established; provide x-dimo-e2ee-client-pub",
             )
                 .into_response();
         };
@@ -354,7 +354,7 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
             .headers()
             .get("sec-websocket-protocol")
             .and_then(|v| v.to_str().ok())
-            .is_some_and(|p| p.contains("vibex.e2ee."))
+            .is_some_and(|p| p.contains("dimo.e2ee."))
     {
         active_session.active_e2ee = true;
     }

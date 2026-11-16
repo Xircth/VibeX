@@ -1,5 +1,5 @@
 const SUMMARY_LABEL_SELECTOR = [
-  ".vibex-tool-call-batch > [role='button'] > span:nth-child(2)",
+  ".dimo-tool-call-batch > [role='button'] > span:nth-child(2)",
   '.conv-activity-header > span',
 ].join(', ');
 
@@ -22,7 +22,7 @@ export function conversationSummaryLabel(
 ): HTMLElement | null {
   if (!(target instanceof Element)) return null;
   const batchHeader = target.closest(
-    ".vibex-tool-call-batch > [role='button']"
+    ".dimo-tool-call-batch > [role='button']"
   );
   if (batchHeader) {
     const label = batchHeader.querySelector(':scope > span:nth-child(2)');

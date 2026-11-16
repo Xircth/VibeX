@@ -1,4 +1,4 @@
-//! Transport-neutral VibeX application use cases.
+//! Transport-neutral Dimo application use cases.
 
 mod args;
 mod command;

@@ -32,7 +32,7 @@ fn write_vxp(path: &Path, files: &[(&str, &str)]) {
 fn legacy_persisted_package_without_config_migrates_to_an_empty_object() {
     let root = tempfile::tempdir().expect("package root");
     let package = PluginPackage::for_test(
-        "dev.vibex.legacy",
+        "dev.dimo.legacy",
         "Legacy",
         "1.0.0",
         PluginSourceKind::Builtin,
@@ -54,24 +54,24 @@ fn legacy_persisted_package_without_config_migrates_to_an_empty_object() {
 fn v4_product_package_reads_readme_summary_content_and_mutable_root_config() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.documents","publisher":"dev.vibex","name":"Documents","version":"1.0.0",
+          "id":"dev.dimo.documents","publisher":"dev.dimo","name":"Documents","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","properties":{"preview":{"type":"boolean"}},"additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "integrations":[{"id":"documents","kind":"content.skill","resource":"contents/skills/documents"}]
         }"#,
     );
     write(
         &root.path().join("README.md"),
-        "---\nsummary: Create and review documents in VibeX.\n---\n# Documents\n\nUse the included workflows.\n",
+        "---\nsummary: Create and review documents in Dimo.\n---\n# Documents\n\nUse the included workflows.\n",
     );
     write(&root.path().join("config.json"), r#"{"preview":true}"#);
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/documents/SKILL.md","kind":"skill","title":"Documents"}]}"#,
     );
     write(
@@ -82,7 +82,7 @@ fn v4_product_package_reads_readme_summary_content_and_mutable_root_config() {
     let mut package =
         PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).expect("product package");
 
-    assert_eq!(package.summary, "Create and review documents in VibeX.");
+    assert_eq!(package.summary, "Create and review documents in Dimo.");
     assert_eq!(package.readme_path, "README.md");
     assert_eq!(package.content_index.items.len(), 1);
     assert_eq!(package.config, serde_json::json!({"preview": true}));
@@ -127,13 +127,13 @@ fn v4_product_package_reads_readme_summary_content_and_mutable_root_config() {
 fn skill_domains_gate_projection_from_package_config() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.science","publisher":"dev.vibex","name":"Science","version":"1.0.0",
+          "id":"dev.dimo.science","publisher":"dev.dimo","name":"Science","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "config":{"schema":{
             "type":"object","additionalProperties":false,"required":["domains"],
             "properties":{"domains":{"type":"object","additionalProperties":false,"properties":{
@@ -157,7 +157,7 @@ fn skill_domains_gate_projection_from_package_config() {
         r#"{"domains":{"general":true,"genomics":false}}"#,
     );
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/general-one/SKILL.md","kind":"skill","title":"General"}]}"#,
     );
     for id in ["general-one", "genomics-one", "undomained"] {
@@ -217,7 +217,7 @@ fn skill_domains_gate_projection_from_package_config() {
     );
 
     let disabled = PluginPackage::for_test(
-        "dev.vibex.science",
+        "dev.dimo.science",
         "Science",
         "1.0.0",
         PluginSourceKind::Snapshot,
@@ -233,13 +233,13 @@ fn skill_domains_gate_projection_from_package_config() {
 fn v4_product_package_requires_a_single_sentence_readme_summary() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.bad-summary","publisher":"dev.vibex","name":"Bad summary","version":"1.0.0",
-          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "id":"dev.dimo.bad-summary","publisher":"dev.dimo","name":"Bad summary","version":"1.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object"}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "integrations":[{"id":"documents","kind":"content.skill","resource":"contents/skills/documents"}]
         }"#,
     );
@@ -249,7 +249,7 @@ fn v4_product_package_requires_a_single_sentence_readme_summary() {
     );
     write(&root.path().join("config.json"), "{}");
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
 
@@ -266,14 +266,14 @@ fn snapshot_update_preserves_the_root_config_file() {
     let storage = tempfile::tempdir().expect("installed packages");
     for (root, version) in [(first.path(), "1.0.0"), (update.path(), "1.1.0")] {
         write(
-            &root.join(".vibex-plugin/plugin.json"),
+            &root.join(".dimo-plugin/plugin.json"),
             &format!(
                 r#"{{
                   "manifestVersion":4,"apiVersion":"1.0",
-                  "id":"dev.vibex.config","publisher":"dev.vibex","name":"Config","version":"{version}",
-                  "readme":"README.md","content":{{"root":"contents","index":".vibex-plugin/content.index.json"}},
+                  "id":"dev.dimo.config","publisher":"dev.dimo","name":"Config","version":"{version}",
+                  "readme":"README.md","content":{{"root":"contents","index":".dimo-plugin/content.index.json"}},
                   "config":{{"schema":{{"type":"object","properties":{{"preview":{{"type":"boolean"}}}},"additionalProperties":false}}}},
-                  "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+                  "engines":{{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
                   "integrations":[{{"id":"config","kind":"content.skill","resource":"contents/skills/config"}}]
                 }}"#
             ),
@@ -284,7 +284,7 @@ fn snapshot_update_preserves_the_root_config_file() {
         );
         write(&root.join("config.json"), r#"{"preview":true}"#);
         write(
-            &root.join(".vibex-plugin/content.index.json"),
+            &root.join(".dimo-plugin/content.index.json"),
             r#"{"schemaVersion":1,"items":[{"path":"contents/skills/config/SKILL.md","kind":"skill","title":"Config"}]}"#,
         );
         write(
@@ -320,23 +320,23 @@ fn marketplace_install_copies_a_temp_package_into_durable_storage() {
     let source = tempfile::tempdir().expect("downloaded package");
     let storage = tempfile::tempdir().expect("installed packages");
     write(
-        &source.path().join(".vibex-plugin/plugin.json"),
+        &source.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"2.0",
-          "id":"drawio","publisher":"vibex","name":"Drawio","version":"2.0.0",
-          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "id":"drawio","publisher":"dimo","name":"Drawio","version":"2.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
           "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
         }"#,
     );
     write(
         &source.path().join("README.md"),
-        "---\nsummary: Preview Drawio diagrams in VibeX.\n---\n# Drawio\n",
+        "---\nsummary: Preview Drawio diagrams in Dimo.\n---\n# Drawio\n",
     );
     write(&source.path().join("config.json"), "{}");
     write(
-        &source.path().join(".vibex-plugin/content.index.json"),
+        &source.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/drawio/SKILL.md","kind":"skill","title":"Drawio"}]}"#,
     );
     write(
@@ -361,13 +361,13 @@ fn marketplace_install_copies_a_temp_package_into_durable_storage() {
 fn marketplace_source_rejects_legacy_v1_api_version() {
     let source = tempfile::tempdir().expect("download source");
     write(
-        &source.path().join(".vibex-plugin/plugin.json"),
+        &source.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"legacy.drawio","publisher":"vibex","name":"Legacy Drawio","version":"1.0.0",
-          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "id":"legacy.drawio","publisher":"dimo","name":"Legacy Drawio","version":"1.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
         }"#,
     );
@@ -377,7 +377,7 @@ fn marketplace_source_rejects_legacy_v1_api_version() {
     );
     write(&source.path().join("config.json"), "{}");
     write(
-        &source.path().join(".vibex-plugin/content.index.json"),
+        &source.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/drawio/SKILL.md","kind":"skill","title":"Drawio"}]}"#,
     );
     write(
@@ -414,14 +414,14 @@ fn snapshot_update_drops_removed_config_fields_and_keeps_valid_values() {
     ];
     for (root, version, properties, config) in schemas {
         write(
-            &root.join(".vibex-plugin/plugin.json"),
+            &root.join(".dimo-plugin/plugin.json"),
             &format!(
                 r#"{{
                   "manifestVersion":4,"apiVersion":"1.0",
-                  "id":"dev.vibex.config-migrate","publisher":"dev.vibex","name":"Config","version":"{version}",
-                  "readme":"README.md","content":{{"root":"contents","index":".vibex-plugin/content.index.json"}},
+                  "id":"dev.dimo.config-migrate","publisher":"dev.dimo","name":"Config","version":"{version}",
+                  "readme":"README.md","content":{{"root":"contents","index":".dimo-plugin/content.index.json"}},
                   "config":{{"schema":{{"type":"object","properties":{properties},"additionalProperties":false}}}},
-                  "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+                  "engines":{{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
                   "integrations":[{{"id":"config","kind":"content.skill","resource":"contents/skills/config"}}]
                 }}"#
             ),
@@ -432,7 +432,7 @@ fn snapshot_update_drops_removed_config_fields_and_keeps_valid_values() {
         );
         write(&root.join("config.json"), config);
         write(
-            &root.join(".vibex-plugin/content.index.json"),
+            &root.join(".dimo-plugin/content.index.json"),
             r#"{"schemaVersion":1,"items":[{"path":"contents/skills/config/SKILL.md","kind":"skill","title":"Config"}]}"#,
         );
         write(
@@ -461,10 +461,10 @@ fn developer_link_executes_an_immutable_content_addressed_candidate() {
     let source = tempfile::tempdir().expect("linked package source");
     let storage = tempfile::tempdir().expect("candidate storage");
     write(
-        &source.path().join(".vibex-plugin/plugin.json"),
+        &source.path().join(".dimo-plugin/plugin.json"),
         r#"{
-          "id":"dev.vibex.frozen",
-          "publisher":"dev.vibex",
+          "id":"dev.dimo.frozen",
+          "publisher":"dev.dimo",
           "name":"Frozen",
           "version":"1.0.0"
         }"#,
@@ -515,8 +515,8 @@ fn v4_runtime_distributions_use_node_style_targets() {
     let manifest = format!(
         r#"{{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.sidecar","publisher":"dev.vibex","name":"Sidecar","version":"1.0.0",
-          "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+          "id":"dev.dimo.sidecar","publisher":"dev.dimo","name":"Sidecar","version":"1.0.0",
+          "engines":{{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
           "contributes":{{"runtimes":[{{
             "id":"tool","kindVersion":1,"command":"tool.exe","probe":["migrate"],
             "distributions":{{
@@ -525,7 +525,7 @@ fn v4_runtime_distributions_use_node_style_targets() {
           }}]}}
         }}"#
     );
-    write(&root.path().join(".vibex-plugin/plugin.json"), &manifest);
+    write(&root.path().join(".dimo-plugin/plugin.json"), &manifest);
 
     let package = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap();
     assert_eq!(package.runtimes.len(), 1);
@@ -539,11 +539,11 @@ fn v4_runtime_distributions_use_node_style_targets() {
     );
 
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.sidecar","publisher":"dev.vibex","name":"Sidecar","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "id":"dev.dimo.sidecar","publisher":"dev.dimo","name":"Sidecar","version":"1.0.0",
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "contributes":{"runtimes":[{
             "id":"tool","kindVersion":1,"command":"tool.exe","probe":["migrate"],
             "distributions":{
@@ -566,10 +566,10 @@ fn v4_runtime_distributions_use_node_style_targets() {
 fn portable_package_auto_discovers_skills_and_preserves_unknown_fields() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
-          "$schema": "vibex-plugin/v3",
-          "id": "dev.vibex.example",
+          "$schema": "dimo-plugin/v3",
+          "id": "dev.dimo.example",
           "name": "Example",
           "version": "1.2.3",
           "publisherNote": "kept for future hosts",
@@ -584,10 +584,10 @@ fn portable_package_auto_discovers_skills_and_preserves_unknown_fields() {
     let package = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot)
         .expect("tolerant package should import");
 
-    assert_eq!(package.id.as_str(), "dev.vibex.example");
+    assert_eq!(package.id.as_str(), "dev.dimo.example");
     assert_eq!(package.skills.len(), 1);
     assert_eq!(package.skills[0].path, "skills/example/SKILL.md");
-    assert_eq!(package.formats, vec![PackageFormat::VibeX]);
+    assert_eq!(package.formats, vec![PackageFormat::Dimo]);
     assert_eq!(package.extensions["publisherNote"], "kept for future hosts");
     assert_eq!(
         package.runtimes.len(),
@@ -604,8 +604,8 @@ fn portable_package_auto_discovers_skills_and_preserves_unknown_fields() {
 fn co_located_manifests_are_one_package_with_format_badges() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
-        r#"{"id":"dev.vibex.shared","name":"Shared","version":"1.0.0"}"#,
+        &root.path().join(".dimo-plugin/plugin.json"),
+        r#"{"id":"dev.dimo.shared","name":"Shared","version":"1.0.0"}"#,
     );
     write(
         &root.path().join(".codex-plugin/plugin.json"),
@@ -626,7 +626,7 @@ fn co_located_manifests_are_one_package_with_format_badges() {
     assert_eq!(
         package.formats,
         vec![
-            PackageFormat::VibeX,
+            PackageFormat::Dimo,
             PackageFormat::Codex,
             PackageFormat::ClaudeCode
         ]
@@ -639,8 +639,8 @@ fn co_located_manifests_are_one_package_with_format_badges() {
 fn portable_package_requires_at_least_one_contribution() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
-        r#"{"id":"dev.vibex.empty","name":"Empty","version":"1.0.0"}"#,
+        &root.path().join(".dimo-plugin/plugin.json"),
+        r#"{"id":"dev.dimo.empty","name":"Empty","version":"1.0.0"}"#,
     );
 
     let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot)
@@ -653,16 +653,16 @@ fn portable_package_requires_at_least_one_contribution() {
 fn v4_rejects_an_orphan_file_opener_without_a_preview_provider() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
-          "$schema":"vibex-plugin/v4",
+          "$schema":"dimo-plugin/v4",
           "manifestVersion":4,
           "apiVersion":"1.0",
-          "id":"dev.vibex.markdown-preview",
-          "publisher":"dev.vibex",
+          "id":"dev.dimo.markdown-preview",
+          "publisher":"dev.dimo",
           "name":"Markdown Preview",
           "version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "contributes":{
             "app.fileOpeners":[{
                 "id":"preview",
@@ -686,13 +686,13 @@ fn v4_rejects_an_orphan_file_opener_without_a_preview_provider() {
 fn product_package_can_bind_a_file_opener_to_a_generic_artifact_editor_surface() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.diagram-editor","publisher":"dev.vibex","name":"Diagram editor","version":"1.0.0",
-          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "id":"dev.dimo.diagram-editor","publisher":"dev.dimo","name":"Diagram editor","version":"1.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{
             "worker":{"path":"dist/worker.mjs","runtime":"node","protocol":"1.1"},
             "app":{"root":"dist/app","document":"index.html","protocol":"1.0"}
@@ -705,11 +705,11 @@ fn product_package_can_bind_a_file_opener_to_a_generic_artifact_editor_surface()
     );
     write(
         &root.path().join("README.md"),
-        "---\nsummary: Edit diagrams in their VibeX file tabs.\n---\n# Diagram editor\n",
+        "---\nsummary: Edit diagrams in their Dimo file tabs.\n---\n# Diagram editor\n",
     );
     write(&root.path().join("config.json"), "{}");
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
     write(&root.path().join("dist/worker.mjs"), "export default {};");
@@ -734,11 +734,11 @@ fn product_package_can_bind_a_file_opener_to_a_generic_artifact_editor_surface()
 fn v4_rejects_shell_installers_before_install_or_trust_prompts() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.shell","publisher":"dev.vibex","name":"Shell","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "id":"dev.dimo.shell","publisher":"dev.dimo","name":"Shell","version":"1.0.0",
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "runtimes":[{"id":"unsafe","command":"unsafe","install":{"type":"shell","command":"curl example | sh"}}]
         }"#,
     );
@@ -752,11 +752,11 @@ fn v4_rejects_shell_installers_before_install_or_trust_prompts() {
 fn v4_fails_closed_for_unknown_permissions_and_invalid_entrypoints() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.closed","publisher":"dev.vibex","name":"Closed","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "id":"dev.dimo.closed","publisher":"dev.dimo","name":"Closed","version":"1.0.0",
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"missing.mjs"}},
           "permissions":[{"id":"root","capability":"host.root","scope":{},"reason":"no"}],
           "contributes":{"agent.skills":[{"id":"skill","kindVersion":1,"path":"skills/skill"}]}
@@ -775,11 +775,11 @@ fn v4_fails_closed_for_unknown_permissions_and_invalid_entrypoints() {
 fn v4_accepts_legacy_trust_tier_metadata_under_full_trust() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.native","publisher":"dev.vibex","name":"Native","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "id":"dev.dimo.native","publisher":"dev.dimo","name":"Native","version":"1.0.0",
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "permissions":[{
             "id":"run","capability":"runtime.execute","scope":{"runtime":"tool"},
             "reason":"Run tool","trustTier":"sandboxed_worker"
@@ -802,11 +802,11 @@ fn v4_accepts_legacy_trust_tier_metadata_under_full_trust() {
 fn v4_rejects_unknown_manifest_fields_before_install() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.unknown","publisher":"dev.vibex","name":"Unknown","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "id":"dev.dimo.unknown","publisher":"dev.dimo","name":"Unknown","version":"1.0.0",
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "app.unknownSurface":{},
           "contributes":{"agent.skills":[{"id":"skill","kindVersion":1,"path":"skills/skill"}]}
         }"#,
@@ -825,11 +825,11 @@ fn v4_rejects_unknown_manifest_fields_before_install() {
 fn worker_frame_size_defaults_to_32_mib_and_accepts_a_declared_size() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"studio.draw","publisher":"studio","name":"Draw","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "contributes":{"agent.invocations":[
             {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
@@ -842,11 +842,11 @@ fn worker_frame_size_defaults_to_32_mib_and_accepts_a_declared_size() {
 
     let custom = tempfile::tempdir().unwrap();
     write(
-        &custom.path().join(".vibex-plugin/plugin.json"),
+        &custom.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"studio.draw","publisher":"studio","name":"Draw","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1","maxFrameMiB":64}},
           "contributes":{"agent.invocations":[
             {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
@@ -862,11 +862,11 @@ fn worker_frame_size_defaults_to_32_mib_and_accepts_a_declared_size() {
 fn worker_frame_size_rejects_values_outside_1_to_128_mib() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"studio.draw","publisher":"studio","name":"Draw","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1","maxFrameMiB":0}},
           "contributes":{"agent.invocations":[
             {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
@@ -882,12 +882,12 @@ fn worker_frame_size_rejects_values_outside_1_to_128_mib() {
 fn v4_rejects_unknown_contribution_fields_before_install() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.unknown-contribution","publisher":"dev.vibex",
+          "id":"dev.dimo.unknown-contribution","publisher":"dev.dimo",
           "name":"Unknown contribution","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "contributes":{"agent.skills":[{
             "id":"skill","kindVersion":1,"path":"skills/skill","ambientAuthority":true
           }]}
@@ -907,8 +907,8 @@ fn snapshot_materialization_is_stable_and_developer_link_stays_external() {
     let source = tempfile::tempdir().unwrap();
     let storage = tempfile::tempdir().unwrap();
     write(
-        &source.path().join(".vibex-plugin/plugin.json"),
-        r#"{"id":"dev.vibex.snapshot","name":"Snapshot","version":"1.0.0"}"#,
+        &source.path().join(".dimo-plugin/plugin.json"),
+        r#"{"id":"dev.dimo.snapshot","name":"Snapshot","version":"1.0.0"}"#,
     );
     write(
         &source.path().join("skills/snapshot/SKILL.md"),
@@ -929,7 +929,7 @@ fn snapshot_materialization_is_stable_and_developer_link_stays_external() {
         snapshot.source.path,
         storage
             .path()
-            .join("dev.vibex.snapshot")
+            .join("dev.dimo.snapshot")
             .canonicalize()
             .unwrap()
     );
@@ -947,9 +947,9 @@ fn snapshot_materialization_is_stable_and_developer_link_stays_external() {
 fn actions_and_commands_share_one_invocation_definition() {
     let root = tempfile::tempdir().unwrap();
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
-          "id":"dev.vibex.invoke","name":"Invoke","version":"1.0.0",
+          "id":"dev.dimo.invoke","name":"Invoke","version":"1.0.0",
           "actions":[{"id":"review","label":"Review","skill":"review","prompt":"Review with the Skill."}],
           "commands":[{"id":"review","label":"Review command","promptBlocks":[{"type":"text","text":"Run review."}]}]
         }"#,
@@ -972,14 +972,14 @@ fn actions_and_commands_share_one_invocation_definition() {
 fn v4_rejects_plugin_kind_dependencies_with_a_stable_code() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.dep","publisher":"dev.vibex","name":"Dep","version":"1.0.0",
+          "id":"dev.dimo.dep","publisher":"dev.dimo","name":"Dep","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
-          "dependencies":[{"kind":"plugin","id":"dev.vibex.other"}],
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "dependencies":[{"kind":"plugin","id":"dev.dimo.other"}],
           "integrations":[{"id":"documents","kind":"content.skill","resource":"contents/skills/documents"}]
         }"#,
     );
@@ -988,7 +988,7 @@ fn v4_rejects_plugin_kind_dependencies_with_a_stable_code() {
         "---\nsummary: Dep\n---\n# Dep\n",
     );
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/documents/SKILL.md","kind":"skill","title":"Documents"}]}"#,
     );
     write(
@@ -1003,13 +1003,13 @@ fn v4_rejects_plugin_kind_dependencies_with_a_stable_code() {
 fn v4_rejects_conversation_timeline_card_slot_with_a_stable_code() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.card","publisher":"dev.vibex","name":"Card","version":"1.0.0",
+          "id":"dev.dimo.card","publisher":"dev.dimo","name":"Card","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"app":{"root":"app","document":"index.html","protocol":"1.0"}},
           "integrations":[{
             "id":"card",
@@ -1025,7 +1025,7 @@ fn v4_rejects_conversation_timeline_card_slot_with_a_stable_code() {
         "---\nsummary: Card\n---\n# Card\n",
     );
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
     write(&root.path().join("app/index.html"), "<main></main>");
@@ -1036,13 +1036,13 @@ fn v4_rejects_conversation_timeline_card_slot_with_a_stable_code() {
 #[test]
 fn inspects_a_packed_vxp_instead_of_treating_it_as_a_directory() {
     let fixture = tempfile::tempdir().expect("vxp fixture");
-    let vxp = fixture.path().join("vibex-canvas.vxp");
+    let vxp = fixture.path().join("dimo-canvas.vxp");
     write_vxp(
         &vxp,
         &[
             (
-                ".vibex-plugin/plugin.json",
-                r#"{"id":"dev.vibex.canvas","name":"Canvas","version":"1.0.0"}"#,
+                ".dimo-plugin/plugin.json",
+                r#"{"id":"dev.dimo.canvas","name":"Canvas","version":"1.0.0"}"#,
             ),
             (
                 "skills/canvas/SKILL.md",
@@ -1054,7 +1054,7 @@ fn inspects_a_packed_vxp_instead_of_treating_it_as_a_directory() {
     let package =
         PluginPackage::inspect(&vxp, PluginSourceKind::Snapshot).expect("inspect packed vxp");
 
-    assert_eq!(package.id.as_str(), "dev.vibex.canvas");
+    assert_eq!(package.id.as_str(), "dev.dimo.canvas");
     assert_eq!(package.name, "Canvas");
     assert_eq!(package.source.path, vxp.canonicalize().unwrap());
 }
@@ -1062,13 +1062,13 @@ fn inspects_a_packed_vxp_instead_of_treating_it_as_a_directory() {
 #[test]
 fn inspects_a_vxp_with_a_single_nested_plugin_root() {
     let fixture = tempfile::tempdir().expect("nested vxp fixture");
-    let vxp = fixture.path().join("vibex-canvas.vxp");
+    let vxp = fixture.path().join("dimo-canvas.vxp");
     write_vxp(
         &vxp,
         &[
             (
-                "canvas/.vibex-plugin/plugin.json",
-                r#"{"id":"dev.vibex.canvas","name":"Canvas","version":"1.0.0"}"#,
+                "canvas/.dimo-plugin/plugin.json",
+                r#"{"id":"dev.dimo.canvas","name":"Canvas","version":"1.0.0"}"#,
             ),
             (
                 "canvas/skills/canvas/SKILL.md",
@@ -1080,20 +1080,20 @@ fn inspects_a_vxp_with_a_single_nested_plugin_root() {
     let package = PluginPackage::inspect(&vxp, PluginSourceKind::Snapshot)
         .expect("inspect nested packed vxp");
 
-    assert_eq!(package.id.as_str(), "dev.vibex.canvas");
+    assert_eq!(package.id.as_str(), "dev.dimo.canvas");
 }
 
 #[test]
 fn materializes_a_packed_vxp_into_a_snapshot_directory() {
     let fixture = tempfile::tempdir().expect("vxp fixture");
     let storage = tempfile::tempdir().expect("snapshot storage");
-    let vxp = fixture.path().join("vibex-canvas.vxp");
+    let vxp = fixture.path().join("dimo-canvas.vxp");
     write_vxp(
         &vxp,
         &[
             (
-                ".vibex-plugin/plugin.json",
-                r#"{"id":"dev.vibex.canvas","name":"Canvas","version":"1.0.0"}"#,
+                ".dimo-plugin/plugin.json",
+                r#"{"id":"dev.dimo.canvas","name":"Canvas","version":"1.0.0"}"#,
             ),
             (
                 "skills/canvas/SKILL.md",
@@ -1105,12 +1105,12 @@ fn materializes_a_packed_vxp_into_a_snapshot_directory() {
     let snapshot = PluginPackage::materialize(&vxp, storage.path(), PluginSourceKind::Snapshot)
         .expect("materialize packed vxp");
 
-    assert_eq!(snapshot.id.as_str(), "dev.vibex.canvas");
+    assert_eq!(snapshot.id.as_str(), "dev.dimo.canvas");
     assert!(
         snapshot
             .source
             .path
-            .join(".vibex-plugin/plugin.json")
+            .join(".dimo-plugin/plugin.json")
             .is_file()
     );
     assert!(
@@ -1139,15 +1139,15 @@ fn rejects_a_vxp_whose_entries_escape_the_staging_root() {
 fn v4_api_v2_accepts_plugin_dependencies_and_single_file_app_entry() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"2.0",
-          "id":"dev.vibex.consumer","publisher":"dev.vibex","name":"Consumer","version":"1.0.0",
+          "id":"dev.dimo.consumer","publisher":"dev.dimo","name":"Consumer","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
           "entrypoints":{"app":{"entry":"app/main.js","protocol":"2.0"}},
-          "dependencies":[{"kind":"plugin","id":"dev.vibex.provider","versionRange":"^1.0.0"}],
+          "dependencies":[{"kind":"plugin","id":"dev.dimo.provider","versionRange":"^1.0.0"}],
           "integrations":[{"id":"status-chip","kind":"app.status","label":"Consumer Status"}]
         }"#,
     );
@@ -1156,7 +1156,7 @@ fn v4_api_v2_accepts_plugin_dependencies_and_single_file_app_entry() {
         "---\nsummary: Consumer\n---\n# Consumer\n",
     );
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
     write(
@@ -1176,7 +1176,7 @@ fn v4_api_v2_accepts_plugin_dependencies_and_single_file_app_entry() {
     assert_eq!(deps.len(), 1);
     assert_eq!(
         deps[0].get("id").and_then(|v| v.as_str()),
-        Some("dev.vibex.provider")
+        Some("dev.dimo.provider")
     );
 }
 
@@ -1187,20 +1187,20 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
         .and_then(|p| p.parent())
         .expect("workspace root");
     for (dir_name, expected_id) in [
-        ("provider-switch", "vibex.provider-switch"),
-        ("plugin-development", "vibex.plugin-development"),
-        ("session-enhance", "vibex.session-enhance"),
-        ("browser", "vibex.browser"),
-        ("office", "vibex.office"),
-        ("workflow-creator", "vibex.workflow-creator"),
-        ("remote-ssh", "vibex.remote-ssh"),
-        ("science", "vibex.science"),
-        ("computer-use", "vibex-plugin-computer-use"),
-        ("kanban-views", "vibex.kanban-views"),
-        ("notes", "vibex.notes"),
-        ("prompt-enhancer", "vibex.prompt-enhancer"),
-        ("code-completion", "vibex.code-completion"),
-        ("ayu-theme", "vibex.ayu-theme"),
+        ("provider-switch", "dimo.provider-switch"),
+        ("plugin-development", "dimo.plugin-development"),
+        ("session-enhance", "dimo.session-enhance"),
+        ("browser", "dimo.browser"),
+        ("office", "dimo.office"),
+        ("workflow-creator", "dimo.workflow-creator"),
+        ("remote-ssh", "dimo.remote-ssh"),
+        ("science", "dimo.science"),
+        ("computer-use", "dimo-plugin-computer-use"),
+        ("kanban-views", "dimo.kanban-views"),
+        ("notes", "dimo.notes"),
+        ("prompt-enhancer", "dimo.prompt-enhancer"),
+        ("code-completion", "dimo.code-completion"),
+        ("ayu-theme", "dimo.ayu-theme"),
     ] {
         let plugin_dir = repo_root.join("plugins").join(dir_name);
         let package = PluginPackage::inspect(&plugin_dir, PluginSourceKind::Snapshot)
@@ -1253,11 +1253,11 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
         .expect("topological order");
     let provider_pos = topo
         .iter()
-        .position(|id| id == "vibex.provider-switch")
+        .position(|id| id == "dimo.provider-switch")
         .expect("provider-switch in topo order");
     let session_pos = topo
         .iter()
-        .position(|id| id == "vibex.session-enhance")
+        .position(|id| id == "dimo.session-enhance")
         .expect("session-enhance in topo order");
     assert!(
         provider_pos < session_pos,
@@ -1265,57 +1265,57 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
     );
 
     let dependents = control
-        .dependent_plugins("vibex.provider-switch")
+        .dependent_plugins("dimo.provider-switch")
         .await
         .expect("dependents of provider-switch");
-    assert_eq!(dependents, vec!["vibex.session-enhance".to_owned()]);
+    assert_eq!(dependents, vec!["dimo.session-enhance".to_owned()]);
 
     assert!(
         control
-            .active_generation("vibex.provider-switch")
+            .active_generation("dimo.provider-switch")
             .await
             .is_some()
     );
     assert!(
         control
-            .active_generation("vibex.session-enhance")
+            .active_generation("dimo.session-enhance")
             .await
             .is_some()
     );
 
-    // Disabling upstream `vibex.provider-switch` cascades to withdraw `vibex.session-enhance`'s live generation.
+    // Disabling upstream `dimo.provider-switch` cascades to withdraw `dimo.session-enhance`'s live generation.
     control
-        .set_enabled("vibex.provider-switch", false)
+        .set_enabled("dimo.provider-switch", false)
         .await
         .expect("disable upstream provider-switch");
     assert!(
         control
-            .active_generation("vibex.provider-switch")
+            .active_generation("dimo.provider-switch")
             .await
             .is_none()
     );
     assert!(
         control
-            .active_generation("vibex.session-enhance")
+            .active_generation("dimo.session-enhance")
             .await
             .is_none(),
         "dependent plugin must be automatically suspended when upstream is disabled"
     );
 
-    // Re-enabling upstream `vibex.provider-switch` automatically remounts `vibex.session-enhance`.
+    // Re-enabling upstream `dimo.provider-switch` automatically remounts `dimo.session-enhance`.
     control
-        .set_enabled("vibex.provider-switch", true)
+        .set_enabled("dimo.provider-switch", true)
         .await
         .expect("re-enable upstream provider-switch");
     assert!(
         control
-            .active_generation("vibex.provider-switch")
+            .active_generation("dimo.provider-switch")
             .await
             .is_some()
     );
     assert!(
         control
-            .active_generation("vibex.session-enhance")
+            .active_generation("dimo.session-enhance")
             .await
             .is_some(),
         "dependent plugin must automatically resume when upstream is re-enabled"
@@ -1328,7 +1328,7 @@ async fn enabling_session_enhance_alone_auto_installs_and_enables_provider_switc
         plugins::InMemoryPluginRegistry::default(),
     ));
     let session_root =
-        plugins::monorepo_official_plugin_root("vibex.session-enhance").expect("session-enhance");
+        plugins::monorepo_official_plugin_root("dimo.session-enhance").expect("session-enhance");
     let package = PluginPackage::inspect(&session_root, PluginSourceKind::Marketplace)
         .expect("inspect session-enhance");
     control
@@ -1336,26 +1336,26 @@ async fn enabling_session_enhance_alone_auto_installs_and_enables_provider_switc
         .await
         .expect("import session-enhance alone");
 
-    // Enabling `vibex.session-enhance` when `vibex.provider-switch` is not yet installed
-    // must automatically install and enable `vibex.provider-switch` first.
+    // Enabling `dimo.session-enhance` when `dimo.provider-switch` is not yet installed
+    // must automatically install and enable `dimo.provider-switch` first.
     let enabled = control
-        .set_enabled("vibex.session-enhance", true)
+        .set_enabled("dimo.session-enhance", true)
         .await
         .expect("enable session-enhance with auto-satisfied dependency");
     assert_eq!(enabled.activation, plugins::PluginActivation::Enabled);
     assert!(
         control
-            .active_generation("vibex.provider-switch")
+            .active_generation("dimo.provider-switch")
             .await
             .is_some(),
-        "required upstream vibex.provider-switch must be auto-installed and active"
+        "required upstream dimo.provider-switch must be auto-installed and active"
     );
     assert!(
         control
-            .active_generation("vibex.session-enhance")
+            .active_generation("dimo.session-enhance")
             .await
             .is_some(),
-        "vibex.session-enhance must be active after auto-satisfying dependency"
+        "dimo.session-enhance must be active after auto-satisfying dependency"
     );
 }
 

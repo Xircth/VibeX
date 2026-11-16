@@ -1045,7 +1045,7 @@ export function TurnActivity({
   if (activityUnits.length === 0) return null;
 
   return (
-    <div className="conv-entry-item vibex-turn-tool-calls flex flex-col gap-1">
+    <div className="conv-entry-item dimo-turn-tool-calls flex flex-col gap-1">
       {activityUnits.map((unit) => {
         const key = unit.entries[0].key;
         if (unit.kind === 'recent')

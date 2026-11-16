@@ -43,13 +43,13 @@ describe('conversationPlan', () => {
     expect(
       splitPlanContent(
         [
-          'Implement restyle in VibeX',
+          'Implement restyle in Dimo',
           '- Update TimelinePlanCard',
           '* Add progress and numbered steps',
         ].join('\n')
       )
     ).toEqual({
-      title: 'Implement restyle in VibeX',
+      title: 'Implement restyle in Dimo',
       children: ['Update TimelinePlanCard', 'Add progress and numbered steps'],
     });
   });

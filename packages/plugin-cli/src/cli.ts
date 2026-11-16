@@ -25,7 +25,7 @@ import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
 
-export const helpText = `VibeX Plugin CLI 1.0
+export const helpText = `Dimo Plugin CLI 1.0
 
 Commands:
   run server [--http://127.0.0.1:17891] [--token <token>]
@@ -44,7 +44,7 @@ Commands:
   doctor [dir]
   toolchain
 
-Prefer \`vibex plugin run server\` then \`vibex plugin run dev\` from a plugin directory.
+Prefer \`dimo plugin run server\` then \`dimo plugin run dev\` from a plugin directory.
 \`dev\` is an alias of \`run dev\`. \`add --dev\` only links; it does not start HMR.
 test --host installs, enables Host contributions, asserts they appear then vanish on disable, reloads a Skill when one exists, and uninstalls.`;
 const [command = "help", ...args] = process.argv.slice(2);
@@ -54,7 +54,7 @@ async function main() {
     switch (command) {
     case "init": {
       const root = await scaffoldPlugin(
-        positional(args) ?? "vibex-plugin",
+        positional(args) ?? "dimo-plugin",
         flag(args, "--publisher") ?? "local",
         flag(args, "--template") ?? "full",
       );

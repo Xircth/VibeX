@@ -70,7 +70,7 @@ jobs:
           # vulnerable rsa crate has no patched release and is absent from the
           # resolved dependency graph for every target (`cargo tree --target all`).
           # `zip` advisories affect `ZipArchive::extract` / `ZipStreamReader::extract`
-          # symlink handling; VibeX does not call `extract` and `tauri-plugin-updater`
+          # symlink handling; Dimo does not call `extract` and `tauri-plugin-updater`
           # `sqlx 0.8.6` pins `libsqlite3-sys ^0.30.1` (<0.39.0), which has no
           # upstream sqlx 0.8 release bumping it yet (RUSTSEC-2026-0459).
           ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0367,RUSTSEC-2026-0368,RUSTSEC-2026-0369,RUSTSEC-2026-0429,RUSTSEC-2026-0459
@@ -206,9 +206,9 @@ jobs:
           - group: core-b
             flags: -p agents -p db -p delegation -p delegation-proto -p executors -p git -p local-deployment
           - group: plugins
-            flags: -p plugins -p vibex-plugin-sdk
+            flags: -p plugins -p dimo-plugin-sdk
           - group: server-services
-            flags: -p remote-protocol -p review -p server -p services -p tool-runtime -p utils -p vibex -p vibex-mcp -p vibex-workflow-mcp -p workflows
+            flags: -p remote-protocol -p review -p server -p services -p tool-runtime -p utils -p dimo -p dimo-mcp -p dimo-workflow-mcp -p workflows
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"

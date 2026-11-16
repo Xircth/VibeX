@@ -8,9 +8,12 @@ const stylesheet = readFileSync(
   'utf8'
 );
 
+/** Base declarations only — rules nested in `@media` (reduced motion) are
+ *  deliberately excluded so the resting animation contract stays readable. */
 function declarationsFor(selector: string) {
   const declarations = new Map<string, string>();
   parse(stylesheet).walkRules((rule) => {
+    if (rule.parent?.type !== 'root') return;
     const normalizedSelector = rule.selector.replace(/\s+/g, ' ').trim();
     if (normalizedSelector !== selector) return;
     rule.walkDecls((declaration) => {
@@ -26,7 +29,9 @@ function keyframeSteps(name: string) {
     if (atRule.params !== name) return;
     atRule.walkRules((rule) => {
       const step = new Map<string, string>();
-      rule.walkDecls((declaration) => step.set(declaration.prop, declaration.value));
+      rule.walkDecls((declaration) => {
+        step.set(declaration.prop, declaration.value);
+      });
       steps.set(rule.selector.replace(/\s+/g, ' ').trim(), step);
     });
   });

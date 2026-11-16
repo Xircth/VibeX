@@ -7,7 +7,7 @@ use crate::{AcpAuthStatusAdapter, AcpCapabilitySnapshot, AgentPromptCapabilities
 
 const MAX_CAPABILITY_META_BYTES: usize = 16 * 1024;
 
-/// Converts an ACP initialization handshake into VibeX's stable capability
+/// Converts an ACP initialization handshake into Dimo's stable capability
 /// vocabulary without consulting registry metadata or agent identities.
 pub struct AcpCapabilityNormalizer;
 

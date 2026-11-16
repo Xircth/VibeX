@@ -20,7 +20,7 @@ import { checkPortPurity } from "./check-arch-port-purity.mjs";
 import { loadRatchet } from "./check-arch-shared.mjs";
 
 function fixture(files) {
-  const root = mkdtempSync(join(tmpdir(), "vibex-arch-"));
+  const root = mkdtempSync(join(tmpdir(), "dimo-arch-"));
   for (const [relativePath, content] of Object.entries(files)) {
     const absolutePath = join(root, relativePath);
     mkdirSync(dirname(absolutePath), { recursive: true });
@@ -212,9 +212,9 @@ test("I3 hits an unregistered kind and an unimplemented kind", () => {
     { "id": "app.unused", "status": "ready", "handler": true }
   ]
 }`;
-  const manifestPath = "plugins/demo/.vibex-plugin/plugin.json";
+  const manifestPath = "plugins/demo/.dimo-plugin/plugin.json";
   const manifest = `{
-  "id": "vibex.demo",
+  "id": "dimo.demo",
   "integrations": [
     { "id": "one", "kind": "app.ok" },
     { "id": "two", "kind": "app.ghost" },
@@ -245,9 +245,9 @@ test("I3 hits an unregistered kind and an unimplemented kind", () => {
 test("I3 known gap downgrades a missing kind and fails once it is registered", () => {
   const catalogPath =
     "packages/plugin-contract/catalog/contribution-kinds.v1.json";
-  const manifestPath = "plugins/demo/.vibex-plugin/plugin.json";
+  const manifestPath = "plugins/demo/.dimo-plugin/plugin.json";
   const manifest = `{
-  "id": "vibex.demo",
+  "id": "dimo.demo",
   "integrations": [
     { "id": "one", "kind": "app.rail.section" }
   ]

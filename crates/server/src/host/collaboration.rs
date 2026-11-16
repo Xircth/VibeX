@@ -4055,7 +4055,7 @@ mod tests {
             conversation,
             9,
             "user_turn_created",
-            user("<vibex-private-bootstrap>\n你是我创建的一个助手\n</vibex-private-bootstrap>"),
+            user("<dimo-private-bootstrap>\n你是我创建的一个助手\n</dimo-private-bootstrap>"),
         )
         .await;
         let after_bootstrap = call(&host, "space.listMessages", json!({ "spaceId": thread })).await;
@@ -4068,7 +4068,7 @@ mod tests {
         assert!(
             !after_texts
                 .iter()
-                .any(|text| text.contains("vibex-private-bootstrap"))
+                .any(|text| text.contains("dimo-private-bootstrap"))
         );
         let last = dm_item(
             call(

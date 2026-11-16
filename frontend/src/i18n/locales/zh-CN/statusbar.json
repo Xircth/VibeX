@@ -71,7 +71,7 @@
       "running": "已启用的插件 MCP 可供从这里启动的 Agent 使用。",
       "partial": "部分插件 MCP 已启用。展开一项可查看它提供的工具。",
       "stopped": "插件 MCP 均未启用。打开开关即可注入到新的 Agent 会话。",
-      "unavailable": "Host 找不到可用的 MCP 二进制。重装 VibeX 或检查 sidecar。"
+      "unavailable": "Host 找不到可用的 MCP 二进制。重装 Dimo 或检查 sidecar。"
     },
     "state": {
       "empty": "无服务",

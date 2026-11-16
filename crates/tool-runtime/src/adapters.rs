@@ -164,7 +164,7 @@ impl Downloader for HttpDownloader {
     }
 }
 
-const DOWNLOAD_USER_AGENT: &str = "VibeX";
+const DOWNLOAD_USER_AGENT: &str = "Dimo";
 
 fn validate_redirect_target(
     initial_host: &str,

@@ -44,7 +44,7 @@ describe('conversationApi', () => {
       text: 'hello',
       workflowRefs: [
         {
-          pluginId: 'vibex.office',
+          pluginId: 'dimo.office',
           workflowId: 'create-presentation',
         },
       ],
@@ -59,7 +59,7 @@ describe('conversationApi', () => {
         images: [],
         workflowRefs: [
           {
-            pluginId: 'vibex.office',
+            pluginId: 'dimo.office',
             workflowId: 'create-presentation',
           },
         ],

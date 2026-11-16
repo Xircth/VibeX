@@ -28,8 +28,8 @@ import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
-const STAGE_OURS_SENTINEL = '__VIBEX_CONFLICT_STAGE_OURS__';
-const STAGE_THEIRS_SENTINEL = '__VIBEX_CONFLICT_STAGE_THEIRS__';
+const STAGE_OURS_SENTINEL = '__DIMO_CONFLICT_STAGE_OURS__';
+const STAGE_THEIRS_SENTINEL = '__DIMO_CONFLICT_STAGE_THEIRS__';
 
 function languageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';

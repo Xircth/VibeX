@@ -5,7 +5,7 @@
 //! stays with the person, and a person should be able to see that something
 //! was done, and where.
 //!
-//! A vibex window of its own: transparent, above other windows, never taking
+//! A dimo window of its own: transparent, above other windows, never taking
 //! focus, and passing every click through to whatever is under it. It is
 //! shown only once an action is done, so it never stands between an action
 //! and its target — on Windows a background click aimed by coordinates is
@@ -173,7 +173,7 @@ fn window(app: &AppHandle) -> Option<WebviewWindow> {
     }
     let built =
         WebviewWindowBuilder::new(app, MARKER_LABEL, WebviewUrl::App("computer-marker".into()))
-            .title("VibeX")
+            .title("Dimo")
             .inner_size(SIDE, SIDE)
             .resizable(false)
             .decorations(false)

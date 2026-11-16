@@ -4,7 +4,7 @@ use plugins::{
 
 #[test]
 fn resolves_exact_tool_distribution() {
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json");
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json");
     let imported = PluginService::new()
         .import_manifest(manifest, ManifestSource::Bundled)
         .expect("fixture should import");
@@ -41,7 +41,7 @@ fn resolves_exact_tool_distribution() {
 
 #[test]
 fn malicious_distribution_urls_fail_closed() {
-    let source = include_str!("fixtures/office-presentation.vibex-plugin.json");
+    let source = include_str!("fixtures/office-presentation.dimo-plugin.json");
     let resolver =
         ToolDependencyResolver::new(Platform::new(OperatingSystem::MacOs, Architecture::Arm64));
 

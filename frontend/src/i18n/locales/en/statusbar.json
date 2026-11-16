@@ -71,7 +71,7 @@
       "running": "Enabled plugin MCP is available to agents started from this window.",
       "partial": "Some plugin MCP is enabled. Expand a row to see its tools.",
       "stopped": "Plugin MCP is off. Turn a switch on to inject it into new agent sessions.",
-      "unavailable": "The Host cannot find a runnable MCP binary. Reinstall VibeX or check the sidecar."
+      "unavailable": "The Host cannot find a runnable MCP binary. Reinstall Dimo or check the sidecar."
     },
     "state": {
       "empty": "None",

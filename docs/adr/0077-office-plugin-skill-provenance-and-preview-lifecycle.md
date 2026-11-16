@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Office 插件：技能内容以 officecli 为权威，预览寿命由观看行为决定
@@ -16,8 +16,8 @@ Office 插件的预览架构已经与 Codeg 同构，不需要重做。要修的
 
 ## Context
 
-先纠正一个先前比较里的错误结论：VibeX 的 Office 预览**不是**一次性渲染。
-`.vibex-plugin/plugin.json` 的 `office-preview` 声明的进程是
+先纠正一个先前比较里的错误结论：Dimo 的 Office 预览**不是**一次性渲染。
+`.dimo-plugin/plugin.json` 的 `office-preview` 声明的进程是
 `["watch", "{artifact}", "--port", "{port}"]`，`crates/plugins/src/process_preview_host.rs`
 按 `WatchKey` 做引用计数复用、发租约、按 `references == 0` 收进程。这与 Codeg
 `src-tauri/src/office_watch/` 的模型是同一个，包括它注释里说明的动机——
@@ -26,7 +26,7 @@ Agent 在 Windows 上抢文件锁。两边都已经躲开了这个坑。
 
 真正的差距在别处。
 
-**其一，技能是手抄的。** VibeX 在 `contents/skills/` 下手写了三份 SKILL.md
+**其一，技能是手抄的。** Dimo 在 `contents/skills/` 下手写了三份 SKILL.md
 （`office-docx` / `office-xlsx` / `office-pptx`）。Codeg 不手写，它从二进制里
 取：`officecli load_skill <load_id>`，九份——`pptx`、`pitch-deck`、`morph-ppt`、
 `morph-ppt-3d`、`word`、`academic-paper`、`excel`、`financial-model`、
@@ -44,7 +44,7 @@ Agent 在 Windows 上抢文件锁。两边都已经躲开了这个坑。
 
 Codeg 对应的是一个真的空闲清扫，加上 `SSE_LEASE_GRACE`（90 秒）——在浏览器标签
 崩溃、断网、停止请求永远送不到时，靠最后一条 SSE 连接断开来兜底回收。它的
-判据是「还有没有人在看」，VibeX 的判据是「起来多久了」。
+判据是「还有没有人在看」，Dimo 的判据是「起来多久了」。
 
 **其三，配置项接不到宿主。** `plugin.json` 声明了 `idleTimeoutMinutes`
 （1–60，默认 10），README 里也写了「唯一的设置是预览空闲超时」。但
@@ -70,9 +70,9 @@ maiden 原则 6，可见文案要帮用户判断能做什么，这句话让人�
 `officecli load_skill <id>` 产出，产物随插件一起进 `content.index.json` 的
 内容寻址锁。手写副本删除。
 
-**构建期而非运行期**，这是与 Codeg 的必要分歧：VibeX 的插件内容是内容寻址
+**构建期而非运行期**，这是与 Codeg 的必要分歧：Dimo 的插件内容是内容寻址
 锁定的（`content.index.json` + `package.lock.json`），运行期改写 `contents/`
-会让锁失效。Codeg 没有这层锁，所以它能在运行期同步。VibeX 不能为了对齐做法
+会让锁失效。Codeg 没有这层锁，所以它能在运行期同步。Dimo 不能为了对齐做法
 而破坏自己的完整性保证。
 
 由此产生一条绑定：**officecli 版本变了，技能必须重新生成，插件版本随之升级。**
@@ -90,7 +90,7 @@ maiden 原则 6，可见文案要帮用户判断能做什么，这句话让人�
 
 面板卸载时的显式关闭保留（今天已经有，`PluginFilePreview` 在 effect 清理里
 调关闭）。续租机制是它的兜底，处理显式关闭送不到的情况——标签崩溃、进程被杀、
-连接断开。Codeg 用 SSE 连接数做这件事，VibeX 用租约续期，判据等价而不依赖
+连接断开。Codeg 用 SSE 连接数做这件事，Dimo 用租约续期，判据等价而不依赖
 预览内容协议。
 
 续租间隔必须显著小于空闲阈值，否则正常观看会被误判为空闲。
@@ -113,7 +113,7 @@ are unchanged」是可接受的语义，前提是实现真的如此。
 
 ### 5. 不引入一次性渲染降级路径
 
-Codeg 保留了 `officecli_render_html` 作为 watch 之外的路径。VibeX **不加**：
+Codeg 保留了 `officecli_render_html` 作为 watch 之外的路径。Dimo **不加**：
 它就是被 watch 取代的那个会抢文件锁的实现，重新引入等于把已经解决的问题再
 放回来。watch 起不来时的正确行为是报错并可重试，不是退回坏路径。
 

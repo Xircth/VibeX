@@ -79,43 +79,43 @@ async fn import_plugin(
 async fn kv_put_get_overwrite_and_delete_roundtrip() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _root = import_plugin(&plane, "dev.vibex.kv", "1.0.0", adapter).await;
+        let _root = import_plugin(&plane, "dev.dimo.kv", "1.0.0", adapter).await;
 
         assert_eq!(
-            plane.kv_get("dev.vibex.kv", "theme").await.unwrap(),
+            plane.kv_get("dev.dimo.kv", "theme").await.unwrap(),
             None,
             "{adapter}: missing key is None"
         );
 
         plane
-            .kv_put("dev.vibex.kv", "theme", &json!("dark"))
+            .kv_put("dev.dimo.kv", "theme", &json!("dark"))
             .await
             .unwrap();
         assert_eq!(
-            plane.kv_get("dev.vibex.kv", "theme").await.unwrap(),
+            plane.kv_get("dev.dimo.kv", "theme").await.unwrap(),
             Some(json!("dark")),
             "{adapter}: put then get"
         );
 
         plane
-            .kv_put("dev.vibex.kv", "theme", &json!({"mode": "light"}))
+            .kv_put("dev.dimo.kv", "theme", &json!({"mode": "light"}))
             .await
             .unwrap();
         assert_eq!(
-            plane.kv_get("dev.vibex.kv", "theme").await.unwrap(),
+            plane.kv_get("dev.dimo.kv", "theme").await.unwrap(),
             Some(json!({"mode": "light"})),
             "{adapter}: overwrite"
         );
 
-        plane.kv_delete("dev.vibex.kv", "theme").await.unwrap();
+        plane.kv_delete("dev.dimo.kv", "theme").await.unwrap();
         assert_eq!(
-            plane.kv_get("dev.vibex.kv", "theme").await.unwrap(),
+            plane.kv_get("dev.dimo.kv", "theme").await.unwrap(),
             None,
             "{adapter}: delete"
         );
 
         plane
-            .kv_delete("dev.vibex.kv", "missing")
+            .kv_delete("dev.dimo.kv", "missing")
             .await
             .expect("deleting an absent key succeeds");
     }
@@ -125,27 +125,27 @@ async fn kv_put_get_overwrite_and_delete_roundtrip() {
 async fn kv_is_isolated_by_plugin_id_and_list_clear_are_scoped() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _a = import_plugin(&plane, "dev.vibex.a", "1.0.0", "a").await;
-        let _b = import_plugin(&plane, "dev.vibex.b", "1.0.0", "b").await;
+        let _a = import_plugin(&plane, "dev.dimo.a", "1.0.0", "a").await;
+        let _b = import_plugin(&plane, "dev.dimo.b", "1.0.0", "b").await;
 
         plane
-            .kv_put("dev.vibex.a", "alpha", &json!(1))
+            .kv_put("dev.dimo.a", "alpha", &json!(1))
             .await
             .unwrap();
         plane
-            .kv_put("dev.vibex.a", "alpine", &json!(2))
+            .kv_put("dev.dimo.a", "alpine", &json!(2))
             .await
             .unwrap();
         plane
-            .kv_put("dev.vibex.a", "beta", &json!(3))
+            .kv_put("dev.dimo.a", "beta", &json!(3))
             .await
             .unwrap();
         plane
-            .kv_put("dev.vibex.b", "alpha", &json!("other"))
+            .kv_put("dev.dimo.b", "alpha", &json!("other"))
             .await
             .unwrap();
 
-        let mut listed = plane.kv_list_keys("dev.vibex.a", Some("al")).await.unwrap();
+        let mut listed = plane.kv_list_keys("dev.dimo.a", Some("al")).await.unwrap();
         listed.sort();
         assert_eq!(
             listed,
@@ -153,18 +153,18 @@ async fn kv_is_isolated_by_plugin_id_and_list_clear_are_scoped() {
             "{adapter}: prefix filter"
         );
 
-        let cleared = plane.kv_clear("dev.vibex.a").await.unwrap();
+        let cleared = plane.kv_clear("dev.dimo.a").await.unwrap();
         assert_eq!(cleared, 3, "{adapter}: clear returns removed count");
         assert!(
             plane
-                .kv_list_keys("dev.vibex.a", None)
+                .kv_list_keys("dev.dimo.a", None)
                 .await
                 .unwrap()
                 .is_empty(),
             "{adapter}: owner keys gone"
         );
         assert_eq!(
-            plane.kv_get("dev.vibex.b", "alpha").await.unwrap(),
+            plane.kv_get("dev.dimo.b", "alpha").await.unwrap(),
             Some(json!("other")),
             "{adapter}: other plugin KV is untouched"
         );
@@ -175,45 +175,45 @@ async fn kv_is_isolated_by_plugin_id_and_list_clear_are_scoped() {
 async fn uninstall_drops_kv_and_secrets_for_that_plugin_only() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _keep = import_plugin(&plane, "dev.vibex.keep", "1.0.0", "keep").await;
-        let _drop = import_plugin(&plane, "dev.vibex.drop", "1.0.0", "drop").await;
+        let _keep = import_plugin(&plane, "dev.dimo.keep", "1.0.0", "keep").await;
+        let _drop = import_plugin(&plane, "dev.dimo.drop", "1.0.0", "drop").await;
 
         plane
-            .kv_put("dev.vibex.drop", "gone", &json!(true))
+            .kv_put("dev.dimo.drop", "gone", &json!(true))
             .await
             .unwrap();
         plane
-            .kv_put("dev.vibex.keep", "stay", &json!(true))
+            .kv_put("dev.dimo.keep", "stay", &json!(true))
             .await
             .unwrap();
         plane
-            .secret_put("dev.vibex.drop", "token", "secret-drop")
+            .secret_put("dev.dimo.drop", "token", "secret-drop")
             .await
             .unwrap();
         plane
-            .secret_put("dev.vibex.keep", "token", "secret-keep")
+            .secret_put("dev.dimo.keep", "token", "secret-keep")
             .await
             .unwrap();
 
-        plane.uninstall("dev.vibex.drop").await.unwrap();
+        plane.uninstall("dev.dimo.drop").await.unwrap();
 
         assert_eq!(
-            plane.kv_get("dev.vibex.drop", "gone").await.unwrap(),
+            plane.kv_get("dev.dimo.drop", "gone").await.unwrap(),
             None,
             "{adapter}: uninstalled plugin KV is gone"
         );
         assert_eq!(
-            plane.secret_get("dev.vibex.drop", "token").await.unwrap(),
+            plane.secret_get("dev.dimo.drop", "token").await.unwrap(),
             None,
             "{adapter}: uninstalled plugin secret is gone"
         );
         assert_eq!(
-            plane.kv_get("dev.vibex.keep", "stay").await.unwrap(),
+            plane.kv_get("dev.dimo.keep", "stay").await.unwrap(),
             Some(json!(true)),
             "{adapter}: remaining plugin KV stays"
         );
         assert_eq!(
-            plane.secret_get("dev.vibex.keep", "token").await.unwrap(),
+            plane.secret_get("dev.dimo.keep", "token").await.unwrap(),
             Some("secret-keep".to_owned()),
             "{adapter}: remaining plugin secret stays"
         );
@@ -224,11 +224,11 @@ async fn uninstall_drops_kv_and_secrets_for_that_plugin_only() {
 async fn secret_put_get_overwrite_and_delete_roundtrip() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _root = import_plugin(&plane, "dev.vibex.secret", "1.0.0", adapter).await;
+        let _root = import_plugin(&plane, "dev.dimo.secret", "1.0.0", adapter).await;
 
         assert_eq!(
             plane
-                .secret_get("dev.vibex.secret", "api-key")
+                .secret_get("dev.dimo.secret", "api-key")
                 .await
                 .unwrap(),
             None,
@@ -236,12 +236,12 @@ async fn secret_put_get_overwrite_and_delete_roundtrip() {
         );
 
         plane
-            .secret_put("dev.vibex.secret", "api-key", "first-value")
+            .secret_put("dev.dimo.secret", "api-key", "first-value")
             .await
             .unwrap();
         assert_eq!(
             plane
-                .secret_get("dev.vibex.secret", "api-key")
+                .secret_get("dev.dimo.secret", "api-key")
                 .await
                 .unwrap(),
             Some("first-value".to_owned()),
@@ -249,12 +249,12 @@ async fn secret_put_get_overwrite_and_delete_roundtrip() {
         );
 
         plane
-            .secret_put("dev.vibex.secret", "api-key", "rotated")
+            .secret_put("dev.dimo.secret", "api-key", "rotated")
             .await
             .unwrap();
         assert_eq!(
             plane
-                .secret_get("dev.vibex.secret", "api-key")
+                .secret_get("dev.dimo.secret", "api-key")
                 .await
                 .unwrap(),
             Some("rotated".to_owned()),
@@ -263,14 +263,14 @@ async fn secret_put_get_overwrite_and_delete_roundtrip() {
 
         assert!(
             plane
-                .secret_delete("dev.vibex.secret", "api-key")
+                .secret_delete("dev.dimo.secret", "api-key")
                 .await
                 .unwrap(),
             "{adapter}: delete existing returns true"
         );
         assert_eq!(
             plane
-                .secret_get("dev.vibex.secret", "api-key")
+                .secret_get("dev.dimo.secret", "api-key")
                 .await
                 .unwrap(),
             None,
@@ -278,7 +278,7 @@ async fn secret_put_get_overwrite_and_delete_roundtrip() {
         );
         assert!(
             !plane
-                .secret_delete("dev.vibex.secret", "api-key")
+                .secret_delete("dev.dimo.secret", "api-key")
                 .await
                 .unwrap(),
             "{adapter}: delete missing returns false"
@@ -290,39 +290,39 @@ async fn secret_put_get_overwrite_and_delete_roundtrip() {
 async fn secret_is_isolated_by_plugin_id_and_secret_key() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _a = import_plugin(&plane, "dev.vibex.one", "1.0.0", "one").await;
-        let _b = import_plugin(&plane, "dev.vibex.two", "1.0.0", "two").await;
+        let _a = import_plugin(&plane, "dev.dimo.one", "1.0.0", "one").await;
+        let _b = import_plugin(&plane, "dev.dimo.two", "1.0.0", "two").await;
 
         plane
-            .secret_put("dev.vibex.one", "token", "alpha")
+            .secret_put("dev.dimo.one", "token", "alpha")
             .await
             .unwrap();
         plane
-            .secret_put("dev.vibex.one", "other", "beta")
+            .secret_put("dev.dimo.one", "other", "beta")
             .await
             .unwrap();
         plane
-            .secret_put("dev.vibex.two", "token", "gamma")
+            .secret_put("dev.dimo.two", "token", "gamma")
             .await
             .unwrap();
 
         assert_eq!(
-            plane.secret_get("dev.vibex.one", "token").await.unwrap(),
+            plane.secret_get("dev.dimo.one", "token").await.unwrap(),
             Some("alpha".to_owned()),
             "{adapter}"
         );
         assert_eq!(
-            plane.secret_get("dev.vibex.one", "other").await.unwrap(),
+            plane.secret_get("dev.dimo.one", "other").await.unwrap(),
             Some("beta".to_owned()),
             "{adapter}"
         );
         assert_eq!(
-            plane.secret_get("dev.vibex.two", "token").await.unwrap(),
+            plane.secret_get("dev.dimo.two", "token").await.unwrap(),
             Some("gamma".to_owned()),
             "{adapter}"
         );
         assert_eq!(
-            plane.secret_get("dev.vibex.two", "other").await.unwrap(),
+            plane.secret_get("dev.dimo.two", "other").await.unwrap(),
             None,
             "{adapter}: missing key in other plugin"
         );
@@ -331,27 +331,27 @@ async fn secret_is_isolated_by_plugin_id_and_secret_key() {
 
 #[tokio::test]
 async fn secret_helpers_authenticate_the_envelope_and_reject_tampering() {
-    let ciphertext = encrypt_plugin_secret("dev.vibex.secret", "token", "plain").unwrap();
+    let ciphertext = encrypt_plugin_secret("dev.dimo.secret", "token", "plain").unwrap();
     assert_ne!(ciphertext, "plain");
     assert!(!ciphertext.contains("plain"));
     assert_eq!(
-        decrypt_plugin_secret("dev.vibex.secret", "token", &ciphertext).unwrap(),
+        decrypt_plugin_secret("dev.dimo.secret", "token", &ciphertext).unwrap(),
         "plain"
     );
 
-    let mismatch = decrypt_plugin_secret("dev.vibex.other", "token", &ciphertext).unwrap_err();
+    let mismatch = decrypt_plugin_secret("dev.dimo.other", "token", &ciphertext).unwrap_err();
     assert_eq!(
         mismatch.message(),
         "plugin secret authentication tag mismatch"
     );
 
-    let wrong_key = decrypt_plugin_secret("dev.vibex.secret", "other", &ciphertext).unwrap_err();
+    let wrong_key = decrypt_plugin_secret("dev.dimo.secret", "other", &ciphertext).unwrap_err();
     assert_eq!(
         wrong_key.message(),
         "plugin secret authentication tag mismatch"
     );
 
-    let invalid = decrypt_plugin_secret("dev.vibex.secret", "token", "not-base64!").unwrap_err();
+    let invalid = decrypt_plugin_secret("dev.dimo.secret", "token", "not-base64!").unwrap_err();
     assert_eq!(invalid.code(), "plugin_registry_failed");
 
     let mut envelope =
@@ -359,7 +359,7 @@ async fn secret_helpers_authenticate_the_envelope_and_reject_tampering() {
     let last = envelope.len() - 1;
     envelope[last] ^= 0xff;
     let tampered = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, envelope);
-    let tamper_error = decrypt_plugin_secret("dev.vibex.secret", "token", &tampered).unwrap_err();
+    let tamper_error = decrypt_plugin_secret("dev.dimo.secret", "token", &tampered).unwrap_err();
     assert_eq!(
         tamper_error.message(),
         "plugin secret authentication tag mismatch"
@@ -371,9 +371,9 @@ async fn sqlite_stores_secrets_as_ciphertext_not_plaintext() {
     let pool = sqlite_pool().await;
     let registry = Arc::new(SqlitePluginRegistry::new(pool.clone()));
     let plane = PluginControlPlane::new(registry);
-    let _root = import_plugin(&plane, "dev.vibex.secret", "1.0.0", "cipher").await;
+    let _root = import_plugin(&plane, "dev.dimo.secret", "1.0.0", "cipher").await;
     plane
-        .secret_put("dev.vibex.secret", "token", "super-secret-value")
+        .secret_put("dev.dimo.secret", "token", "super-secret-value")
         .await
         .unwrap();
 
@@ -381,14 +381,14 @@ async fn sqlite_stores_secrets_as_ciphertext_not_plaintext() {
         "SELECT ciphertext_b64 FROM plugin_secrets_storage
          WHERE plugin_id = ? AND secret_key = ?",
     )
-    .bind("dev.vibex.secret")
+    .bind("dev.dimo.secret")
     .bind("token")
     .fetch_one(&pool)
     .await
     .expect("ciphertext row");
     assert!(!stored.contains("super-secret-value"));
     assert_eq!(
-        decrypt_plugin_secret("dev.vibex.secret", "token", &stored).unwrap(),
+        decrypt_plugin_secret("dev.dimo.secret", "token", &stored).unwrap(),
         "super-secret-value"
     );
 }
@@ -397,18 +397,18 @@ async fn sqlite_stores_secrets_as_ciphertext_not_plaintext() {
 async fn set_enabled_publishes_and_withdraw_clears_the_live_generation() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry.clone());
-        let _root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", adapter).await;
+        let _root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", adapter).await;
 
         assert_eq!(
-            plane.active_generation("dev.vibex.gen").await,
+            plane.active_generation("dev.dimo.gen").await,
             None,
             "{adapter}: disabled has no generation"
         );
 
-        let enabled = plane.set_enabled("dev.vibex.gen", true).await.unwrap();
+        let enabled = plane.set_enabled("dev.dimo.gen", true).await.unwrap();
         assert_eq!(enabled.activation, PluginActivation::Enabled);
         let generation = plane
-            .active_generation("dev.vibex.gen")
+            .active_generation("dev.dimo.gen")
             .await
             .expect("published generation");
         assert!(generation >= 1, "{adapter}: generation ids start at 1");
@@ -417,10 +417,10 @@ async fn set_enabled_publishes_and_withdraw_clears_the_live_generation() {
             "{adapter}: live contributions are published"
         );
 
-        let disabled = plane.set_enabled("dev.vibex.gen", false).await.unwrap();
+        let disabled = plane.set_enabled("dev.dimo.gen", false).await.unwrap();
         assert_eq!(disabled.activation, PluginActivation::Disabled);
         assert_eq!(
-            plane.active_generation("dev.vibex.gen").await,
+            plane.active_generation("dev.dimo.gen").await,
             None,
             "{adapter}: withdraw clears the live generation"
         );
@@ -431,13 +431,13 @@ async fn set_enabled_publishes_and_withdraw_clears_the_live_generation() {
 async fn create_candidate_requires_an_installed_plugin() {
     for (adapter, registry) in registries().await {
         let error = registry
-            .create_candidate("dev.vibex.missing")
+            .create_candidate("dev.dimo.missing")
             .await
             .expect_err("missing plugin");
         assert_eq!(error.code(), "plugin_not_found", "{adapter}");
         assert_eq!(
             error.message(),
-            "plugin `dev.vibex.missing` is not imported",
+            "plugin `dev.dimo.missing` is not imported",
             "{adapter}"
         );
     }
@@ -447,14 +447,14 @@ async fn create_candidate_requires_an_installed_plugin() {
 async fn publish_candidate_enables_the_plugin_and_fail_blocks_that_generation() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry.clone());
-        let root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", adapter).await;
-        let installed = plane.plugin("dev.vibex.gen").await.unwrap().unwrap();
+        let root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", adapter).await;
+        let installed = plane.plugin("dev.dimo.gen").await.unwrap().unwrap();
 
-        let live = registry.create_candidate("dev.vibex.gen").await.unwrap();
+        let live = registry.create_candidate("dev.dimo.gen").await.unwrap();
         let contributions = descriptors_for_package(&installed.package, live);
         registry
             .publish_candidate(
-                "dev.vibex.gen",
+                "dev.dimo.gen",
                 live,
                 &installed.package,
                 &contributions,
@@ -463,12 +463,12 @@ async fn publish_candidate_enables_the_plugin_and_fail_blocks_that_generation() 
             .await
             .unwrap();
         assert_eq!(
-            registry.active_generation("dev.vibex.gen").await.unwrap(),
+            registry.active_generation("dev.dimo.gen").await.unwrap(),
             Some(live)
         );
         assert_eq!(
             plane
-                .plugin("dev.vibex.gen")
+                .plugin("dev.dimo.gen")
                 .await
                 .unwrap()
                 .unwrap()
@@ -477,14 +477,14 @@ async fn publish_candidate_enables_the_plugin_and_fail_blocks_that_generation() 
             "{adapter}: publish sets enabled"
         );
 
-        let failed = registry.create_candidate("dev.vibex.gen").await.unwrap();
+        let failed = registry.create_candidate("dev.dimo.gen").await.unwrap();
         registry
             .fail_candidate(failed, "probe exploded")
             .await
             .unwrap();
         let error = registry
             .publish_candidate(
-                "dev.vibex.gen",
+                "dev.dimo.gen",
                 failed,
                 &installed.package,
                 &descriptors_for_package(&installed.package, failed),
@@ -494,7 +494,7 @@ async fn publish_candidate_enables_the_plugin_and_fail_blocks_that_generation() 
             .expect_err("failed candidate cannot publish");
         assert_eq!(error.code(), "plugin_registry_failed", "{adapter}");
         assert_eq!(
-            registry.active_generation("dev.vibex.gen").await.unwrap(),
+            registry.active_generation("dev.dimo.gen").await.unwrap(),
             Some(live),
             "{adapter}: previous generation remains"
         );
@@ -506,24 +506,24 @@ async fn publish_candidate_enables_the_plugin_and_fail_blocks_that_generation() 
 async fn fail_candidate_error_text_differs_by_adapter() {
     let memory = Arc::new(InMemoryPluginRegistry::default());
     let plane = PluginControlPlane::new(memory.clone());
-    let _root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", "memory").await;
-    let installed = plane.plugin("dev.vibex.gen").await.unwrap().unwrap();
-    let generation = memory.create_candidate("dev.vibex.gen").await.unwrap();
+    let _root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", "memory").await;
+    let installed = plane.plugin("dev.dimo.gen").await.unwrap().unwrap();
+    let generation = memory.create_candidate("dev.dimo.gen").await.unwrap();
     memory.fail_candidate(generation, "boom").await.unwrap();
     let memory_error = memory
-        .publish_candidate("dev.vibex.gen", generation, &installed.package, &[], &[])
+        .publish_candidate("dev.dimo.gen", generation, &installed.package, &[], &[])
         .await
         .unwrap_err();
     assert_eq!(memory_error.message(), "candidate package is missing");
 
     let sqlite = Arc::new(SqlitePluginRegistry::new(sqlite_pool().await));
     let plane = PluginControlPlane::new(sqlite.clone());
-    let _root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", "sqlite").await;
-    let installed = plane.plugin("dev.vibex.gen").await.unwrap().unwrap();
-    let generation = sqlite.create_candidate("dev.vibex.gen").await.unwrap();
+    let _root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", "sqlite").await;
+    let installed = plane.plugin("dev.dimo.gen").await.unwrap().unwrap();
+    let generation = sqlite.create_candidate("dev.dimo.gen").await.unwrap();
     sqlite.fail_candidate(generation, "boom").await.unwrap();
     let sqlite_error = sqlite
-        .publish_candidate("dev.vibex.gen", generation, &installed.package, &[], &[])
+        .publish_candidate("dev.dimo.gen", generation, &installed.package, &[], &[])
         .await
         .unwrap_err();
     assert_eq!(
@@ -536,22 +536,22 @@ async fn fail_candidate_error_text_differs_by_adapter() {
 async fn retire_published_generation_drops_the_live_generation_without_changing_enable_intent() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry.clone());
-        let _root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", adapter).await;
-        plane.set_enabled("dev.vibex.gen", true).await.unwrap();
-        assert!(plane.active_generation("dev.vibex.gen").await.is_some());
+        let _root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", adapter).await;
+        plane.set_enabled("dev.dimo.gen", true).await.unwrap();
+        assert!(plane.active_generation("dev.dimo.gen").await.is_some());
 
         registry
-            .retire_published_generation("dev.vibex.gen")
+            .retire_published_generation("dev.dimo.gen")
             .await
             .unwrap();
         assert_eq!(
-            plane.active_generation("dev.vibex.gen").await,
+            plane.active_generation("dev.dimo.gen").await,
             None,
             "{adapter}: live generation is gone"
         );
         assert_eq!(
             plane
-                .plugin("dev.vibex.gen")
+                .plugin("dev.dimo.gen")
                 .await
                 .unwrap()
                 .unwrap()
@@ -566,12 +566,12 @@ async fn retire_published_generation_drops_the_live_generation_without_changing_
 async fn in_memory_retire_generation_is_a_noop() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let plane = PluginControlPlane::new(registry.clone());
-    let _root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", "memory").await;
-    plane.set_enabled("dev.vibex.gen", true).await.unwrap();
-    let generation = plane.active_generation("dev.vibex.gen").await.unwrap();
+    let _root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", "memory").await;
+    plane.set_enabled("dev.dimo.gen", true).await.unwrap();
+    let generation = plane.active_generation("dev.dimo.gen").await.unwrap();
     registry.retire_generation(generation).await.unwrap();
     assert_eq!(
-        plane.active_generation("dev.vibex.gen").await,
+        plane.active_generation("dev.dimo.gen").await,
         Some(generation),
         "in-memory retire_generation does not drop a live generation"
     );
@@ -581,12 +581,12 @@ async fn in_memory_retire_generation_is_a_noop() {
 async fn sqlite_retire_generation_only_retires_draining_rows() {
     let registry = Arc::new(SqlitePluginRegistry::new(sqlite_pool().await));
     let plane = PluginControlPlane::new(registry.clone());
-    let _root = import_plugin(&plane, "dev.vibex.gen", "1.0.0", "sqlite").await;
-    plane.set_enabled("dev.vibex.gen", true).await.unwrap();
-    let generation = plane.active_generation("dev.vibex.gen").await.unwrap();
+    let _root = import_plugin(&plane, "dev.dimo.gen", "1.0.0", "sqlite").await;
+    plane.set_enabled("dev.dimo.gen", true).await.unwrap();
+    let generation = plane.active_generation("dev.dimo.gen").await.unwrap();
     registry.retire_generation(generation).await.unwrap();
     assert_eq!(
-        plane.active_generation("dev.vibex.gen").await,
+        plane.active_generation("dev.dimo.gen").await,
         Some(generation),
         "active rows are not draining, so retire_generation leaves them"
     );
@@ -598,8 +598,8 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
         let plane = PluginControlPlane::new(registry.clone());
         let first_root = tempfile::tempdir().unwrap();
         let second_root = tempfile::tempdir().unwrap();
-        let first = package("dev.vibex.rollback", "1.0.0", first_root.path(), "one");
-        let second = package("dev.vibex.rollback", "2.0.0", second_root.path(), "two");
+        let first = package("dev.dimo.rollback", "1.0.0", first_root.path(), "one");
+        let second = package("dev.dimo.rollback", "2.0.0", second_root.path(), "two");
         assert_ne!(
             crate::package_content_digest(first.content_root()).unwrap(),
             crate::package_content_digest(second.content_root()).unwrap()
@@ -608,7 +608,7 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
         plane.import(first, ConflictDecision::Reject).await.unwrap();
         assert!(
             !plane
-                .rollback_available("dev.vibex.rollback")
+                .rollback_available("dev.dimo.rollback")
                 .await
                 .unwrap()
         );
@@ -619,13 +619,13 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
             .unwrap();
         assert!(
             plane
-                .rollback_available("dev.vibex.rollback")
+                .rollback_available("dev.dimo.rollback")
                 .await
                 .unwrap(),
             "{adapter}: digest change retains rollback"
         );
         let rollback = registry
-            .rollback_package("dev.vibex.rollback")
+            .rollback_package("dev.dimo.rollback")
             .await
             .unwrap()
             .expect("rollback package");
@@ -634,7 +634,7 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
         let restored = plane
             .rollback_and_activate(
                 std::path::Path::new("node"),
-                "dev.vibex.rollback",
+                "dev.dimo.rollback",
                 &[],
                 Arc::new(DenyCapabilityBroker),
             )
@@ -644,7 +644,7 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
         assert_eq!(restored.activation, PluginActivation::Enabled, "{adapter}");
         assert!(
             plane
-                .active_generation("dev.vibex.rollback")
+                .active_generation("dev.dimo.rollback")
                 .await
                 .is_some(),
             "{adapter}: rollback publishes a new generation"
@@ -656,10 +656,10 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
 async fn record_runtime_locks_the_artifact_to_the_current_package() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _root = import_plugin(&plane, "dev.vibex.rt", "1.0.0", adapter).await;
+        let _root = import_plugin(&plane, "dev.dimo.rt", "1.0.0", adapter).await;
         let missing = plane
             .record_runtime(
-                "dev.vibex.missing",
+                "dev.dimo.missing",
                 RuntimeInstallation {
                     id: "cli".into(),
                     version: "1.0.0".into(),
@@ -678,7 +678,7 @@ async fn record_runtime_locks_the_artifact_to_the_current_package() {
 
         plane
             .record_runtime(
-                "dev.vibex.rt",
+                "dev.dimo.rt",
                 RuntimeInstallation {
                     id: "cli".into(),
                     version: "1.0.0".into(),
@@ -695,7 +695,7 @@ async fn record_runtime_locks_the_artifact_to_the_current_package() {
             .unwrap();
 
         let locked = plane
-            .runtime_for_plugin("dev.vibex.rt", "cli")
+            .runtime_for_plugin("dev.dimo.rt", "cli")
             .await
             .unwrap()
             .expect("lock");
@@ -704,7 +704,7 @@ async fn record_runtime_locks_the_artifact_to_the_current_package() {
         assert_eq!(locked.content_digest, "sha256:cli");
         assert_eq!(
             locked.referenced_plugins,
-            vec!["dev.vibex.rt".to_owned()],
+            vec!["dev.dimo.rt".to_owned()],
             "{adapter}: put_runtime overwrites referenced_plugins with the locking plugin"
         );
 
@@ -712,7 +712,7 @@ async fn record_runtime_locks_the_artifact_to_the_current_package() {
         assert_eq!(inventory.len(), 1, "{adapter}");
         assert_eq!(
             inventory[0].referenced_plugins,
-            vec!["dev.vibex.rt".to_owned()],
+            vec!["dev.dimo.rt".to_owned()],
             "{adapter}"
         );
     }
@@ -722,7 +722,7 @@ async fn record_runtime_locks_the_artifact_to_the_current_package() {
 async fn uninstall_keeps_runtime_artifacts_until_reclaim_removes_unreferenced_managed_files() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let plugin_root = import_plugin(&plane, "dev.vibex.rt", "1.0.0", adapter).await;
+        let plugin_root = import_plugin(&plane, "dev.dimo.rt", "1.0.0", adapter).await;
         let runtime_root = tempfile::tempdir().unwrap();
         let artifact = runtime_root.path().join("orphan/bin");
         std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
@@ -730,7 +730,7 @@ async fn uninstall_keeps_runtime_artifacts_until_reclaim_removes_unreferenced_ma
 
         plane
             .record_runtime(
-                "dev.vibex.rt",
+                "dev.dimo.rt",
                 RuntimeInstallation {
                     id: "orphan".into(),
                     version: "1.0.0".into(),
@@ -740,13 +740,13 @@ async fn uninstall_keeps_runtime_artifacts_until_reclaim_removes_unreferenced_ma
                     ownership: "managed".into(),
                     installer: "test".into(),
                     probe: Vec::new(),
-                    referenced_plugins: vec!["dev.vibex.rt".into()],
+                    referenced_plugins: vec!["dev.dimo.rt".into()],
                 },
             )
             .await
             .unwrap();
 
-        plane.uninstall("dev.vibex.rt").await.unwrap();
+        plane.uninstall("dev.dimo.rt").await.unwrap();
         let inventory = plane.runtime_inventory().await.unwrap();
         assert_eq!(inventory.len(), 1, "{adapter}: artifact survives uninstall");
         assert!(
@@ -784,12 +784,12 @@ async fn import_and_uninstall_append_audit_events_that_survive_membership_remova
         let second = tempfile::tempdir().unwrap();
         plane
             .import(
-                package("dev.vibex.audit", "1.0.0", first.path(), "one"),
+                package("dev.dimo.audit", "1.0.0", first.path(), "one"),
                 ConflictDecision::Reject,
             )
             .await
             .unwrap();
-        let installed = plane.audit_events("dev.vibex.audit").await.unwrap();
+        let installed = plane.audit_events("dev.dimo.audit").await.unwrap();
         assert_eq!(installed.len(), 1, "{adapter}");
         assert_eq!(installed[0].event, "install", "{adapter}");
         assert!(
@@ -799,21 +799,21 @@ async fn import_and_uninstall_append_audit_events_that_survive_membership_remova
 
         plane
             .import(
-                package("dev.vibex.audit", "2.0.0", second.path(), "two"),
+                package("dev.dimo.audit", "2.0.0", second.path(), "two"),
                 ConflictDecision::Replace,
             )
             .await
             .unwrap();
-        let updated = plane.audit_events("dev.vibex.audit").await.unwrap();
+        let updated = plane.audit_events("dev.dimo.audit").await.unwrap();
         assert_eq!(updated.len(), 2, "{adapter}");
         assert_eq!(updated[1].event, "update", "{adapter}");
 
-        plane.uninstall("dev.vibex.audit").await.unwrap();
-        let remaining = plane.audit_events("dev.vibex.audit").await.unwrap();
+        plane.uninstall("dev.dimo.audit").await.unwrap();
+        let remaining = plane.audit_events("dev.dimo.audit").await.unwrap();
         assert_eq!(remaining.len(), 3, "{adapter}: uninstall keeps the log");
         assert_eq!(remaining[2].event, "uninstall", "{adapter}");
         assert!(
-            plane.plugin("dev.vibex.audit").await.unwrap().is_none(),
+            plane.plugin("dev.dimo.audit").await.unwrap().is_none(),
             "{adapter}: membership is gone"
         );
     }
@@ -823,28 +823,28 @@ async fn import_and_uninstall_append_audit_events_that_survive_membership_remova
 async fn audit_is_isolated_by_plugin_id_and_does_not_require_an_install_row() {
     for (adapter, registry) in registries().await {
         let plane = PluginControlPlane::new(registry);
-        let _root = import_plugin(&plane, "dev.vibex.audit", "1.0.0", adapter).await;
+        let _root = import_plugin(&plane, "dev.dimo.audit", "1.0.0", adapter).await;
 
         plane
             .record_audit(
-                "dev.vibex.audit",
+                "dev.dimo.audit",
                 "custom",
                 &json!({ "ok": true, "secret": "must-be-preserved" }),
             )
             .await
             .unwrap();
         plane
-            .record_audit("dev.vibex.other", "custom", &json!({ "ok": false }))
+            .record_audit("dev.dimo.other", "custom", &json!({ "ok": false }))
             .await
             .unwrap();
 
-        let owned = plane.audit_events("dev.vibex.audit").await.unwrap();
+        let owned = plane.audit_events("dev.dimo.audit").await.unwrap();
         assert!(
             owned.iter().any(|event| event.event == "custom"
                 && event.evidence == json!({ "ok": true, "secret": "must-be-preserved" })),
             "{adapter}: custom event is stored as given"
         );
-        let other = plane.audit_events("dev.vibex.other").await.unwrap();
+        let other = plane.audit_events("dev.dimo.other").await.unwrap();
         assert_eq!(other.len(), 1, "{adapter}");
         assert_eq!(other[0].event, "custom", "{adapter}");
         assert_eq!(other[0].evidence, json!({ "ok": false }), "{adapter}");
@@ -855,12 +855,12 @@ async fn audit_is_isolated_by_plugin_id_and_does_not_require_an_install_row() {
 async fn sqlite_capability_grants_stay_empty_after_publish() {
     let registry = Arc::new(SqlitePluginRegistry::new(sqlite_pool().await));
     let plane = PluginControlPlane::new(registry.clone());
-    let _root = import_plugin(&plane, "dev.vibex.grants", "1.0.0", "sqlite").await;
-    let installed = plane.plugin("dev.vibex.grants").await.unwrap().unwrap();
-    let generation = registry.create_candidate("dev.vibex.grants").await.unwrap();
+    let _root = import_plugin(&plane, "dev.dimo.grants", "1.0.0", "sqlite").await;
+    let installed = plane.plugin("dev.dimo.grants").await.unwrap().unwrap();
+    let generation = registry.create_candidate("dev.dimo.grants").await.unwrap();
     registry
         .publish_candidate(
-            "dev.vibex.grants",
+            "dev.dimo.grants",
             generation,
             &installed.package,
             &descriptors_for_package(&installed.package, generation),
@@ -874,7 +874,7 @@ async fn sqlite_capability_grants_stay_empty_after_publish() {
         .unwrap();
     assert!(
         registry
-            .capability_grants("dev.vibex.grants")
+            .capability_grants("dev.dimo.grants")
             .await
             .unwrap()
             .is_empty(),
@@ -886,9 +886,9 @@ async fn sqlite_capability_grants_stay_empty_after_publish() {
 async fn in_memory_capability_grants_persist_the_published_projection() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let plane = PluginControlPlane::new(registry.clone());
-    let _root = import_plugin(&plane, "dev.vibex.grants", "1.0.0", "memory").await;
-    let installed = plane.plugin("dev.vibex.grants").await.unwrap().unwrap();
-    let generation = registry.create_candidate("dev.vibex.grants").await.unwrap();
+    let _root = import_plugin(&plane, "dev.dimo.grants", "1.0.0", "memory").await;
+    let installed = plane.plugin("dev.dimo.grants").await.unwrap().unwrap();
+    let generation = registry.create_candidate("dev.dimo.grants").await.unwrap();
     let grants = vec![crate::CapabilityGrant {
         capability: "runtime.execute".into(),
         scope: json!({"runtime": "tool"}),
@@ -896,7 +896,7 @@ async fn in_memory_capability_grants_persist_the_published_projection() {
     }];
     registry
         .publish_candidate(
-            "dev.vibex.grants",
+            "dev.dimo.grants",
             generation,
             &installed.package,
             &descriptors_for_package(&installed.package, generation),
@@ -906,7 +906,7 @@ async fn in_memory_capability_grants_persist_the_published_projection() {
         .unwrap();
     assert_eq!(
         registry
-            .capability_grants("dev.vibex.grants")
+            .capability_grants("dev.dimo.grants")
             .await
             .unwrap(),
         grants

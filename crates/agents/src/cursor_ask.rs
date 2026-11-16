@@ -3,7 +3,7 @@
 //! Cursor does not use `elicitation/create`. It blocks on vendor ext-methods
 //! `cursor/ask_question` and `cursor/create_plan` until the client returns a
 //! nested `{ outcome: { outcome, ... } }` payload. This module owns those wire
-//! shapes and the conversion onto VibeX's existing question card.
+//! shapes and the conversion onto Dimo's existing question card.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

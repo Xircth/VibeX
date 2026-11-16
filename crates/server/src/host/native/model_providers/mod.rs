@@ -42,7 +42,7 @@ pub use grok::{NativeGrokProvider, NativeGrokState, read_native_grok_state};
 use hermes::*;
 use kimi::*;
 pub use kimi::{
-    has_synthetic_gate, kimi_credential_is_synthetic, prepare_kimi_vibex_configuration_cleanup,
+    has_synthetic_gate, kimi_credential_is_synthetic, prepare_kimi_dimo_configuration_cleanup,
 };
 use openclaw::*;
 use ops::*;
@@ -346,7 +346,7 @@ pub async fn bind(
             .cloned()
             .ok_or_else(|| super::NativeError::from("找不到可绑定的 Model Provider"))?;
         if is_native_grok_channel(&provider, native_grok.as_ref()) {
-            if native_uses_vibex_grok_projection(native_grok.as_ref()) {
+            if native_uses_dimo_grok_projection(native_grok.as_ref()) {
                 let backup = store
                     .projection_backups
                     .get(agent_id.as_str())
@@ -375,7 +375,7 @@ pub async fn bind(
             }
             store.bindings.remove(agent_id.as_str());
         } else if is_native_codex_channel(&provider, native_codex.as_ref()) {
-            if native_uses_vibex_projection(native_codex.as_ref()) {
+            if native_uses_dimo_projection(native_codex.as_ref()) {
                 let backup = store
                     .projection_backups
                     .get(agent_id.as_str())

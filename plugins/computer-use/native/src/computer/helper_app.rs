@@ -1,17 +1,17 @@
-//! The helper app as vibex runs it on macOS: a copy outside vibex's bundle.
+//! The helper app as dimo runs it on macOS: a copy outside dimo's bundle.
 //!
-//! vibex ships the helper as an app of its own inside its bundle
-//! (`Contents/Helpers/vibex-computer-helper.app`), and for Accessibility that
+//! dimo ships the helper as an app of its own inside its bundle
+//! (`Contents/Helpers/dimo-computer-helper.app`), and for Accessibility that
 //! is enough: macOS charges a process to the app it is the main executable
 //! of. Screen Recording it charges to the *outermost* app around the
-//! executable that the same team signed — vibex — so a helper run from inside
-//! vibex's bundle would ask for Screen Recording in vibex's name and record
-//! the screen on vibex's grant, which every agent's shell shares.
+//! executable that the same team signed — dimo — so a helper run from inside
+//! dimo's bundle would ask for Screen Recording in dimo's name and record
+//! the screen on dimo's grant, which every agent's shell shares.
 //!
-//! So vibex runs the helper from a copy of the shipped app in the helper's
-//! data directory, where no app of vibex's is around it. The copy is the
+//! So dimo runs the helper from a copy of the shipped app in the helper's
+//! data directory, where no app of dimo's is around it. The copy is the
 //! shipped app byte for byte — the same signature, so the same launch
-//! requirement holds it and the grants are the same ones — and vibex brings
+//! requirement holds it and the grants are the same ones — and dimo brings
 //! it up to date before every launch: a copy that is missing, or that differs
 //! from the shipped app in any way (an update, a damaged or altered copy), is
 //! replaced whole by one made beside it, so a launch never finds half of one.
@@ -30,7 +30,7 @@ use std::sync::Mutex;
 /// say where the copy is.
 pub fn install(shipped: &Path, home: &Path) -> io::Result<PathBuf> {
     // One at a time: the running helper and a permission request can both be
-    // starting, and vibex runs as a single instance, so this process is the
+    // starting, and dimo runs as a single instance, so this process is the
     // only one to do it.
     static INSTALLING: Mutex<()> = Mutex::new(());
     let _one = INSTALLING.lock().unwrap_or_else(|p| p.into_inner());
@@ -266,12 +266,12 @@ mod tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
 
-    const APP: &str = "vibex-computer-helper.app";
+    const APP: &str = "dimo-computer-helper.app";
 
     /// A small app bundle, as the release ships the helper.
     fn shipped(root: &Path) -> PathBuf {
-        let app = root.join("vibex.app/Contents/Helpers").join(APP);
-        let exe = app.join("Contents/MacOS/vibex-computer-helper");
+        let app = root.join("dimo.app/Contents/Helpers").join(APP);
+        let exe = app.join("Contents/MacOS/dimo-computer-helper");
         fs::create_dir_all(exe.parent().unwrap()).unwrap();
         fs::create_dir_all(app.join("Contents/Resources")).unwrap();
         fs::create_dir_all(app.join("Contents/_CodeSignature")).unwrap();
@@ -284,10 +284,10 @@ mod tests {
     }
 
     fn exe_of(app: &Path) -> PathBuf {
-        app.join("Contents/MacOS/vibex-computer-helper")
+        app.join("Contents/MacOS/dimo-computer-helper")
     }
 
-    /// The first launch makes the copy, beside nothing of vibex's, and the
+    /// The first launch makes the copy, beside nothing of dimo's, and the
     /// copy is the shipped app: names, bytes, permission bits.
     #[test]
     fn the_copy_is_the_shipped_app() {
@@ -420,7 +420,7 @@ mod tests {
         let app = shipped(root.path());
         std::os::unix::fs::symlink("Info.plist", app.join("Contents/Alias")).unwrap();
         let name = std::ffi::CString::new("com.apple.quarantine").unwrap();
-        let value = b"0081;00000000;vibex;";
+        let value = b"0081;00000000;dimo;";
         let path = std::ffi::CString::new(exe_of(&app).as_os_str().as_encoded_bytes()).unwrap();
         // SAFETY: NUL-terminated name and path, a value of the length given.
         let set = unsafe {

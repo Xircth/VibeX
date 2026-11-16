@@ -66,7 +66,7 @@ impl ConversationHost for SteeringFixtureHost {
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
         let mut env = HashMap::new();
         if let Some(mode) = &self.steering_env {
-            env.insert("VIBEX_IN_MEMORY_STEERING".to_string(), mode.clone());
+            env.insert("DIMO_IN_MEMORY_STEERING".to_string(), mode.clone());
         }
         Ok(AgentRuntimeLaunchSettings {
             auto_approve_mode: agents::AgentAutoApproveMode::Off,

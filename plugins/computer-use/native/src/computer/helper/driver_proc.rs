@@ -15,8 +15,8 @@
 //!   all: the suspended check alone is not a gate, because any process of
 //!   the user's may resume a suspended child.
 //! * **What it finds on `PATH`.** The driver runs `plutil`, `ps` and
-//!   `osascript` by bare name. vibex's own `PATH` carries directories the user
-//!   (and so any agent) can write — the login shell's, `~/.vibex/npm-global/bin`
+//!   `osascript` by bare name. dimo's own `PATH` carries directories the user
+//!   (and so any agent) can write — the login shell's, `~/.dimo/npm-global/bin`
 //!   first of all, Homebrew's — and a fake `ps` in one of them would run with
 //!   the helper's grants the next time the driver lists applications. So the
 //!   driver gets a fixed system `PATH` and nothing else from this process's
@@ -102,11 +102,11 @@ pub fn helper_data_dir() -> Option<PathBuf> {
         } else {
             home.join(".local").join("share")
         };
-        Some(base.join("vibex").join("computer-helper"))
+        Some(base.join("dimo").join("computer-helper"))
     }
     #[cfg(windows)]
     {
-        dirs::data_local_dir().map(|d| d.join("vibex").join("computer-helper"))
+        dirs::data_local_dir().map(|d| d.join("dimo").join("computer-helper"))
     }
 }
 
@@ -282,7 +282,7 @@ impl DriverProc {
     ///
     /// `stopped` is asked once more just before the driver is spawned, after
     /// the file has been hashed — which takes as long as the disk makes it —
-    /// so a Stop, or vibex leaving, while that runs spawns nothing, and what
+    /// so a Stop, or dimo leaving, while that runs spawns nothing, and what
     /// is left of a start once a driver exists is bounded (see `SHUTDOWN_GRACE`
     /// in the helper).
     pub async fn launch(
@@ -616,7 +616,7 @@ impl DriverProc {
 /// after the person has said yes in System Settings. (Raising a request is
 /// not done here: the driver's own request asks for every missing
 /// permission at once, and a person who pressed the button for one should
-/// see the dialog for that one — vibex starts a helper for each instead.)
+/// see the dialog for that one — dimo starts a helper for each instead.)
 /// The copy does not disclaim, so TCC answers it for its responsible
 /// process, the helper; and
 /// it is started as the driver is — under the launch requirement, suspended,
@@ -752,7 +752,7 @@ fn verify_running_driver(pid: u32) -> Result<(), String> {
     driver::driver_entitlements_ok(&info.entitlements)
 }
 
-/// Copy the driver's stderr into the helper's, which vibex logs.
+/// Copy the driver's stderr into the helper's, which dimo logs.
 async fn forward_stderr(stderr: Box<dyn AsyncRead + Send + Unpin>) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {

@@ -1,5 +1,5 @@
-/** Public authoring contract for a VibeX v2 product plugin. */
-export interface VibeXPluginManifest {
+/** Public authoring contract for a Dimo v2 product plugin. */
+export interface DimoPluginManifest {
   $schema?: string;
   manifestVersion: 4;
   apiVersion: '1.0' | '2.0';
@@ -10,10 +10,10 @@ export interface VibeXPluginManifest {
   description?: string;
   /** Always points to the required root README. Its frontmatter owns `summary`. */
   readme?: 'README.md';
-  engines?: { vibex?: string; pluginSdk?: string };
+  engines?: { dimo?: string; pluginSdk?: string };
   content?: {
     root: 'contents';
-    index: '.vibex-plugin/content.index.json';
+    index: '.dimo-plugin/content.index.json';
   };
   /** Values live in root config.json; this schema only describes and validates them. */
   config?: { schema: Record<string, unknown> };
@@ -113,7 +113,7 @@ export interface PluginMcpToolDeclaration {
   group?: string;
 }
 
-/** Package-relative MCP process supervised and credentialed by the VibeX Host. */
+/** Package-relative MCP process supervised and credentialed by the Dimo Host. */
 export interface ManagedMcpRuntimeResource {
   managedRuntime: {
     /** Authoring source bundled by the Plugin CLI into `entrypoint`. */
@@ -178,7 +178,7 @@ export interface AppSurfaceIntegrationManifest extends IntegrationBase {
 /**
  * Icon names the Host is willing to render for plugin chrome. Plugins name an
  * icon instead of shipping markup, so no plugin asset reaches Host DOM.
- * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
+ * Mirrored by `@dimo/plugin-contract/catalog/icons` and the Rust
  * `CONTRIBUTION_ICONS`; all three are asserted equal by tests.
  */
 export const CONTRIBUTION_ICONS = [
@@ -534,7 +534,7 @@ export const pluginManifestSchema = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        vibex: { type: 'string', minLength: 1 },
+        dimo: { type: 'string', minLength: 1 },
         pluginSdk: { type: 'string', minLength: 1 },
       },
     },
@@ -544,7 +544,7 @@ export const pluginManifestSchema = {
       required: ['root', 'index'],
       properties: {
         root: { const: 'contents' },
-        index: { const: '.vibex-plugin/content.index.json' },
+        index: { const: '.dimo-plugin/content.index.json' },
       },
     },
     config: {
@@ -794,7 +794,7 @@ function matchesAllowedHostPattern(hostname: string, origin: string, pattern: st
 }
 
 /**
- * Validates a network fetch URL against VibeX declarative grant security rules:
+ * Validates a network fetch URL against Dimo declarative grant security rules:
  * - Only `http:` and `https:` protocols are permitted
  * - Rejects deceptive URLs containing `@` (`username` / `password` userinfo, e.g. `https://api.example.com@evil.com`)
  * - Blocks link-local / cloud metadata endpoints (`169.254.169.254`, `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `metadata.google.internal`)

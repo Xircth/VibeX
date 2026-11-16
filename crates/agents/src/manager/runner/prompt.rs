@@ -272,7 +272,7 @@ impl AgentConnectionRunner {
                                         .get(&session_id)
                                         .and_then(|s| s.asserted_config_values.get("model").cloned())
                                         .or_else(|| {
-                                            self.snapshot.env.get("VIBEX_DEFAULT_MODEL").cloned()
+                                            self.snapshot.env.get("DIMO_DEFAULT_MODEL").cloned()
                                         })
                                 };
                                 let custom_base_url = ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"]

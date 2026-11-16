@@ -1,7 +1,7 @@
-# Sample the VibeX process tree in Private Working Set.
+# Sample the Dimo process tree in Private Working Set.
 # WorkingSetPrivate matches Task Manager's Memory column.
-# Exit 0 when vibex.exe is running and the total is within -GateMB.
-# Exit 1 when the total is over the gate. Exit 2 when vibex.exe is absent.
+# Exit 0 when dimo.exe is running and the total is within -GateMB.
+# Exit 1 when the total is over the gate. Exit 2 when dimo.exe is absent.
 param(
   [int]$GateMB = 200
 )
@@ -9,11 +9,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $procs = @(Get-CimInstance Win32_Process | Where-Object {
-  $_.Name -match 'vibex|msedgewebview2|cua-driver|agy_acp' -or
-  ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'vibex')
+  $_.Name -match 'dimo|msedgewebview2|cua-driver|agy_acp' -or
+  ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'dimo')
 })
-if (-not ($procs | Where-Object { $_.Name -eq 'vibex.exe' })) {
-  Write-Error 'vibex.exe is not running. Start VibeX, idle 60 seconds, then sample again.'
+if (-not ($procs | Where-Object { $_.Name -eq 'dimo.exe' })) {
+  Write-Error 'dimo.exe is not running. Start Dimo, idle 60 seconds, then sample again.'
   exit 2
 }
 

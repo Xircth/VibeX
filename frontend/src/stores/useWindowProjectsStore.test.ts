@@ -17,7 +17,7 @@ describe('useWindowProjectsStore', () => {
 
   it('repairs a persisted image address when restoring open projects', async () => {
     localStorage.setItem(
-      'vibex-window-projects',
+      'dimo-window-projects',
       JSON.stringify({
         version: 7,
         state: {
@@ -55,7 +55,7 @@ describe('useWindowProjectsStore', () => {
 
   it('repairs a persisted image address when restoring open projects', async () => {
     localStorage.setItem(
-      'vibex-window-projects',
+      'dimo-window-projects',
       JSON.stringify({
         version: 7,
         state: {

@@ -238,7 +238,7 @@ fn explicit_cwd_is_kept_even_when_missing() {
     let dir = tempfile::tempdir().expect("temp dir");
     let missing = dir
         .path()
-        .join("vibex-nonexistent-cwd")
+        .join("dimo-nonexistent-cwd")
         .join("does")
         .join("not")
         .join("exist");
@@ -623,7 +623,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
                 "$p = Start-Process -PassThru -WindowStyle Hidden -FilePath ping.exe -ArgumentList '-n','60','127.0.0.1'; \
-                 [System.IO.File]::WriteAllText($env:VIBEX_TEST_PID_FILE, $p.Id.ToString()); \
+                 [System.IO.File]::WriteAllText($env:DIMO_TEST_PID_FILE, $p.Id.ToString()); \
                  Start-Sleep -Seconds 30"
                     .to_string(),
             ],
@@ -633,7 +633,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             "/bin/sh".to_string(),
             vec![
                 "-c".to_string(),
-                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$VIBEX_TEST_PID_FILE\"; sleep 30"
+                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$DIMO_TEST_PID_FILE\"; sleep 30"
                     .to_string(),
             ],
         )
@@ -645,7 +645,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             args: kill_args,
             cwd: None,
             env: vec![AgentTerminalEnvVar {
-                name: "VIBEX_TEST_PID_FILE".to_string(),
+                name: "DIMO_TEST_PID_FILE".to_string(),
                 value: pid_file_kill.to_string_lossy().into_owned(),
             }],
             output_byte_limit: Some(4096),
@@ -675,7 +675,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
                 "$p = Start-Process -PassThru -WindowStyle Hidden -FilePath ping.exe -ArgumentList '-n','60','127.0.0.1'; \
-                 [System.IO.File]::WriteAllText($env:VIBEX_TEST_PID_FILE, $p.Id.ToString())"
+                 [System.IO.File]::WriteAllText($env:DIMO_TEST_PID_FILE, $p.Id.ToString())"
                     .to_string(),
             ],
         )
@@ -684,7 +684,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             "/bin/sh".to_string(),
             vec![
                 "-c".to_string(),
-                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$VIBEX_TEST_PID_FILE\""
+                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$DIMO_TEST_PID_FILE\""
                     .to_string(),
             ],
         )
@@ -696,7 +696,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             args: rel_args,
             cwd: None,
             env: vec![AgentTerminalEnvVar {
-                name: "VIBEX_TEST_PID_FILE".to_string(),
+                name: "DIMO_TEST_PID_FILE".to_string(),
                 value: pid_file_release.to_string_lossy().into_owned(),
             }],
             output_byte_limit: Some(4096),

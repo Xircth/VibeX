@@ -90,7 +90,7 @@ const APP_LOG_PREFIXES: &[&str] = &[
     "services",
     "tool_runtime",
     "utils",
-    "vibex",
+    "dimo",
     "workflows",
 ];
 

@@ -163,10 +163,10 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
       content: 'Browser',
     },
     {
-      path: 'contents/skills/vibex-browser/SKILL.md',
+      path: 'contents/skills/dimo-browser/SKILL.md',
       kind: 'skill',
-      title: 'VibeX Browser',
-      content: 'VibeX Browser',
+      title: 'Dimo Browser',
+      content: 'Dimo Browser',
     },
     {
       path: 'contents/mcps/browser.json',
@@ -290,7 +290,7 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
       path: 'app/openers/workflow-source-opener.md',
       kind: 'file_opener',
       title: 'Workflow Studio',
-      content: 'Workflow Studio\n.vibex-workflow.json',
+      content: 'Workflow Studio\n.dimo-workflow.json',
     },
     {
       path: 'app/surfaces/workflow-studio.md',
@@ -299,7 +299,7 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
       content: 'Workflow Studio',
     },
     {
-      path: 'contents/skills/vibex-workflow-creator/SKILL.md',
+      path: 'contents/skills/dimo-workflow-creator/SKILL.md',
       kind: 'skill',
       title: 'Workflow Creator',
       content: 'Workflow Creator',
@@ -313,7 +313,7 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
   ],
   sessionEnhance: [
     {
-      path: 'contents/skills/vibex-session-enhance/SKILL.md',
+      path: 'contents/skills/dimo-session-enhance/SKILL.md',
       kind: 'skill',
       title: '会话增强',
       content: '会话增强',
@@ -415,10 +415,10 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
   ],
   pluginDevelopment: [
     {
-      path: 'contents/skills/vibex-plugin-development/SKILL.md',
+      path: 'contents/skills/dimo-plugin-development/SKILL.md',
       kind: 'skill',
-      title: 'VibeX 插件开发',
-      content: 'VibeX 插件开发',
+      title: 'Dimo 插件开发',
+      content: 'Dimo 插件开发',
     },
   ],
   science: [
@@ -776,9 +776,9 @@ export function entriesFromContents(
 ): RepoTreeEntry[] {
   if (documents.length === 0) {
     return [
-      { path: '.vibex-plugin', type: 'tree' },
+      { path: '.dimo-plugin', type: 'tree' },
       {
-        path: '.vibex-plugin/plugin.json',
+        path: '.dimo-plugin/plugin.json',
         type: 'blob',
         size: 1420,
         kind: 'JSON',
@@ -852,14 +852,14 @@ const OFFICIAL_COMPONENT_TITLE_KEYS: Record<
     key: 'generateSpreadsheet',
     zh: '生成表格',
   },
-  'contents/skills/vibex-session-enhance/SKILL.md': {
+  'contents/skills/dimo-session-enhance/SKILL.md': {
     key: 'sessionEnhance',
     zh: '会话增强',
   },
   'contents/mcps/session.json': { key: 'sessionMcp', zh: '会话 MCP' },
-  'contents/skills/vibex-plugin-development/SKILL.md': {
+  'contents/skills/dimo-plugin-development/SKILL.md': {
     key: 'pluginDevelopment',
-    zh: 'VibeX 插件开发',
+    zh: 'Dimo 插件开发',
   },
 };
 

@@ -393,7 +393,7 @@ describe('session composer submit helpers', () => {
   it('retains PluginAction identity when queueing editable action text', () => {
     const action = formatSessionComposerCommand({
       type: '!',
-      key: 'vibex.office/create-presentation|创建 PPT',
+      key: 'dimo.office/create-presentation|创建 PPT',
       value: '',
     });
 
@@ -408,12 +408,12 @@ describe('session composer submit helpers', () => {
     ).toEqual({
       message: '生成季度复盘',
       displayMessage:
-        '[!:vibex.office/create-presentation|创建 PPT]()生成季度复盘',
+        '[!:dimo.office/create-presentation|创建 PPT]()生成季度复盘',
       images: [],
       executorProfile: profile,
       pluginActions: [
         {
-          pluginId: 'vibex.office',
+          pluginId: 'dimo.office',
           actionId: 'create-presentation',
         },
       ],

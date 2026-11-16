@@ -19,7 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
   syncCurrentHostRelayLease,
-  useVibeXAccount,
+  useDimoAccount,
 } from '@/features/model-router';
 import {
   hostTunnelApi,
@@ -62,7 +62,7 @@ function tunnelErrorMessage(
     return t('webService.tunnelHealthFailed');
   }
   if (
-    raw.includes('Could not reach a VibeX Host') ||
+    raw.includes('Could not reach a Dimo Host') ||
     raw.includes('For a new VPS tunnel')
   ) {
     return t('webService.tunnelHostUnreachable');
@@ -164,7 +164,7 @@ export function HostTunnelPanel({
   onReachabilityChange: () => void;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const { isSignedIn, overview } = useVibeXAccount();
+  const { isSignedIn, overview } = useDimoAccount();
   const portalContainer = usePortalContainer();
   const [status, setStatus] = useState<HostTunnelStatus>(EMPTY_STATUS);
   const [address, setAddress] = useState('');
@@ -206,9 +206,9 @@ export function HostTunnelPanel({
     const handleSync = () => {
       void refresh().catch(() => undefined);
     };
-    window.addEventListener('vibex:host-tunnel-updated', handleSync);
+    window.addEventListener('dimo:host-tunnel-updated', handleSync);
     return () =>
-      window.removeEventListener('vibex:host-tunnel-updated', handleSync);
+      window.removeEventListener('dimo:host-tunnel-updated', handleSync);
   }, [refresh]);
 
   useEffect(() => {

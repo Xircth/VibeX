@@ -98,7 +98,7 @@ export function resolveClaudeCliExecutable({ env = process.env, options = {} } =
   const explicitCandidates = [
     readString(options?.pathToClaudeCodeExecutable),
     readString(env?.CLAUDE_CODE_EXECUTABLE),
-    readString(env?.VIBEX_CLAUDE_PATH),
+    readString(env?.DIMO_CLAUDE_PATH),
     readString(env?.CLAUDE_PATH),
   ].filter(Boolean);
 

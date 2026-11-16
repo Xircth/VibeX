@@ -96,7 +96,7 @@ mod tests {
             .initialize_repo_with_main_branch(&repo_path)
             .expect("init repo");
 
-        let workspace_dir = temp.path().join(".vibex-workspaces").join("workspace");
+        let workspace_dir = temp.path().join(".dimo-workspaces").join("workspace");
         let repo = test_repo(repo_path.clone());
         let input = RepoWorkspaceInput::new(repo, "main".to_string());
 
@@ -126,7 +126,7 @@ pub enum WorkspaceError {
     Io(#[from] std::io::Error),
     #[error("No repositories provided")]
     NoRepositories,
-    #[error("Unsafe workspace path outside VibeX-owned storage: {0}")]
+    #[error("Unsafe workspace path outside Dimo-owned storage: {0}")]
     UnsafeWorkspacePath(PathBuf),
     #[error("Partial workspace creation failed: {0}")]
     PartialCreation(String),
@@ -151,7 +151,7 @@ pub struct WorktreeContainer {
 pub struct WorkspaceManager;
 
 impl WorkspaceManager {
-    const CUSTOM_WORKSPACE_DIR_NAME: &'static str = ".vibex-workspaces";
+    const CUSTOM_WORKSPACE_DIR_NAME: &'static str = ".dimo-workspaces";
 
     fn canonicalize_for_safety(path: &Path) -> PathBuf {
         if let Ok(path) = dunce::canonicalize(path) {
@@ -207,7 +207,7 @@ impl WorkspaceManager {
     fn refuse_unsafe_cleanup(path: &Path, repos: &[Repo]) -> bool {
         if !Self::is_app_owned_workspace_dir(path) {
             warn!(
-                "Refusing to clean workspace path outside VibeX-owned workspace storage: {}",
+                "Refusing to clean workspace path outside Dimo-owned workspace storage: {}",
                 path.display()
             );
             return true;
@@ -230,7 +230,7 @@ impl WorkspaceManager {
         }
 
         warn!(
-            "Refusing to use workspace path outside VibeX-owned workspace storage: {}",
+            "Refusing to use workspace path outside Dimo-owned workspace storage: {}",
             path.display()
         );
         Err(WorkspaceError::UnsafeWorkspacePath(path.to_path_buf()))
@@ -513,7 +513,7 @@ impl WorkspaceManager {
     async fn cleanup_orphans_in_directory(db: &Pool<Sqlite>, workspace_base_dir: &Path) {
         if !Self::is_app_owned_workspace_dir(workspace_base_dir) {
             warn!(
-                "Skipping orphan cleanup for non VibeX-owned workspace directory: {}",
+                "Skipping orphan cleanup for non Dimo-owned workspace directory: {}",
                 workspace_base_dir.display()
             );
             return;
@@ -554,8 +554,8 @@ impl WorkspaceManager {
             }
 
             let workspace_path_str = path.to_string_lossy().to_string();
-            if path.join(".vibex-initialization.json").exists()
-                || path.join(".vibex-deletion.json").exists()
+            if path.join(".dimo-initialization.json").exists()
+                || path.join(".dimo-deletion.json").exists()
             {
                 debug!(
                     "Preserving workspace lifecycle evidence for explicit recovery: {}",
@@ -587,7 +587,7 @@ impl WorkspaceManager {
         );
         if !Self::is_app_owned_workspace_dir(workspace_dir) {
             warn!(
-                "Refusing to remove orphan workspace outside VibeX-owned storage: {}",
+                "Refusing to remove orphan workspace outside Dimo-owned storage: {}",
                 workspace_dir.display()
             );
             return Ok(());

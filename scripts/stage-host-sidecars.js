@@ -14,7 +14,7 @@ function rustcHost() {
 }
 
 function resolveTargetTriple(env = process.env, hostTriple = rustcHost()) {
-  return env.VIBEX_BUILD_TARGET || env.TAURI_ENV_TARGET_TRIPLE || hostTriple;
+  return env.DIMO_BUILD_TARGET || env.TAURI_ENV_TARGET_TRIPLE || hostTriple;
 }
 
 function resolveSidecarProfile(env = process.env) {
@@ -65,7 +65,7 @@ function sidecarBinsExist({
     env,
     hostTriple,
   });
-  return ["vibex-mcp", "vibex-workflow-mcp"].every((name) => {
+  return ["dimo-mcp", "dimo-workflow-mcp"].every((name) => {
     const file = sidecarFileName(name, platform);
     return (
       isBuiltSidecar(path.join(binDir, file)) ||
@@ -159,14 +159,14 @@ function main(env = process.env) {
   const { triple, binDir, nativeBinDir } = resolveSidecarBinDir({ repo, env });
   const sidecarDir = path.join(repo, "src-tauri", "binaries");
   copySidecar(
-    "vibex-mcp",
-    resolveSidecarSource("vibex-mcp", binDir, nativeBinDir),
+    "dimo-mcp",
+    resolveSidecarSource("dimo-mcp", binDir, nativeBinDir),
     sidecarDir,
     triple,
   );
   copySidecar(
-    "vibex-workflow-mcp",
-    resolveSidecarSource("vibex-workflow-mcp", binDir, nativeBinDir),
+    "dimo-workflow-mcp",
+    resolveSidecarSource("dimo-workflow-mcp", binDir, nativeBinDir),
     sidecarDir,
     triple,
   );

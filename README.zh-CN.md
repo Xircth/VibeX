@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="./src-tauri/icons/icon.png" alt="VibeX Logo" width="108" height="108" />
+  <img src="./src-tauri/icons/icon.png" alt="Dimo Logo" width="108" height="108" />
 
-  <h1>VibeX</h1>
+  <h1>Dimo</h1>
 
   <p>
     <a href="./README.md">English</a> · <strong>简体中文</strong>
@@ -19,17 +19,17 @@
     <a href="https://vibex.xforever.xin/#download"><img src="https://img.shields.io/badge/立即下载-macOS%20%7C%20Windows%20%7C%20Linux-0F172A?style=for-the-badge" alt="下载客户端" /></a>
     <a href="https://vibex.xforever.xin/docs"><img src="https://img.shields.io/badge/文档中心-Docs-4F46E5?style=for-the-badge" alt="文档中心" /></a>
     <a href="https://vibex.xforever.xin/marketplace"><img src="https://img.shields.io/badge/插件市场-Marketplace-059669?style=for-the-badge" alt="插件市场" /></a>
-    <a href="https://www.npmjs.com/package/@omnione/vibex"><img src="https://img.shields.io/npm/v/@omnione/vibex?style=for-the-badge&label=CLI&color=7C3AED" alt="npm version" /></a>
+    <a href="https://www.npmjs.com/package/dimoai"><img src="https://img.shields.io/npm/v/dimoai?style=for-the-badge&label=CLI&color=7C3AED" alt="npm version" /></a>
   </p>
 </div>
 
 ---
 
-## 为什么选择 VibeX？
+## 为什么选择 Dimo？
 
 在真实的 Vibe Coding 中，开发者往往同时使用 Claude Code、Codex、Cursor、OpenCode、Antigravity 等多个 Agent，却受困于多开终端的割裂上下文、并发改码的代码冲突、单一编辑器的模型锁定，以及离开电脑就无法操控的断联体验。
 
-**VibeX** 将多 Agent 开发环境与全套 Vibe Coding 生产力工具融为一体：
+**Dimo** 将多 Agent 开发环境与全套 Vibe Coding 生产力工具融为一体：
 
 - **集成Agent，自由协作**：把主流 Coding Agent都变为可视化，多会话协作或GrokBot式的Team式协作，共享项目上下文、技能与工具生态，在不同 Agent 之间自由迁移迁移，自由协作。
 - **既能直觉创造，也能严谨交付**：自由标签页与无限画布双模式，随你发挥，多 Worktree 并行隔离、实时 Diff 与冲突合并，让高频并发的 Vibe Coding 始终井然有序。
@@ -78,7 +78,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/images/readme/VibeX-Bot.png" alt="多角色 AI 团队协作空间" width="100%" />
+  <img src="./assets/images/readme/Dimo-Bot.png" alt="多角色 AI 团队协作空间" width="100%" />
 </p>
 
 <p align="center">
@@ -106,14 +106,14 @@
 ## 平台全景与体验对比
 
 <p align="center">
-  <img src="./docs/readme/iade-architecture.svg" alt="VibeX Agent-Native 一体化开发平台全景" width="100%" />
+  <img src="./docs/readme/iade-architecture.svg" alt="Dimo Agent-Native 一体化开发平台全景" width="100%" />
 </p>
 
 <p align="center">
-  <img src="./docs/readme/collaboration-flow.svg" alt="VibeX 多 Agent 协同 Vibe Coding 闭环" width="100%" />
+  <img src="./docs/readme/collaboration-flow.svg" alt="Dimo 多 Agent 协同 Vibe Coding 闭环" width="100%" />
 </p>
 
-| 体验维度 | 传统多开 CLI 终端 | 单一 AI 编辑器 | VibeX Agent-Native 开发平台 |
+| 体验维度 | 传统多开 CLI 终端 | 单一 AI 编辑器 | Dimo Agent-Native 开发平台 |
 | :--- | :--- | :--- | :--- |
 | **Agent 支持** | 多个终端各自为战 | 绑定单一内置模型/Agent | **20+ 主流 Agent 可视化统一调度与混编** |
 | **工作空间** | 纯文本滚动窗口 | 固定单窗口布局 | **自由标签页 ↔ 无限画布一键无损切换** |
@@ -130,7 +130,7 @@
 
 ### 1. 下载桌面客户端（推荐）
 
-前往 [VibeX 官方下载页](https://vibex.xforever.xin/#download) 获取原生安装包（支持自动更新）：
+前往 [Dimo 官方下载页](https://vibex.xforever.xin/#download) 获取原生安装包（支持自动更新）：
 
 - **macOS**：Apple Silicon (`aarch64` `.dmg`) · Intel (`x64` `.dmg`)
 - **Windows**：Windows 10 / 11 (`x64` / `arm64` `.exe`)
@@ -142,18 +142,18 @@
 
 ```bash
 # macOS / Linux 一键安装
-curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/DimoADE/Dimo/master/install.sh | sh
 
 # Windows PowerShell 一键安装
-irm https://raw.githubusercontent.com/Xircth/VibeX/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/DimoADE/Dimo/master/install.ps1 | iex
 ```
 
 或通过 `npx` 直接运行：
 
 ```bash
-npx @omnione/vibex          # 本机启动
-npx @omnione/vibex serve    # 开启局域网 / 远程 WebUI 访问
-npx @omnione/vibex list     # 查看支持一键安装的 Coding Agent
+npx dimoai          # 本机启动
+npx dimoai serve    # 开启局域网 / 远程 WebUI 访问
+npx dimoai list     # 查看支持一键安装的 Coding Agent
 ```
 
 也支持 Docker 一键部署：`docker compose up -d`（更多服务端配置见 [无头 Server 部署指南](./docs/deployment/headless-server.md)）。
@@ -181,17 +181,17 @@ pnpm run check    # 运行前后端类型与编译检查
 - **客户端下载**：[https://vibex.xforever.xin/#download](https://vibex.xforever.xin/#download)
 - **在线文档**：[https://vibex.xforever.xin/docs](https://vibex.xforever.xin/docs)
 - **插件市场**：[https://vibex.xforever.xin/marketplace](https://vibex.xforever.xin/marketplace)
-- **CLI 工具包**：[https://www.npmjs.com/package/@omnione/vibex](https://www.npmjs.com/package/@omnione/vibex)
+- **CLI 工具包**：[https://www.npmjs.com/package/dimoai](https://www.npmjs.com/package/dimoai)
 
 <div align="center">
   <table>
     <tr>
       <td align="center" width="260">
-        <img src="./assets/images/readme/VibeX交流群3.png" alt="VibeX 微信交流群" width="200" /><br />
+        <img src="./assets/images/readme/Dimo交流群3.png" alt="Dimo 微信交流群" width="200" /><br />
         <sub><b>微信交流群</b>（扫码加入）</sub>
       </td>
       <td align="center" width="260">
-        <img src="./assets/images/readme/QQ-VibeX交流群3.png" alt="VibeX QQ 交流群" width="200" /><br />
+        <img src="./assets/images/readme/QQ-Dimo交流群3.png" alt="Dimo QQ 交流群" width="200" /><br />
         <sub><b>QQ 交流群</b>（扫码加入）</sub>
       </td>
     </tr>

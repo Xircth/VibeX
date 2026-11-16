@@ -19,7 +19,7 @@ function exists(relativePath) {
 test('desktop browser is browser-host plus the official plugin, not CEF', () => {
   assert.equal(exists('crates/browser-cef'), false);
   assert.equal(exists('crates/browser-runtime'), false);
-  assert.equal(exists('src-tauri/src/bin/vibex_cef_helper.rs'), false);
+  assert.equal(exists('src-tauri/src/bin/dimo_cef_helper.rs'), false);
   assert.equal(exists('src-tauri/src/cef_pump.rs'), false);
   assert.equal(exists('src-tauri/src/commands/browser.rs'), false);
   assert.equal(exists('scripts/stage-cef-runtime.js'), false);
@@ -36,10 +36,10 @@ test('desktop browser is browser-host plus the official plugin, not CEF', () => 
     true
   );
 
-  const catalog = JSON.parse(readRepoFile('vibex-plugin.json'));
-  const browser = catalog.official.find((plugin) => plugin.id === 'vibex.browser');
+  const catalog = JSON.parse(readRepoFile('dimo-plugin.json'));
+  const browser = catalog.official.find((plugin) => plugin.id === 'dimo.browser');
   assert.ok(browser);
-  assert.match(browser.repository, /vibex-plugin-browser/);
+  assert.match(browser.repository, /dimo-plugin-browser/);
 });
 
 test('plugin MCP uses generic host.call injection, not a browser-specific URL', () => {
@@ -54,9 +54,9 @@ test('plugin MCP uses generic host.call injection, not a browser-specific URL', 
   assert.match(agent, /__codegAgent/);
   assert.match(agent, /install_and_snapshot/);
   assert.match(agent, /act_call/);
-  assert.match(hostCall, /VIBEX_HOST_CALL_TOKEN/);
+  assert.match(hostCall, /DIMO_HOST_CALL_TOKEN/);
   const production = hostCall.split('#[cfg(test)]')[0];
-  assert.doesNotMatch(production, /vibex\.browser/);
+  assert.doesNotMatch(production, /dimo\.browser/);
 });
 
 test('workspace and Tauri shell no longer link CEF or desktop browser_* commands', () => {
@@ -78,7 +78,7 @@ test('workspace and Tauri shell no longer link CEF or desktop browser_* commands
   assert.doesNotMatch(generateTypes, /browser_create_tab|browser_apply_intent/);
   assert.doesNotMatch(hostCommands, /browser_create_tab|browser_apply_intent/);
   assert.doesNotMatch(desktopDev, /run-tauri-dev-macos/);
-  assert.doesNotMatch(desktopBuild, /vibex_cef_helper|CEF_PATH/);
+  assert.doesNotMatch(desktopBuild, /dimo_cef_helper|CEF_PATH/);
 });
 
 test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW', () => {
@@ -115,7 +115,7 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   assert.match(native, /Some\("navigate"\)/);
   assert.match(native, /target === '_blank'/);
   assert.match(native, /chrome\.webview\.postMessage/);
-  assert.match(native, /vibex:/);
+  assert.match(native, /dimo:/);
   assert.match(native, /WebMessageAsJson/);
   assert.match(native, /pushState/);
   assert.match(native, /newTab: false/);
@@ -160,7 +160,7 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
     picker,
     /cloak:[\s\S]*pointer-events", "none"/
   );
-  assert.match(picker, /__vibexPickQueue/);
+  assert.match(picker, /__dimoPickQueue/);
   const styles = readRepoFile('frontend/src/styles/legacy/index.css');
   assert.match(
     styles,

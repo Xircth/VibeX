@@ -35,7 +35,7 @@ describe("stdio worker protocol", () => {
         id: "1",
         method: "activate",
         params: {
-          pluginId: "dev.vibex.echo",
+          pluginId: "dev.dimo.echo",
           pluginVersion: "1.0.0",
           generation: 1,
           grantedCapabilities: [],
@@ -94,7 +94,7 @@ describe("stdio worker protocol", () => {
         id: "1",
         method: "activate",
         params: {
-          pluginId: "dev.vibex.broker",
+          pluginId: "dev.dimo.broker",
           pluginVersion: "1.0.0",
           generation: 1,
           grantedCapabilities: ["runtime.execute"],
@@ -240,9 +240,9 @@ describe("stdio worker protocol", () => {
 
     const slots = new Map([
       [
-        "dev.vibex.one#1",
+        "dev.dimo.one#1",
         {
-          pluginId: "dev.vibex.one",
+          pluginId: "dev.dimo.one",
           generation: 1,
           cwd: "/plugins/one",
           entrypoint: "/plugins/one/worker.mjs",
@@ -251,7 +251,7 @@ describe("stdio worker protocol", () => {
       ],
     ]);
     const services = new Map<string, unknown>([["shared.cache", { ok: true }]]);
-    (globalThis as Record<string, unknown>).__VIBEX_SHARED_PLUGIN_HOST__ = {
+    (globalThis as Record<string, unknown>).__DIMO_SHARED_PLUGIN_HOST__ = {
       slots,
       services,
     };
@@ -262,7 +262,7 @@ describe("stdio worker protocol", () => {
       expect(host?.services.get("shared.cache")).toEqual({ ok: true });
     } finally {
       delete (globalThis as Record<string, unknown>)
-        .__VIBEX_SHARED_PLUGIN_HOST__;
+        .__DIMO_SHARED_PLUGIN_HOST__;
     }
   });
 
@@ -319,7 +319,7 @@ describe("stdio worker protocol", () => {
         id: "1",
         method: "activate",
         params: {
-          pluginId: "dev.vibex.broker",
+          pluginId: "dev.dimo.broker",
           pluginVersion: "1.0.0",
           generation: 1,
           grantedCapabilities: ["runtime.execute"],
@@ -376,7 +376,7 @@ describe("stdio worker protocol", () => {
         id: "1",
         method: "activate",
         params: {
-          pluginId: "dev.vibex.broker",
+          pluginId: "dev.dimo.broker",
           pluginVersion: "1.0.0",
           generation: 1,
           grantedCapabilities: ["runtime.execute"],

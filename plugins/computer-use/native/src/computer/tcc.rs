@@ -2,8 +2,8 @@
 //! and does it have Screen Recording.
 //!
 //! Neither raises a dialog. They are the only TCC-related calls allowed in
-//! vibex's own binary, and vibex asks them about itself for one reason: a
-//! person who once granted vibex either permission — by hand, or following
+//! dimo's own binary, and dimo asks them about itself for one reason: a
+//! person who once granted dimo either permission — by hand, or following
 //! an old guide — has handed it to every agent's shell, and should be told.
 //! The helper never asks them about itself: macOS keeps a process's first
 //! "not granted" for its whole life, and the helper makes Accessibility calls
@@ -11,8 +11,8 @@
 //! `helper::driver_proc::probe_permissions`).
 //!
 //! The calls that *ask* for a permission are not here: they belong to the
-//! helper binary alone, so that nothing vibex links can raise a permission
-//! request in vibex's name.
+//! helper binary alone, so that nothing dimo links can raise a permission
+//! request in dimo's name.
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
@@ -27,14 +27,14 @@ pub fn accessibility_granted() -> bool {
 
 /// Whether this process may record the screen. Looked up at run time because
 /// `CGPreflightScreenCaptureAccess` only exists from macOS 10.15, and a
-/// direct reference would stop vibex from launching on anything older; there
+/// direct reference would stop dimo from launching on anything older; there
 /// the system has no Screen Recording permission to hold, so `false` is the
 /// honest answer.
 pub fn screen_recording_granted() -> bool {
     type Preflight = unsafe extern "C" fn() -> u8;
     static NAME: &[u8] = b"CGPreflightScreenCaptureAccess\0";
     // SAFETY: RTLD_DEFAULT lookup of a NUL-terminated name. CoreGraphics is
-    // always loaded in a process that links AppKit, which vibex and the
+    // always loaded in a process that links AppKit, which dimo and the
     // helper both do.
     let sym = unsafe { libc::dlsym(libc::RTLD_DEFAULT, NAME.as_ptr().cast()) };
     if sym.is_null() {
@@ -49,10 +49,10 @@ pub fn screen_recording_granted() -> bool {
 /// The process TCC charges this process's requests to, when the private
 /// `responsibility_get_pid_responsible_for_pid` is available.
 ///
-/// Used to tell a vibex that holds a permission *itself* (launched from
+/// Used to tell a dimo that holds a permission *itself* (launched from
 /// Finder: it is its own responsible process) from a development build run
 /// under a terminal, which reports the terminal's permissions — ones that
-/// every process in that terminal, vibex's agents included, already has.
+/// every process in that terminal, dimo's agents included, already has.
 pub fn responsible_pid(pid: u32) -> Option<u32> {
     type Responsible = unsafe extern "C" fn(libc::pid_t) -> libc::pid_t;
     static NAME: &[u8] = b"responsibility_get_pid_responsible_for_pid\0";

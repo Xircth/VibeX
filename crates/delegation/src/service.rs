@@ -157,10 +157,10 @@ mod tests {
     async fn ping_fails_when_nothing_is_bound() {
         let dir = tempfile::tempdir().unwrap();
         #[cfg(unix)]
-        let path = dir.path().join("vibex-delegation-missing.sock");
+        let path = dir.path().join("dimo-delegation-missing.sock");
         #[cfg(windows)]
         let path = PathBuf::from(format!(
-            r"\\.\pipe\vibex-delegation-missing-{}",
+            r"\\.\pipe\dimo-delegation-missing-{}",
             uuid::Uuid::new_v4()
         ));
         assert!(!probe_socket(&path).await);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useRegistry } from '@vibex/plugin-sdk';
+import { useRegistry } from '@dimoai/plugin-sdk';
 import { EditorType, type EditorConfig } from 'shared/types';
 
 import { IdeIcon } from '@/components/ide/IdeIcon';

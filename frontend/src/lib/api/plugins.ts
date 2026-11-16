@@ -2,7 +2,7 @@ import {
   configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
-import { notifyPluginConfigUpdated, type JsonValue } from '@vibex/plugin-sdk';
+import { notifyPluginConfigUpdated, type JsonValue } from '@dimoai/plugin-sdk';
 
 export interface PluginControlSkill {
   id: string;
@@ -346,7 +346,7 @@ export interface PluginImportPreview {
   };
 }
 
-export type PluginImportPackageKind = 'codex' | 'vibex';
+export type PluginImportPackageKind = 'codex' | 'dimo';
 
 export interface CatalogListing {
   owner: string;
@@ -483,7 +483,7 @@ async function loadContributionsWithFileApi(
     (await transport.call('read_file_content', {
       path: pluginFilePath(
         plugin,
-        native ? '.mcp.json' : '.vibex-plugin/plugin.json'
+        native ? '.mcp.json' : '.dimo-plugin/plugin.json'
       ),
     })) as string
   ) as unknown;

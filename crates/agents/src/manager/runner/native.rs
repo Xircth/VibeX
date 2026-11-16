@@ -100,11 +100,11 @@ impl AgentConnectionRunner {
         let (launch_env, scrubbed_env_keys) = self.build_native_engine_launch_env(&*driver)?;
         let auth = driver.resolve_auth(&launch_env);
         let provider_instance_id = launch_env
-            .get("VIBEX_PROVIDER_INSTANCE_ID")
+            .get("DIMO_PROVIDER_INSTANCE_ID")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         let isolate_profile = launch_env
-            .get("VIBEX_ISOLATE_PROVIDER_PROFILE")
+            .get("DIMO_ISOLATE_PROVIDER_PROFILE")
             .is_some_and(|value| value.trim() == "1");
         let initial_mcp = self.build_native_session_mcp_json(None).await;
 
@@ -114,7 +114,7 @@ impl AgentConnectionRunner {
             provider_instance_id,
             isolate_profile,
             auth,
-            model: launch_env.get("VIBEX_DEFAULT_MODEL").cloned(),
+            model: launch_env.get("DIMO_DEFAULT_MODEL").cloned(),
             config_overrides: json!({}),
             env: launch_env,
             scrubbed_env_keys,

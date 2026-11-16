@@ -417,7 +417,7 @@ pub fn classify_for_screen(chord: &Chord, platform: Platform) -> ChordClass {
 
 /// The chords no sharing sends: the ones that lock the screen or log out,
 /// and the ones that show every window at once — never-shared ones included,
-/// drawn by the system itself where vibex cannot paint them over.
+/// drawn by the system itself where dimo cannot paint them over.
 fn never_chord(chord: &Chord, platform: Platform) -> bool {
     let Chord { key, modifiers: m } = *chord;
     match platform {

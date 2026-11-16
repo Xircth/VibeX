@@ -1,14 +1,14 @@
 [package]
-name = "vibex-computer-helper"
+name = "dimo-computer-helper"
 version = "0.34.0"
 edition = "2021"
-description = "VibeX Computer Use Helper & Daemon"
+description = "Dimo Computer Use Helper & Daemon"
 license = "MIT"
 
 [workspace]
 
 [[bin]]
-name = "vibex-computer-helper"
+name = "dimo-computer-helper"
 path = "src/main.rs"
 
 [features]

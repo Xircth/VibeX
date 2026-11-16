@@ -1,4 +1,4 @@
-//! Main-process socket server bridging the `vibex-mcp` companion to the
+//! Main-process socket server bridging the `dimo-mcp` companion to the
 //! in-process [`DelegationBroker`]. Accepts framed [`BrokerMessage`]s over a
 //! UDS (unix) / named pipe (windows), authenticates the per-launch token,
 //! resolves the parent's current session, and routes to the broker.
@@ -539,12 +539,12 @@ where
 /// a named pipe scoped by pid.
 #[cfg(unix)]
 pub fn default_socket_path(temp_dir: &std::path::Path) -> PathBuf {
-    temp_dir.join(format!("vibex-delegation-{}.sock", std::process::id()))
+    temp_dir.join(format!("dimo-delegation-{}.sock", std::process::id()))
 }
 
 #[cfg(windows)]
 pub fn default_socket_path(_temp_dir: &std::path::Path) -> PathBuf {
-    PathBuf::from(format!(r"\\.\pipe\vibex-delegation-{}", std::process::id()))
+    PathBuf::from(format!(r"\\.\pipe\dimo-delegation-{}", std::process::id()))
 }
 
 fn to_wire_report(report: DelegationTaskReport) -> WireDelegationTaskReport {
@@ -1400,12 +1400,12 @@ mod tests {
             resolved.display()
         );
         assert_eq!(
-            strip_windows_verbatim_prefix(PathBuf::from(r"\\?\C:\Users\dev\VibeX")),
-            PathBuf::from(r"C:\Users\dev\VibeX")
+            strip_windows_verbatim_prefix(PathBuf::from(r"\\?\C:\Users\dev\Dimo")),
+            PathBuf::from(r"C:\Users\dev\Dimo")
         );
         assert_eq!(
-            strip_windows_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\VibeX")),
-            PathBuf::from(r"\\server\share\VibeX")
+            strip_windows_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\Dimo")),
+            PathBuf::from(r"\\server\share\Dimo")
         );
     }
 }

@@ -11,7 +11,7 @@
 //! one else can have been given its pid.
 //!
 //! Security.framework and `csops` are not governed by TCC, so these checks
-//! are as safe to run inside vibex as inside the helper.
+//! are as safe to run inside dimo as inside the helper.
 
 use std::ffi::{c_int, c_void};
 use std::os::fd::RawFd;

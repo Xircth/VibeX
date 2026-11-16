@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-06
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # ACP 组件双向管理：平台托管更新与外部变更自动采纳
@@ -15,7 +15,7 @@ decision-makers:
 无法启动，安装进入 `needs_repair`。该行为是 TOFU fail-closed 的设计意图（见
 ADR-0017 与 ADR-0034），但暴露了双向管理缺口：
 
-1. **托管方向**：VibeX 已有完整更新链路（`agent_management_apply_update` →
+1. **托管方向**：Dimo 已有完整更新链路（`agent_management_apply_update` →
    `AgentOperationKind::Update` → 新 Installation lock，旧 lock 转
    `rollback_lock_id`），但内置 Agent 的更新目标是 Built-in Profile 编译期锁定的
    版本（`profiles.rs` 中 `codex-acp@1.1.9`）——`check_update` 能看到 Registry
@@ -36,7 +36,7 @@ ADR-0016 的落地语义做一处受控修订，不改变既有 ADR 的产品方
 
 ## Assumptions and boundaries
 
-1. VibeX 仍不修改、删除或升级外部安装的文件（ADR-0011 不变）；外部组件内容变化
+1. Dimo 仍不修改、删除或升级外部安装的文件（ADR-0011 不变）；外部组件内容变化
    由外部所有者（用户、npm、系统包管理器）负责。
 2. Agent 来源仍只有 Built-in Agent Profile 与 ACP 官方 Registry（ADR-0034 不变）。
 3. 主动升级永远需要用户确认（ADR-0016 不变）；本 ADR 引入的自动采纳只响应
@@ -92,7 +92,7 @@ ADR-0016 的落地语义做一处受控修订，不改变既有 ADR 的产品方
 3. **验证通过 → 自动采纳并放行。** 官方指纹与磁盘内容一致时，自动更新
    Installation lock 的组件指纹（`persist_installed_lock` 语义，生成新 lock，
    旧 lock 转 rollback）并放行；无需用户干预。这是 ADR-0016"发现版本变化后只
-   重新校验，不主动修改"的落地修订：VibeX 仍不修改外部文件，只更新自己的锁
+   重新校验，不主动修改"的落地修订：Dimo 仍不修改外部文件，只更新自己的锁
    记录，信任依据从 TOFU 首次指纹升级为官方 Verified 指纹（ADR-0017 两级信任
    中的第一级）。
 4. **无官方指纹 → 保持 fail-closed。** TOFU 组件（官方来源未提供校验和）内容
@@ -105,9 +105,9 @@ ADR-0016 的落地语义做一处受控修订，不改变既有 ADR 的产品方
 
 ### 安全不变式
 
-- VibeX 永不修改外部安装的文件。
+- Dimo 永不修改外部安装的文件。
 - 自动采纳仅限官方指纹可验证的组件；TOFU 永不自动采纳。
-- 自动采纳不是主动升级：VibeX 不因"有新版"而改动外部文件，只响应已发生的、
+- 自动采纳不是主动升级：Dimo 不因"有新版"而改动外部文件，只响应已发生的、
   可验证的内容变更。
 - 主动升级永远需要用户确认。
 - 官方指纹与磁盘不符时始终拦截。

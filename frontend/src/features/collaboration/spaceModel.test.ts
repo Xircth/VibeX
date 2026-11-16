@@ -978,7 +978,7 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
       turnId: 'turn-1',
       envelope: {
         content:
-          '我先查看一下 vibex-bot 规范和 manage_bot 工具参数，接着为你创建专门负责邮件管理的 Bot「Hailer」。',
+          '我先查看一下 dimo-bot 规范和 manage_bot 工具参数，接着为你创建专门负责邮件管理的 Bot「Hailer」。',
       },
     };
     const step2Draft = {

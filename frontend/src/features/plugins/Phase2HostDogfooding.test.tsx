@@ -10,7 +10,7 @@ import {
   bindExternalStoreHook,
   commandRegistry,
   conversationModeRegistry,
-  defineVibeXPlugin,
+  defineDimoPlugin,
   kanbanViewRegistry,
   markdownRegistry,
   overlayRegistry,
@@ -23,7 +23,7 @@ import {
   slotRegistry,
   themeRegistry,
   viewRegistry,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import React, { useSyncExternalStore } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -151,7 +151,7 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
     unloadPluginRuntime('acme.schema-only');
   });
 
-  it('dogfoods all built-in panels, kanban views, settings pages, and quick commands into @vibex/plugin-sdk registries', () => {
+  it('dogfoods all built-in panels, kanban views, settings pages, and quick commands into @dimoai/plugin-sdk registries', () => {
     expect(panelRegistry.getAll().length).toBe(
       BUILTIN_PANEL_CONTRIBUTIONS.length
     );
@@ -276,7 +276,7 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
     const contextMenuActivated = vi.fn();
 
     // A concise single-file plugin definition
-    const singleFilePlugin = defineVibeXPlugin({
+    const singleFilePlugin = defineDimoPlugin({
       apiVersion: '2.0',
       activate(ctx) {
         ctx.ui.registerStatusBarItem({
@@ -361,9 +361,9 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
 
     // Verify CSS @layer injection
     const styleEl = document.head.querySelector(
-      'style[data-vibex-plugin="acme.super-plugin"]'
+      'style[data-dimo-plugin="acme.super-plugin"]'
     );
-    expect(styleEl?.textContent).toContain('@layer vibex-plugins');
+    expect(styleEl?.textContent).toContain('@layer dimo-plugins');
 
     // Verify Kanban catalog includes built-in 4 + plugin 'roadmap'
     const kanbanViews = kanbanViewsFromCatalog([]);
@@ -533,7 +533,7 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
     expect(screen.getByTestId('standard-chat-timeline')).toBeInTheDocument();
     expect(
       document.head.querySelector(
-        'style[data-vibex-plugin="acme.super-plugin"]'
+        'style[data-dimo-plugin="acme.super-plugin"]'
       )
     ).toBeNull();
   });

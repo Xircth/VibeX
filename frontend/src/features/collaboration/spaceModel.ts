@@ -479,7 +479,7 @@ export type SpaceTagConfig = {
   label?: string;
 };
 
-const SPACE_TAGS_STORAGE_KEY = 'vibex-collaboration-space-tags';
+const SPACE_TAGS_STORAGE_KEY = 'dimo-collaboration-space-tags';
 
 export function readSpaceTags(
   storage: Pick<Storage, 'getItem'> | undefined = typeof window !== 'undefined'
@@ -2311,8 +2311,8 @@ export function memberTabTitle(
 }
 
 /** Marker wrapping the hidden DM greeting prompt. Session tab keeps the body. */
-export const COLLAB_DM_BOOTSTRAP_PREFIX = '<vibex-private-bootstrap>';
-export const COLLAB_DM_BOOTSTRAP_SUFFIX = '</vibex-private-bootstrap>';
+export const COLLAB_DM_BOOTSTRAP_PREFIX = '<dimo-private-bootstrap>';
+export const COLLAB_DM_BOOTSTRAP_SUFFIX = '</dimo-private-bootstrap>';
 
 export function isCollabDmBootstrapPrompt(
   text: string | null | undefined

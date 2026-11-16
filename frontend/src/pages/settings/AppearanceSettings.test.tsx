@@ -110,9 +110,10 @@ vi.mock('@/lib/kanbanBoardStyle', () => ({
 }));
 
 vi.mock('@/lib/settingsNavFloat', () => ({
-  getSettingsNavFloat: () => true,
+  DEFAULT_SETTINGS_NAV_FLOAT: false,
+  getSettingsNavFloat: () => false,
   setSettingsNavFloat: mocks.setSettingsNavFloat,
-  useSettingsNavFloat: () => true,
+  useSettingsNavFloat: () => false,
 }));
 
 vi.mock('./LayoutArrangementSchematic', () => ({
@@ -239,12 +240,12 @@ describe('AppearanceSettings', () => {
     }
   );
 
-  it('floats the settings menu by default and applies the choice immediately', async () => {
+  it('keeps the settings menu flush by default and applies the choice immediately', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
     const toggle = screen.getByRole('switch', { name: '设置菜单悬浮' });
-    expect(toggle).toBeChecked();
+    expect(toggle).not.toBeChecked();
     expect(
       screen.getByText(
         '使用圆角悬浮组件显示设置菜单。关闭后左侧菜单直接平铺在背景上。'
@@ -252,7 +253,7 @@ describe('AppearanceSettings', () => {
     ).toBeInTheDocument();
 
     await user.click(toggle);
-    expect(mocks.setSettingsNavFloat).toHaveBeenCalledWith(false);
+    expect(mocks.setSettingsNavFloat).toHaveBeenCalledWith(true);
   });
 
   it('places preview settings before page layout', () => {

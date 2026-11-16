@@ -24,7 +24,7 @@ impl NpmRegistryHttpFetcher {
     pub fn new() -> Self {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let client = reqwest::Client::builder()
-            .user_agent("vibex-npm-registry/1.0")
+            .user_agent("dimo-npm-registry/1.0")
             .connect_timeout(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(30))
             .build()

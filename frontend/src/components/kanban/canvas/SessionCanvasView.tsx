@@ -2437,7 +2437,7 @@ function SessionCanvasFlow({
 
   const handleNativeDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
-      const rawData = event.dataTransfer.getData('application/x-vibex-panel');
+      const rawData = event.dataTransfer.getData('application/x-dimo-panel');
       if (!rawData) return;
       event.preventDefault();
       try {
@@ -2452,7 +2452,7 @@ function SessionCanvasFlow({
 
   const handleNativeDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+      if (!event.dataTransfer.types.includes('application/x-dimo-panel')) {
         return;
       }
       event.preventDefault();

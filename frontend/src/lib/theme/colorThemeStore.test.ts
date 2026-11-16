@@ -1,4 +1,4 @@
-import type { ThemeContribution, ThemeDefinition } from '@vibex/plugin-sdk';
+import type { ThemeContribution, ThemeDefinition } from '@dimoai/plugin-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const persistFrontendPreference = vi.hoisted(() => vi.fn());
@@ -41,7 +41,7 @@ const pluginMirage: ThemeContribution = {
 
 function themeStylesheet(): string {
   return (
-    document.head.querySelector('style[data-vibex-color-theme]')?.textContent ??
+    document.head.querySelector('style[data-dimo-color-theme]')?.textContent ??
     ''
   );
 }

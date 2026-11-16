@@ -733,10 +733,10 @@ fn validate_source_path(source_path: &str) -> Result<(), WorkflowError> {
         || path
             .components()
             .any(|component| matches!(component, std::path::Component::ParentDir))
-        || !source_path.ends_with(".vibex-workflow.json")
+        || !source_path.ends_with(".dimo-workflow.json")
     {
         return Err(WorkflowError::Validation(
-            "sourcePath must be a relative *.vibex-workflow.json path".to_string(),
+            "sourcePath must be a relative *.dimo-workflow.json path".to_string(),
         ));
     }
     Ok(())
@@ -916,7 +916,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -931,7 +931,7 @@ mod tests {
     #[tokio::test]
     async fn source_path_is_the_reusable_definition_identity() {
         let (core, _) = setup().await;
-        let source_path = "flows/repository-review.vibex-workflow.json";
+        let source_path = "flows/repository-review.dimo-workflow.json";
         let first = core
             .publish(PublishWorkflow {
                 definition_id: None,
@@ -962,7 +962,7 @@ mod tests {
     #[tokio::test]
     async fn debug_snapshot_stays_out_of_published_history_until_publish() {
         let (core, _) = setup().await;
-        let source_path = "flows/debug-only.vibex-workflow.json";
+        let source_path = "flows/debug-only.dimo-workflow.json";
         let debug = core
             .materialize_debug(PublishWorkflow {
                 definition_id: None,
@@ -1069,7 +1069,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -1332,7 +1332,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: original_version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -1478,7 +1478,7 @@ mod tests {
         let start = StartWorkflow {
             definition_version_id: first.id,
             workspace_id: Uuid::new_v4(),
-            input: serde_json::json!({"repo": "vibex"}),
+            input: serde_json::json!({"repo": "dimo"}),
             policy_override: None,
             debug_step_id: None,
             operation_id: operation,
@@ -1540,7 +1540,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -1608,7 +1608,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -1750,7 +1750,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -2131,7 +2131,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -2168,7 +2168,7 @@ mod tests {
             resolved.values["build"],
             serde_json::json!({"artifact": "bundle.zip"})
         );
-        assert_eq!(resolved.values["repo"], "vibex");
+        assert_eq!(resolved.values["repo"], "dimo");
         assert_eq!(resolved.values["artifact"], "bundle.zip");
         assert_eq!(resolved.digest.len(), 64);
         let claimed = store
@@ -2595,7 +2595,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: Some(policy),
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -2820,7 +2820,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -2855,7 +2855,7 @@ mod tests {
             .start(StartWorkflow {
                 definition_version_id: version.id,
                 workspace_id: Uuid::new_v4(),
-                input: serde_json::json!({"repo": "vibex"}),
+                input: serde_json::json!({"repo": "dimo"}),
                 policy_override: None,
                 debug_step_id: None,
                 operation_id: Uuid::new_v4(),
@@ -3022,7 +3022,7 @@ mod tests {
                 .start(StartWorkflow {
                     definition_version_id: version.id,
                     workspace_id: Uuid::new_v4(),
-                    input: serde_json::json!({"repo": "vibex"}),
+                    input: serde_json::json!({"repo": "dimo"}),
                     policy_override: None,
                     debug_step_id: None,
                     operation_id: Uuid::new_v4(),

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { localizeReleaseNotes } from './localizeNotes';
 
-const BILINGUAL = `# VibeX 0.1.3
+const BILINGUAL = `# Dimo 0.1.3
 
 ## English
 

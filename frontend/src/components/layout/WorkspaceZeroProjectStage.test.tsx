@@ -31,7 +31,7 @@ vi.mock('@/components/context-menu', () => ({
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
-    projects: [{ id: 'home-proj', name: '__vibex_home__', is_home: true }],
+    projects: [{ id: 'home-proj', name: '__dimo_home__', is_home: true }],
     isLoading: false,
   }),
 }));

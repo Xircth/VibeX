@@ -8,9 +8,9 @@ import { useSyncExternalStore } from 'react';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 type PersistableKey =
-  | 'vibex:workspace-stage-style'
-  | 'vibex:canvas-dock-position'
-  | 'vibex:canvas-viewport-position';
+  | 'dimo:workspace-stage-style'
+  | 'dimo:canvas-dock-position'
+  | 'dimo:canvas-viewport-position';
 
 function createEnumPreferenceStore<T extends string>(
   storageKey: PersistableKey,
@@ -100,7 +100,7 @@ function createEnumPreferenceStore<T extends string>(
 export const WORKSPACE_STAGE_STYLES = ['tabs', 'canvas'] as const;
 export type WorkspaceStageStyle = (typeof WORKSPACE_STAGE_STYLES)[number];
 export const DEFAULT_WORKSPACE_STAGE_STYLE: WorkspaceStageStyle = 'tabs';
-export const WORKSPACE_STAGE_STYLE_KEY = 'vibex:workspace-stage-style' as const;
+export const WORKSPACE_STAGE_STYLE_KEY = 'dimo:workspace-stage-style' as const;
 
 const stageStyleStore = createEnumPreferenceStore(
   WORKSPACE_STAGE_STYLE_KEY,
@@ -118,7 +118,7 @@ export const useWorkspaceStageStyle = stageStyleStore.useValue;
 export const CANVAS_DOCK_POSITIONS = ['bottom', 'left', 'right'] as const;
 export type CanvasDockPosition = (typeof CANVAS_DOCK_POSITIONS)[number];
 export const DEFAULT_CANVAS_DOCK_POSITION: CanvasDockPosition = 'bottom';
-export const CANVAS_DOCK_POSITION_KEY = 'vibex:canvas-dock-position' as const;
+export const CANVAS_DOCK_POSITION_KEY = 'dimo:canvas-dock-position' as const;
 
 const canvasDockPositionStore = createEnumPreferenceStore(
   CANVAS_DOCK_POSITION_KEY,
@@ -141,7 +141,7 @@ export type CanvasViewportPosition = (typeof CANVAS_VIEWPORT_POSITIONS)[number];
 export const DEFAULT_CANVAS_VIEWPORT_POSITION: CanvasViewportPosition =
   'bottom-right';
 export const CANVAS_VIEWPORT_POSITION_KEY =
-  'vibex:canvas-viewport-position' as const;
+  'dimo:canvas-viewport-position' as const;
 
 const canvasViewportPositionStore = createEnumPreferenceStore(
   CANVAS_VIEWPORT_POSITION_KEY,

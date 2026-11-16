@@ -236,7 +236,7 @@ describe('McpSettings', () => {
     mocks.pluginCatalog.mockResolvedValue({
       plugins: [
         {
-          id: 'dev.vibex.research',
+          id: 'dev.dimo.research',
           name: 'Research Toolkit',
           skills: [{ id: 'research', path: 'skills/research/SKILL.md' }],
         },
@@ -245,7 +245,7 @@ describe('McpSettings', () => {
     });
     mocks.configurePluginMcp.mockResolvedValue({ mcpErrors: [] });
     renderSettings(<McpSettings />, [
-      '/settings/mcp?plugin=dev.vibex.research',
+      '/settings/mcp?plugin=dev.dimo.research',
     ]);
 
     expect(
@@ -256,7 +256,7 @@ describe('McpSettings', () => {
 
     await waitFor(() => {
       expect(mocks.configurePluginMcp).toHaveBeenCalledWith(
-        'dev.vibex.research',
+        'dev.dimo.research',
         false,
         ['codex']
       );
@@ -524,7 +524,7 @@ describe('SkillsSettings', () => {
     mocks.pluginCatalog.mockResolvedValue({
       plugins: [
         {
-          id: 'vibex.office',
+          id: 'dimo.office',
           name: 'Office',
           skills: pluginSkills.map((id) => ({
             id,
@@ -548,7 +548,7 @@ describe('SkillsSettings', () => {
     mocks.configurePluginAgents.mockResolvedValue([]);
 
     renderSettings(<SkillsSettings />, [
-      '/settings/skills?plugin=vibex.office',
+      '/settings/skills?plugin=dimo.office',
     ]);
 
     expect(
@@ -562,7 +562,7 @@ describe('SkillsSettings', () => {
 
     await waitFor(() => {
       expect(mocks.configurePluginAgents).toHaveBeenCalledWith(
-        'vibex.office',
+        'dimo.office',
         false,
         ['codex', 'claude_code']
       );

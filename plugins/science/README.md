@@ -29,7 +29,7 @@ summary: 146 项科研技能，按 10 个领域分组。默认只注入「通用
 
 设置 → 插件 → 已安装 → 科学研究 → 配置。每个领域一个开关，打开即注入。
 
-注入链路：技能先落到 `~/.vibex/skills/.plugins/vibex.science/<技能>/`，再按 Agent 投影到 `~/.claude/skills`、`~/.codex/skills` 等目录。**新开或重新绑定的会话才会带上。**
+注入链路：技能先落到 `~/.dimo/skills/.plugins/dimo.science/<技能>/`，再按 Agent 投影到 `~/.claude/skills`、`~/.codex/skills` 等目录。**新开或重新绑定的会话才会带上。**
 
 关掉某个领域时，该领域已投影的技能会从 Agent 目录里移除；同名的、不属于本插件的技能不会被覆盖或删除。
 
@@ -67,5 +67,5 @@ summary: 146 项科研技能，按 10 个领域分组。默认只注入「通用
 
 - **启用后 Agent 没有科研技能**：确认目标领域已在配置里打开，然后新开或重新绑定会话。
 - **关掉领域后技能还在**：重新投影发生在配置保存时；若仍存在，重启 Host 或切换一次 Agent 绑定。
-- **技能没生效但文件在**：Agent 的技能目录是符号链接，指向 `~/.vibex/skills/.plugins/vibex.science/`。检查该目录是否可读。
+- **技能没生效但文件在**：Agent 的技能目录是符号链接，指向 `~/.dimo/skills/.plugins/dimo.science/`。检查该目录是否可读。
 - **包无法导入**：本包的 `content.skill` 使用了 `domain` 字段，需要支持该字段的 Host 版本。

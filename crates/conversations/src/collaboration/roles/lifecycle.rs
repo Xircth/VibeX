@@ -559,7 +559,7 @@ pub trait IsolatedWorkspaceProvisioner: Send + Sync {
 pub fn member_worktree_workspace_id(conversation_id: Uuid) -> Uuid {
     Uuid::new_v5(
         &Uuid::NAMESPACE_OID,
-        format!("vibex-member-worktree:{conversation_id}").as_bytes(),
+        format!("dimo-member-worktree:{conversation_id}").as_bytes(),
     )
 }
 

@@ -191,7 +191,7 @@ describe('ChildConversationViewer', () => {
                   prompt: 'Pick a tracker',
                   options: ['Local markdown'],
                   schema: {
-                    'x-vibex-questions': [
+                    'x-dimo-questions': [
                       {
                         id: 'tracker',
                         question: 'Pick a tracker',

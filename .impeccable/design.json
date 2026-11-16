@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-05-25T00:00:00+08:00",
-  "title": "Historical Design Snapshot: VibeX",
+  "title": "Historical Design Snapshot: Dimo",
   "status": "historical",
   "supersededBy": "DESIGN.md",
   "supersededReason": "Current frontend design is governed by the macOS Tahoe rules in DESIGN.md and docs/specs/tahoe-design-system-convergence.",

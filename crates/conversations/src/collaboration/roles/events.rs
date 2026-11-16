@@ -386,7 +386,7 @@ pub async fn list_space_events(
 }
 
 pub fn space_event_retention_days() -> i64 {
-    env_i64("VIBEX_COLLAB_EVENT_RETENTION_DAYS", 7).max(1)
+    env_i64("DIMO_COLLAB_EVENT_RETENTION_DAYS", 7).max(1)
 }
 
 pub async fn sweep_expired_space_events(pool: &SqlitePool) -> Result<u32, CollaborationError> {

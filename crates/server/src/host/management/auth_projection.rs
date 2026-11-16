@@ -757,7 +757,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claude_custom_endpoint_outranks_a_stale_vibex_mode() {
+    async fn claude_custom_endpoint_outranks_a_stale_dimo_mode() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         let claude_home = home.join(".claude");
@@ -822,7 +822,7 @@ mod tests {
         let projected = tokio::fs::read_to_string(grok_home.join("config.toml"))
             .await
             .unwrap();
-        assert!(projected.contains("[model.vibex]"));
+        assert!(projected.contains("[model.dimo]"));
 
         release_provider_projection(&home, &store_path, &agent_id, &environment)
             .await
@@ -836,7 +836,7 @@ mod tests {
         assert!(
             restored
                 .get("model")
-                .and_then(|model| model.get("vibex"))
+                .and_then(|model| model.get("dimo"))
                 .is_none()
         );
         let providers = model_providers::list_with_native(&store_path, agent_id, Some(&grok_home))
@@ -1053,7 +1053,7 @@ mod tests {
         tokio::fs::create_dir_all(&kimi_home).await.unwrap();
         tokio::fs::write(
             kimi_home.join("config.toml"),
-            "[providers.vibex]\ntype = \"openai\"\nbase_url = \"https://api.moonshot.ai/v1\"\napi_key = \"sk-kimi\"\n",
+            "[providers.dimo]\ntype = \"openai\"\nbase_url = \"https://api.moonshot.ai/v1\"\napi_key = \"sk-kimi\"\n",
         )
         .await
         .unwrap();

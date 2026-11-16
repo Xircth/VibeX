@@ -13,9 +13,9 @@ use crate::error::AppError;
 
 mod crypto;
 
-const BACKUP_FORMAT: &str = "vibex-portable-backup";
+const BACKUP_FORMAT: &str = "dimo-portable-backup";
 const BACKUP_VERSION: u32 = 1;
-const BACKUP_PROGRESS_EVENT: &str = "vibex://backup-progress";
+const BACKUP_PROGRESS_EVENT: &str = "dimo://backup-progress";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct BackupCreateOptions {
@@ -134,9 +134,9 @@ fn asset_file_source(name: &str) -> Option<BackupSource> {
     })
 }
 
-fn vibex_root() -> Result<PathBuf, AppError> {
+fn dimo_root() -> Result<PathBuf, AppError> {
     dirs::home_dir()
-        .map(|home| home.join(".vibex"))
+        .map(|home| home.join(".dimo"))
         .ok_or_else(|| AppError::Internal("Unable to resolve user home directory".to_string()))
 }
 
@@ -176,12 +176,12 @@ fn collect_directory_sources(
             continue;
         }
 
-        // Skip leftover restore staging temps (`.<name>.vibex-restore.N.tmp`) so an
+        // Skip leftover restore staging temps (`.<name>.dimo-restore.N.tmp`) so an
         // orphan from an abnormally-terminated restore is never baked into a backup.
         if path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.contains(".vibex-restore.") && name.ends_with(".tmp"))
+            .is_some_and(|name| name.contains(".dimo-restore.") && name.ends_with(".tmp"))
         {
             continue;
         }
@@ -232,26 +232,26 @@ fn collect_sources() -> Result<Vec<BackupSource>, AppError> {
         }
     }
 
-    let vibex_root = vibex_root()?;
-    let settings_path = vibex_root.join("settings.json");
+    let dimo_root = dimo_root()?;
+    let settings_path = dimo_root.join("settings.json");
     if settings_path.exists() {
         sources.push(BackupSource {
-            logical_path: "vibex/settings.json".to_string(),
+            logical_path: "dimo/settings.json".to_string(),
             file_path: settings_path,
         });
     }
-    let mcp_path = vibex_root.join("mcp.json");
+    let mcp_path = dimo_root.join("mcp.json");
     if mcp_path.exists() {
         sources.push(BackupSource {
-            logical_path: "vibex/mcp.json".to_string(),
+            logical_path: "dimo/mcp.json".to_string(),
             file_path: mcp_path,
         });
     }
 
     collect_directory_sources(
-        &vibex_root.join("skills"),
-        "vibex/skills",
-        &vibex_root.join("skills"),
+        &dimo_root.join("skills"),
+        "dimo/skills",
+        &dimo_root.join("skills"),
         &mut sources,
     )?;
 
@@ -353,8 +353,8 @@ fn resolve_restore_target(logical_path: &str) -> Result<PathBuf, AppError> {
 
     let mut target = if prefix == OsStr::new("asset") {
         utils::assets::asset_dir()
-    } else if prefix == OsStr::new("vibex") {
-        vibex_root()?
+    } else if prefix == OsStr::new("dimo") {
+        dimo_root()?
     } else {
         return Err(AppError::BadRequest(format!(
             "Unsupported backup entry root: {}",
@@ -393,7 +393,7 @@ pub async fn backup_create(
         "collect",
         0,
         sources.len(),
-        "Collected VibeX data files",
+        "Collected Dimo data files",
     );
 
     let total = sources.len();
@@ -559,7 +559,7 @@ pub async fn backup_restore_stage(
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| format!("entry{index}"));
-        let temp = parent.join(format!(".{file_name}.vibex-restore.{index}.tmp"));
+        let temp = parent.join(format!(".{file_name}.dimo-restore.{index}.tmp"));
         fs::write(&temp, bytes).map_err(|error| {
             AppError::Internal(format!(
                 "Failed to stage restore for {} at {}: {error}",

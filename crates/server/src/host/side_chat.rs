@@ -278,7 +278,7 @@ async fn resolve_side_chat_target(
             let working_dir = if !binding.working_dir.trim().is_empty() && dir.is_dir() {
                 dir
             } else {
-                utils::path::vibex_scratch_subdir("side-chat").map_err(internal_error)?
+                utils::path::dimo_scratch_subdir("side-chat").map_err(internal_error)?
             };
             return Ok((agent_id, working_dir));
         }
@@ -290,7 +290,7 @@ async fn resolve_side_chat_target(
             && let Ok(agent_id) = AgentId::parse(executor)
         {
             let working_dir =
-                utils::path::vibex_scratch_subdir("side-chat").map_err(internal_error)?;
+                utils::path::dimo_scratch_subdir("side-chat").map_err(internal_error)?;
             return Ok((agent_id, working_dir));
         }
     }
@@ -305,7 +305,7 @@ async fn resolve_side_chat_target(
     let agent_id = AgentId::parse(fallback_raw)
         .or_else(|_| AgentId::parse("claude-code"))
         .map_err(internal_error)?;
-    let working_dir = utils::path::vibex_scratch_subdir("side-chat").map_err(internal_error)?;
+    let working_dir = utils::path::dimo_scratch_subdir("side-chat").map_err(internal_error)?;
     Ok((agent_id, working_dir))
 }
 

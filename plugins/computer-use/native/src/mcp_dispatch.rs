@@ -596,7 +596,7 @@ pub fn render_computer_windows_result(outcome: &Value) -> Value {
             if any_unshared {
                 out.push_str(
                     "\nA window marked \"not shared\" cannot be read. Ask the user to share it: in \
-                     VibeX Settings -> Computer Control (电脑控制) they press \"Share a window…\" — it \
+                     Dimo Settings -> Computer Control (电脑控制) they press \"Share a window…\" — it \
                      is theirs to give.",
                 );
             }

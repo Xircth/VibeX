@@ -46,7 +46,7 @@
     }
   },
   "agentMention": {
-    "companionUnsupported": "The current parent agent does not support the VibeX companion, so this mention will not start a delegation.",
+    "companionUnsupported": "The current parent agent does not support the Dimo companion, so this mention will not start a delegation.",
     "loading": "Loading agents...",
     "noMatches": "No matching agents found."
   },
@@ -413,7 +413,7 @@
     "startDevServer": "Start dev server",
     "settings": "Settings",
     "fixStartScript": "Fix start script",
-    "companionDescription": "To enable click-to-locate components in the preview, install the VibeX Web Companion.",
+    "companionDescription": "To enable click-to-locate components in the preview, install the Dimo Web Companion.",
     "installingCompanion": "Installing Companion",
     "installCompanion": "Install Companion",
     "viewCompanionRepo": "View Companion repository"

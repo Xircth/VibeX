@@ -19,9 +19,9 @@ import type {
 
 export const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const MANIFEST_TIMEOUT_MS = 15_000;
-const APP_UPDATE_EVENT = 'vibex:app-update-checked';
-const APP_UPDATE_STATE_EVENT = 'vibex:app-update-state';
-const APP_UPDATE_DISMISSED_EVENT = 'vibex:app-update-dismissed';
+const APP_UPDATE_EVENT = 'dimo:app-update-checked';
+const APP_UPDATE_STATE_EVENT = 'dimo:app-update-state';
+const APP_UPDATE_DISMISSED_EVENT = 'dimo:app-update-dismissed';
 
 const INITIAL_LIFECYCLE_STATE: AppUpdateLifecycleState = {
   status: 'idle',
@@ -203,7 +203,7 @@ export function subscribeAppUpdate(
     listener((event as CustomEvent<AppUpdateSnapshot>).detail);
   };
   const onStorage = (event: StorageEvent) => {
-    if (event.key !== null && event.key !== 'vibex.appUpdate.lastCheck') {
+    if (event.key !== null && event.key !== 'dimo.appUpdate.lastCheck') {
       return;
     }
     const cached = snapshotFromCache();

@@ -196,8 +196,8 @@ describe('session hub data helpers', () => {
         fullName: 'Auth Refactor',
         executor: 'claude_code',
         agentId: null,
-        workspaceDisplayLabel: 'VibeX · feat/auth',
-        workspaceName: 'VibeX',
+        workspaceDisplayLabel: 'Dimo · feat/auth',
+        workspaceName: 'Dimo',
         branch: 'feat/auth',
       })
     ).toBe(
@@ -205,7 +205,7 @@ describe('session hub data helpers', () => {
         '会话名称: Auth Refactor',
         'ID: session-42',
         'Agent: Claude Code',
-        '工作区: VibeX · feat/auth',
+        '工作区: Dimo · feat/auth',
       ].join('\n')
     );
   });

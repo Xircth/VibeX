@@ -431,7 +431,7 @@ fn main() {
             .expect("initialize disk-backed WAL DBService");
 
         println!("=========================================================================================================");
-        println!(" VibeX Conversation Projection & WAL Dual-Pool Benchmark Suite");
+        println!(" Dimo Conversation Projection & WAL Dual-Pool Benchmark Suite");
         println!("=========================================================================================================");
 
         bench_open_projection(&db, iterations).await;

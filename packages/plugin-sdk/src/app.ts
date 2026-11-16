@@ -1,26 +1,26 @@
 import type { JsonValue } from './protocol.js';
 import {
   createPluginContext,
-  isVibeXPluginDefinition,
-  type VibeXPluginContext,
-  type VibeXPluginDefinition,
+  isDimoPluginDefinition,
+  type DimoPluginContext,
+  type DimoPluginDefinition,
 } from './context.js';
 
 export {
   createPluginContext,
   type CreatePluginContextOptions,
   definePlugin,
-  defineVibeXPlugin,
+  defineDimoPlugin,
   type HostCallTransport,
-  isVibeXPluginDefinition,
+  isDimoPluginDefinition,
   type PluginKvClient,
   type PluginNetworkFetchInput,
   type PluginNetworkFetchResponse,
   type PluginSettingsClient,
   setDefaultHostCallTransport,
   setDefaultWorkerInvokeTransport,
-  type VibeXPluginContext,
-  type VibeXPluginDefinition,
+  type DimoPluginContext,
+  type DimoPluginDefinition,
   type WorkerInvokeTransport,
 } from './context.js';
 
@@ -66,7 +66,7 @@ export type PluginAppSurfaceSetup = (
   context: PluginAppSurfaceContext
 ) => void | (() => void) | Promise<void | (() => void)>;
 
-export interface PluginAppDefinition extends VibeXPluginDefinition {
+export interface PluginAppDefinition extends DimoPluginDefinition {
   readonly mount: PluginAppSurfaceSetup;
 }
 
@@ -86,11 +86,11 @@ function isPluginAppSurfaceContext(
   );
 }
 
-function isPluginContextLike(value: unknown): value is VibeXPluginContext {
+function isPluginContextLike(value: unknown): value is DimoPluginContext {
   if (!value || typeof value !== 'object') {
     return false;
   }
-  const record = value as Partial<VibeXPluginContext>;
+  const record = value as Partial<DimoPluginContext>;
   return (
     typeof record.pluginId === 'string' &&
     typeof record.hostCall === 'function' &&
@@ -127,7 +127,7 @@ function hostDocument():
 }
 
 function surfaceFromPluginContext(
-  ctx: VibeXPluginContext
+  ctx: DimoPluginContext
 ): PluginAppSurfaceContext {
   const controller = new AbortController();
   ctx.scope.addDisposer(() => {
@@ -178,7 +178,7 @@ function wrapSurfaceSetup(setup: PluginAppSurfaceSetup): PluginAppDefinition {
 }
 
 function wrapPluginDefinition(
-  definition: VibeXPluginDefinition
+  definition: DimoPluginDefinition
 ): PluginAppDefinition {
   return {
     ...definition,
@@ -201,7 +201,7 @@ function wrapPluginDefinition(
   };
 }
 
-function wrapPluginContext(context: VibeXPluginContext): PluginAppDefinition {
+function wrapPluginContext(context: DimoPluginContext): PluginAppDefinition {
   return {
     apiVersion: '2.0',
     id: context.pluginId,
@@ -218,27 +218,27 @@ export function definePluginApp(
   setup: PluginAppSurfaceSetup
 ): PluginAppDefinition;
 export function definePluginApp(
-  definition: VibeXPluginDefinition
+  definition: DimoPluginDefinition
 ): PluginAppDefinition;
 export function definePluginApp(
-  context: VibeXPluginContext
+  context: DimoPluginContext
 ): PluginAppDefinition;
 export function definePluginApp(
-  input: PluginAppSurfaceSetup | VibeXPluginDefinition | VibeXPluginContext
+  input: PluginAppSurfaceSetup | DimoPluginDefinition | DimoPluginContext
 ): PluginAppDefinition {
   if (typeof input === 'function') {
     return wrapSurfaceSetup(input);
   }
-  if (isVibeXPluginDefinition(input)) {
+  if (isDimoPluginDefinition(input)) {
     return wrapPluginDefinition(input);
   }
   if (typeof (input as { activate?: unknown }).activate === 'function') {
-    return wrapPluginDefinition(input as unknown as VibeXPluginDefinition);
+    return wrapPluginDefinition(input as unknown as DimoPluginDefinition);
   }
   if (isPluginContextLike(input)) {
     return wrapPluginContext(input);
   }
   throw new TypeError(
-    'definePluginApp requires a surface setup, VibeXPluginDefinition, or VibeXPluginContext'
+    'definePluginApp requires a surface setup, DimoPluginDefinition, or DimoPluginContext'
   );
 }

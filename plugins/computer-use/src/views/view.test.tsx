@@ -21,7 +21,7 @@ beforeAll(() => {
       paths: [
         path.resolve(process.cwd(), 'frontend/node_modules'),
         path.resolve(process.cwd(), '../../frontend/node_modules'),
-        path.resolve(process.cwd(), '../VibeX/frontend/node_modules'),
+        path.resolve(process.cwd(), '../Dimo/frontend/node_modules'),
       ],
     });
     const { JSDOM } = require(jsdomPath);
@@ -46,7 +46,7 @@ beforeAll(() => {
   }
 });
 
-describe('ComputerUseSettingsView with live vibex-computer-helper daemon payloads', () => {
+describe('ComputerUseSettingsView with live dimo-computer-helper daemon payloads', () => {
   it('renders enabled state with PermissionReport object, DriverInfo installed array, and activity items without throwing', async () => {
     const liveSettings: ComputerToolsSettings = {
       enabled: true,
@@ -76,7 +76,7 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
         peer: 'notApplicable',
         state: 'ready',
       },
-      // Exact object shape returned by vibex-computer-helper on Windows
+      // Exact object shape returned by dimo-computer-helper on Windows
       permissions: {
         required: false,
         accessibility: true,
@@ -110,7 +110,7 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
       version: '0.32.0',
       supported: true,
       installed: ['0.32.0'],
-      path: 'C:\\Users\\test\\AppData\\Local\\vibex\\acp-binaries\\@cua-driver\\0.32.0\\cua-driver.exe',
+      path: 'C:\\Users\\test\\AppData\\Local\\dimo\\acp-binaries\\@cua-driver\\0.32.0\\cua-driver.exe',
     };
 
     const invokeMock = vi.fn(
@@ -173,13 +173,13 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
                 targetId: 'w9',
                 windowId: 1002,
                 pid: 13080,
-                appName: 'vibex',
-                appId: 'vibex.exe',
+                appName: 'dimo',
+                appId: 'dimo.exe',
                 title: '设置',
                 bounds: { x: 548, y: 424, width: 1929, height: 1404 },
                 minimized: false,
                 hidden: false,
-                notGrantable: 'vibex',
+                notGrantable: 'dimo',
                 level: 'none',
               },
             ];
@@ -214,7 +214,7 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
       root.render(
         React.createElement(ComputerUseSettingsView, {
           environment: {
-            pluginId: 'vibex-plugin-computer-use',
+            pluginId: 'dimo-plugin-computer-use',
             surfaceId: 'computer-use',
             slot: 'settings.page',
             invoke: invokeMock,
@@ -374,7 +374,7 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
       root.render(
         React.createElement(ComputerUseSettingsView, {
           environment: {
-            pluginId: 'vibex-plugin-computer-use',
+            pluginId: 'dimo-plugin-computer-use',
             surfaceId: 'computer-use',
             slot: 'settings.page',
             invoke: invokeMock,
@@ -403,16 +403,16 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
     container.remove();
   });
 
-  it('mounts and renders against the real worker and vibex-computer-helper daemon', async () => {
+  it('mounts and renders against the real worker and dimo-computer-helper daemon', async () => {
     const fs = await import('node:fs');
     const os = await import('node:os');
-    const { createWorkerHarness } = await import('@vibex/plugin-sdk/testing');
+    const { createWorkerHarness } = await import('@dimoai/plugin-sdk/testing');
     const workerModule = await import('../../runtime/worker.mjs');
 
     const tempDataDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'vibex-computer-view-e2e-')
+      path.join(os.tmpdir(), 'dimo-computer-view-e2e-')
     );
-    process.env.VIBEX_PLUGIN_DATA_DIR = tempDataDir;
+    process.env.DIMO_PLUGIN_DATA_DIR = tempDataDir;
 
     const worker = await createWorkerHarness(workerModule.default);
     const container = document.createElement('div');
@@ -429,7 +429,7 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
         root.render(
           React.createElement(ComputerUseSettingsView, {
             environment: {
-              pluginId: 'vibex-plugin-computer-use',
+              pluginId: 'dimo-plugin-computer-use',
               surfaceId: 'computer-use',
               slot: 'settings.page',
               invoke: (handler: string, input?: Record<string, unknown> | null) =>
@@ -463,7 +463,7 @@ describe('ComputerUseSettingsView with live vibex-computer-helper daemon payload
 });
 
 describe('status popover Worker broker', () => {
-  const pluginId = 'vibex-plugin-computer-use';
+  const pluginId = 'dimo-plugin-computer-use';
 
   it('reads catalog items from the host object or a bare array', () => {
     expect(
@@ -630,7 +630,7 @@ describe('status popover Worker broker', () => {
         root.render(
           React.createElement(ComputerUseSettingsView, {
             environment: {
-              pluginId: 'vibex-plugin-computer-use',
+              pluginId: 'dimo-plugin-computer-use',
               surfaceId: 'computer-use-status',
               slot: 'status.after-mcp',
               invoke: invokeMock,

@@ -487,7 +487,7 @@ describe('useFollowUpSend', () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
     const message =
-      'Compare [&Codex](vibex://agent/codex) and [&Claude Code](vibex://agent/claude_code)';
+      'Compare [&Codex](dimo://agent/codex) and [&Claude Code](dimo://agent/claude_code)';
     const { result } = renderHook(
       () =>
         useFollowUpSend({
@@ -557,7 +557,7 @@ describe('useFollowUpSend', () => {
     );
     const action = formatSessionComposerCommand({
       type: '!',
-      key: 'vibex.office/create-presentation|创建 PPT',
+      key: 'dimo.office/create-presentation|创建 PPT',
       value: '',
     });
     const { result } = renderHook(
@@ -584,7 +584,7 @@ describe('useFollowUpSend', () => {
         text: '请把重点改成季度复盘',
         workflowRefs: [
           {
-            pluginId: 'vibex.office',
+            pluginId: 'dimo.office',
             workflowId: 'create-presentation',
           },
         ],

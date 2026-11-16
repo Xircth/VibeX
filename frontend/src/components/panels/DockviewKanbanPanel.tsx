@@ -11,7 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { KanbanNavArrow } from '@/components/kanban/KanbanNavArrow';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { useKanbanViewContributions } from '@vibex/plugin-sdk';
+import { useKanbanViewContributions } from '@dimoai/plugin-sdk';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {

@@ -8,12 +8,12 @@ import {
   conversationModeRegistry,
   createPluginContext,
   createServiceKey,
-  defineVibeXPlugin,
+  defineDimoPlugin,
   dispatchCapturedInternalMessage,
   extractAndStripInternalMessages,
   findMarkdownRenderer,
   internalMessageCaptureRegistry,
-  isVibeXPluginDefinition,
+  isDimoPluginDefinition,
   kanbanViewRegistry,
   markdownRegistry,
   MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES,
@@ -35,7 +35,7 @@ import {
   useSlotContributions,
 } from './index.js';
 
-describe('@vibex/plugin-sdk v2 core', () => {
+describe('@dimoai/plugin-sdk v2 core', () => {
   beforeEach(() => {
     slotRegistry.clear();
     commandRegistry.clear();
@@ -113,7 +113,7 @@ describe('@vibex/plugin-sdk v2 core', () => {
 
   it('tracks plugin context registrations, services, and LIFO effects and disposes them cleanly', async () => {
     const calls: string[] = [];
-    const GitServiceKey = createServiceKey<{ getBranch(): string }>('vibex.git');
+    const GitServiceKey = createServiceKey<{ getBranch(): string }>('dimo.git');
 
     const hostCallMock = vi.fn(
       async (
@@ -139,8 +139,8 @@ describe('@vibex/plugin-sdk v2 core', () => {
       }
     );
 
-    const plugin = defineVibeXPlugin({
-      id: 'vibex.git',
+    const plugin = defineDimoPlugin({
+      id: 'dimo.git',
       async activate(ctx) {
         ctx.effect(() => {
           calls.push('effect:1:mount');
@@ -188,10 +188,10 @@ describe('@vibex/plugin-sdk v2 core', () => {
       },
     });
 
-    expect(isVibeXPluginDefinition(plugin)).toBe(true);
+    expect(isDimoPluginDefinition(plugin)).toBe(true);
 
     const ctx = createPluginContext({
-      pluginId: 'vibex.git',
+      pluginId: 'dimo.git',
       generation: 1,
       hostCall: hostCallMock,
     });
@@ -212,7 +212,7 @@ describe('@vibex/plugin-sdk v2 core', () => {
     await Promise.resolve();
     expect(calls).toContain('events.publish');
     expect(hostCallMock).toHaveBeenCalledWith(
-      'vibex.git',
+      'dimo.git',
       'events',
       'publish',
       expect.objectContaining({
@@ -260,13 +260,13 @@ describe('@vibex/plugin-sdk v2 core', () => {
 
   it('injects beforeTurn prompt context without mutating visible user text and strips internal message frames', async () => {
     const capturedPayloads: unknown[] = [];
-    const ctx = createPluginContext({ pluginId: 'vibex.memory' });
+    const ctx = createPluginContext({ pluginId: 'dimo.memory' });
 
     ctx.registerPromptContext({
       id: 'memory-inject',
       beforeTurn: async () => ({
         hiddenContext:
-          'Emit <vibex-internal-meta channel="memory.save" nonce="n42">{"topic":"rust"}</vibex-internal-meta>',
+          'Emit <dimo-internal-meta channel="memory.save" nonce="n42">{"topic":"rust"}</dimo-internal-meta>',
       }),
     });
 
@@ -284,10 +284,10 @@ describe('@vibex/plugin-sdk v2 core', () => {
     });
     expect(turn.visibleUserText).toBe('Fix the bug');
     expect(turn.agentPromptText).toContain('Fix the bug');
-    expect(turn.agentPromptText).toContain('<vibex-plugin-context>');
+    expect(turn.agentPromptText).toContain('<dimo-plugin-context>');
 
     const assistantOutput =
-      'Here is the fix.\n\n<vibex-internal-meta channel="memory.save" nonce="n42">{"topic":"rust"}</vibex-internal-meta>\n\nAll done!';
+      'Here is the fix.\n\n<dimo-internal-meta channel="memory.save" nonce="n42">{"topic":"rust"}</dimo-internal-meta>\n\nAll done!';
     const { cleanedText, captured } = extractAndStripInternalMessages(
       assistantOutput,
       { conversationId: 'conv-99' }
@@ -380,7 +380,7 @@ describe('@vibex/plugin-sdk v2 core', () => {
   it('exposes structured ctx.ui, ctx.hooks, ctx.services, and ctx.host namespaces', async () => {
     const hostCalls: Array<{ capability: string; operation: string }> = [];
     const ctx = createPluginContext({
-      pluginId: 'vibex.demo',
+      pluginId: 'dimo.demo',
       hostCall: async (_pluginId, capability, operation) => {
         hostCalls.push({ capability, operation });
         return { exitCode: 0, stdout: 'ok', stderr: '', success: true } as never;
@@ -412,7 +412,7 @@ describe('@vibex/plugin-sdk v2 core', () => {
   });
 
   it('registers and disposes Phase 2 registries (conversationMode, markdown, overlay, panel, kanbanView, settingsPage)', () => {
-    const ctx = createPluginContext({ pluginId: 'vibex.phase2' });
+    const ctx = createPluginContext({ pluginId: 'dimo.phase2' });
 
     ctx.ui.registerConversationMode({
       id: 'voice-mode',
@@ -467,16 +467,16 @@ describe('@vibex/plugin-sdk v2 core', () => {
   });
 
   it('supports Phase 3 service-instance decoration via ctx.services.intercept and child scope disposal in ctx.services.inject', () => {
-    const ctxHost = createPluginContext({ pluginId: 'vibex.host' });
-    const ctxDecorator = createPluginContext({ pluginId: 'vibex.decorator' });
-    const ctxConsumer = createPluginContext({ pluginId: 'vibex.consumer' });
+    const ctxHost = createPluginContext({ pluginId: 'dimo.host' });
+    const ctxDecorator = createPluginContext({ pluginId: 'dimo.decorator' });
+    const ctxConsumer = createPluginContext({ pluginId: 'dimo.consumer' });
 
-    ctxHost.services.provide('vibex.usage', {
+    ctxHost.services.provide('dimo.usage', {
       probe: () => 'base-quota',
     });
 
     ctxConsumer.services.inject(
-      ['vibex.usage'],
+      ['dimo.usage'],
       ([usage]: [{ probe: () => string }]) => {
         ctxConsumer.ui.registerStatusItem({
           id: 'usage-item',
@@ -487,9 +487,9 @@ describe('@vibex/plugin-sdk v2 core', () => {
 
     expect(slotRegistry.get('usage-item')?.label).toBe('base-quota');
 
-    // Decorate vibex.usage service instance
+    // Decorate dimo.usage service instance
     ctxDecorator.services.intercept(
-      'vibex.usage',
+      'dimo.usage',
       (prev: { probe: () => string }) => ({
         ...prev,
         probe: () => `${prev.probe()}+decorated`,
@@ -497,14 +497,14 @@ describe('@vibex/plugin-sdk v2 core', () => {
     );
 
     expect(
-      ctxConsumer.services.get<{ probe: () => string }>('vibex.usage')?.probe()
+      ctxConsumer.services.get<{ probe: () => string }>('dimo.usage')?.probe()
     ).toBe('base-quota+decorated');
     expect(slotRegistry.get('usage-item')?.label).toBe('base-quota+decorated');
 
     // Dispose decorator -> restores original service and re-runs injected child scope
     ctxDecorator.dispose();
     expect(
-      ctxConsumer.services.get<{ probe: () => string }>('vibex.usage')?.probe()
+      ctxConsumer.services.get<{ probe: () => string }>('dimo.usage')?.probe()
     ).toBe('base-quota');
     expect(slotRegistry.get('usage-item')?.label).toBe('base-quota');
 
@@ -516,9 +516,9 @@ describe('@vibex/plugin-sdk v2 core', () => {
   });
 
   it('enforces Phase 5 16 KiB cap on beforeTurn internalPromptContributions and supports streaming partial tags + host-dispatched side-channel messages + afterTurn hooks', async () => {
-    const ctx1 = createPluginContext({ pluginId: 'vibex.p5.first' });
-    const ctx2 = createPluginContext({ pluginId: 'vibex.p5.huge' });
-    const ctx3 = createPluginContext({ pluginId: 'vibex.p5.second' });
+    const ctx1 = createPluginContext({ pluginId: 'dimo.p5.first' });
+    const ctx2 = createPluginContext({ pluginId: 'dimo.p5.huge' });
+    const ctx3 = createPluginContext({ pluginId: 'dimo.p5.second' });
 
     ctx1.registerPromptContext({
       id: 'first-ctx',
@@ -551,13 +551,13 @@ describe('@vibex/plugin-sdk v2 core', () => {
 
     expect(collected.internalPromptContributions).toEqual([
       {
-        pluginId: 'vibex.p5.first',
+        pluginId: 'dimo.p5.first',
         label: null,
         content: 'First contribution block',
         priority: 10,
       },
       {
-        pluginId: 'vibex.p5.second',
+        pluginId: 'dimo.p5.second',
         label: null,
         content: 'Second contribution block',
         priority: 30,
@@ -566,7 +566,7 @@ describe('@vibex/plugin-sdk v2 core', () => {
 
     // Streaming partial tag buffering at tail
     const streamingChunk =
-      'Visible response start\n<vibex-internal-meta channel="memory.extract" nonce="n1">{"partial":true';
+      'Visible response start\n<dimo-internal-meta channel="memory.extract" nonce="n1">{"partial":true';
     const partialResult = extractAndStripInternalMessages(streamingChunk, {
       conversationId: 'conv-p5',
     });

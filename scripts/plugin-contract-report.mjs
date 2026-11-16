@@ -33,12 +33,12 @@ const sqlxFiles = implFiles
   .map((file) => ({ file, count: sqlxCount(file) }))
   .filter((item) => item.count > 0);
 
-// Official plugins: one directory per plugin, manifest at .vibex-plugin/plugin.json
+// Official plugins: one directory per plugin, manifest at .dimo-plugin/plugin.json
 const officialPlugins = [];
 const pluginKinds = new Map();
 const hostCallUsage = new Map();
 for (const dir of fs.readdirSync(path.join(ROOT, 'plugins'))) {
-  const manifestPath = path.join('plugins', dir, '.vibex-plugin', 'plugin.json');
+  const manifestPath = path.join('plugins', dir, '.dimo-plugin', 'plugin.json');
   if (!fs.existsSync(path.join(ROOT, manifestPath))) continue;
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, manifestPath), 'utf8'));
   officialPlugins.push({ dir, id: manifest.id, manifestPath: manifestPath.split(path.sep).join('/') });

@@ -23,7 +23,7 @@ const HELP = `Usage: ${CLI} plugin run server [--http://127.0.0.1:17891] [--toke
        ${CLI} plugin test --host [dir]
 
 run     Developer scripts. Bind a Host once, then work from a plugin directory.
-        server          Save Host URL and token to ~/.vibex/pluginrc
+        server          Save Host URL and token to ~/.dimo/pluginrc
         dev             Link if needed and start remote HMR
         build           Build the package
         test            Run harness tests; --host walks the Host journey
@@ -37,8 +37,8 @@ add     Install a Plugin onto the local Desktop or Server Host.
 pack    Validate a plugin directory and write a .vxp.
 publish Submit a packed .vxp or GitHub repository to the official marketplace review queue.
         --web URL       GitHub owner/repo, optionally #tag. Owner must match marketplace user.
-        --owner USER    Marketplace username (or VIBEX_MARKET_OWNER)
-        --password PASS Marketplace password (or VIBEX_MARKET_PASSWORD)
+        --owner USER    Marketplace username (or DIMO_MARKET_OWNER)
+        --password PASS Marketplace password (or DIMO_MARKET_PASSWORD)
         --show-tree     Show package structure on the marketplace (uploads only)
         --hide-tree     Hide package structure (default for uploads)
 list    Show plugins on the running Host
@@ -246,7 +246,7 @@ async function requireRunningHost() {
   const host = discoverHost();
   if (!host.token || !(await hostAccepts(host.url, host.token))) {
     throw new Error(
-      `No running VibeX Host. Run \`${CLI} plugin run server --http://127.0.0.1:17891 --token <token>\`.`,
+      `No running Dimo Host. Run \`${CLI} plugin run server --http://127.0.0.1:17891 --token <token>\`.`,
     );
   }
   return host;
@@ -255,21 +255,21 @@ async function requireRunningHost() {
 function pluginStagingDir() {
   const candidates = [];
   if (process.env.LOCALAPPDATA) {
-    candidates.push(path.join(process.env.LOCALAPPDATA, "VibeX", "tmp"));
+    candidates.push(path.join(process.env.LOCALAPPDATA, "Dimo", "tmp"));
   }
   const home = process.env.USERPROFILE || process.env.HOME;
   if (home) {
-    candidates.push(path.join(home, ".cache", "vibex"));
+    candidates.push(path.join(home, ".cache", "dimo"));
   }
   candidates.push(os.tmpdir());
   let lastError;
   for (const root of candidates) {
     try {
       fs.mkdirSync(root, { recursive: true });
-      const probe = path.join(root, `.vibex-write-${process.pid}`);
+      const probe = path.join(root, `.dimo-write-${process.pid}`);
       fs.writeFileSync(probe, "");
       fs.unlinkSync(probe);
-      return fs.mkdtempSync(path.join(root, "vibex-plugin-add-"));
+      return fs.mkdtempSync(path.join(root, "dimo-plugin-add-"));
     } catch (error) {
       lastError = error;
     }
@@ -361,7 +361,7 @@ async function addSnapshotPlugin(source, flags) {
 async function installUnpackedSnapshot(unpacked, flags, lock = {}) {
   const roots = findPluginRoots(unpacked);
   if (roots.length === 0) {
-    throw new Error("No VibeX plugin package found (.vibex-plugin/plugin.json).");
+    throw new Error("No Dimo plugin package found (.dimo-plugin/plugin.json).");
   }
   const picked = pickRoot(roots, flags.plugin);
   log(`Validating ${picked.publisher}/${picked.id} ${picked.version}...`);
@@ -395,7 +395,7 @@ async function installUnpackedSnapshot(unpacked, flags, lock = {}) {
     return;
   }
   log(
-    "No running Host accepted the install. VibeX desktop or server will import this .vxp on next launch.",
+    "No running Host accepted the install. Dimo desktop or server will import this .vxp on next launch.",
   );
 }
 
@@ -404,8 +404,8 @@ async function addDevPlugin(source, flags) {
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
     throw new Error(`Development directory not found: ${root}`);
   }
-  if (!fs.existsSync(path.join(root, ".vibex-plugin", "plugin.json"))) {
-    throw new Error("No VibeX plugin package found (.vibex-plugin/plugin.json).");
+  if (!fs.existsSync(path.join(root, ".dimo-plugin", "plugin.json"))) {
+    throw new Error("No Dimo plugin package found (.dimo-plugin/plugin.json).");
   }
   log(`Linking development directory ${root}...`);
   try {
@@ -443,8 +443,8 @@ const DEFAULT_SITE_URL = "https://vibex.xforever.xin";
 function marketplaceOrigin(flag) {
   return String(
     flag ||
-      process.env.VIBEX_MARKETPLACE_URL ||
-      process.env.VIBEX_SITE_URL ||
+      process.env.DIMO_MARKETPLACE_URL ||
+      process.env.DIMO_SITE_URL ||
       DEFAULT_SITE_URL,
   ).replace(
     /\/+$/,
@@ -473,11 +473,11 @@ async function resolvePublishFile(source) {
 
 async function publishPlugin(args) {
   const parsed = parseArgs(args);
-  const owner = parsed.flags.owner || process.env.VIBEX_MARKET_OWNER || "";
-  const password = parsed.flags.password || process.env.VIBEX_MARKET_PASSWORD || "";
+  const owner = parsed.flags.owner || process.env.DIMO_MARKET_OWNER || "";
+  const password = parsed.flags.password || process.env.DIMO_MARKET_PASSWORD || "";
   if (!owner || !password) {
     throw new Error(
-      "publish requires --owner and --password, or VIBEX_MARKET_OWNER and VIBEX_MARKET_PASSWORD.",
+      "publish requires --owner and --password, or DIMO_MARKET_OWNER and DIMO_MARKET_PASSWORD.",
     );
   }
   const origin = marketplaceOrigin(parsed.flags.market);
@@ -526,7 +526,7 @@ async function ensureValidPlugin(root) {
 
 function readPluginIdentity(root) {
   const manifest = JSON.parse(
-    fs.readFileSync(path.join(root, ".vibex-plugin", "plugin.json"), "utf8"),
+    fs.readFileSync(path.join(root, ".dimo-plugin", "plugin.json"), "utf8"),
   );
   return {
     id: String(manifest.id || ""),
@@ -536,7 +536,7 @@ function readPluginIdentity(root) {
 }
 
 function importsDirectory() {
-  return path.join(os.homedir(), ".vibex", "imports");
+  return path.join(os.homedir(), ".dimo", "imports");
 }
 
 function queueLinkedInstall(dir) {
@@ -1098,7 +1098,7 @@ function extractArchive(archive, dest) {
 }
 
 function findPluginRoots(dir, depth = 0, found = []) {
-  if (fs.existsSync(path.join(dir, ".vibex-plugin", "plugin.json"))) {
+  if (fs.existsSync(path.join(dir, ".dimo-plugin", "plugin.json"))) {
     found.push(dir);
     return found;
   }
@@ -1125,7 +1125,7 @@ function findPluginRoots(dir, depth = 0, found = []) {
 function pickRoot(roots, wanted) {
   const parsed = roots.map((root) => {
     const manifest = JSON.parse(
-      fs.readFileSync(path.join(root, ".vibex-plugin", "plugin.json"), "utf8"),
+      fs.readFileSync(path.join(root, ".dimo-plugin", "plugin.json"), "utf8"),
     );
     return {
       root,
@@ -1148,31 +1148,31 @@ function pickRoot(roots, wanted) {
 function hostDataDirs() {
   const home = os.homedir();
   const dirs = [];
-  if (process.env.VIBEX_DATA_DIR) dirs.push(process.env.VIBEX_DATA_DIR);
+  if (process.env.DIMO_DATA_DIR) dirs.push(process.env.DIMO_DATA_DIR);
   if (process.platform === "darwin") {
     dirs.push(
-      path.join(home, "Library", "Application Support", "com.vibex.app.dev"),
-      path.join(home, "Library", "Application Support", "com.vibex.app"),
-      path.join(home, "Library", "Application Support", "com.xircth.vibex"),
-      path.join(home, "Library", "Application Support", "vibex"),
-      path.join(home, "Library", "Application Support", "app.vibex.vibex"),
+      path.join(home, "Library", "Application Support", "com.dimo.app.dev"),
+      path.join(home, "Library", "Application Support", "com.dimo.app"),
+      path.join(home, "Library", "Application Support", "com.xircth.dimo"),
+      path.join(home, "Library", "Application Support", "dimo"),
+      path.join(home, "Library", "Application Support", "app.dimo.dimo"),
     );
   } else if (process.platform === "win32") {
     const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
     dirs.push(
-      path.join(appData, "com.vibex.app.dev"),
-      path.join(appData, "com.vibex.app"),
-      path.join(appData, "vibex"),
+      path.join(appData, "com.dimo.app.dev"),
+      path.join(appData, "com.dimo.app"),
+      path.join(appData, "dimo"),
     );
   } else {
     const dataHome = process.env.XDG_DATA_HOME || path.join(home, ".local", "share");
     dirs.push(
-      path.join(dataHome, "com.vibex.app.dev"),
-      path.join(dataHome, "com.vibex.app"),
-      path.join(dataHome, "vibex"),
+      path.join(dataHome, "com.dimo.app.dev"),
+      path.join(dataHome, "com.dimo.app"),
+      path.join(dataHome, "dimo"),
     );
   }
-  dirs.push(path.join(home, ".vibex-data"), path.join(home, ".vibex"));
+  dirs.push(path.join(home, ".dimo-data"), path.join(home, ".dimo"));
   return dirs;
 }
 
@@ -1196,7 +1196,7 @@ function tokenFromSettings(raw) {
 function readPluginrc() {
   try {
     const raw = JSON.parse(
-      fs.readFileSync(path.join(os.homedir(), ".vibex", "pluginrc"), "utf8"),
+      fs.readFileSync(path.join(os.homedir(), ".dimo", "pluginrc"), "utf8"),
     );
     const url =
       typeof raw.url === "string"
@@ -1212,8 +1212,8 @@ function readPluginrc() {
 }
 
 function discoverHost() {
-  const envUrl = (process.env.VIBEX_URL || "").replace(/\/+$/, "");
-  const envToken = (process.env.VIBEX_TOKEN || "").trim();
+  const envUrl = (process.env.DIMO_URL || "").replace(/\/+$/, "");
+  const envToken = (process.env.DIMO_TOKEN || "").trim();
   const saved = readPluginrc();
   let token = envToken || saved.token;
   let port = 17891;
@@ -1249,7 +1249,7 @@ async function hostAccepts(url, token) {
       headers: {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
-        "x-vibex-protocol-version": "1.0",
+        "x-dimo-protocol-version": "1.0",
       },
       body: JSON.stringify({ operation_id: crypto.randomUUID(), args: {} }),
       signal: AbortSignal.timeout(2000),
@@ -1319,7 +1319,7 @@ async function hostCall(host, command, args) {
     headers: {
       authorization: `Bearer ${host.token}`,
       "content-type": "application/json",
-      "x-vibex-protocol-version": "1.0",
+      "x-dimo-protocol-version": "1.0",
     },
     body: JSON.stringify({
       operation_id: crypto.randomUUID(),
@@ -1356,10 +1356,22 @@ async function load(file) {
     "dist",
     file,
   );
-  const modulePath = fs.existsSync(bundled) ? bundled : local;
-  if (!fs.existsSync(modulePath)) {
+  let installed = "";
+  try {
+    installed = path.join(
+      path.dirname(require.resolve("@dimoai/plugin-cli/package.json")),
+      "dist",
+      file,
+    );
+  } catch {
+    installed = "";
+  }
+  const modulePath = [local, installed, bundled].find(
+    (candidate) => candidate && fs.existsSync(candidate),
+  );
+  if (!modulePath) {
     throw new Error(
-      "VibeX Plugin CLI is unavailable; reinstall or update VibeX.",
+      "Dimo Plugin CLI is unavailable; reinstall or update Dimo.",
     );
   }
   return import(pathToFileURL(modulePath).href);

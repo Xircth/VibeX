@@ -14,7 +14,7 @@ import {
   ACCOUNT_HOST_CONFIGS_STORAGE_KEY,
   resetAccountHostConfigsForTests,
 } from '@/features/model-router/accountHostConfigs';
-import { resetAccountOverviewCache } from '@/features/model-router/useVibeXAccount';
+import { resetAccountOverviewCache } from '@/features/model-router/useDimoAccount';
 import { configApi, webServiceApi } from '@/lib/api';
 
 import { AccountStatusMenu } from './AccountStatusMenu';
@@ -220,7 +220,7 @@ describe('AccountStatusMenu', () => {
                 osArch: 'x86_64',
                 updatedAt: '2026-11-11T05:00:00.000Z',
                 fingerprint: 'v1_remote',
-                vibeXSettings: {
+                dimoSettings: {
                   userConfig: {},
                   frontendPreferences: {},
                 },

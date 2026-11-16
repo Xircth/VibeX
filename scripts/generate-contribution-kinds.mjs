@@ -202,7 +202,7 @@ async function officialUsage() {
       ROOT,
       PLUGINS_DIR,
       entry.name,
-      '.vibex-plugin',
+      '.dimo-plugin',
       'plugin.json'
     );
     let raw;

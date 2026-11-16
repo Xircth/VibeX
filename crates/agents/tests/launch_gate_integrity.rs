@@ -66,7 +66,7 @@ async fn launch_gate_integrity_rejects_missing_or_relative_components() {
 
     let missing = LaunchComponentEvidence {
         component_kind: "acp_adapter".to_string(),
-        absolute_path: std::env::temp_dir().join("definitely-missing-vibex-acp"),
+        absolute_path: std::env::temp_dir().join("definitely-missing-dimo-acp"),
         expected_sha256: digest(b"trusted"),
     };
     assert!(matches!(

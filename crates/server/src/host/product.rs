@@ -310,7 +310,7 @@ impl ServerApplicationDomains {
                 let mut logs = Vec::new();
                 if let Some(root) = workspace.container_ref.as_deref() {
                     for repo in repos {
-                        let log = Path::new(root).join(format!(".vibex-create-{}.log", repo.id));
+                        let log = Path::new(root).join(format!(".dimo-create-{}.log", repo.id));
                         match services::services::worktree_settings::read_command_log_tail(&log)
                             .await
                         {
@@ -1561,7 +1561,7 @@ fn resolve_workflow_source_path(path: &str) -> Result<PathBuf, ApplicationError>
             ApplicationError::internal("Unable to resolve the user home directory")
         })?;
         let expanded = home.join(path.trim_start_matches("~/"));
-        if path.starts_with("~/.vibex/workflows/")
+        if path.starts_with("~/.dimo/workflows/")
             && let Some(parent) = expanded.parent()
         {
             std::fs::create_dir_all(parent).map_err(internal_error)?;
@@ -1573,10 +1573,10 @@ fn resolve_workflow_source_path(path: &str) -> Result<PathBuf, ApplicationError>
     if !expanded
         .file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".vibex-workflow.json"))
+        .is_some_and(|name| name.ends_with(".dimo-workflow.json"))
     {
         return Err(ApplicationError::bad_request(
-            "Workflow source must end with .vibex-workflow.json",
+            "Workflow source must end with .dimo-workflow.json",
         ));
     }
     Ok(expanded)

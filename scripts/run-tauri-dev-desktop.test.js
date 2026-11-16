@@ -49,18 +49,18 @@ test('desktop dev injects debug sidecar paths and watches official MCP crates', 
     'utf8'
   );
   const mcpName =
-    process.platform === 'win32' ? 'vibex-mcp.exe' : 'vibex-mcp';
+    process.platform === 'win32' ? 'dimo-mcp.exe' : 'dimo-mcp';
   const workflowName =
     process.platform === 'win32'
-      ? 'vibex-workflow-mcp.exe'
-      : 'vibex-workflow-mcp';
+      ? 'dimo-workflow-mcp.exe'
+      : 'dimo-workflow-mcp';
 
   assert.equal(
-    env.VIBEX_MCP_BIN,
+    env.DIMO_MCP_BIN,
     path.join('/custom-target', 'debug', mcpName)
   );
   assert.equal(
-    env.VIBEX_WORKFLOW_MCP_BIN,
+    env.DIMO_WORKFLOW_MCP_BIN,
     path.join('/custom-target', 'debug', workflowName)
   );
   assert.match(source, /watchHostSidecars/);
@@ -78,9 +78,9 @@ test('desktop dev uses a distinct app identity from the installed product', () =
   const product = JSON.parse(fs.readFileSync(productConfigPath, 'utf8'));
   const generated = applyDesktopDevIdentity(product);
 
-  assert.equal(product.identifier, 'com.vibex.app');
-  assert.equal(product.productName, 'VibeX');
-  assert.deepEqual(product.plugins['deep-link'].desktop.schemes, ['vibex']);
+  assert.equal(product.identifier, 'com.dimo.app');
+  assert.equal(product.productName, 'Dimo');
+  assert.deepEqual(product.plugins['deep-link'].desktop.schemes, ['dimo']);
   assert.equal(generated.identifier, DESKTOP_DEV_IDENTITY.identifier);
   assert.equal(generated.productName, DESKTOP_DEV_IDENTITY.productName);
   assert.equal(
@@ -91,13 +91,13 @@ test('desktop dev uses a distinct app identity from the installed product', () =
     DESKTOP_DEV_IDENTITY.deepLinkScheme,
   ]);
   assert.notEqual(generated.identifier, product.identifier);
-  assert.equal(product.identifier, 'com.vibex.app');
+  assert.equal(product.identifier, 'com.dimo.app');
 });
 
 test('desktop dev cleanup reaps WebView2 processes that hold the dev user-data folder', () => {
   const script = windowsStaleDesktopCleanupScript();
   assert.match(script, /msedgewebview2\.exe/);
-  assert.match(script, /com\.vibex\.app\.dev/);
+  assert.match(script, /com\.dimo\.app\.dev/);
   assert.match(script, /taskkill\.exe/);
   assert.match(script, /Start-Sleep/);
 });
@@ -111,7 +111,7 @@ test('desktop dev WebView2 user data lives under LOCALAPPDATA and the dev identi
 });
 
 test('desktop dev relocates a busy WebView2 profile so the next Environment can start', () => {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-wv2-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'dimo-wv2-'));
   const dir = path.join(parent, DESKTOP_DEV_IDENTITY.identifier);
   fs.mkdirSync(path.join(dir, 'EBWebView', 'Default'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'EBWebView', 'Default', 'LOCK'), 'busy');
@@ -133,7 +133,7 @@ test('desktop dev relocates a busy WebView2 profile so the next Environment can 
 });
 
 test('desktop dev tolerates Windows ENOTEMPTY/EBUSY when clearing target/debug/incremental', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-inc-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dimo-inc-'));
   const incremental = path.join(root, 'target', 'debug', 'incremental');
   fs.mkdirSync(incremental, { recursive: true });
 

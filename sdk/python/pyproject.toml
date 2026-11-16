@@ -3,18 +3,23 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vibex-plugin"
+name = "dimo-plugin"
 version = "2.0.0"
-description = "VibeX plugin worker SDK for protocol 1.1"
+description = "Dimo plugin worker SDK for protocol 1.1"
 requires-python = ">=3.11"
-authors = [{ name = "VibeX maintainers" }]
-keywords = ["vibex", "plugin", "worker"]
+license = "Apache-2.0"
+authors = [{ name = "Dimo maintainers" }]
+keywords = ["dimo", "plugin", "worker"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/DimoADE/Dimo"
+Repository = "https://github.com/DimoADE/Dimo"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

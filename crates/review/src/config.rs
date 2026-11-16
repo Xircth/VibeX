@@ -9,9 +9,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// Get the path to the config file (~/.config/vibex/review.toml)
+    /// Get the path to the config file (~/.config/dimo/review.toml)
     fn config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("vibex").join("review.toml"))
+        dirs::config_dir().map(|p| p.join("dimo").join("review.toml"))
     }
 
     /// Load config from disk, returning default if file doesn't exist

@@ -1,4 +1,4 @@
-//! Host-owned IM inbound loops. Desktop and `vibex-server` start the same runtime.
+//! Host-owned IM inbound loops. Desktop and `dimo-server` start the same runtime.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -252,7 +252,7 @@ pub fn start_chat_inbound(pool: SqlitePool, conversations: ConversationContext) 
                                 &channel.config,
                                 token.map(String::as_str),
                                 &services::services::chat_delivery::RichMessage::info(summary)
-                                    .with_title("VibeX daily summary"),
+                                    .with_title("Dimo daily summary"),
                             )
                             .await;
                             last_daily_report = stamp.clone();
@@ -405,7 +405,7 @@ pub async fn post_event_webhooks(event: &str, body: &str) {
         let payload = json!({
             "event": event,
             "body": body,
-            "source": "vibex",
+            "source": "dimo",
         });
         let _ = http_client().post(hook.url).json(&payload).send().await;
     }
@@ -1095,7 +1095,7 @@ async fn handle_telegram_callback(
 
 fn help_text(prefix: &str) -> String {
     format!(
-        "VibeX Host commands:\n\
+        "Dimo Host commands:\n\
          {prefix} folder [n|name]\n\
          {prefix} agent [n|id]\n\
          {prefix} task <text>\n\
@@ -1188,9 +1188,9 @@ async fn dispatch_command_reply(
             ("Deny".into(), "cb:p:deny".into()),
         ]),
         "ping" => CommandReply::text(if store.message_language.starts_with("zh") {
-            "VibeX Host 在线"
+            "Dimo Host 在线"
         } else {
-            "VibeX Host online"
+            "Dimo Host online"
         }),
         "status" => CommandReply::text(channel_status_text().await),
         "conversations" | "sessions" | "ls" => CommandReply::text(list_conversations(pool).await),
@@ -1783,7 +1783,7 @@ async fn send_task(
             .flatten()
         else {
             return CommandReply::text(
-                "this project has no workspace yet; open it in VibeX once, then retry",
+                "this project has no workspace yet; open it in Dimo once, then retry",
             );
         };
         let Some(agent_id) = selected_agent

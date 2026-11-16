@@ -430,7 +430,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(screen.getByText('本地会话导入')).toBeInTheDocument();
     expect(
       screen.getByText(
-        '点击导入按钮以进行本地Agent会话数据导入，需先将对应项目导入VibeX，否则无法选择数据'
+        '点击导入按钮以进行本地Agent会话数据导入，需先将对应项目导入Dimo，否则无法选择数据'
       )
     ).toBeInTheDocument();
     expect(
@@ -640,7 +640,7 @@ describe('GeneralSettings Agent model catalogs', () => {
   });
 
   it('toggles Hide Bot sessions in the Collaboration space section', async () => {
-    localStorage.removeItem('vibex:hide-bot-sessions');
+    localStorage.removeItem('dimo:hide-bot-sessions');
     const user = userEvent.setup();
     renderSettings();
 
@@ -652,7 +652,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     await user.click(toggle);
 
     expect(toggle).toBeChecked();
-    expect(localStorage.getItem('vibex:hide-bot-sessions')).toBe('true');
+    expect(localStorage.getItem('dimo:hide-bot-sessions')).toBe('true');
   });
 
   it('truncates long custom role persona prompts without overflowing the settings width or crushing the role name', async () => {

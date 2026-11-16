@@ -330,7 +330,7 @@ export interface PanelActions {
 }
 
 const GLOBAL_PANEL_ACTIONS_CONTEXT_KEY =
-  '__VIBEX_PANEL_ACTIONS_CONTEXT__' as const;
+  '__DIMO_PANEL_ACTIONS_CONTEXT__' as const;
 
 const globalPanelActionsScope = globalThis as typeof globalThis & {
   [GLOBAL_PANEL_ACTIONS_CONTEXT_KEY]?: Context<PanelActions | null>;
@@ -2715,7 +2715,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
             renderer: 'onlyWhenVisible',
           });
         } catch (error) {
-          console.error('[vibex-browser] failed to add browser tab', error);
+          console.error('[dimo-browser] failed to add browser tab', error);
         }
       }
       if (activate) panel?.api.setActive();

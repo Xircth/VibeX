@@ -19,7 +19,7 @@ use crate::error::AppError;
 
 const SETTINGS_SECTION: &str = "host_tunnel";
 const ERR_NEED_COMMAND: &str = "Generate a setup command first";
-const ERR_HOST_UNREACHABLE: &str = "Could not reach a VibeX Host at that address. For a new VPS tunnel, generate a setup command first.";
+const ERR_HOST_UNREACHABLE: &str = "Could not reach a Dimo Host at that address. For a new VPS tunnel, generate a setup command first.";
 const ERR_RELAY_WAIT: &str = "The public tunnel is waiting for this Host. Confirm the VPS command is still running, then try again.";
 const ERR_HEALTH: &str = "Reached the tunnel, but this Host did not answer. Confirm the remote connection service is running.";
 const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
@@ -626,7 +626,7 @@ fn sha256_hex(input: &str) -> String {
 const SHARED_CLOUD_DISCOVERY_TOPIC: &str = "vbx-cloud-hosts-v1";
 
 async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &str, origin: &str) {
-    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
+    let host_name = utils::net::local_hostname().unwrap_or_else(|| "Dimo Desktop".to_string());
     let payload = serde_json::json!({
         "v": 2,
         "host_id": host_id,
@@ -634,7 +634,7 @@ async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &st
         "origin": origin,
         "ts": Utc::now().timestamp(),
     });
-    let host_hash = &sha256_hex(&format!("vibex-host-v1:{host_id}"))[..32];
+    let host_hash = &sha256_hex(&format!("dimo-host-v1:{host_id}"))[..32];
     let topic = format!("vbx-h-{host_hash}");
     let is_domain = relay_host.parse::<std::net::IpAddr>().is_err()
         && !relay_host.eq_ignore_ascii_case("localhost");
@@ -743,7 +743,7 @@ async fn maintain_control(
         .ok()
         .flatten()
         .unwrap_or_else(|| "default".to_string());
-    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
+    let host_name = utils::net::local_hostname().unwrap_or_else(|| "Dimo Desktop".to_string());
     let lan_origins: Vec<String> = utils::net::advertised_http_origins(local_port, true)
         .into_iter()
         .filter(|origin| !remote_protocol::is_loopback_origin(origin))
@@ -755,7 +755,7 @@ async fn maintain_control(
     let name_b64 = BASE64.encode(host_name.as_bytes());
     let lan_b64 = BASE64.encode(serde_json::to_vec(&lan_origins).unwrap_or_default());
     writer
-        .write_all(format!("VIBEX-CTRL v2 {host_id} {token} {name_b64} {lan_b64}\n").as_bytes())
+        .write_all(format!("DIMO-CTRL v2 {host_id} {token} {name_b64} {lan_b64}\n").as_bytes())
         .await
         .map_err(|error| error.to_string())?;
 
@@ -976,7 +976,7 @@ async fn open_prewarmed_pool_stream(
     let mut buf_remote = BufReader::new(remote);
     buf_remote
         .get_mut()
-        .write_all(format!("VIBEX-DATA v2 {host_id} {token} POOL\n").as_bytes())
+        .write_all(format!("DIMO-DATA v2 {host_id} {token} POOL\n").as_bytes())
         .await
         .map_err(|error| error.to_string())?;
 
@@ -1033,7 +1033,7 @@ async fn open_v2_data_path(
     let _ = local.set_nodelay(true);
     let mut remote = connect_to_relay_host(&host, port).await?;
     remote
-        .write_all(format!("VIBEX-DATA v2 {host_id} {token} {id}\n").as_bytes())
+        .write_all(format!("DIMO-DATA v2 {host_id} {token} {id}\n").as_bytes())
         .await
         .map_err(|error| error.to_string())?;
     let _ = tokio::io::copy_bidirectional(&mut remote, &mut local).await;
@@ -1053,7 +1053,7 @@ async fn open_data_path(
     let _ = local.set_nodelay(true);
     let mut remote = connect_to_relay_host(&host, port).await?;
     remote
-        .write_all(format!("VIBEX-DATA {token} {id}\n").as_bytes())
+        .write_all(format!("DIMO-DATA {token} {id}\n").as_bytes())
         .await
         .map_err(|error| error.to_string())?;
     let _ = tokio::io::copy_bidirectional(&mut remote, &mut local).await;
@@ -1342,7 +1342,7 @@ pub async fn select_saved_host_tunnel(id: Option<String>) -> Result<HostTunnelSt
         if target == "auto-quick-tunnel" {
             if valid_account_lease(&store).is_none() {
                 return Err(AppError::BadRequest(
-                    "Sign in to your VibeX account to use the Official Cloud Relay".to_string(),
+                    "Sign in to your Dimo account to use the Official Cloud Relay".to_string(),
                 ));
             }
         } else if !store.saved.iter().any(|item| &item.id == target) {

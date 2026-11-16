@@ -28,7 +28,7 @@ import {
 import { resolveCurrentHostIdentity } from './accountHostConfigs';
 import { isolateSavedHostsOnSignOut } from './accountSavedHosts';
 import { openExternal } from './openExternal';
-import { resetAccountOverviewCache } from './useVibeXAccount';
+import { resetAccountOverviewCache } from './useDimoAccount';
 
 const MICRO = 1_000_000;
 

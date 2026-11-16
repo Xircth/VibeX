@@ -1,58 +1,68 @@
 {
-  "name": "@vibex/plugin-sdk",
+  "name": "@dimoai/plugin-sdk",
   "version": "2.0.0",
   "type": "module",
-  "description": "Typed SDK for VibeX App, Agent, and Host plugin contributions",
+  "description": "Typed SDK for Dimo App, Agent, and Host plugin contributions",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DimoADE/Dimo.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./worker": {
-      "types": "./src/worker.ts",
+      "types": "./dist/worker.d.ts",
       "default": "./dist/worker.js"
     },
     "./app": {
-      "types": "./src/app.ts",
+      "types": "./dist/app.d.ts",
       "default": "./dist/app.js"
     },
     "./registry": {
-      "types": "./src/registry.ts",
+      "types": "./dist/registry.d.ts",
       "default": "./dist/registry.js"
     },
     "./services": {
-      "types": "./src/services.ts",
+      "types": "./dist/services.d.ts",
       "default": "./dist/services.js"
     },
     "./context": {
-      "types": "./src/context.ts",
+      "types": "./dist/context.d.ts",
       "default": "./dist/context.js"
     },
     "./hooks": {
-      "types": "./src/hooks.ts",
+      "types": "./dist/hooks.d.ts",
       "default": "./dist/hooks.js"
     },
     "./volatile": {
-      "types": "./src/volatile.ts",
+      "types": "./dist/volatile.d.ts",
       "default": "./dist/volatile.js"
     },
     "./testing": {
-      "types": "./src/testing.ts",
+      "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
     },
     "./protocol": {
-      "types": "./src/protocol.ts",
+      "types": "./dist/protocol.d.ts",
       "default": "./dist/protocol.js"
     },
     "./stdio": {
-      "types": "./src/stdio.ts",
+      "types": "./dist/stdio.d.ts",
       "default": "./dist/stdio.js"
     }
   },
-  "types": "./src/index.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",

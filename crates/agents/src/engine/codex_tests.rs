@@ -297,11 +297,11 @@ async fn codex_server_cache_key_tracks_codex_home_config_and_invalidate_clears_c
         "editing CODEX_HOME/auth.json must change CodexServerCacheKey"
     );
 
-    std::fs::write(codex_home.join("vibex-model-catalog.json"), "{\"models\":[]}").expect("write catalog");
+    std::fs::write(codex_home.join("dimo-model-catalog.json"), "{\"models\":[]}").expect("write catalog");
     let key4 = CodexServerCacheKey::from_spec(&spec);
     assert_ne!(
         key3, key4,
-        "editing vibex-model-catalog.json must change CodexServerCacheKey"
+        "editing dimo-model-catalog.json must change CodexServerCacheKey"
     );
 
     invalidate_codex_servers().await;

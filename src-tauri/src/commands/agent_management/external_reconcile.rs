@@ -1,6 +1,6 @@
 //! 外部安装组件变更的官方验证与自动采纳(ADR-0038 方向 B)。
 //!
-//! 外部组件的文件由外部所有者(npm、系统包管理器、用户)维护,VibeX 不修改
+//! 外部组件的文件由外部所有者(npm、系统包管理器、用户)维护,Dimo 不修改
 //! 它们。当锁定的指纹与磁盘内容不一致时,本模块用官方来源(npm
 //! `dist.integrity` / ACP Registry binary `sha256`)验证新内容;验证通过则自动
 //! 更新 Installation lock(旧 lock 转 rollback)并放行,否则保持 fail-closed:

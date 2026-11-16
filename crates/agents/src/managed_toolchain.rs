@@ -3,7 +3,7 @@
 //! Node and uv are not Agent installation artifacts. They are the tools used
 //! to write official Agent CLIs into the user environment and to host the
 //! Claude native SDK sidecar (`scripts/claude-native-driver.mjs`). Desktop and
-//! `vibex-server` must use the same pinned versions, directory layout, and
+//! `dimo-server` must use the same pinned versions, directory layout, and
 //! checksums so a Host without a system Node can run both ACP installs and
 //! native sidecars without cold-start extraction overhead.
 
@@ -63,7 +63,7 @@ pub enum ManagedToolchainError {
     #[error("Managed Node.js is not supported on platform `{0}`")]
     UnsupportedPlatform(String),
 
-    #[error("Could not resolve VibeX managed artifacts directory")]
+    #[error("Could not resolve Dimo managed artifacts directory")]
     MissingManagedArtifactsDir,
 
     #[error("Managed Node.js archive exceeded maximum allowed size ({max_bytes} bytes)")]
@@ -244,19 +244,19 @@ pub fn managed_bun_download_urls(artifact: &ManagedBunArtifact) -> Vec<String> {
     )]
 }
 
-/// Npx plans are installable when a system Node exists **or** VibeX can
+/// Npx plans are installable when a system Node exists **or** Dimo can
 /// bootstrap the pinned Node distribution for this platform.
 pub fn node_verified_for_install(system_node_and_npm: bool, platform: &str) -> bool {
     system_node_and_npm || managed_node_artifact(platform).is_some()
 }
 
-/// Uvx plans are installable when a system uv exists **or** VibeX can
+/// Uvx plans are installable when a system uv exists **or** Dimo can
 /// bootstrap the pinned uv distribution for this platform.
 pub fn uv_verified_for_install(system_uv: bool, platform: &str) -> bool {
     system_uv || managed_uv_artifact(platform).is_some()
 }
 
-/// Bun-dependent plans are installable when a system Bun exists **or** VibeX can
+/// Bun-dependent plans are installable when a system Bun exists **or** Dimo can
 /// bootstrap the pinned Bun distribution for this platform.
 pub fn bun_verified_for_install(system_bun: bool, platform: &str) -> bool {
     system_bun || managed_bun_artifact(platform).is_some()
@@ -275,9 +275,9 @@ pub fn current_host_platform() -> Option<&'static str> {
     }
 }
 
-/// Resolves the default root directory where VibeX stores managed `agent-tools/`.
+/// Resolves the default root directory where Dimo stores managed `agent-tools/`.
 pub fn default_managed_artifacts_dir() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("VIBEX_MANAGED_ARTIFACTS_DIR") {
+    if let Some(explicit) = std::env::var_os("DIMO_MANAGED_ARTIFACTS_DIR") {
         let path = PathBuf::from(explicit);
         if !path.as_os_str().is_empty() {
             return Some(path);
@@ -671,7 +671,7 @@ fn extraction_mutex() -> &'static Mutex<()> {
 pub async fn ensure_managed_node_runtime(
     managed_artifacts_dir: Option<&Path>,
 ) -> Result<ManagedNodeRuntime, ManagedToolchainError> {
-    if let Some(explicit_node) = std::env::var_os("VIBEX_NODE_PATH") {
+    if let Some(explicit_node) = std::env::var_os("DIMO_NODE_PATH") {
         let node_path = PathBuf::from(explicit_node);
         if node_path.is_file() {
             return Ok(runtime_from_node_binary(node_path));

@@ -641,10 +641,10 @@ describe('SessionHubSidebar', () => {
 
   it('hides Bot sessions from the Kanban session list when hideBotSessions is enabled', () => {
     act(() => {
-      localStorage.setItem('vibex:hide-bot-sessions', 'false');
+      localStorage.setItem('dimo:hide-bot-sessions', 'false');
       window.dispatchEvent(
         new StorageEvent('storage', {
-          key: 'vibex:hide-bot-sessions',
+          key: 'dimo:hide-bot-sessions',
           newValue: 'false',
         })
       );
@@ -720,10 +720,10 @@ describe('SessionHubSidebar', () => {
     expect(screen.getByText('Bot session')).toBeInTheDocument();
 
     act(() => {
-      localStorage.setItem('vibex:hide-bot-sessions', 'true');
+      localStorage.setItem('dimo:hide-bot-sessions', 'true');
       window.dispatchEvent(
         new StorageEvent('storage', {
-          key: 'vibex:hide-bot-sessions',
+          key: 'dimo:hide-bot-sessions',
           newValue: 'true',
         })
       );
@@ -733,10 +733,10 @@ describe('SessionHubSidebar', () => {
     expect(screen.queryByText('Bot session')).not.toBeInTheDocument();
 
     act(() => {
-      localStorage.setItem('vibex:hide-bot-sessions', 'false');
+      localStorage.setItem('dimo:hide-bot-sessions', 'false');
       window.dispatchEvent(
         new StorageEvent('storage', {
-          key: 'vibex:hide-bot-sessions',
+          key: 'dimo:hide-bot-sessions',
           newValue: 'false',
         })
       );

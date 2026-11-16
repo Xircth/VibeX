@@ -10,7 +10,6 @@ export {
   startBasicGuide,
 } from './basicGuideState';
 export { readBasicGuide, writeBasicGuide } from './basicGuideStorage';
-export { AstryxStep, AstryxStepItem } from './AstryxStep';
 export { AstryxStepper, AstryxStepperItem } from './AstryxStepper';
 export {
   presentAgentStatusRow,

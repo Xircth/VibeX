@@ -18,7 +18,7 @@ import {
   type QuestionTab,
 } from './agentQuestionModel';
 
-const CUSTOM_VALUE = '__vibex_custom_answer__';
+const CUSTOM_VALUE = '__dimo_custom_answer__';
 
 export function AgentQuestionCard({
   request,

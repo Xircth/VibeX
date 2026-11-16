@@ -6,7 +6,7 @@
 //! rendering. Within a response item, `payload.type` is:
 //! `message` (role developer/user/assistant; content `input_text`/`output_text`),
 //! `reasoning` (summary text), `function_call` (tool use), or
-//! `function_call_output` (tool result). VibeX-authored; the format is Codex's.
+//! `function_call_output` (tool result). Dimo-authored; the format is Codex's.
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;

@@ -3,7 +3,7 @@ import { serviceContainer } from './services.js';
 let boundUseSyncExternalStore = null;
 /**
  * Binds React's `useSyncExternalStore` from the Host singleton so plugin SDK
- * hooks work without bundling a duplicate copy of React in `@vibex/plugin-sdk`.
+ * hooks work without bundling a duplicate copy of React in `@dimoai/plugin-sdk`.
  */
 export function bindExternalStoreHook(hook) {
     boundUseSyncExternalStore = hook;
@@ -12,7 +12,7 @@ function resolveExternalStoreHook() {
     if (boundUseSyncExternalStore) {
         return boundUseSyncExternalStore;
     }
-    const globalReact = globalThis.__VIBEX_REACT__;
+    const globalReact = globalThis.__DIMO_REACT__;
     if (typeof globalReact?.useSyncExternalStore === 'function') {
         return globalReact.useSyncExternalStore;
     }

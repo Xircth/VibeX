@@ -519,12 +519,12 @@ export class EffectScope {
 }
 
 const GLOBAL_SERVICE_CONTAINER_SYMBOL = Symbol.for(
-  'vibex.plugin-sdk.serviceContainer'
+  'dimo.plugin-sdk.serviceContainer'
 );
 
 function getOrCreateGlobalServiceContainer(): ServiceContainer {
   const globalRecord = globalThis as Record<PropertyKey, unknown>;
-  const sharedHost = globalRecord.__VIBEX_SHARED_PLUGIN_HOST__ as
+  const sharedHost = globalRecord.__DIMO_SHARED_PLUGIN_HOST__ as
     | { serviceContainer?: ServiceContainer }
     | undefined;
   if (

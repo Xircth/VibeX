@@ -35,7 +35,7 @@ function createRemoteSshConnectPanelComponent(ctx) {
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.remote-ssh',
+  id: 'dimo.remote-ssh',
   activate(ctx) {
     const ConnectPanelComponent = createRemoteSshConnectPanelComponent(ctx);
 
@@ -47,7 +47,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.remote-ssh.connect',
+      id: 'dimo.remote-ssh.connect',
       title: 'Connect to Remote SSH Host',
       category: 'Remote SSH',
       icon: 'cloud',
@@ -58,12 +58,12 @@ export default {
 
     ctx.ui.registerSlashCommand({
       name: 'ssh-connect',
-      description: 'Diagnose or connect to a remote SSH VibeX Server host',
+      description: 'Diagnose or connect to a remote SSH Dimo Server host',
       prompt:
-        'Check SSH connectivity and remote VibeX Server status for host:',
+        'Check SSH connectivity and remote Dimo Server status for host:',
     });
 
-    ctx.services.provide('vibex.remote-ssh', {
+    ctx.services.provide('dimo.remote-ssh', {
       provisionKind: 'ssh',
       async ensureProvisioned(input = {}) {
         return await ctx.worker.invoke('provision.ensure', input);

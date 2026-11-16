@@ -154,7 +154,7 @@ describe('AgentMention', () => {
     await user.click(await screen.findByRole('option', { name: /Codex/ }));
 
     expect(screen.getByLabelText('Serialized composer value').textContent).toBe(
-      'Ask [&Codex](vibex://agent/codex)\u00A0'
+      'Ask [&Codex](dimo://agent/codex)\u00A0'
     );
     expect(calls).toContain('agent_management_bar');
   });
@@ -225,7 +225,7 @@ describe('AgentMention', () => {
     await user.keyboard('{Enter}');
 
     expect(screen.getByLabelText('Serialized composer value').textContent).toBe(
-      '[&Codex](vibex://agent/codex)\u00A0'
+      '[&Codex](dimo://agent/codex)\u00A0'
     );
   });
 

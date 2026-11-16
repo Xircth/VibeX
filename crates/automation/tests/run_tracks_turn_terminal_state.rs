@@ -152,7 +152,7 @@ impl TurnLauncherPort for FakeTurnLauncher {
                 version: "1".to_string(),
             },
             plugins: vec![ComponentVersionEvidence {
-                id: "vibex.office".to_string(),
+                id: "dimo.office".to_string(),
                 version: "2.0.0".to_string(),
             }],
             tool_locks: vec![ToolLockVersionEvidence {
@@ -250,7 +250,7 @@ fn launch_spec() -> TurnLaunchSpec {
         "skills": [],
         "workspace": {
             "projectId": Uuid::new_v4(),
-            "rootFolder": "/repo/vibex",
+            "rootFolder": "/repo/dimo",
             "branch": "main",
             "isolation": "worktree_per_run"
         },

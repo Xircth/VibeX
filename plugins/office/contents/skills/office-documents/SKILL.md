@@ -1,6 +1,6 @@
 ---
 name: office-documents
-description: Create, edit, analyze, and preview DOCX, XLSX, and PPTX files in VibeX.
+description: Create, edit, analyze, and preview DOCX, XLSX, and PPTX files in Dimo.
 ---
 # Office Documents Skill
 

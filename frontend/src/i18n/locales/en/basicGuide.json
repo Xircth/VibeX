@@ -1,11 +1,5 @@
 {
   "panelAria": "Basic guide",
-  "stepsAria": "Basic guide steps",
-  "steps": {
-    "createProject": "Create or choose a project",
-    "createSession": "Create a session in the workspace",
-    "learnLayout": "Learn the layout"
-  },
   "continue": "Continue",
   "exit": "Skip basic guide",
   "finish": "Done",
@@ -14,11 +8,11 @@
   "exitConfirm": "Skip",
   "endCopy": "Find more tips in the docs or community. Vibing~~~",
   "copy": {
-    "select-project-create": "In VibeX, create or choose a **project** to continue. A **project** is a folder that isolates Agent sessions and work state.",
+    "select-project-create": "In Dimo, create or choose a **project** to continue. A **project** is a folder that isolates Agent sessions and work state.",
     "select-project-global": "**Global** is your user folder — click **Global** to continue.",
     "need-agent": "Setup moved a bit fast — no Agent is ready yet. Enable and sign in to an Agent in **Settings → Agent**.",
     "settings-agent-icon": "Select an Agent to open its settings.",
-    "settings-agent-enable": "Turn on Enable so VibeX can install its connector.",
+    "settings-agent-enable": "Turn on Enable so Dimo can install its connector.",
     "settings-agent-acp": "Downloading, installing, and checking the connector. Hang on.",
     "settings-agent-auth": "Sign in with a subscription or add an API key so the Agent can run.",
     "return-main": "An Agent is ready. Return to the main window to create a session.",

@@ -1,11 +1,11 @@
 export const CONVERSATION_SCROLL_TO_TURN_EVENT =
-  'vibex:conversation-scroll-to-turn';
+  'dimo:conversation-scroll-to-turn';
 
 export const CONVERSATION_SCROLL_TO_GOAL_EVENT =
-  'vibex:conversation-scroll-to-goal';
+  'dimo:conversation-scroll-to-goal';
 
 export const CONVERSATION_SCROLL_TO_QUOTE_EVENT =
-  'vibex:conversation-scroll-to-quote';
+  'dimo:conversation-scroll-to-quote';
 
 export type ConversationScrollToTurnDetail = {
   conversationId: string;

@@ -30,7 +30,7 @@ fn now() -> String {
 pub fn member_id_for_conversation(conversation_id: Uuid) -> String {
     Uuid::new_v5(
         &Uuid::NAMESPACE_OID,
-        format!("vibex-member:{conversation_id}").as_bytes(),
+        format!("dimo-member:{conversation_id}").as_bytes(),
     )
     .to_string()
 }
@@ -39,7 +39,7 @@ pub fn member_id_for_conversation(conversation_id: Uuid) -> String {
 pub fn thread_session_id(member_id: &str, thread_id: &str) -> Uuid {
     Uuid::new_v5(
         &Uuid::NAMESPACE_OID,
-        format!("vibex-member-thread:{member_id}:{thread_id}").as_bytes(),
+        format!("dimo-member-thread:{member_id}:{thread_id}").as_bytes(),
     )
 }
 

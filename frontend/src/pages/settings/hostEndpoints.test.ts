@@ -4,7 +4,7 @@ import {
   defaultHostUrl,
   explicitHostUrl,
   hostEndpointsFromStatus,
-  looksLikeVibexHost,
+  looksLikeDimoHost,
   presentRemoteAccess,
 } from './hostEndpoints';
 
@@ -109,7 +109,7 @@ describe('explicitHostUrl', () => {
   });
 });
 
-describe('looksLikeVibexHost', () => {
+describe('looksLikeDimoHost', () => {
   it('accepts the Host health JSON and rejects HTML shells', async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -124,10 +124,10 @@ describe('looksLikeVibexHost', () => {
         headers: { 'content-type': 'text/html' },
       });
     });
-    expect(await looksLikeVibexHost('http://127.0.0.1:17891', fetchImpl)).toBe(
+    expect(await looksLikeDimoHost('http://127.0.0.1:17891', fetchImpl)).toBe(
       true
     );
-    expect(await looksLikeVibexHost('http://127.0.0.1:3001', fetchImpl)).toBe(
+    expect(await looksLikeDimoHost('http://127.0.0.1:3001', fetchImpl)).toBe(
       false
     );
   });

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from vibex_plugin.protocol_fixtures import (
+from dimo_plugin.protocol_fixtures import (
     default_fixture_directory,
     load_protocol_fixtures,
     replay_protocol_fixtures,

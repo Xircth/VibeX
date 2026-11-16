@@ -1,7 +1,7 @@
 //! Content-addressed spill for timeline image bytes.
 //!
 //! The folded transcript keeps the original payload. The outbound timeline row
-//! replaces those bytes with `vibex-image:{sha256}` so the renderer never holds
+//! replaces those bytes with `dimo-image:{sha256}` so the renderer never holds
 //! the bitmap until a visible, expanded image asks for that one hash.
 
 use std::{
@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::conversation::{ContentBlock, ImageData};
 
-pub const TIMELINE_IMAGE_URI_PREFIX: &str = "vibex-image:";
+pub const TIMELINE_IMAGE_URI_PREFIX: &str = "dimo-image:";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineImageBytes {
@@ -166,18 +166,18 @@ pub fn read_timeline_image_in(
 }
 
 fn default_timeline_image_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("VIBEX_TIMELINE_IMAGE_DIR") {
+    if let Some(dir) = std::env::var_os("DIMO_TIMELINE_IMAGE_DIR") {
         return PathBuf::from(dir);
     }
     #[cfg(test)]
     {
-        std::env::temp_dir().join("vibex-timeline-images-test")
+        std::env::temp_dir().join("dimo-timeline-images-test")
     }
     #[cfg(not(test))]
     {
         dirs::data_local_dir()
-            .unwrap_or_else(workspace_utils::path::get_vibex_temp_dir)
-            .join("vibex")
+            .unwrap_or_else(workspace_utils::path::get_dimo_temp_dir)
+            .join("dimo")
             .join("timeline-images")
     }
 }
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn spilled_image_roundtrips_by_hash_and_rejects_escapes() {
         let dir =
-            std::env::temp_dir().join(format!("vibex-timeline-image-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dimo-timeline-image-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let mut image = ImageData {
             data: "AAAA".to_string(),
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn png_dimensions_are_recorded_without_keeping_bytes() {
         let dir =
-            std::env::temp_dir().join(format!("vibex-timeline-image-png-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dimo-timeline-image-png-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let mut bytes = vec![0u8; 24];
         bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn empty_data_keeps_an_existing_uri() {
         let dir =
-            std::env::temp_dir().join(format!("vibex-timeline-image-empty-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dimo-timeline-image-empty-{}", std::process::id()));
         let mut image = ImageData {
             data: String::new(),
             mime_type: "image/png".to_string(),

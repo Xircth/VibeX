@@ -5,7 +5,7 @@
 //! (`list_apps`, `list_windows`, `get_window_state`, `verify_state`) and
 //! there are the only ones the helper ever calls, with arguments built from
 //! typed fields — never a tool name or an argument object that came from
-//! vibex as-is. (What the driver's listing leaves unsaid — which windows are
+//! dimo as-is. (What the driver's listing leaves unsaid — which windows are
 //! minimized, and on macOS which applications hidden — the helper asks the
 //! system itself: see `mark_out_of_sight`.)
 
@@ -174,7 +174,7 @@ const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 /// A name two applications go by names neither: the answer lists their
 /// keys.
 ///
-/// What it is, for vibex to judge by, is kept apart from the command that
+/// What it is, for dimo to judge by, is kept apart from the command that
 /// starts it ([`InstalledApp`]): its bundle identifier where it has one that
 /// is not a path, and its executable — the path the driver gives, or else the
 /// first word of its launch command.
@@ -633,7 +633,7 @@ pub(super) fn join_identified(windows: Vec<RawWindow>, stamps: Vec<Option<u64>>)
 
 /// The windows in a `list_windows` answer that could be someone's window at
 /// all: the normal layer, with an area. Visible or not — whether a window is
-/// worth *showing* is vibex's call, made after it has matched the listing
+/// worth *showing* is dimo's call, made after it has matched the listing
 /// against the windows it has already named. A shared window whose
 /// application is hidden (⌘H) is off screen and still the same window, and a
 /// listing that dropped it would read as the window closing and end the
@@ -678,7 +678,7 @@ pub(super) fn parse_windows(value: &Value) -> Result<Vec<RawWindow>, HelperError
 /// macOS: mark which of `windows` are minimized, and which belong to a
 /// hidden (⌘H) application — neither of which the driver's listing says.
 /// There such a window is only off screen, as are the hidden windows
-/// applications keep — so vibex, which lists the one and not the other, would
+/// applications keep — so dimo, which lists the one and not the other, would
 /// list neither. Accessibility tells them apart (see `super::axwin`), and is
 /// asked about those applications alone ([`owners_to_ask`]). Only called while
 /// the helper may ask it.

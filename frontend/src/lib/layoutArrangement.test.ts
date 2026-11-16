@@ -67,7 +67,7 @@ describe('layoutArrangement', () => {
 
   it('ignores invalid persisted values', () => {
     localStorage.setItem(
-      'vibex:layout-arrangement',
+      'dimo:layout-arrangement',
       JSON.stringify({ left: 'dock', center: 'dock', right: 'session' })
     );
 
@@ -168,7 +168,7 @@ describe('layoutArrangement', () => {
 
     it('rejects non-bijective values', () => {
       localStorage.setItem(
-        'vibex:kanban-layout-arrangement',
+        'dimo:kanban-layout-arrangement',
         JSON.stringify({ left: 'list', center: 'list', right: 'session' })
       );
 

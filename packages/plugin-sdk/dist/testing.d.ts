@@ -1,5 +1,5 @@
 import type { JsonValue, PluginContext } from './protocol.js';
-import { type VibeXPluginContext, type VibeXPluginDefinition } from './context.js';
+import { type DimoPluginContext, type DimoPluginDefinition } from './context.js';
 import { type CommandContribution, commandRegistry, type ConversationModeContribution, conversationModeRegistry, type Disposer, type KanbanViewContribution, kanbanViewRegistry, type MarkdownRendererContribution, markdownRegistry, type OverlayContribution, overlayRegistry, type PanelContribution, panelRegistry, type SettingSectionContribution, settingRegistry, type SettingsPageContribution, settingsPageRegistry, type SlashCommandContribution, slashCommandRegistry, type SlotContribution, slotRegistry, type ViewContribution, viewRegistry } from './registry.js';
 import { type ActivatedPluginWorker, type PluginHostClient, type PluginWorkerDefinition } from './worker.js';
 export interface WorkerHarness extends ActivatedPluginWorker {
@@ -27,7 +27,7 @@ export declare function createGenerationHarness(definition: PluginWorkerDefiniti
 }): Promise<GenerationHarness>;
 export interface PluginTestHarness {
     readonly pluginId: string;
-    readonly ctx: VibeXPluginContext;
+    readonly ctx: DimoPluginContext;
     readonly hostCalls: ReadonlyArray<{
         capability: string;
         operation: string;
@@ -46,7 +46,7 @@ export interface PluginTestHarness {
         readonly conversationMode: typeof conversationModeRegistry;
         readonly overlay: typeof overlayRegistry;
     };
-    activate(plugin?: VibeXPluginDefinition | ((ctx: VibeXPluginContext) => void | Disposer | Promise<void | Disposer>)): Promise<void>;
+    activate(plugin?: DimoPluginDefinition | ((ctx: DimoPluginContext) => void | Disposer | Promise<void | Disposer>)): Promise<void>;
     getSlots(slot?: string): readonly SlotContribution[];
     getCommands(): readonly CommandContribution[];
     getViews(): readonly ViewContribution[];
@@ -60,7 +60,7 @@ export interface PluginTestHarness {
     getOverlays(): readonly OverlayContribution[];
     dispose(): Promise<void>;
 }
-export type PluginTestTarget = VibeXPluginDefinition | ((ctx: VibeXPluginContext) => void | Disposer | Promise<void | Disposer>);
+export type PluginTestTarget = DimoPluginDefinition | ((ctx: DimoPluginContext) => void | Disposer | Promise<void | Disposer>);
 export interface PluginTestHarnessConfig {
     pluginId?: string;
     generation?: number;

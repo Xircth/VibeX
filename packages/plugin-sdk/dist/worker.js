@@ -1,4 +1,4 @@
-import { isSupportedPluginApiVersion, VIBEX_PLUGIN_API_VERSION, } from './protocol.js';
+import { isSupportedPluginApiVersion, DIMO_PLUGIN_API_VERSION, } from './protocol.js';
 import { serviceContainer, } from './services.js';
 import { createVolatile, notifyPluginConfigUpdated, } from './volatile.js';
 export function createWorkerServiceRegistry(pluginId, container = serviceContainer) {
@@ -45,7 +45,7 @@ export function normalizePluginContext(context) {
 }
 export function definePluginWorker(setupOrDefinition) {
     if (typeof setupOrDefinition === 'function') {
-        return { apiVersion: VIBEX_PLUGIN_API_VERSION, setup: setupOrDefinition };
+        return { apiVersion: DIMO_PLUGIN_API_VERSION, setup: setupOrDefinition };
     }
     assertSupportedWorkerApi(setupOrDefinition.apiVersion);
     return {

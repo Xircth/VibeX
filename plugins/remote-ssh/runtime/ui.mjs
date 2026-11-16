@@ -205,8 +205,8 @@ export function friendlyError(message, zh) {
   }
   if (/could not resolve the latest release/i.test(text) || /HTTP 403/i.test(text)) {
     return zh
-      ? '无法读取 GitHub 最新版本。稍后重试，或设置 VIBEX_VERSION 指定版本。'
-      : 'Could not read the latest GitHub release. Retry later, or set VIBEX_VERSION.';
+      ? '无法读取 GitHub 最新版本。稍后重试，或设置 DIMO_VERSION 指定版本。'
+      : 'Could not read the latest GitHub release. Retry later, or set DIMO_VERSION.';
   }
   if (/GLIBC_\d/i.test(text) || /glibc 2\.\d+ is too old/i.test(text)) {
     return zh

@@ -32,7 +32,7 @@ const BINDING_BY_SEQUENCE = new Map(
   sequentialBindings.map((binding) => [binding.keys.join(','), binding])
 );
 
-export const SHORTCUT_ACTION_EVENT = 'vibex:shortcut-action';
+export const SHORTCUT_ACTION_EVENT = 'dimo:shortcut-action';
 export interface ShortcutActionEventDetail {
   actionId: string;
 }

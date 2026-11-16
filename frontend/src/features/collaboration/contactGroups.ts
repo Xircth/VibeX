@@ -211,7 +211,7 @@ export function withThreadGroup<
 }
 
 const collapsedKey = (workspaceId: string) =>
-  `vibex.collaboration.contactGroups.collapsed.${workspaceId}`;
+  `dimo.collaboration.contactGroups.collapsed.${workspaceId}`;
 
 /** Collapsed section ids (UI state only; the groups themselves are remote). */
 export function readCollapsedSections(workspaceId: string): Set<string> {

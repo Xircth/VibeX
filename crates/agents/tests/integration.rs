@@ -14,12 +14,12 @@ use agents::{
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
+const FULL_GATE_FIXTURE_PROMPT: &str = "__dimo_agent_full_gate_fixture__";
 
 fn fixture_launch_lock(agent_id: agents::AgentId) -> SessionLaunchLock {
     SessionLaunchLock {
         agent_id,
-        absolute_acp_program: PathBuf::from("/tmp/vibex-fixture-acp"),
+        absolute_acp_program: PathBuf::from("/tmp/dimo-fixture-acp"),
         args: Vec::new(),
         env: BTreeMap::new(),
         runtime_version: "fixture-runtime".to_string(),
@@ -345,7 +345,7 @@ async fn missing_acp_program_fails_with_actionable_error_not_raw_enoent() {
     // `driver_enabled = true` so `connect` actually spawns the ACP program.
     let runtime = AgentRuntime::new_with_driver(Arc::new(TestSink { tx }), true);
 
-    let missing = std::env::temp_dir().join("definitely-not-here-vibex-acp");
+    let missing = std::env::temp_dir().join("definitely-not-here-dimo-acp");
     let result = runtime
         .connect(ConnectAgentInput {
             agent_id: AgentId::parse("grok").unwrap(),

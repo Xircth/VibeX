@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import type { BackendTransport } from '@/lib/backendTransport';
 import '@/i18n';
 
-const PROJECTION_KEY = 'vibex:e2e:agent-e:projection';
+const PROJECTION_KEY = 'dimo:e2e:agent-e:projection';
 const PARENT_CONVERSATION_ID = 'fixture-parent-conversation';
 
 type FixtureLog = {
@@ -35,7 +35,7 @@ function readProjection(): ConversationDelegationView[] {
 
 function parseMentionKinds(text: string): string[] {
   return Array.from(
-    text.matchAll(/\[&(?:\\.|[^\]])+\]\(vibex:\/\/agent\/([^)]+)\)/g),
+    text.matchAll(/\[&(?:\\.|[^\]])+\]\(dimo:\/\/agent\/([^)]+)\)/g),
     (match) => decodeURIComponent(match[1])
   );
 }
@@ -186,7 +186,7 @@ function AgentEJourneySurface() {
               Agent Mention · Delegation Journey
             </h1>
             <p className="mt-1 max-w-[70ch] text-sm text-foreground">
-              Fake MCP-capable parent · persistent projection · real VibeX
+              Fake MCP-capable parent · persistent projection · real Dimo
               composer and cards
             </p>
           </div>

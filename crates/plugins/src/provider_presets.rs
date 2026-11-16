@@ -145,7 +145,7 @@ impl ProviderPresetError {
 /// `bind` is the only mutating call that changes what an agent actually talks
 /// to, so implementations **must** obtain explicit user confirmation before
 /// applying it and return [`ProviderBindDecision::Declined`] when the user says
-/// no. `list` and `save` only touch VibeX's own preset store and need no
+/// no. `list` and `save` only touch Dimo's own preset store and need no
 /// prompt.
 #[async_trait]
 pub trait ProviderPresetHost: Send + Sync {

@@ -34,7 +34,7 @@ describe('SessionComposerTokenChip', () => {
 
   it('shows agent mentions as icon plus name without an ampersand', () => {
     const [token] = getSessionComposerStructuredTokens(
-      '[&Codex](vibex://agent/codex)'
+      '[&Codex](dimo://agent/codex)'
     );
 
     render(<SessionComposerTokenChip token={token} />);

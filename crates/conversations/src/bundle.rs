@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::{CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector};
 
-const BUNDLE_VERSION: &str = "vibex-conversation-bundle.v1";
+const BUNDLE_VERSION: &str = "dimo-conversation-bundle.v1";
 
 #[derive(Debug, Error)]
 pub enum ConversationBundleError {
@@ -150,7 +150,7 @@ pub async fn export_conversation_bundle(
         ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
     let transcript_turns = crate::transcript_segments::read_in(
         pool,
-        &agents::acp_transcript::vibex_acp_transcripts_root(),
+        &agents::acp_transcript::dimo_acp_transcripts_root(),
         conversation_id,
     )
     .await?;
@@ -309,7 +309,7 @@ pub async fn import_conversation_bundle(
     if let Some(turns) = &bundle.transcript_turns {
         crate::transcript_segments::replace_snapshot_in(
             pool,
-            &agents::acp_transcript::vibex_acp_transcripts_root(),
+            &agents::acp_transcript::dimo_acp_transcripts_root(),
             conversation_id,
             "session",
             turns,
@@ -328,7 +328,7 @@ pub async fn import_conversation_bundle(
         pool,
         InsertConversationImport {
             id: Uuid::new_v4(),
-            source: "vibex_bundle",
+            source: "dimo_bundle",
             source_agent: None,
             external_session_id: None,
             bundle_version: Some(&bundle.manifest.bundle_version),
@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conversation_bundle_export_contains_vibex_tables() {
+    async fn conversation_bundle_export_contains_dimo_tables() {
         let pool = migrated_pool().await;
         let (conversation_id, _) = seed_conversation(&pool).await;
 

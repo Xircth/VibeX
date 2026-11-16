@@ -1,7 +1,7 @@
 import {
   createPluginContext,
   disposePluginRegistrations,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,7 +14,7 @@ vi.mock('@/components/plugins/AppSurfaceHost', () => ({
 import { PluginRemoteView } from './PluginRemoteView';
 
 const item: PluginContributionCatalogItem = {
-  pluginId: 'vibex.remote-ssh',
+  pluginId: 'dimo.remote-ssh',
   id: 'console',
   kind: 'app_tab',
   label: 'Remote SSH',

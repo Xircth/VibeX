@@ -300,7 +300,7 @@ async fn standard_codex_preset_bind_replaces_provider_fields_without_touching_ex
         .unwrap();
     assert_eq!(
         config.get("model_provider").and_then(toml::Value::as_str),
-        Some("vibex")
+        Some("dimo")
     );
     assert_eq!(
         config.get("model").and_then(toml::Value::as_str),
@@ -320,7 +320,7 @@ async fn standard_codex_preset_bind_replaces_provider_fields_without_touching_ex
         config
             .get("model_providers")
             .and_then(toml::Value::as_table)
-            .and_then(|providers| providers.get("vibex"))
+            .and_then(|providers| providers.get("dimo"))
             .and_then(toml::Value::as_table)
             .and_then(|provider| provider.get("base_url"))
             .and_then(toml::Value::as_str),
@@ -426,7 +426,7 @@ async fn enabling_native_codex_provider_restores_official_config_and_external_ca
         config
             .get("model_providers")
             .and_then(toml::Value::as_table)
-            .is_none_or(|providers| !providers.contains_key("vibex"))
+            .is_none_or(|providers| !providers.contains_key("dimo"))
     );
     assert_eq!(
         tokio::fs::read_to_string(codex_home.join("external.json"))
@@ -780,7 +780,7 @@ async fn codex_provider_projects_official_provider_table_and_restores_catalog_on
     .unwrap();
     tokio::fs::write(
         codex_home.join("config.toml"),
-        "model = \"official-a\"\nmodel_provider = \"original\"\nmodel_catalog_json = \"vibex-model-catalog.json\"\n[model_providers.original]\nbase_url = \"https://original.example\"\n",
+        "model = \"official-a\"\nmodel_provider = \"original\"\nmodel_catalog_json = \"dimo-model-catalog.json\"\n[model_providers.original]\nbase_url = \"https://original.example\"\n",
     )
     .await
     .unwrap();
@@ -837,7 +837,7 @@ async fn codex_provider_projects_official_provider_table_and_restores_catalog_on
         bound_config
             .get("model_providers")
             .and_then(toml::Value::as_table)
-            .and_then(|providers| providers.get("vibex"))
+            .and_then(|providers| providers.get("dimo"))
             .and_then(toml::Value::as_table)
             .and_then(|provider| provider.get("base_url"))
             .and_then(toml::Value::as_str),
@@ -857,7 +857,7 @@ async fn codex_provider_projects_official_provider_table_and_restores_catalog_on
         bound_config
             .get("model_catalog_json")
             .and_then(toml::Value::as_str),
-        Some("vibex-model-catalog.json")
+        Some("dimo-model-catalog.json")
     );
     let bound_catalog: Value = serde_json::from_slice(
         &tokio::fs::read(codex_home.join(CODEX_CATALOG_FILE))
@@ -919,7 +919,7 @@ async fn codex_provider_projects_official_provider_table_and_restores_catalog_on
         restored_config
             .get("model_providers")
             .and_then(toml::Value::as_table)
-            .is_none_or(|providers| !providers.contains_key("vibex"))
+            .is_none_or(|providers| !providers.contains_key("dimo"))
     );
     assert_eq!(
         tokio::fs::read_to_string(codex_home.join(CODEX_CATALOG_FILE))
@@ -990,7 +990,7 @@ async fn codex_provider_respects_the_saved_custom_home() {
 }
 
 #[tokio::test]
-async fn native_codex_provider_appears_as_bound_when_vibex_has_no_binding() {
+async fn native_codex_provider_appears_as_bound_when_dimo_has_no_binding() {
     let temp = tempfile::tempdir().unwrap();
     let codex_home = temp.path().join("home/.codex");
     let store_path = temp.path().join("data/agent-model-providers.json");
@@ -1113,7 +1113,7 @@ async fn native_codex_endpoint_without_provider_table_projects_synthetic_entry()
 }
 
 #[tokio::test]
-async fn vibex_binding_takes_precedence_over_native_codex_provider() {
+async fn dimo_binding_takes_precedence_over_native_codex_provider() {
     let temp = tempfile::tempdir().unwrap();
     let codex_home = temp.path().join("home/.codex");
     let store_path = temp.path().join("data/agent-model-providers.json");
@@ -1138,11 +1138,11 @@ async fn vibex_binding_takes_precedence_over_native_codex_provider() {
         &environment,
         AgentModelProviderSaveRequest {
             id: None,
-            name: "VibeX Gateway".to_string(),
+            name: "Dimo Gateway".to_string(),
             agent_id: agent_id.clone(),
-            api_url: "https://vibex.example/v1".to_string(),
-            api_key: Some("vibex-secret".to_string()),
-            model: "vibex-model".to_string(),
+            api_url: "https://dimo.example/v1".to_string(),
+            api_key: Some("dimo-secret".to_string()),
+            model: "dimo-model".to_string(),
         },
     )
     .await
@@ -1150,8 +1150,8 @@ async fn vibex_binding_takes_precedence_over_native_codex_provider() {
     let managed_id = created
         .providers
         .iter()
-        .find(|provider| provider.name == "VibeX Gateway")
-        .expect("saved VibeX provider")
+        .find(|provider| provider.name == "Dimo Gateway")
+        .expect("saved Dimo provider")
         .id
         .clone();
     bind(
@@ -1178,13 +1178,13 @@ async fn vibex_binding_takes_precedence_over_native_codex_provider() {
         .providers
         .iter()
         .find(|provider| provider.id == "deepseek")
-        .expect("native Codex providers remain visible after a VibeX bind");
+        .expect("native Codex providers remain visible after a Dimo bind");
     assert!(!native.bound);
     assert!(native.managed);
 }
 
 #[tokio::test]
-async fn native_config_wins_over_a_stale_vibex_store_binding() {
+async fn native_config_wins_over_a_stale_dimo_store_binding() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let codex_home = home.join(".codex");
@@ -1204,11 +1204,11 @@ async fn native_config_wins_over_a_stale_vibex_store_binding() {
         &environment,
         AgentModelProviderSaveRequest {
             id: None,
-            name: "VibeX Gateway".to_string(),
+            name: "Dimo Gateway".to_string(),
             agent_id: agent_id.clone(),
-            api_url: "https://vibex.example/v1".to_string(),
-            api_key: Some("vibex-secret".to_string()),
-            model: "vibex-model".to_string(),
+            api_url: "https://dimo.example/v1".to_string(),
+            api_key: Some("dimo-secret".to_string()),
+            model: "dimo-model".to_string(),
         },
     )
     .await
@@ -1217,7 +1217,7 @@ async fn native_config_wins_over_a_stale_vibex_store_binding() {
         .providers
         .iter()
         .find(|provider| provider.managed)
-        .expect("saved VibeX provider")
+        .expect("saved Dimo provider")
         .id
         .clone();
     bind(
@@ -1251,7 +1251,7 @@ async fn native_config_wins_over_a_stale_vibex_store_binding() {
         .providers
         .iter()
         .find(|provider| provider.id == managed_id)
-        .expect("VibeX preset remains listed");
+        .expect("Dimo preset remains listed");
     assert!(!managed.bound);
     assert!(managed.managed);
 
@@ -1265,7 +1265,7 @@ async fn native_config_wins_over_a_stale_vibex_store_binding() {
 }
 
 #[tokio::test]
-async fn native_deepseek_provider_is_ready_without_a_vibex_slot() {
+async fn native_deepseek_provider_is_ready_without_a_dimo_slot() {
     let temp = tempfile::tempdir().unwrap();
     let codex_home = temp.path().join(".codex");
     tokio::fs::create_dir_all(&codex_home).await.unwrap();
@@ -1284,7 +1284,7 @@ async fn native_deepseek_provider_is_ready_without_a_vibex_slot() {
     let state = read_native_codex_state(&codex_home).await.unwrap();
     assert_eq!(state.active_provider.as_deref(), Some("deepseek"));
     assert!(native_codex_provider_ready(&state));
-    assert!(!native_uses_vibex_projection(Some(&state)));
+    assert!(!native_uses_dimo_projection(Some(&state)));
 }
 
 #[tokio::test]
@@ -1319,11 +1319,11 @@ async fn adopted_native_codex_provider_can_be_enabled_after_creating_another() {
         &environment,
         AgentModelProviderSaveRequest {
             id: None,
-            name: "VibeX Gateway".to_string(),
+            name: "Dimo Gateway".to_string(),
             agent_id: agent_id.clone(),
-            api_url: "https://vibex.example/v1".to_string(),
-            api_key: Some("vibex-secret".to_string()),
-            model: "vibex-model".to_string(),
+            api_url: "https://dimo.example/v1".to_string(),
+            api_key: Some("dimo-secret".to_string()),
+            model: "dimo-model".to_string(),
         },
     )
     .await
@@ -1345,12 +1345,12 @@ async fn adopted_native_codex_provider_can_be_enabled_after_creating_another() {
         .unwrap();
     assert!(custom.bound);
     assert!(custom.managed);
-    let vibex = bound
+    let dimo = bound
         .providers
         .iter()
-        .find(|provider| provider.name == "VibeX Gateway")
+        .find(|provider| provider.name == "Dimo Gateway")
         .unwrap();
-    assert!(!vibex.bound);
+    assert!(!dimo.bound);
 }
 
 #[tokio::test]
@@ -1380,19 +1380,19 @@ async fn delete_rejects_the_in_use_provider_and_the_last_remaining_provider() {
         &environment,
         AgentModelProviderSaveRequest {
             id: None,
-            name: "VibeX Gateway".to_string(),
+            name: "Dimo Gateway".to_string(),
             agent_id: agent_id.clone(),
-            api_url: "https://vibex.example/v1".to_string(),
-            api_key: Some("vibex-secret".to_string()),
-            model: "vibex-model".to_string(),
+            api_url: "https://dimo.example/v1".to_string(),
+            api_key: Some("dimo-secret".to_string()),
+            model: "dimo-model".to_string(),
         },
     )
     .await
     .unwrap();
-    let vibex_id = created
+    let dimo_id = created
         .providers
         .iter()
-        .find(|provider| provider.name == "VibeX Gateway")
+        .find(|provider| provider.name == "Dimo Gateway")
         .unwrap()
         .id
         .clone();
@@ -1406,7 +1406,7 @@ async fn delete_rejects_the_in_use_provider_and_the_last_remaining_provider() {
         &home,
         &environment,
         agent_id.clone(),
-        &vibex_id,
+        &dimo_id,
     )
     .await
     .unwrap();
@@ -2157,7 +2157,7 @@ model = "grok-4"
 }
 
 #[tokio::test]
-async fn grok_vibex_default_marks_the_live_endpoint_enabled() {
+async fn grok_dimo_default_marks_the_live_endpoint_enabled() {
     let temp = tempfile::tempdir().unwrap();
     let grok_home = temp.path().join("home/.grok");
     let store_path = temp.path().join("data/providers.json");
@@ -2186,7 +2186,7 @@ async fn grok_vibex_default_marks_the_live_endpoint_enabled() {
         grok_home.join("config.toml"),
         r#"
 [models]
-default = "vibex"
+default = "dimo"
 
 [model."grok-4.6"]
 name = "BeeAPI · grok"
@@ -2194,7 +2194,7 @@ base_url = "https://beeapi.ai/v1"
 api_key = "sk-bee"
 model = "grok-4.6"
 
-[model.vibex]
+[model.dimo]
 name = "beeapi"
 base_url = "https://beeapi.ai/v1"
 api_key = "sk-bee"
@@ -2273,7 +2273,7 @@ model = "grok-4"
     assert_eq!(config["models"]["default"].as_str(), Some("gateway"));
     assert!(config["model"].get("gateway").is_some());
     assert!(config["model"].get("other").is_some());
-    assert!(config["model"].get("vibex").is_none());
+    assert!(config["model"].get("dimo").is_none());
     let auth = tokio::fs::read_to_string(grok_home.join("auth.json"))
         .await
         .unwrap();
@@ -2313,10 +2313,10 @@ model = "grok-4"
         &environment,
         AgentModelProviderSaveRequest {
             id: None,
-            name: "VibeX Gateway".to_string(),
+            name: "Dimo Gateway".to_string(),
             agent_id: agent_id.clone(),
-            api_url: "https://vibex.example/v1".to_string(),
-            api_key: Some("sk-vibex".to_string()),
+            api_url: "https://dimo.example/v1".to_string(),
+            api_key: Some("sk-dimo".to_string()),
             model: "grok-4".to_string(),
         },
     )
@@ -2339,7 +2339,7 @@ model = "grok-4"
         .unwrap();
     assert_eq!(config["models"]["default"].as_str(), Some("grok-4.6"));
     assert!(config["model"].get("gateway").is_some());
-    assert!(config["model"].get("vibex").is_none());
+    assert!(config["model"].get("dimo").is_none());
     let view = list_with_native(&store_path, agent_id, Some(&grok_home))
         .await
         .unwrap();
@@ -2401,13 +2401,13 @@ async fn grok_binding_writes_one_table_per_enabled_model() {
     )
     .await;
 
-    // The default names a table, so the primary model has to own `vibex`
+    // The default names a table, so the primary model has to own `dimo`
     // while the rest become reachable tables of their own. One table per
     // model is what makes every checked model usable in grok.
-    assert_eq!(config["models"]["default"].as_str(), Some("vibex"));
+    assert_eq!(config["models"]["default"].as_str(), Some("dimo"));
     let models = config["model"].as_table().unwrap();
     assert_eq!(models.len(), 3);
-    for (table, expected) in [("vibex", "a"), ("vibex-b", "b"), ("vibex-c", "c")] {
+    for (table, expected) in [("dimo", "a"), ("dimo-b", "b"), ("dimo-c", "c")] {
         let entry = models[table].as_table().unwrap();
         assert_eq!(entry["model"].as_str(), Some(expected), "table {table}");
         assert_eq!(
@@ -2419,13 +2419,13 @@ async fn grok_binding_writes_one_table_per_enabled_model() {
     // The default carries the provider's own name — it is the provider —
     // and the extras are told apart by their model id, since a shared name
     // would list the same provider three times in grok's picker.
-    assert_eq!(models["vibex"]["name"].as_str(), Some("Gateway"));
-    assert_eq!(models["vibex-b"]["name"].as_str(), Some("Gateway (b)"));
-    assert_eq!(models["vibex-c"]["name"].as_str(), Some("Gateway (c)"));
+    assert_eq!(models["dimo"]["name"].as_str(), Some("Gateway"));
+    assert_eq!(models["dimo-b"]["name"].as_str(), Some("Gateway (b)"));
+    assert_eq!(models["dimo-c"]["name"].as_str(), Some("Gateway (c)"));
 }
 
 #[tokio::test]
-async fn grok_import_collapses_the_tables_vibex_projected() {
+async fn grok_import_collapses_the_tables_dimo_projected() {
     let temp = tempfile::tempdir().unwrap();
     let grok_home = temp.path().join("home/.grok");
     let store_path = temp.path().join("data/providers.json");
@@ -2469,7 +2469,7 @@ async fn grok_binding_drops_the_tables_of_models_the_user_disabled() {
     // table behind would keep it selectable forever.
     let models = config["model"].as_table().unwrap();
     assert_eq!(models.len(), 1);
-    assert!(models.contains_key("vibex"));
+    assert!(models.contains_key("dimo"));
 }
 
 #[tokio::test]
@@ -2493,11 +2493,11 @@ model = "grok-4"
     )
     .await;
 
-    // The sweep only owns the names VibeX mints.
+    // The sweep only owns the names Dimo mints.
     let models = config["model"].as_table().unwrap();
     assert!(models.contains_key("company-grok"));
-    assert!(models.contains_key("vibex"));
-    assert!(models.contains_key("vibex-b"));
+    assert!(models.contains_key("dimo"));
+    assert!(models.contains_key("dimo-b"));
 }
 
 #[tokio::test]
@@ -2508,7 +2508,7 @@ async fn grok_binding_clears_a_field_the_user_emptied() {
     tokio::fs::write(
         grok_home.join("config.toml"),
         r#"
-[model.vibex]
+[model.dimo]
 model = "old"
 context_window = 200000
 "#,
@@ -2522,9 +2522,9 @@ context_window = 200000
     .await;
 
     // Rebuilding the table is what makes clearing a field stick.
-    let vibex = config["model"]["vibex"].as_table().unwrap();
-    assert!(!vibex.contains_key("context_window"));
-    assert_eq!(vibex["model"].as_str(), Some("a"));
+    let dimo = config["model"]["dimo"].as_table().unwrap();
+    assert!(!dimo.contains_key("context_window"));
+    assert_eq!(dimo["model"].as_str(), Some("a"));
 }
 
 #[tokio::test]
@@ -2644,13 +2644,13 @@ async fn write_kimi_gate_config(kimi_home: &Path) {
         .unwrap();
     tokio::fs::write(
         kimi_home.join("config.toml"),
-        "default_model = \"vibex\"\n\n[providers.vibex]\ntype = \"openai\"\nbase_url = \"https://gateway.example/v1\"\napi_key = \"sk-gate\"\n\n[models.vibex]\nprovider = \"vibex\"\nmodel = \"gateway/model\"\n",
+        "default_model = \"dimo\"\n\n[providers.dimo]\ntype = \"openai\"\nbase_url = \"https://gateway.example/v1\"\napi_key = \"sk-gate\"\n\n[models.dimo]\nprovider = \"dimo\"\nmodel = \"gateway/model\"\n",
     )
     .await
     .unwrap();
     tokio::fs::write(
         kimi_home.join("credentials/kimi-code.json"),
-        br#"{"access_token":"vibex-local-gate","_vibex_synthetic":true}"#,
+        br#"{"access_token":"dimo-local-gate","_dimo_synthetic":true}"#,
     )
     .await
     .unwrap();
@@ -2663,7 +2663,7 @@ async fn kimi_login_cleanup_removes_the_gate_provider_and_its_credential() {
     let kimi_home = home.join(".kimi-code");
     write_kimi_gate_config(&kimi_home).await;
 
-    let mutations = prepare_kimi_vibex_configuration_cleanup(&home, &HashMap::new())
+    let mutations = prepare_kimi_dimo_configuration_cleanup(&home, &HashMap::new())
         .await
         .unwrap();
     assert_eq!(mutations.len(), 2);
@@ -2673,7 +2673,7 @@ async fn kimi_login_cleanup_removes_the_gate_provider_and_its_credential() {
         .await
         .unwrap();
     assert!(
-        !config.contains("vibex"),
+        !config.contains("dimo"),
         "an official login would still reach the gate: {config}"
     );
     assert!(!kimi_home.join("credentials/kimi-code.json").exists());
@@ -2698,7 +2698,7 @@ async fn kimi_login_cleanup_leaves_a_signed_in_agent_untouched() {
     .await
     .unwrap();
 
-    let mutations = prepare_kimi_vibex_configuration_cleanup(&home, &HashMap::new())
+    let mutations = prepare_kimi_dimo_configuration_cleanup(&home, &HashMap::new())
         .await
         .unwrap();
     apply_projection_mutations(&mutations).await.unwrap();
@@ -2717,7 +2717,7 @@ async fn kimi_login_cleanup_leaves_a_signed_in_agent_untouched() {
 async fn kimi_login_cleanup_ignores_a_missing_native_home() {
     let temp = tempfile::tempdir().unwrap();
 
-    let mutations = prepare_kimi_vibex_configuration_cleanup(temp.path(), &HashMap::new())
+    let mutations = prepare_kimi_dimo_configuration_cleanup(temp.path(), &HashMap::new())
         .await
         .unwrap();
 
@@ -2727,10 +2727,10 @@ async fn kimi_login_cleanup_ignores_a_missing_native_home() {
 #[test]
 fn the_gate_credential_is_recognized_with_or_without_its_marker() {
     assert!(kimi_credential_is_synthetic(
-        &serde_json::json!({"_vibex_synthetic": true})
+        &serde_json::json!({"_dimo_synthetic": true})
     ));
     assert!(kimi_credential_is_synthetic(
-        &serde_json::json!({"access_token": "vibex-local-gate"})
+        &serde_json::json!({"access_token": "dimo-local-gate"})
     ));
     assert!(!kimi_credential_is_synthetic(
         &serde_json::json!({"access_token": "sk-live"})
@@ -2738,7 +2738,7 @@ fn the_gate_credential_is_recognized_with_or_without_its_marker() {
 }
 
 #[tokio::test]
-async fn switching_codex_from_structured_catalog_to_plain_model_cleans_vibex_catalog_files() {
+async fn switching_codex_from_structured_catalog_to_plain_model_cleans_dimo_catalog_files() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("home");
     let codex_home = home.join(".codex");

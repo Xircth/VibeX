@@ -15,7 +15,7 @@ type AgentVisualMeta = {
 };
 
 /**
- * Contrast-safe brand-tinted text color per agent using VibeX semantic session
+ * Contrast-safe brand-tinted text color per agent using Dimo semantic session
  * slot variables mixed with `--text-strong` so labels adapt cleanly across both
  * light and dark themes without hard-coded hex values.
  */

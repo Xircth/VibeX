@@ -1,7 +1,7 @@
 //! ACP-native agent runtime primitives.
 //!
 //! This crate is the new product-owned live agent boundary. It intentionally
-//! does not depend on VibeX's legacy executor, provider-runtime, `MsgStore`, or
+//! does not depend on Dimo's legacy executor, provider-runtime, `MsgStore`, or
 //! `ExecutionProcess` systems.
 
 mod account_session;

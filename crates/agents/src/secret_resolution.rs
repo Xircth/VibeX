@@ -401,7 +401,7 @@ impl OsSecretBackend {
             .keychain_dir_override
             .clone()
             .or_else(|| {
-                std::env::var_os("VIBEX_KEYCHAIN_DIR")
+                std::env::var_os("DIMO_KEYCHAIN_DIR")
                     .filter(|val| !val.is_empty())
                     .map(PathBuf::from)
             })
@@ -554,7 +554,7 @@ impl SecretBackend for OsSecretBackend {
                 [
                     "find-generic-password",
                     "-s",
-                    "vibex",
+                    "dimo",
                     "-a",
                     trimmed_id,
                     "-w",
@@ -580,7 +580,7 @@ impl SecretBackend for OsSecretBackend {
         {
             let mut cmd = new_hidden_tokio_command(
                 "secret-tool",
-                ["lookup", "service", "vibex", "account", trimmed_id],
+                ["lookup", "service", "dimo", "account", trimmed_id],
             );
             let out = cmd
                 .output()
@@ -659,7 +659,7 @@ impl SecretBackend for OsSecretBackend {
                     "add-generic-password",
                     "-U",
                     "-s",
-                    "vibex",
+                    "dimo",
                     "-a",
                     trimmed_id,
                     "-w",
@@ -689,9 +689,9 @@ impl SecretBackend for OsSecretBackend {
                 "secret-tool",
                 [
                     "store",
-                    "--label=VibeX Provider Secret",
+                    "--label=Dimo Provider Secret",
                     "service",
-                    "vibex",
+                    "dimo",
                     "account",
                     trimmed_id,
                 ],

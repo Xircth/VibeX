@@ -322,7 +322,7 @@ impl CodexAppServer {
 
     pub async fn handshake(&self) -> Result<Value, EngineError> {
         let info =
-            json!({ "name": "vibex", "title": "VibeX", "version": env!("CARGO_PKG_VERSION") });
+            json!({ "name": "dimo", "title": "Dimo", "version": env!("CARGO_PKG_VERSION") });
         let init_params =
             json!({ "clientInfo": info, "capabilities": { "experimentalApi": true } });
         let init_result = self.request("initialize", init_params).await?;
@@ -911,7 +911,7 @@ async fn run_reader_loop<R>(
 }
 
 pub async fn resolve_codex_binary(spec: &EngineStartSpec) -> Result<PathBuf, EngineError> {
-    if let Some(val) = spec.env.get("VIBEX_CODEX_PATH").map(String::as_str).map(str::trim)
+    if let Some(val) = spec.env.get("DIMO_CODEX_PATH").map(String::as_str).map(str::trim)
         && !val.is_empty()
     {
         let p = PathBuf::from(val);
@@ -919,16 +919,16 @@ pub async fn resolve_codex_binary(spec: &EngineStartSpec) -> Result<PathBuf, Eng
             return Ok(p);
         }
         return Err(EngineError::BinaryNotFound(format!(
-            "VIBEX_CODEX_PATH `{val}` not found"
+            "DIMO_CODEX_PATH `{val}` not found"
         )));
     }
-    if let Some(val) = std::env::var_os("VIBEX_CODEX_PATH").filter(|s| !s.is_empty()) {
+    if let Some(val) = std::env::var_os("DIMO_CODEX_PATH").filter(|s| !s.is_empty()) {
         let p = PathBuf::from(&val);
         if p.is_file() {
             return Ok(p);
         }
         return Err(EngineError::BinaryNotFound(format!(
-            "VIBEX_CODEX_PATH `{}` not found",
+            "DIMO_CODEX_PATH `{}` not found",
             val.to_string_lossy()
         )));
     }

@@ -424,7 +424,7 @@ export function PluginCatalogPage() {
       importingRef.current = true;
       setImporting(true);
       try {
-        const preview = await api.previewImport(path, false, 'vibex');
+        const preview = await api.previewImport(path, false, 'dimo');
         if (preview.conflict) {
           setReplacement({ path, preview });
           return;
@@ -455,7 +455,7 @@ export function PluginCatalogPage() {
         replacement.path,
         false,
         'replace',
-        'vibex',
+        'dimo',
         permissionIds
       );
       setReplacement(null);
@@ -483,7 +483,7 @@ export function PluginCatalogPage() {
     try {
       const already = Boolean(findInstalledPluginForListing(listing, plugins));
       const imported = path
-        ? await api.import(path, false, already ? 'replace' : 'reject', 'vibex')
+        ? await api.import(path, false, already ? 'replace' : 'reject', 'dimo')
         : await api.marketplaceInstall(
             listing.owner,
             listing.pluginName,
@@ -543,7 +543,7 @@ export function PluginCatalogPage() {
 
   const pullGithubRepo = useCallback(
     async (repoUrl: string) => {
-      return api.previewImport(repoUrl, false, 'vibex');
+      return api.previewImport(repoUrl, false, 'dimo');
     },
     [api]
   );
@@ -1569,7 +1569,7 @@ function PluginDetailDshSourceSection({
         </div>
         <div>
           <dt>{t('plugins.publisherLabel')}</dt>
-          <dd>{plugin.publisher ?? 'vibex'}</dd>
+          <dd>{plugin.publisher ?? 'dimo'}</dd>
         </div>
         <div>
           <dt>{t('plugins.codeSourceLabel')}</dt>

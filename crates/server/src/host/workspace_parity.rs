@@ -1212,7 +1212,7 @@ async fn generate_pr_description_host(
     let runtime = &domains.conversations.agent_runtime;
     let events = runtime.subscribe_events();
     let working_dir =
-        utils::path::vibex_scratch_subdir("pr-description").map_err(internal_error)?;
+        utils::path::dimo_scratch_subdir("pr-description").map_err(internal_error)?;
     let session = runtime
         .ensure_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),

@@ -171,7 +171,7 @@ describe('unified toast', () => {
 
     act(() => {
       toast.warning('依赖需要更新', {
-        description: '可在 VibeX 内完成更新。',
+        description: '可在 Dimo 内完成更新。',
         details: [
           {
             title: 'Codex CLI',
@@ -185,7 +185,7 @@ describe('unified toast', () => {
 
     expect(await screen.findByText('依赖需要更新')).toBeInTheDocument();
     expect(
-      screen.queryByText('可在 VibeX 内完成更新。')
+      screen.queryByText('可在 Dimo 内完成更新。')
     ).not.toBeInTheDocument();
     const disclosure = screen.getByRole('button', { name: '查看详情' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
@@ -202,7 +202,7 @@ describe('unified toast', () => {
 
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('可在 VibeX 内完成更新。')).toBeInTheDocument();
+    expect(screen.getByText('可在 Dimo 内完成更新。')).toBeInTheDocument();
     expect(screen.getByText('Codex CLI')).toBeInTheDocument();
     expect(
       screen.getByText('Codex CLI').closest('.vu-toast-heading')

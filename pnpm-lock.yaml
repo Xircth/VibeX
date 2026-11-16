@@ -359,12 +359,12 @@ importers:
 
   packages/plugin-cli:
     dependencies:
+      '@dimoai/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
       '@module-federation/vite':
         specifier: ^1.9.0
         version: 1.21.3(typescript@5.9.2)(vite@8.3.6(@types/node@26.1.2)(esbuild@0.25.5)(jiti@2.7.0)(yaml@2.8.0))
-      '@vibex/plugin-sdk':
-        specifier: workspace:*
-        version: link:../plugin-sdk
       adm-zip:
         specifier: 0.6.1
         version: 0.6.1
@@ -410,9 +410,9 @@ importers:
 
   plugins/browser:
     dependencies:
-      '@vibex/plugin-sdk':
-        specifier: link:../VibeX/packages/plugin-sdk
-        version: link:../VibeX/packages/plugin-sdk
+      '@dimoai/plugin-sdk':
+        specifier: link:../Dimo/packages/plugin-sdk
+        version: link:../Dimo/packages/plugin-sdk
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -420,6 +420,9 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@dimoai/plugin-cli':
+        specifier: link:../Dimo/packages/plugin-cli
+        version: link:../Dimo/packages/plugin-cli
       '@module-federation/vite':
         specifier: ^1.9.0
         version: 1.21.3(typescript@5.9.2)(vite@8.3.6(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.8.0))
@@ -432,9 +435,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.4
         version: 19.2.4(@types/react@19.2.18)
-      '@vibex/plugin-cli':
-        specifier: link:../VibeX/packages/plugin-cli
-        version: link:../VibeX/packages/plugin-cli
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
@@ -444,7 +444,7 @@ importers:
 
   plugins/code-completion:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
 
@@ -453,7 +453,7 @@ importers:
       '@astryxdesign/core':
         specifier: 0.3.0
         version: 0.3.0(patch_hash=19e5879608c64c84b02336b589ef52cd43af2b5e859c0acde7d0aee618cfd8e8)(@stylexjs/stylex@0.19.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: link:../../packages/plugin-sdk
         version: link:../../packages/plugin-sdk
       lucide-react:
@@ -466,6 +466,9 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@dimoai/plugin-cli':
+        specifier: link:../../packages/plugin-cli
+        version: link:../../packages/plugin-cli
       '@module-federation/vite':
         specifier: ^1.9.0
         version: 1.21.3(typescript@5.9.2)(vite@8.3.6(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.8.0))
@@ -478,9 +481,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.4
         version: 19.2.4(@types/react@19.2.18)
-      '@vibex/plugin-cli':
-        specifier: link:../../packages/plugin-cli
-        version: link:../../packages/plugin-cli
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
@@ -493,7 +493,7 @@ importers:
 
   plugins/kanban-views:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
       react:
@@ -502,7 +502,7 @@ importers:
 
   plugins/notes:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
       react:
@@ -515,7 +515,7 @@ importers:
 
   plugins/prompt-enhancer:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
       react:
@@ -526,7 +526,7 @@ importers:
 
   plugins/remote-ssh:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
       react:
@@ -537,13 +537,13 @@ importers:
 
   plugins/tauri-ui-debugger:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
   plugins/voice-input:
     dependencies:
-      '@vibex/plugin-sdk':
+      '@dimoai/plugin-sdk':
         specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
 

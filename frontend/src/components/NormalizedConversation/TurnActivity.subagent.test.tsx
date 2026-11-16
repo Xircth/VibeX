@@ -144,7 +144,7 @@ describe('TurnActivity subagent expansion', () => {
     expect(screen.getByTitle('Grok')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Grok' })).toBeInTheDocument();
     expect(
-      screen.queryByText(/vibex-delegation-mcp__delegate_to_agent/)
+      screen.queryByText(/dimo-delegation-mcp__delegate_to_agent/)
     ).not.toBeInTheDocument();
     const statusRow = screen.getByTestId('host-delegation-status-row');
     expect(statusRow).toHaveTextContent('子代理状态');
@@ -153,7 +153,7 @@ describe('TurnActivity subagent expansion', () => {
     expect(renderedChipRowTexts()).not.toContain('子代理');
     expect(
       renderedChipRowTexts().some((name) =>
-        /vibex-delegation-mcp__delegate_to_agent/.test(name)
+        /dimo-delegation-mcp__delegate_to_agent/.test(name)
       )
     ).toBe(false);
   });
@@ -240,7 +240,7 @@ describe('TurnActivity subagent expansion', () => {
           timestamp="2026-08-18T00:00:00.000Z"
           items={[
             toolItem(
-              'vibex-delegation-mcp__delegate_to_agent',
+              'dimo-delegation-mcp__delegate_to_agent',
               { agent_type: 'codex', task: 'introduce yourself' },
               null,
               0
@@ -248,7 +248,7 @@ describe('TurnActivity subagent expansion', () => {
             toolItem(
               'use_tool',
               {
-                tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+                tool_name: 'dimo-delegation-mcp__delegate_to_agent',
                 tool_input: {
                   agent_type: 'codex',
                   task: 'introduce yourself',
@@ -277,12 +277,12 @@ describe('TurnActivity subagent expansion', () => {
     fireEvent.click(screen.getByRole('button', { name: /启动 3 个智能体/ }));
     expect(screen.getAllByTestId('host-delegation-card')).toHaveLength(3);
     expect(
-      screen.queryByText(/vibex-delegation-mcp__delegate_to_agent/)
+      screen.queryByText(/dimo-delegation-mcp__delegate_to_agent/)
     ).not.toBeInTheDocument();
     expect(renderedChipRowTexts()).not.toContain('子代理');
     expect(
       renderedChipRowTexts().some((name) =>
-        /搜索|Search|delegate_to_agent|vibex-delegation/.test(name)
+        /搜索|Search|delegate_to_agent|dimo-delegation/.test(name)
       )
     ).toBe(false);
   });

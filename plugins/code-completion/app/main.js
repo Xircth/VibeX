@@ -2,11 +2,11 @@ const FAST_TRIGGER_CHARS = new Set(['.', '(', '{', '[', ':', '=', '/', '\n']);
 const NORMAL_DEBOUNCE_MS = 180;
 const FAST_DEBOUNCE_MS = 60;
 const MAX_CACHE_ENTRIES = 32;
-const ACCEPT_COMMAND_ID = 'vibex.codeCompletion.acceptInlineCompletion';
+const ACCEPT_COMMAND_ID = 'dimo.codeCompletion.acceptInlineCompletion';
 
 /**
  * Monacopilot `registerCompletion` integration (compatible with `monacopilot` v1.2.12).
- * Uses `globalThis.__VIBEX_HOST_MODULES__['monacopilot']` when running inside the VibeX host
+ * Uses `globalThis.__DIMO_HOST_MODULES__['monacopilot']` when running inside the Dimo host
  * and provides a built-in Monacopilot-compliant fallback for standalone/worker test environments.
  */
 const monacopilotEditorState = new WeakMap();
@@ -14,8 +14,8 @@ const monacopilotEditorState = new WeakMap();
 export function registerCompletion(monaco, editor, options = {}) {
   const hostMonacopilot =
     typeof globalThis !== 'undefined' &&
-    globalThis.__VIBEX_HOST_MODULES__ &&
-    globalThis.__VIBEX_HOST_MODULES__.monacopilot;
+    globalThis.__DIMO_HOST_MODULES__ &&
+    globalThis.__DIMO_HOST_MODULES__.monacopilot;
 
   // Ensure model & editor methods expected by Monacopilot exist even on lightweight test mocks
   const ensureModelPolyfill = (rawModel) => {
@@ -410,10 +410,10 @@ export function applyWithUndoStopBarrier(editorInstance, callback) {
 
 /**
  * Extract `{ filePath, languageId, lineNumber, column, prefix, suffix, linePrefix }`
- * from either a normalized VibeX editor context or a raw Monaco `(model, position)` pair.
+ * from either a normalized Dimo editor context or a raw Monaco `(model, position)` pair.
  */
 export function extractCompletionDocumentState(modelOrRequest, positionOrContext) {
-  // Normalized request object passed by `vibex.code-editor` host service
+  // Normalized request object passed by `dimo.code-editor` host service
   if (
     modelOrRequest &&
     typeof modelOrRequest === 'object' &&
@@ -712,17 +712,17 @@ export function doesEventMatchShortcut(event, shortcutString) {
   return eventKey === parsed.key || (Boolean(eventCode) && eventCode === parsed.key);
 }
 
-const SHORTCUT_STORAGE_KEY = 'vibex:code-completion:manualShortcut';
+const SHORTCUT_STORAGE_KEY = 'dimo:code-completion:manualShortcut';
 
 export default {
   async activate(context) {
-    if (typeof globalThis.__vibexCodeCompletionActiveCleanup__ === 'function') {
+    if (typeof globalThis.__dimoCodeCompletionActiveCleanup__ === 'function') {
       try {
-        globalThis.__vibexCodeCompletionActiveCleanup__();
+        globalThis.__dimoCodeCompletionActiveCleanup__();
       } catch {
         // ignore
       }
-      globalThis.__vibexCodeCompletionActiveCleanup__ = null;
+      globalThis.__dimoCodeCompletionActiveCleanup__ = null;
     }
 
     const cache = new ForwardTypingCache();
@@ -813,7 +813,7 @@ export default {
     const getEditorBridge = () => {
       if (typeof context?.services?.get === 'function') {
         return (
-          context.services.get('vibex.code-editor') ||
+          context.services.get('dimo.code-editor') ||
           context.services.get('provider.editor.monaco') ||
           null
         );
@@ -1140,7 +1140,7 @@ export default {
       if (activeMonacopilotRegistration && typeof activeMonacopilotRegistration.trigger === 'function') {
         activeMonacopilotRegistration.trigger();
       } else {
-        editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
+        editor.trigger('dimo.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
       }
     };
 
@@ -1488,7 +1488,7 @@ export default {
 
     attachToEditorBridge(getEditorBridge());
     if (!providerDisposable && typeof context?.services?.onChange === 'function') {
-      serviceWatchCleanup = context.services.onChange('vibex.code-editor', (bridge) => {
+      serviceWatchCleanup = context.services.onChange('dimo.code-editor', (bridge) => {
         attachToEditorBridge(bridge || getEditorBridge());
       });
     } else if (!providerDisposable && typeof context?.services?.subscribe === 'function') {
@@ -1512,7 +1512,7 @@ export default {
       const detail = event?.detail;
       if (
         detail &&
-        (detail.pluginId === 'vibex.code-completion' || detail.pluginId === 'code-completion') &&
+        (detail.pluginId === 'dimo.code-completion' || detail.pluginId === 'code-completion') &&
         detail.config &&
         typeof detail.config === 'object'
       ) {
@@ -1567,7 +1567,7 @@ export default {
         } else if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
           void editorBridge.triggerInlineCompletion(activeEditor);
         } else if (typeof activeEditor?.trigger === 'function') {
-          activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.trigger', {});
+          activeEditor.trigger('dimo.code-completion', 'editor.action.inlineSuggest.trigger', {});
         }
         return;
       }
@@ -1592,7 +1592,7 @@ export default {
     };
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+      window.addEventListener('dimo:plugin-config-updated', onWindowConfigUpdated);
       window.addEventListener('keydown', onWindowKeyDown, true);
       window.addEventListener('mouseup', onWindowMouseUp, true);
     }
@@ -1673,8 +1673,8 @@ export default {
     });
 
     const disposeInstance = () => {
-      if (globalThis.__vibexCodeCompletionActiveCleanup__ === disposeInstance) {
-        globalThis.__vibexCodeCompletionActiveCleanup__ = null;
+      if (globalThis.__dimoCodeCompletionActiveCleanup__ === disposeInstance) {
+        globalThis.__dimoCodeCompletionActiveCleanup__ = null;
       }
       if (cursorIdleTimer !== null) {
         clearTimeout(cursorIdleTimer);
@@ -1695,7 +1695,7 @@ export default {
       cancelActiveCompletion(null, true);
       cache.clear();
       if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
-        window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+        window.removeEventListener('dimo:plugin-config-updated', onWindowConfigUpdated);
         window.removeEventListener('keydown', onWindowKeyDown, true);
         window.removeEventListener('mouseup', onWindowMouseUp, true);
       }
@@ -1715,7 +1715,7 @@ export default {
       providerDisposable = null;
     };
 
-    globalThis.__vibexCodeCompletionActiveCleanup__ = disposeInstance;
+    globalThis.__dimoCodeCompletionActiveCleanup__ = disposeInstance;
 
     return Object.assign(disposeInstance, {
       provideInlineCompletions,

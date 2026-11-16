@@ -3,13 +3,13 @@ use plugins::{ManifestSource, PluginMembership, PluginService, PromptBlock};
 #[test]
 fn import_office_action_manifest() {
     let service = PluginService::new();
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json");
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json");
 
     let imported = service
         .import_manifest(manifest, ManifestSource::Bundled)
         .expect("the bundled Office manifest should import");
 
-    assert_eq!(imported.id.as_str(), "vibex.office.presentation");
+    assert_eq!(imported.id.as_str(), "dimo.office.presentation");
     assert_eq!(imported.membership, PluginMembership::Builtin);
     assert_eq!(imported.dependencies.len(), 1);
     assert_eq!(imported.dependencies[0].id.as_str(), "officecli");
@@ -28,8 +28,8 @@ fn import_office_action_manifest() {
 #[test]
 fn rejects_unknown_manifest_major() {
     let service = PluginService::new();
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json")
-        .replace("vibex-plugin/v2", "vibex-plugin/v3");
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json")
+        .replace("dimo-plugin/v2", "dimo-plugin/v3");
 
     let error = service
         .import_manifest(&manifest, ManifestSource::Bundled)
@@ -42,7 +42,7 @@ fn rejects_unknown_manifest_major() {
 fn rejects_legacy_install_commands_as_malicious_manifest_fields() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let marker = temporary.path().join("manifest-command-ran");
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json").replace(
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json").replace(
         "\"name\": \"Office Presentation\",",
         &format!(
             "\"name\": \"Office Presentation\",\n  \"install_command\": \"touch {}\",",
@@ -60,11 +60,11 @@ fn rejects_legacy_install_commands_as_malicious_manifest_fields() {
 
 #[test]
 fn imports_optional_metadata_and_console_binding() {
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json").replace(
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json").replace(
         "\"name\": \"Office Presentation\",",
         "\"name\": \"Office Presentation\",\n  \
              \"description\": \"Create verified presentations\",\n  \
-             \"author\": \"VibeX\",\n  \
+             \"author\": \"Dimo\",\n  \
              \"icon\": \"presentation\",\n  \
              \"console\": { \"url\": \"http://127.0.0.1:{{port}}/\" },",
     );
@@ -77,7 +77,7 @@ fn imports_optional_metadata_and_console_binding() {
         imported.description.as_deref(),
         Some("Create verified presentations")
     );
-    assert_eq!(imported.author.as_deref(), Some("VibeX"));
+    assert_eq!(imported.author.as_deref(), Some("Dimo"));
     assert_eq!(
         imported.console.expect("console binding").url,
         "http://127.0.0.1:{{port}}/"
@@ -86,7 +86,7 @@ fn imports_optional_metadata_and_console_binding() {
 
 #[test]
 fn rejects_unknown_provider_binding() {
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json")
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json")
         .replace("officecli", "unknown-provider");
 
     let error = PluginService::new()
@@ -99,7 +99,7 @@ fn rejects_unknown_provider_binding() {
 #[test]
 fn imports_action_without_artifact_provider_binding() {
     let mut manifest: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/office-presentation.vibex-plugin.json"
+        "fixtures/office-presentation.dimo-plugin.json"
     ))
     .expect("fixture JSON");
     manifest["actions"][0]

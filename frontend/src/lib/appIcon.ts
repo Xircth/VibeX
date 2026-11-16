@@ -9,8 +9,8 @@ export const APP_ICON_STYLES = ['default', 'lite'] as const;
 export type AppIconStyle = (typeof APP_ICON_STYLES)[number];
 export type AppIconTheme = 'light' | 'dark';
 
-export const APP_ICON_STYLE_KEY = 'vibex:app-icon-style';
-export const APP_ICON_CHANGED_EVENT = 'vibex:app-icon-changed';
+export const APP_ICON_STYLE_KEY = 'dimo:app-icon-style';
+export const APP_ICON_CHANGED_EVENT = 'dimo:app-icon-changed';
 
 const LOGOS: Record<AppIconStyle, Record<AppIconTheme, string>> = {
   default: { light: lightDefaultLogo, dark: darkDefaultLogo },

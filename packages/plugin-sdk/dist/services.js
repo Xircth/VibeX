@@ -400,10 +400,10 @@ export class EffectScope {
         }
     }
 }
-const GLOBAL_SERVICE_CONTAINER_SYMBOL = Symbol.for('vibex.plugin-sdk.serviceContainer');
+const GLOBAL_SERVICE_CONTAINER_SYMBOL = Symbol.for('dimo.plugin-sdk.serviceContainer');
 function getOrCreateGlobalServiceContainer() {
     const globalRecord = globalThis;
-    const sharedHost = globalRecord.__VIBEX_SHARED_PLUGIN_HOST__;
+    const sharedHost = globalRecord.__DIMO_SHARED_PLUGIN_HOST__;
     if (sharedHost?.serviceContainer &&
         typeof sharedHost.serviceContainer.provide === 'function' &&
         typeof sharedHost.serviceContainer.inject === 'function') {

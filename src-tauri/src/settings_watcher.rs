@@ -3,12 +3,12 @@ use std::time::{Duration, Instant};
 use notify::{EventKind, RecursiveMode, Watcher};
 use tauri::AppHandle;
 
-pub const SETTINGS_CHANGED_EVENT: &str = "vibex://settings-file-changed";
+pub const SETTINGS_CHANGED_EVENT: &str = "dimo://settings-file-changed";
 const EMIT_COALESCE: Duration = Duration::from_millis(100);
 
 pub fn start(_app: AppHandle) {
     if let Err(error) = std::thread::Builder::new()
-        .name("vibex-settings-watcher".to_string())
+        .name("dimo-settings-watcher".to_string())
         .spawn(move || {
             let settings_path = utils::assets::settings_path();
             let Some(parent) = settings_path.parent() else {

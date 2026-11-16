@@ -35,7 +35,7 @@ describe('LogsSettings', () => {
         message: 'first line',
       },
     ]);
-    desktopApiMock.getLogsDir.mockResolvedValue('/tmp/vibex-logs');
+    desktopApiMock.getLogsDir.mockResolvedValue('/tmp/dimo-logs');
     desktopApiMock.revealInFileManager.mockResolvedValue(undefined);
     desktopApiMock.setLogSettings.mockResolvedValue({
       level: 'debug',
@@ -65,7 +65,7 @@ describe('LogsSettings', () => {
     await user.click(screen.getByRole('button', { name: '打开文件夹' }));
     await waitFor(() => {
       expect(desktopApiMock.revealInFileManager).toHaveBeenCalledWith(
-        '/tmp/vibex-logs'
+        '/tmp/dimo-logs'
       );
     });
   });

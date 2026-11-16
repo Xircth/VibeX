@@ -32,7 +32,7 @@ describe('sendAgentRuntimeTurn', () => {
       modeOverride: 'plan',
       workflowRefs: [
         {
-          pluginId: 'vibex.office',
+          pluginId: 'dimo.office',
           workflowId: 'create-presentation',
         },
       ],
@@ -56,7 +56,7 @@ describe('sendAgentRuntimeTurn', () => {
         configOverrides: [],
         workflowRefs: [
           {
-            pluginId: 'vibex.office',
+            pluginId: 'dimo.office',
             workflowId: 'create-presentation',
           },
         ],

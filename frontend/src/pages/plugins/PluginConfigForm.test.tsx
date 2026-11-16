@@ -51,7 +51,7 @@ const scienceDetail: PluginProductDetail = {
 
 function renderForm(
   detail: PluginProductDetail = scienceDetail,
-  pluginId = 'vibex.science'
+  pluginId = 'dimo.science'
 ) {
   const transport: BackendTransport = {
     environment: 'desktop',
@@ -164,7 +164,7 @@ describe('PluginConfigForm', () => {
       <MemoryRouter>
         <BackendTransportProvider transport={transport}>
           <PluginConfigForm
-            pluginId="vibex.office"
+            pluginId="dimo.office"
             detail={{
               summary: 'Office',
               readme: '# Office',
@@ -187,7 +187,7 @@ describe('PluginConfigForm', () => {
 
     await waitFor(() => {
       expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
-        pluginId: 'vibex.office',
+        pluginId: 'dimo.office',
         config: { preview: true },
       });
     });
@@ -212,7 +212,7 @@ describe('PluginConfigForm', () => {
           },
         },
       },
-      'vibex.office'
+      'dimo.office'
     );
 
     const toggle = screen.getByRole('switch', { name: 'Document preview' });
@@ -247,7 +247,7 @@ describe('PluginConfigForm', () => {
           },
         },
       },
-      'vibex.code-completion'
+      'dimo.code-completion'
     );
 
     const apiKeyInput = screen.getByLabelText('API Key');
@@ -266,7 +266,7 @@ describe('PluginConfigForm', () => {
     await waitFor(() => {
       expect(transport.call).toHaveBeenCalledTimes(1);
       expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
-        pluginId: 'vibex.code-completion',
+        pluginId: 'dimo.code-completion',
         config: {
           baseUrl: 'https://api.openai.com/v1',
           apiKey: 'sk-test-123',
@@ -325,7 +325,7 @@ describe('PluginConfigForm', () => {
       <MemoryRouter>
         <BackendTransportProvider transport={transport}>
           <PluginConfigForm
-            pluginId="vibex.code-completion"
+            pluginId="dimo.code-completion"
             detail={detail}
             onSaved={vi.fn()}
           />
@@ -350,7 +350,7 @@ describe('PluginConfigForm', () => {
         }
       );
       expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
-        pluginId: 'vibex.code-completion',
+        pluginId: 'dimo.code-completion',
         config: {
           baseUrl: 'https://api.deepseek.com/v1',
           apiKey: 'sk-deepseek',
@@ -403,7 +403,7 @@ describe('PluginConfigForm', () => {
       <MemoryRouter>
         <BackendTransportProvider transport={transport}>
           <PluginConfigForm
-            pluginId="vibex.code-completion"
+            pluginId="dimo.code-completion"
             detail={detail}
             onSaved={vi.fn()}
           />
@@ -428,7 +428,7 @@ describe('PluginConfigForm', () => {
 
     await waitFor(() => {
       expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
-        pluginId: 'vibex.code-completion',
+        pluginId: 'dimo.code-completion',
         config: {
           manualShortcut: 'Ctrl+Alt+I',
         },
@@ -482,7 +482,7 @@ describe('PluginConfigForm', () => {
       <MemoryRouter>
         <BackendTransportProvider transport={transport}>
           <CodeCompletionStatusPopover
-            pluginId="vibex.code-completion"
+            pluginId="dimo.code-completion"
             icon={contributionIconComponent('sparkles')}
             label="AI代码补全"
           />
@@ -499,7 +499,7 @@ describe('PluginConfigForm', () => {
       expect(transport.call).toHaveBeenCalledWith(
         'plugin_save_config',
         expect.objectContaining({
-          pluginId: 'vibex.code-completion',
+          pluginId: 'dimo.code-completion',
           config: expect.objectContaining({
             enabled: false,
           }),
@@ -515,7 +515,7 @@ describe('PluginConfigForm', () => {
       readme: '# Voice Input',
       contents: [],
       config: {
-        vocabulary: 'VibeX, Tauri, Monaco',
+        vocabulary: 'Dimo, Tauri, Monaco',
       },
       configSchema: {
         type: 'object',
@@ -524,16 +524,16 @@ describe('PluginConfigForm', () => {
             type: 'string',
             format: 'token-list',
             title: '自定义术语热词表',
-            default: 'VibeX, Tauri, Monaco',
+            default: 'Dimo, Tauri, Monaco',
           },
         },
       },
     };
-    const transport = renderForm(detail, 'vibex.voice-input');
+    const transport = renderForm(detail, 'dimo.voice-input');
 
     const pills = screen.getAllByTestId('plugin-config-token-pill');
     expect(pills).toHaveLength(3);
-    expect(pills[0]).toHaveTextContent('VibeX');
+    expect(pills[0]).toHaveTextContent('Dimo');
     expect(pills[1]).toHaveTextContent('Tauri');
     expect(pills[2]).toHaveTextContent('Monaco');
 
@@ -546,9 +546,9 @@ describe('PluginConfigForm', () => {
 
     await waitFor(() => {
       expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
-        pluginId: 'vibex.voice-input',
+        pluginId: 'dimo.voice-input',
         config: {
-          vocabulary: 'VibeX, Tauri, Monaco, Whisper',
+          vocabulary: 'Dimo, Tauri, Monaco, Whisper',
         },
       });
     });
@@ -560,9 +560,9 @@ describe('PluginConfigForm', () => {
 
     await waitFor(() => {
       expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
-        pluginId: 'vibex.voice-input',
+        pluginId: 'dimo.voice-input',
         config: {
-          vocabulary: 'VibeX, Monaco, Whisper',
+          vocabulary: 'Dimo, Monaco, Whisper',
         },
       });
     });
@@ -634,7 +634,7 @@ describe('PluginConfigForm', () => {
       },
     };
 
-    renderForm(detail, 'vibex.voice-input');
+    renderForm(detail, 'dimo.voice-input');
 
     expect(screen.getByLabelText('识别引擎协议')).toBeInTheDocument();
     expect(screen.getByLabelText('识别语言')).toBeInTheDocument();

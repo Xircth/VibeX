@@ -105,14 +105,14 @@ describe('PiConfigurationPanel', () => {
 
   it('lists trusted projects in a bounded container without a redundant trusted label', async () => {
     vi.mocked(agentManagementApi.piTrustEntries).mockResolvedValue([
-      { path: '/Users/mac/Projects/VibeX', trusted: true },
+      { path: '/Users/mac/Projects/Dimo', trusted: true },
       { path: '/tmp/denied-project', trusted: false },
     ]);
     render(<PiConfigurationPanel disabled={false} />);
     expect(await screen.findByText('项目信任')).toBeInTheDocument();
     const list = screen.getByRole('list');
     expect(list).toHaveClass('agent-model-provider-list', 'pi-trust-entries');
-    expect(list).toHaveTextContent('/Users/mac/Projects/VibeX');
+    expect(list).toHaveTextContent('/Users/mac/Projects/Dimo');
     expect(list).not.toHaveTextContent('已信任');
     expect(list).toHaveTextContent('未信任');
     expect(screen.getAllByRole('button', { name: '撤销' })).toHaveLength(2);

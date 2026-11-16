@@ -7805,8 +7805,7 @@ html.dark {
     gap: 4px;
     border: 0;
     border-radius: var(--radius);
-    background: var(--surface-control);
-    box-shadow: var(--shadow-control);
+    background: var(--surface-control-light, hsl(var(--background) / 0.6));
     padding: 0 9px;
     color: var(--text-strong);
     font-weight: 500;
@@ -8211,7 +8210,12 @@ html.dark {
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-width: none;
     scrollbar-gutter: auto;
+  }
+
+  .settings-nav-groups::-webkit-scrollbar {
+    display: none;
   }
 
   .settings-nav-section {
@@ -18434,7 +18438,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
-.settings-page .dsh-attr-vibex-logo,
+.settings-page .dsh-attr-dimo-logo,
 .settings-page .dsh-attr-owner-img {
   display: block;
   width: 100%;

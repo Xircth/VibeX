@@ -16,7 +16,7 @@ describe('importedProjectName', () => {
   });
 
   it('keeps ordinary project names', () => {
-    expect(importedProjectName({ name: 'VibeX' }, (key) => key)).toBe('VibeX');
+    expect(importedProjectName({ name: 'Dimo' }, (key) => key)).toBe('Dimo');
   });
 });
 
@@ -38,8 +38,8 @@ describe('listedImportedProjects', () => {
       listedImportedProjects([
         { id: 'home', hidden: false },
         { id: 'stallerlab', hidden: true },
-        { id: 'vibex', hidden: false },
+        { id: 'dimo', hidden: false },
       ]).map((project) => project.id)
-    ).toEqual(['home', 'vibex']);
+    ).toEqual(['home', 'dimo']);
   });
 });

@@ -76,7 +76,7 @@ describe('accountApi & Model Marketplace helpers', () => {
             requestId: 'req-1',
             verifier: 'ver-1',
             userCode: 'ABCD-1234',
-            verifyUrl: 'https://vibex.test/desktop/authorize?request=req-1',
+            verifyUrl: 'https://dimo.test/desktop/authorize?request=req-1',
             expiresIn: 600,
             interval: 2,
           }),
@@ -86,14 +86,14 @@ describe('accountApi & Model Marketplace helpers', () => {
 
     await accountApi.startLogin();
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-      deviceName: 'VibeX Desktop',
+      deviceName: 'Dimo Desktop',
       hostId: '',
       nextPath: '/account',
     });
 
     await accountApi.startLogin(modelMarketplacePath('claude_code'));
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      deviceName: 'VibeX Desktop',
+      deviceName: 'Dimo Desktop',
       hostId: '',
       nextPath: '/account/models?agent=claude_code',
     });
@@ -105,7 +105,7 @@ describe('accountApi & Model Marketplace helpers', () => {
       new Response(
         JSON.stringify({
           handoffUrl:
-            'https://vibex.test/api/auth/desktop/web-handoff?ticket=h_1',
+            'https://dimo.test/api/auth/desktop/web-handoff?ticket=h_1',
           expiresIn: 60,
         }),
         { status: 200 }
@@ -114,10 +114,10 @@ describe('accountApi & Model Marketplace helpers', () => {
 
     const url = await openModelMarketplace('codex');
     expect(url).toBe(
-      'https://vibex.test/api/auth/desktop/web-handoff?ticket=h_1'
+      'https://dimo.test/api/auth/desktop/web-handoff?ticket=h_1'
     );
     expect(openExternal).toHaveBeenCalledWith(
-      'https://vibex.test/api/auth/desktop/web-handoff?ticket=h_1'
+      'https://dimo.test/api/auth/desktop/web-handoff?ticket=h_1'
     );
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       targetPath: '/account/models?agent=codex',
@@ -137,7 +137,7 @@ describe('accountApi & Model Marketplace helpers', () => {
       apiKey: 'sk-vxr-1',
       agentId: 'claude_code',
       protocol: 'anthropic' as const,
-      baseUrl: 'https://vibex.test/api/router',
+      baseUrl: 'https://dimo.test/api/router',
       model: { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
       models: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' }],
     };

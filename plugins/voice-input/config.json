@@ -9,7 +9,7 @@
   "recordingMode": "toggle",
   "shortcut": "Alt+V",
   "cleanupMode": "auto-clean",
-  "vocabulary": "VibeX, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex",
+  "vocabulary": "Dimo, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex",
   "audioDeviceId": "default",
   "showFloatingHud": true
 }

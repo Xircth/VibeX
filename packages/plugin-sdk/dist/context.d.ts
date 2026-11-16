@@ -234,7 +234,7 @@ export interface PluginHostNamespace {
         }>;
     };
 }
-export interface VibeXPluginContext {
+export interface DimoPluginContext {
     readonly pluginId: string;
     readonly generation: number;
     readonly scope: EffectScope;
@@ -305,14 +305,14 @@ export interface CreatePluginContextOptions {
     readonly callHost?: HostCallTransport;
     readonly invokeWorker?: WorkerInvokeTransport;
 }
-export declare function createPluginContext(options: CreatePluginContextOptions): VibeXPluginContext;
-export interface VibeXPluginDefinition {
+export declare function createPluginContext(options: CreatePluginContextOptions): DimoPluginContext;
+export interface DimoPluginDefinition {
     readonly apiVersion?: '2.0' | '1.0';
     readonly id?: string;
-    readonly activate: (ctx: VibeXPluginContext) => void | Disposer | Promise<void | Disposer>;
+    readonly activate: (ctx: DimoPluginContext) => void | Disposer | Promise<void | Disposer>;
     readonly deactivate?: () => void | Promise<void>;
 }
-export declare function defineVibeXPlugin(definition: VibeXPluginDefinition | VibeXPluginDefinition['activate']): VibeXPluginDefinition;
-export declare const definePlugin: typeof defineVibeXPlugin;
-export type VibexPluginModule = VibeXPluginDefinition;
-export declare function isVibeXPluginDefinition(value: unknown): value is VibeXPluginDefinition;
+export declare function defineDimoPlugin(definition: DimoPluginDefinition | DimoPluginDefinition['activate']): DimoPluginDefinition;
+export declare const definePlugin: typeof defineDimoPlugin;
+export type DimoPluginModule = DimoPluginDefinition;
+export declare function isDimoPluginDefinition(value: unknown): value is DimoPluginDefinition;

@@ -169,9 +169,9 @@ pub fn prepare_instance_isolation_env_for_keys(
 
     let root_base = spec
         .env
-        .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+        .get("DIMO_PROVIDER_INSTANCES_ROOT")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("vibex-provider-instances"));
+        .unwrap_or_else(|| std::env::temp_dir().join("dimo-provider-instances"));
 
     let instance_root = root_base.join(sanitize_instance_dir_segment(instance_id));
     create_private_dir_all(&instance_root)?;

@@ -120,7 +120,7 @@ function createDerivedVolatile(source, selector, isEqual) {
     };
     return derived;
 }
-const VOLATILE_CONFIG_STORE_KEY = Symbol.for('vibex.plugin-sdk.volatileConfigStore');
+const VOLATILE_CONFIG_STORE_KEY = Symbol.for('dimo.plugin-sdk.volatileConfigStore');
 function getGlobalVolatileConfigMap() {
     const g = globalThis;
     let store = g[VOLATILE_CONFIG_STORE_KEY];

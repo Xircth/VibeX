@@ -29,7 +29,7 @@ import {
   retainAgentSettingsDraft,
 } from './agentSettingsDraftRetention';
 
-export const MODEL_ROUTER_IMPORT_EVENT = 'vibex://modelrouter-import';
+export const MODEL_ROUTER_IMPORT_EVENT = 'dimo://modelrouter-import';
 
 export type PendingModelRouterImport = {
   id?: number;

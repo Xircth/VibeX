@@ -1,6 +1,6 @@
 //! Conversation metadata and event-sourced identity layer.
 //!
-//! During the event-sourced cutover, `sessions.id` remains the physical VibeX
+//! During the event-sourced cutover, `sessions.id` remains the physical Dimo
 //! conversation id. New `conversation_*` tables own bindings, turns, events,
 //! side effects, import/export metadata, and projections. Legacy agent session
 //! identifiers may remain on `sessions` for compatibility and import repair, but
@@ -1151,7 +1151,7 @@ mod tests {
             ConversationAgentBindingRecord::bind_acp_session(
                 &pool,
                 binding_id,
-                "vibex-new-session-x",
+                "dimo-new-session-x",
                 None,
                 status,
             )

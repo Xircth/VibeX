@@ -193,17 +193,17 @@
   font-size: 11.5px;
 }
 
-.conv-tool-chip-pill .vibex-tool-call-target {
+.conv-tool-chip-pill .dimo-tool-call-target {
   min-width: 0;
   max-width: 100%;
 }
 
-.conv-tool-chip-pill .vibex-tool-call-target-label {
+.conv-tool-chip-pill .dimo-tool-call-target-label {
   color: inherit;
   font: inherit;
 }
 
-.conv-tool-chip-pill button.vibex-tool-call-target-label:hover {
+.conv-tool-chip-pill button.dimo-tool-call-target-label:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }

@@ -89,7 +89,7 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
       raw:
         typeof window === 'undefined'
           ? null
-          : window.localStorage.getItem('vibex:basic-guide'),
+          : window.localStorage.getItem('dimo:basic-guide'),
       onboardingAcknowledged: Boolean(config?.onboarding_acknowledged),
     })
   );

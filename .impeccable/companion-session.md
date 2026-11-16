@@ -1,6 +1,6 @@
 # Companion session stream — design rules
 
-Extracted from VibeX desktop conversation (`conv-messages.css`, `TurnToolCalls`, `SessionSettingsSummary`) and the 2026-08-20 session screenshots. Companion session pages follow these rules, not the CodeG rail.
+Extracted from Dimo desktop conversation (`conv-messages.css`, `TurnToolCalls`, `SessionSettingsSummary`) and the 2026-08-20 session screenshots. Companion session pages follow these rules, not the CodeG rail.
 
 ## Surface
 

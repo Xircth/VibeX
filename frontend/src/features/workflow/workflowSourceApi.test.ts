@@ -30,7 +30,7 @@ describe('resolveWorkflowSourceRevision', () => {
     await expect(
       resolveWorkflowSourceRevision(
         api,
-        '~/workflow.vibex-workflow.json',
+        '~/workflow.dimo-workflow.json',
         'rev-1'
       )
     ).resolves.toBe('rev-1');
@@ -39,7 +39,7 @@ describe('resolveWorkflowSourceRevision', () => {
 
   it('reads the current file when the editor has no known revision', async () => {
     const read = vi.fn().mockResolvedValue({
-      path: '~/workflow.vibex-workflow.json',
+      path: '~/workflow.dimo-workflow.json',
       content: '{}',
       revision: 'rev-9',
     });
@@ -50,10 +50,10 @@ describe('resolveWorkflowSourceRevision', () => {
     const api = createWorkflowSourceApi(transport);
 
     await expect(
-      resolveWorkflowSourceRevision(api, '~/workflow.vibex-workflow.json', null)
+      resolveWorkflowSourceRevision(api, '~/workflow.dimo-workflow.json', null)
     ).resolves.toBe('rev-9');
     expect(read).toHaveBeenCalledWith('workflow_source_read', {
-      path: '~/workflow.vibex-workflow.json',
+      path: '~/workflow.dimo-workflow.json',
     });
   });
 
@@ -62,13 +62,13 @@ describe('resolveWorkflowSourceRevision', () => {
     const api = createWorkflowSourceApi(transport);
 
     await expect(
-      resolveWorkflowSourceRevision(api, '~/workflow.vibex-workflow.json', null)
+      resolveWorkflowSourceRevision(api, '~/workflow.dimo-workflow.json', null)
     ).resolves.toBeNull();
   });
 
   it('writes with the resolved revision so existing sources are not refused', async () => {
     const read = vi.fn().mockResolvedValue({
-      path: '~/workflow.vibex-workflow.json',
+      path: '~/workflow.dimo-workflow.json',
       content: '{}',
       revision: 'rev-9',
     });
@@ -83,17 +83,17 @@ describe('resolveWorkflowSourceRevision', () => {
 
     const expectedRevision = await resolveWorkflowSourceRevision(
       api,
-      '~/workflow.vibex-workflow.json',
+      '~/workflow.dimo-workflow.json',
       null
     );
     await api.write(
-      '~/workflow.vibex-workflow.json',
+      '~/workflow.dimo-workflow.json',
       '{"name":"updated"}',
       expectedRevision ?? undefined
     );
 
     expect(write).toHaveBeenCalledWith({
-      path: '~/workflow.vibex-workflow.json',
+      path: '~/workflow.dimo-workflow.json',
       content: '{"name":"updated"}',
       expectedRevision: 'rev-9',
     });

@@ -14,8 +14,8 @@ const en = i18n.getFixedT('en', 'settings');
 
 function listing(overrides: Partial<CatalogListing> = {}): CatalogListing {
   return {
-    owner: 'vibex',
-    pluginName: 'vibex.multi-agent',
+    owner: 'dimo',
+    pluginName: 'dimo.multi-agent',
     tag: '1.0.0',
     version: '1.0.0',
     displayName: 'Multi-agent',
@@ -23,7 +23,7 @@ function listing(overrides: Partial<CatalogListing> = {}): CatalogListing {
     category: 'official',
     sourceKind: 'official',
     homepage: 'https://github.com/xforever/vibex-plugins/tree/main/multi-agent',
-    offlinePluginId: 'vibex.multi-agent',
+    offlinePluginId: 'dimo.multi-agent',
     ...overrides,
   };
 }
@@ -61,8 +61,8 @@ describe('listingSourceLabel', () => {
     vi.unstubAllEnvs();
   });
 
-  it('recognizes custom VIBEX_SITE_URL host as official marketplace', () => {
-    vi.stubEnv('VIBEX_SITE_URL', 'https://site.example.com/');
+  it('recognizes custom DIMO_SITE_URL host as official marketplace', () => {
+    vi.stubEnv('DIMO_SITE_URL', 'https://site.example.com/');
     expect(
       listingSourceLabel(
         listing({
@@ -114,7 +114,7 @@ describe('PluginInstallTrustDialog', () => {
       )
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/vibex\/vibex\.multi-agent@/i)
+      screen.queryByText(/dimo\/dimo\.multi-agent@/i)
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /取消|cancel/i }));

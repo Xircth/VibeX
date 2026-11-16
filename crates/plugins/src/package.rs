@@ -17,7 +17,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PackageFormat {
-    VibeX,
+    Dimo,
     Codex,
     ClaudeCode,
 }
@@ -106,7 +106,7 @@ pub struct PackageWarning {
 }
 
 fn default_worker_max_frame_bytes() -> usize {
-    vibex_plugin_sdk::protocol::MAX_FRAME_BYTES
+    dimo_plugin_sdk::protocol::MAX_FRAME_BYTES
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -423,7 +423,7 @@ pub struct HostServiceContribution {
 /// An entry in the "import from…" menu of the model provider settings.
 ///
 /// ADR-0063 originally fixed the import sources to a closed enum; ADR-0069
-/// turns that enum into this contribution so a plugin can teach VibeX to read
+/// turns that enum into this contribution so a plugin can teach Dimo to read
 /// a provider layout it has never heard of.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1286,22 +1286,21 @@ impl PluginPackage {
                 error,
             )
         })?;
-        let vibex_path = {
-            let nested = root.join(".vibex-plugin/plugin.json");
+        let dimo_path = {
             let flat = root.join("plugin.json");
-            if nested.is_file() {
-                nested
-            } else if flat.is_file() {
-                flat
-            } else {
-                return Err(PluginError::invalid_manifest(format!(
-                    "missing `{}`",
-                    nested.display()
-                )));
+            match crate::manifest::existing_manifest_path(root) {
+                Some(nested) => nested,
+                None if flat.is_file() => flat,
+                None => {
+                    return Err(PluginError::invalid_manifest(format!(
+                        "missing `{}`",
+                        crate::manifest::manifest_path(root).display()
+                    )));
+                }
             }
         };
 
-        let manifest_text = fs::read_to_string(&vibex_path)
+        let manifest_text = fs::read_to_string(&dimo_path)
             .map_err(|error| PluginError::io("read portable plugin manifest", error))?;
         let mut manifest: Value = serde_json::from_str(&manifest_text)
             .map_err(|error| PluginError::invalid_manifest(error.to_string()))?;
@@ -1327,7 +1326,7 @@ impl PluginPackage {
             .unwrap_or_else(legacy_api_version);
         if matches!(source_kind, PluginSourceKind::Marketplace) && api_version != "2.0" {
             return Err(PluginError::invalid_manifest(format!(
-                "unsupported plugin apiVersion `{api_version}`; VibeX v2 plugin architecture requires apiVersion \"2.0\""
+                "unsupported plugin apiVersion `{api_version}`; Dimo v2 plugin architecture requires apiVersion \"2.0\""
             )));
         }
         let manifest_version = object
@@ -1378,7 +1377,7 @@ impl PluginPackage {
                 .map(str::to_owned)
         };
 
-        let mut formats = vec![PackageFormat::VibeX];
+        let mut formats = vec![PackageFormat::Dimo];
         if root.join(".codex-plugin/plugin.json").is_file() {
             formats.push(PackageFormat::Codex);
         }
@@ -1554,7 +1553,7 @@ impl PluginPackage {
             manifest_version: 4,
             api_version: "2.0".to_owned(),
             id: PluginId::from_string(id.to_owned()),
-            publisher: Some("dev.vibex.test".to_owned()),
+            publisher: Some("dev.dimo.test".to_owned()),
             name: name.to_owned(),
             version: version.to_owned(),
             summary: String::new(),
@@ -1574,7 +1573,7 @@ impl PluginPackage {
                 root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
             ),
             execution_root: None,
-            formats: vec![PackageFormat::VibeX],
+            formats: vec![PackageFormat::Dimo],
             skills: vec![PackageSkill {
                 id: "test".to_owned(),
                 path: "skills/test/SKILL.md".to_owned(),
@@ -3708,14 +3707,14 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
             .ok_or_else(|| PluginError::invalid_manifest("v4 plugins require engines"))?;
         if let Some(name) = engines
             .keys()
-            .find(|name| !matches!(name.as_str(), "vibex" | "pluginSdk"))
+            .find(|name| !matches!(name.as_str(), "dimo" | "pluginSdk"))
         {
             return Err(PluginError::invalid_manifest(format!(
                 "unknown v4 engine `{name}`"
             )));
         }
         for (name, supported) in [
-            ("vibex", &[env!("CARGO_PKG_VERSION")][..]),
+            ("dimo", &[env!("CARGO_PKG_VERSION")][..]),
             ("pluginSdk", &["1.0.0", "2.0.0"][..]),
         ] {
             let Some(requirement) = engines.get(name).and_then(Value::as_str) else {

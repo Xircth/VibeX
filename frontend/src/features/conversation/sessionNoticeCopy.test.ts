@@ -17,7 +17,7 @@ describe('getConversationSessionNoticeCopy', () => {
         {
           title: '此会话包含较新版本的记录',
           message:
-            '当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。',
+            '当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 Dimo 后可再次查看。',
           severity: 'warning',
         },
         t

@@ -52,9 +52,9 @@ export const DEFAULT_CANVAS_DOCUMENT: SessionCanvasDocument = {
   relativeChildren: true,
 };
 
-const DOCUMENT_KEY_PREFIX = 'vibex:kanban-canvas:';
-export const CANVAS_BUNDLE_KEY = 'vibex:kanban-canvas' as const;
-const MINIMAP_KEY = 'vibex:kanban-canvas-minimap';
+const DOCUMENT_KEY_PREFIX = 'dimo:kanban-canvas:';
+export const CANVAS_BUNDLE_KEY = 'dimo:kanban-canvas' as const;
+const MINIMAP_KEY = 'dimo:kanban-canvas-minimap';
 
 function documentKey(projectId: string): string {
   return `${DOCUMENT_KEY_PREFIX}${projectId}`;

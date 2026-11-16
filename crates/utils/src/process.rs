@@ -53,7 +53,7 @@ pub fn is_windows_batch_script(path: &Path) -> bool {
         .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat"))
 }
 
-/// Prefer a same-stem `.exe` next to a Windows batch shim. VibeX can still
+/// Prefer a same-stem `.exe` next to a Windows batch shim. Dimo can still
 /// launch `.cmd` via `cmd.exe`; ACP adapters spawned by Node cannot.
 pub fn prefer_direct_spawn_executable(path: impl AsRef<Path>) -> PathBuf {
     let path = crate::path::normalize_windows_extended_path_prefix(path);
@@ -89,7 +89,7 @@ fn windows_extension_lower(path: &Path) -> Option<String> {
         .map(|ext| ext.to_ascii_lowercase())
 }
 
-/// `CreateProcess` can run PE binaries; VibeX wraps `.cmd` / `.bat` with
+/// `CreateProcess` can run PE binaries; Dimo wraps `.cmd` / `.bat` with
 /// `cmd.exe`. PowerShell scripts, extensionless npm shims, and WindowsApps
 /// aliases are not launchable this way.
 pub fn is_windows_spawnable_command(path: &Path) -> bool {
@@ -712,7 +712,7 @@ pub fn group_spawn_no_window_with_job(
 }
 
 /// Put a `std::process::Command` in its own process group so a later
-/// [`terminate_std_child_group`] cannot signal the VibeX process group.
+/// [`terminate_std_child_group`] cannot signal the Dimo process group.
 pub fn isolate_std_process_group(command: &mut std::process::Command) {
     #[cfg(unix)]
     {
@@ -729,7 +729,7 @@ pub fn isolate_std_process_group(command: &mut std::process::Command) {
 ///
 /// Git helpers (pager, fsmonitor, credential helper) share the group. Killing
 /// only the leader with SIGKILL leaves those helpers holding `index.lock` /
-/// `config.lock`, and every later git command waits until VibeX's timeout.
+/// `config.lock`, and every later git command waits until Dimo's timeout.
 pub fn terminate_std_child_group(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
@@ -1194,7 +1194,7 @@ mod tests {
             .expect("system clock before unix epoch")
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
-            "vibex-process-{unique_suffix}-{}",
+            "dimo-process-{unique_suffix}-{}",
             std::process::id()
         ));
         fs::create_dir_all(&temp_dir).expect("create temp test dir");
@@ -1226,7 +1226,7 @@ mod tests {
             .expect("system clock before unix epoch")
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
-            "vibex-process-std-{unique_suffix}-{}",
+            "dimo-process-std-{unique_suffix}-{}",
             std::process::id()
         ));
         fs::create_dir_all(&temp_dir).expect("create temp test dir");

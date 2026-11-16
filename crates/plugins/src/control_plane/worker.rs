@@ -187,7 +187,7 @@ impl PluginControlPlane {
     ///
     /// Workers without background `host.service` tasks defer OS process creation
     /// until their first `activation_lease` request unless
-    /// `VIBEX_EAGER_PLUGIN_WORKERS=1` is set.
+    /// `DIMO_EAGER_PLUGIN_WORKERS=1` is set.
     pub async fn recover_enabled_workers(
         &self,
         node_executable: &std::path::Path,
@@ -201,7 +201,7 @@ impl PluginControlPlane {
         )
         .await;
         let eager_workers =
-            std::env::var_os("VIBEX_EAGER_PLUGIN_WORKERS").is_some_and(|value| value == "1");
+            std::env::var_os("DIMO_EAGER_PLUGIN_WORKERS").is_some_and(|value| value == "1");
         let mut failures = Vec::new();
         for plugin in self.registry.list_plugins().await? {
             if plugin.activation != PluginActivation::Enabled {

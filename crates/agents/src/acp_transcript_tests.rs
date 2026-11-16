@@ -1186,7 +1186,7 @@ async fn online_jsonl_writes_are_disabled_by_default_while_preserving_replay_gat
     let header = TranscriptHeader::new("custom:goose", &sid, "/repo", 42);
 
     record_header("goose", &header).await.unwrap();
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let path = transcript_path_in(&root, "goose", &sid).unwrap();
     assert!(
         !path.exists(),

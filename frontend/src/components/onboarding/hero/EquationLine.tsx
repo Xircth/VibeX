@@ -13,7 +13,7 @@ export const SLOT_A: SlotItem[] = [
   { id: 'jetbrains', label: 'JetBrains', kind: 'mark' },
 ];
 
-/// Agents VibeX can actually run. Every entry must be selectable when starting
+/// Agents Dimo can actually run. Every entry must be selectable when starting
 /// a session; `SLOT_A` is the IDE the user is coming from, which is a
 /// different claim and is not held to this rule.
 export const SLOT_B: SlotItem[] = [
@@ -80,7 +80,7 @@ export function EquationLine({ locale }: { locale: 'zh' | 'en' }) {
   const d = locale === 'zh' ? SLOT_D_ZH : SLOT_D_EN;
   return (
     <p className="onboarding-eq-line" data-testid="onboarding-eq-line">
-      <span className="onboarding-eq-brand">VibeX</span>
+      <span className="onboarding-eq-brand">Dimo</span>
       <span className="onboarding-eq-op">=</span>
       <RotateSlot items={SLOT_A} period={2800} />
       <span className="onboarding-eq-op">+</span>

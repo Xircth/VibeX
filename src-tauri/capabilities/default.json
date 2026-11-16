@@ -53,6 +53,6 @@
     "core:window:allow-set-focus",
     "core:webview:allow-set-webview-zoom",
     "redline:default",
-    "vibex-inspector:default"
+    "dimo-inspector:default"
   ]
 }

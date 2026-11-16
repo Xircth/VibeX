@@ -3,7 +3,7 @@ import {
   promptContextRegistry,
   resolveBeforeTurnPromptContributions,
   serviceContainer,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import {
   callApplicationCommand,
   configuredBackendTransport,

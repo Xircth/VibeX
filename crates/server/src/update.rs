@@ -60,10 +60,10 @@ pub fn apply_host_upgrade(plan: &HostUpgradePlan) -> Result<PathBuf, HostUpgrade
         fs::create_dir_all(&snapshot)?;
     }
     for name in [
-        "vibex-server",
-        "vibex-mcp",
-        "vibex-server.exe",
-        "vibex-mcp.exe",
+        "dimo-server",
+        "dimo-mcp",
+        "dimo-server.exe",
+        "dimo-mcp.exe",
     ] {
         let source = plan.release_dir.join(name);
         if source.is_file() {
@@ -143,15 +143,15 @@ mod tests {
         fs::create_dir_all(&release).unwrap();
         fs::create_dir_all(&install).unwrap();
         fs::create_dir_all(&data).unwrap();
-        fs::write(release.join("vibex-server"), "new").unwrap();
+        fs::write(release.join("dimo-server"), "new").unwrap();
         fs::write(data.join("db.sqlite"), "keep").unwrap();
-        fs::write(release.join("SHA256SUMS"), "deadbeef  vibex-server\n").unwrap();
+        fs::write(release.join("SHA256SUMS"), "deadbeef  dimo-server\n").unwrap();
 
         let plan = plan_host_upgrade(&release, &install, &data).unwrap();
         let error = apply_host_upgrade(&plan).unwrap_err();
         assert!(matches!(error, HostUpgradeError::Invalid(_)));
         assert_eq!(fs::read_to_string(data.join("db.sqlite")).unwrap(), "keep");
-        assert!(!install.join("vibex-server").exists());
+        assert!(!install.join("dimo-server").exists());
     }
 
     #[test]
@@ -163,22 +163,22 @@ mod tests {
         fs::create_dir_all(&release).unwrap();
         fs::create_dir_all(&install).unwrap();
         fs::create_dir_all(&data).unwrap();
-        fs::write(release.join("vibex-server"), "server-v2").unwrap();
-        fs::write(release.join("vibex-mcp"), "mcp-v2").unwrap();
+        fs::write(release.join("dimo-server"), "server-v2").unwrap();
+        fs::write(release.join("dimo-mcp"), "mcp-v2").unwrap();
         let digest_server = hex_sha256(b"server-v2");
         let digest_mcp = hex_sha256(b"mcp-v2");
         fs::write(
             release.join("SHA256SUMS"),
-            format!("{digest_server}  vibex-server\n{digest_mcp}  vibex-mcp\n"),
+            format!("{digest_server}  dimo-server\n{digest_mcp}  dimo-mcp\n"),
         )
         .unwrap();
-        fs::write(install.join("vibex-server"), "server-v1").unwrap();
+        fs::write(install.join("dimo-server"), "server-v1").unwrap();
         fs::write(data.join("db.sqlite"), "state").unwrap();
 
         let plan = plan_host_upgrade(&release, &install, &data).unwrap();
         let snapshot = apply_host_upgrade(&plan).unwrap();
         assert_eq!(
-            fs::read_to_string(install.join("vibex-server")).unwrap(),
+            fs::read_to_string(install.join("dimo-server")).unwrap(),
             "server-v2"
         );
         assert_eq!(

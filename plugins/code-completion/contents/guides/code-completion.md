@@ -1,6 +1,6 @@
 # AI Code Completion Guide
 
-`vibex.code-completion` provides inline Ghost Text suggestions in Monaco code editors across VibeX.
+`dimo.code-completion` provides inline Ghost Text suggestions in Monaco code editors across Dimo.
 
 ## Supported Protocols
 

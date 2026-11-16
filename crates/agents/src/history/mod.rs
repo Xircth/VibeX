@@ -280,7 +280,7 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
     }
 }
 
-/// Resolve history locations from both the current process and VibeX's saved
+/// Resolve history locations from both the current process and Dimo's saved
 /// per-Agent environment. Saved settings are considered first so custom homes
 /// selected in Settings are immediately reflected by the import picker.
 pub fn configured_history_sources(
@@ -917,8 +917,8 @@ fn is_codex_display_event(payload: &serde_json::Value) -> bool {
     )
 }
 
-/// Codex desktop hides these user-role items; VibeX must not re-import them
-/// as the user's real prompt. Includes the host-history prefix VibeX used to
+/// Codex desktop hides these user-role items; Dimo must not re-import them
+/// as the user's real prompt. Includes the host-history prefix Dimo used to
 /// prepend on cold start, including Windows `\r\n` copies of that blob.
 pub(crate) fn is_codex_hidden_user_text(content: &str) -> bool {
     is_codex_injected_context(content) || is_host_history_prompt(content)
@@ -1263,14 +1263,14 @@ fn claude_project_path_from_file(file: &Path, agent_type: AgentKind) -> Option<P
 fn decode_claude_project_dir(encoded: &str) -> PathBuf {
     if encoded.len() >= 2 && encoded.as_bytes()[1] == b'-' && encoded.as_bytes()[0].is_ascii_alphabetic()
     {
-        // Windows-style: "C--Users-18190-Documents-projects-VibeX"
+        // Windows-style: "C--Users-18190-Documents-projects-Dimo"
         // Drive letter + "--" → "C:\" then "-" → "\"
         let drive = &encoded[..1];
         let rest = &encoded[2..];
         let decoded = rest.replace('-', "\\");
         PathBuf::from(format!("{drive}:\\{decoded}"))
     } else {
-        // POSIX-style: "-home-user-projects-VibeX" → "/home/user/projects/VibeX"
+        // POSIX-style: "-home-user-projects-Dimo" → "/home/user/projects/Dimo"
         let decoded = encoded.replace('-', "/");
         PathBuf::from(decoded)
     }
@@ -2788,7 +2788,7 @@ mod tests {
 
     #[test]
     fn omp_history_ignores_a_pi_agent_dir() {
-        let home = PathBuf::from("/tmp/vibex-home");
+        let home = PathBuf::from("/tmp/dimo-home");
         let sources = configured_history_sources(
             AgentKind::Omp,
             &HashMap::from([
@@ -3543,7 +3543,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             parent.join("summary.json"),
-            r#"{"session_kind":"primary","generated_title":"Parent work","info":{"cwd":"/Users/mac/Projects/VibeX"}}"#,
+            r#"{"session_kind":"primary","generated_title":"Parent work","info":{"cwd":"/Users/mac/Projects/Dimo"}}"#,
         )
         .unwrap();
         std::fs::write(
@@ -3568,7 +3568,7 @@ mod tests {
         assert_eq!(sessions[0].title.as_deref(), Some("Parent work"));
         assert_eq!(
             sessions[0].workspace_path,
-            Some(PathBuf::from("/Users/mac/Projects/VibeX"))
+            Some(PathBuf::from("/Users/mac/Projects/Dimo"))
         );
     }
 
@@ -3696,7 +3696,7 @@ mod tests {
         std::fs::write(
             &path,
             concat!(
-                r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Sender (untrusted metadata):\n```\nfrom: alice\n```\n[Working directory: /Users/mac/Projects/VibeX]\n[12:01]\nShip it"}]}}"#,
+                r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Sender (untrusted metadata):\n```\nfrom: alice\n```\n[Working directory: /Users/mac/Projects/Dimo]\n[12:01]\nShip it"}]}}"#,
                 "\n",
                 r#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Shipped"}]}}"#,
                 "\n"
@@ -3711,7 +3711,7 @@ mod tests {
         assert_eq!(sessions[0].messages[0].content, "Ship it");
         assert_eq!(
             sessions[0].workspace_path,
-            Some(PathBuf::from("/Users/mac/Projects/VibeX"))
+            Some(PathBuf::from("/Users/mac/Projects/Dimo"))
         );
     }
 
@@ -4267,11 +4267,11 @@ mod tests {
 
     #[test]
     fn decode_claude_project_dir_windows_encoding() {
-        // "C--Users-18190-Documents-projects-VibeX" → "C:\Users\18190\Documents\projects\VibeX"
-        let decoded = decode_claude_project_dir("C--Users-18190-Documents-projects-VibeX");
+        // "C--Users-18190-Documents-projects-Dimo" → "C:\Users\18190\Documents\projects\Dimo"
+        let decoded = decode_claude_project_dir("C--Users-18190-Documents-projects-Dimo");
         assert_eq!(
             decoded,
-            PathBuf::from(r"C:\Users\18190\Documents\projects\VibeX")
+            PathBuf::from(r"C:\Users\18190\Documents\projects\Dimo")
         );
     }
 
@@ -4284,19 +4284,19 @@ mod tests {
 
     #[test]
     fn decode_claude_project_dir_unix_encoding() {
-        // "-home-user-projects-VibeX" → "/home/user/projects/VibeX"
-        let decoded = decode_claude_project_dir("-home-user-projects-VibeX");
-        assert_eq!(decoded.to_string_lossy(), "/home/user/projects/VibeX");
+        // "-home-user-projects-Dimo" → "/home/user/projects/Dimo"
+        let decoded = decode_claude_project_dir("-home-user-projects-Dimo");
+        assert_eq!(decoded.to_string_lossy(), "/home/user/projects/Dimo");
     }
 
     #[test]
     fn claude_project_path_from_file_extracts_project_dir() {
         let file = Path::new(
-            r"C:\Users\18190\.claude\projects\C--Users-18190-Documents-projects-VibeX\session.jsonl",
+            r"C:\Users\18190\.claude\projects\C--Users-18190-Documents-projects-Dimo\session.jsonl",
         );
         let path = claude_project_path_from_file(file, AgentKind::ClaudeCode)
             .expect("should extract project path");
-        assert_eq!(path, PathBuf::from(r"C:\Users\18190\Documents\projects\VibeX"));
+        assert_eq!(path, PathBuf::from(r"C:\Users\18190\Documents\projects\Dimo"));
     }
 
     #[test]

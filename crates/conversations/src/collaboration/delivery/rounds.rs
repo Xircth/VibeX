@@ -179,7 +179,7 @@ pub async fn notify_space_turn_streaming(
 
 pub fn collab_round_timeout_minutes() -> i64 {
     super::routing::env_i64(
-        "VIBEX_COLLAB_ROUND_TIMEOUT_MINUTES",
+        "DIMO_COLLAB_ROUND_TIMEOUT_MINUTES",
         DEFAULT_COLLAB_ROUND_TIMEOUT_MINUTES,
     )
     .max(1)
@@ -187,7 +187,7 @@ pub fn collab_round_timeout_minutes() -> i64 {
 
 pub fn collab_round_grace_secs() -> i64 {
     super::routing::env_i64(
-        "VIBEX_COLLAB_ROUND_GRACE_SECONDS",
+        "DIMO_COLLAB_ROUND_GRACE_SECONDS",
         DEFAULT_COLLAB_ROUND_GRACE_SECS,
     )
     .max(1)
@@ -195,7 +195,7 @@ pub fn collab_round_grace_secs() -> i64 {
 
 pub fn collab_round_turn_wait_secs() -> i64 {
     super::routing::env_i64(
-        "VIBEX_COLLAB_ROUND_TURN_WAIT_SECS",
+        "DIMO_COLLAB_ROUND_TURN_WAIT_SECS",
         DEFAULT_COLLAB_ROUND_TURN_WAIT_SECS,
     )
     .max(3)

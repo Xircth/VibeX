@@ -67,19 +67,19 @@ async fn missing_static_root_serves_a_host_listen_page() {
         .await
         .expect("body");
     let text = String::from_utf8(body.to_vec()).expect("html");
-    assert!(text.contains("VibeX Host"));
+    assert!(text.contains("Dimo Host"));
     assert!(text.contains("配对邀请"));
 }
 
 #[tokio::test]
 async fn production_assets_and_spa_routes_share_the_static_root() {
     let root = TempDir::new().expect("static root");
-    std::fs::write(root.path().join("index.html"), "<main>VibeX</main>").expect("index");
+    std::fs::write(root.path().join("index.html"), "<main>Dimo</main>").expect("index");
     std::fs::write(root.path().join("app.js"), "export const ready = true;").expect("asset");
     let app = runtime(root.path()).await.router();
 
     for (path, expected_type, expected_body) in [
-        ("/", "text/html; charset=utf-8", "<main>VibeX</main>"),
+        ("/", "text/html; charset=utf-8", "<main>Dimo</main>"),
         (
             "/app.js",
             "text/javascript; charset=utf-8",
@@ -88,7 +88,7 @@ async fn production_assets_and_spa_routes_share_the_static_root() {
         (
             "/settings/automations",
             "text/html; charset=utf-8",
-            "<main>VibeX</main>",
+            "<main>Dimo</main>",
         ),
     ] {
         let response = app
@@ -148,7 +148,7 @@ async fn embedded_asset_resolver_serves_assets_and_spa_fallback() {
 
     let config = ServerConfig::default().with_static_asset_resolver(Arc::new(|path| match path {
         "index.html" => Some(EmbeddedAsset {
-            bytes: b"<main>Embedded VibeX</main>".to_vec(),
+            bytes: b"<main>Embedded Dimo</main>".to_vec(),
             mime_type: "text/html; charset=utf-8".to_string(),
         }),
         "assets/app.js" => Some(EmbeddedAsset {
@@ -168,7 +168,7 @@ async fn embedded_asset_resolver_serves_assets_and_spa_fallback() {
         (
             "/",
             "text/html; charset=utf-8",
-            "<main>Embedded VibeX</main>",
+            "<main>Embedded Dimo</main>",
         ),
         (
             "/assets/app.js",
@@ -178,7 +178,7 @@ async fn embedded_asset_resolver_serves_assets_and_spa_fallback() {
         (
             "/settings/remote-access",
             "text/html; charset=utf-8",
-            "<main>Embedded VibeX</main>",
+            "<main>Embedded Dimo</main>",
         ),
     ] {
         let response = app

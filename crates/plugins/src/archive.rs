@@ -260,7 +260,7 @@ fn resolve_extracted_plugin_root(staging: &Path) -> Result<PathBuf, PluginError>
 }
 
 fn has_supported_plugin_manifest(root: &Path) -> bool {
-    root.join(".vibex-plugin/plugin.json").is_file()
+    crate::manifest::existing_manifest_path(root).is_some()
         || root.join(".codex-plugin/plugin.json").is_file()
         || root.join(".claude-plugin/plugin.json").is_file()
 }

@@ -2,7 +2,7 @@ import {
   type HostCallTransport,
   type JsonValue,
   notifyPluginConfigUpdated,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';

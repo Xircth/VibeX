@@ -19,7 +19,7 @@ const session = (
   agent_id: 'codex',
   external_session_id: id,
   title: id,
-  workspace_path: '/Users/mac/Projects/VibeX',
+  workspace_path: '/Users/mac/Projects/Dimo',
   message_count: 2,
   updated_at: '2026-08-28T00:00:00Z',
   status: 'new',
@@ -35,19 +35,19 @@ const folder = (
   path,
   name: path.split('/').at(-1) ?? path,
   project_id: projectId,
-  project_name: projectId ? 'VibeX' : null,
+  project_name: projectId ? 'Dimo' : null,
   workspace_id: workspaceId,
   sessions,
 });
 
 describe('importLocalSessions', () => {
   it('builds stable session keys and skips already imported rows', () => {
-    const scanned = folder('/Users/mac/Projects/VibeX', 'ws-1', [
+    const scanned = folder('/Users/mac/Projects/Dimo', 'ws-1', [
       {
         agent_id: 'codex',
         external_session_id: 'a',
         title: 'New',
-        workspace_path: '/Users/mac/Projects/VibeX',
+        workspace_path: '/Users/mac/Projects/Dimo',
         message_count: 4,
         updated_at: null,
         status: 'new',
@@ -56,7 +56,7 @@ describe('importLocalSessions', () => {
         agent_id: 'codex',
         external_session_id: 'b',
         title: 'Old',
-        workspace_path: '/Users/mac/Projects/VibeX',
+        workspace_path: '/Users/mac/Projects/Dimo',
         message_count: 2,
         updated_at: null,
         status: 'imported',
@@ -68,7 +68,7 @@ describe('importLocalSessions', () => {
   });
 
   it('uses only a matched workspace or an explicit destination', () => {
-    const matched = folder('/Users/mac/Projects/VibeX', 'ws-matched', []);
+    const matched = folder('/Users/mac/Projects/Dimo', 'ws-matched', []);
     const unmatched = folder('/tmp/scratch', null, []);
 
     expect(resolveFolderWorkspaceId(matched, undefined)).toBe('ws-matched');
@@ -178,15 +178,15 @@ describe('importLocalSessions', () => {
     expect(parseTimeRangeDays('30')).toBe(30);
   });
 
-  it('filters by recency, keeps undated sessions, and scopes to existing VibeX projects', () => {
+  it('filters by recency, keeps undated sessions, and scopes to existing Dimo projects', () => {
     const now = new Date('2026-09-02T00:00:00Z');
-    const currentRoot = folder('/Users/mac/Projects/VibeX', 'ws-root', [
+    const currentRoot = folder('/Users/mac/Projects/Dimo', 'ws-root', [
       session('recent'),
       session('old', { updated_at: '2026-01-01T00:00:00Z' }),
       session('undated', { updated_at: null }),
     ]);
     const currentWorktree = folder(
-      '/Users/mac/Projects/VibeX/.worktrees/feature',
+      '/Users/mac/Projects/Dimo/.worktrees/feature',
       'ws-tree',
       [session('worktree')]
     );
@@ -209,8 +209,8 @@ describe('importLocalSessions', () => {
     });
 
     expect(existing.map((item) => item.path)).toEqual([
-      '/Users/mac/Projects/VibeX',
-      '/Users/mac/Projects/VibeX/.worktrees/feature',
+      '/Users/mac/Projects/Dimo',
+      '/Users/mac/Projects/Dimo/.worktrees/feature',
       '/Users/mac/Projects/Other',
     ]);
     expect(
@@ -228,8 +228,8 @@ describe('importLocalSessions', () => {
     });
 
     expect(global.map((item) => item.path)).toEqual([
-      '/Users/mac/Projects/VibeX',
-      '/Users/mac/Projects/VibeX/.worktrees/feature',
+      '/Users/mac/Projects/Dimo',
+      '/Users/mac/Projects/Dimo/.worktrees/feature',
       '/Users/mac/Projects/Other',
       '/tmp/scratch',
     ]);

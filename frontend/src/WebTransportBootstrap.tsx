@@ -15,7 +15,7 @@ import { BackendTransportProvider, WebTransport } from '@/lib/transport';
 import {
   defaultHostUrl,
   explicitHostUrl,
-  looksLikeVibexHost,
+  looksLikeDimoHost,
 } from '@/pages/settings/hostEndpoints';
 import '@/styles/legacy/index.css';
 
@@ -24,9 +24,9 @@ const PAIRING_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/;
 function extractPairingCode(input: string): string | null {
   const raw = input.trim();
   if (!raw) return null;
-  if (raw.startsWith('vibex-pairing:')) {
+  if (raw.startsWith('dimo-pairing:')) {
     try {
-      const parsed = JSON.parse(raw.slice('vibex-pairing:'.length)) as {
+      const parsed = JSON.parse(raw.slice('dimo-pairing:'.length)) as {
         pairing_token?: unknown;
       };
       if (
@@ -52,7 +52,7 @@ function detectBrowserDeviceName(): string {
   if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) return 'Chrome (Web)';
   if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) return 'Safari (Web)';
   if (/Firefox\//i.test(ua)) return 'Firefox (Web)';
-  return 'VibeX Web';
+  return 'Dimo Web';
 }
 
 export function WebTransportBootstrap({ children }: { children: ReactNode }) {
@@ -78,7 +78,7 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (explicitHostUrl(window.location.search)) return;
     let active = true;
-    void looksLikeVibexHost(window.location.origin).then((isHost) => {
+    void looksLikeDimoHost(window.location.origin).then((isHost) => {
       if (active && !isHost) setBaseUrl('');
     });
     return () => {
@@ -93,7 +93,7 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
     if (!rawToken || !host) return;
     setConnecting(true);
     setError(null);
-    if (!(await looksLikeVibexHost(host))) {
+    if (!(await looksLikeDimoHost(host))) {
       setError(t('webConnect.notAHost'));
       setConnecting(false);
       return;
@@ -107,7 +107,7 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-vibex-protocol-version': '1.0',
+            'x-dimo-protocol-version': '1.0',
           },
           body: JSON.stringify({
             pairing_token: pairingCode,

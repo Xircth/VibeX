@@ -118,17 +118,17 @@ const page: LocalHistoryScanPage = {
       ],
     },
     {
-      path: '/Users/mac/Projects/VibeX/.worktrees/feature',
+      path: '/Users/mac/Projects/Dimo/.worktrees/feature',
       name: 'feature',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       workspace_id: 'workspace-tree',
       sessions: [
         {
           agent_id: 'codex',
           external_session_id: 'codex-tree',
           title: 'Worktree session',
-          workspace_path: '/Users/mac/Projects/VibeX/.worktrees/feature',
+          workspace_path: '/Users/mac/Projects/Dimo/.worktrees/feature',
           message_count: 2,
           updated_at: null,
           status: 'new',
@@ -136,17 +136,17 @@ const page: LocalHistoryScanPage = {
       ],
     },
     {
-      path: '/Users/mac/Projects/VibeX',
-      name: 'VibeX',
+      path: '/Users/mac/Projects/Dimo',
+      name: 'Dimo',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       workspace_id: 'workspace-1',
       sessions: [
         {
           agent_id: 'codex',
           external_session_id: 'codex-1',
           title: 'Continue the importer',
-          workspace_path: '/Users/mac/Projects/VibeX',
+          workspace_path: '/Users/mac/Projects/Dimo',
           message_count: 6,
           updated_at: '2026-08-17T00:00:00Z',
           status: 'new',
@@ -155,7 +155,7 @@ const page: LocalHistoryScanPage = {
           agent_id: 'codex',
           external_session_id: 'codex-old',
           title: 'Ancient session',
-          workspace_path: '/Users/mac/Projects/VibeX',
+          workspace_path: '/Users/mac/Projects/Dimo',
           message_count: 1,
           updated_at: '2000-01-01T00:00:00Z',
           status: 'new',
@@ -166,7 +166,7 @@ const page: LocalHistoryScanPage = {
   destinations: [
     {
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       workspace_id: 'workspace-1',
       workspace_name: 'main',
     },
@@ -410,7 +410,7 @@ describe('ImportLocalSessionsDialog', () => {
     expect(
       screen.queryByText('importSessions.noMatches')
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'VibeX' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Dimo' })).toBeInTheDocument();
     expect(
       screen.getByRole('checkbox', { name: 'scratch' })
     ).toBeInTheDocument();
@@ -466,7 +466,7 @@ describe('ImportLocalSessionsDialog', () => {
     await chooseCodex(user);
     await startScan(user);
 
-    await screen.findByRole('checkbox', { name: 'VibeX' });
+    await screen.findByRole('checkbox', { name: 'Dimo' });
     expect(
       screen.getByRole('checkbox', { name: 'scratch' })
     ).toBeInTheDocument();
@@ -479,15 +479,15 @@ describe('ImportLocalSessionsDialog', () => {
       .map((node) => node.getAttribute('aria-label'))
       .filter(
         (label) =>
-          label === 'VibeX' ||
+          label === 'Dimo' ||
           label === 'feature' ||
           label === 'Other' ||
           label === 'scratch'
       );
-    expect(folders).toEqual(['VibeX', 'feature', 'Other', 'scratch']);
+    expect(folders).toEqual(['Dimo', 'feature', 'Other', 'scratch']);
   });
 
-  it('can limit folders to existing VibeX projects', async () => {
+  it('can limit folders to existing Dimo projects', async () => {
     const user = userEvent.setup();
     render(<ImportLocalSessionsDialog open onOpenChange={vi.fn()} />);
     await chooseCodex(user);
@@ -511,12 +511,12 @@ describe('ImportLocalSessionsDialog', () => {
       .map((node) => node.getAttribute('aria-label'))
       .filter(
         (label) =>
-          label === 'VibeX' ||
+          label === 'Dimo' ||
           label === 'feature' ||
           label === 'Other' ||
           label === 'scratch'
       );
-    expect(folders).toEqual(['VibeX', 'feature', 'Other']);
+    expect(folders).toEqual(['Dimo', 'feature', 'Other']);
   });
 
   it('hides sessions older than the selected number of days', async () => {
@@ -555,7 +555,7 @@ describe('ImportLocalSessionsDialog', () => {
     render(<ImportLocalSessionsDialog open onOpenChange={vi.fn()} />);
     await chooseCodex(user);
     await startScan(user);
-    await screen.findByRole('checkbox', { name: 'VibeX' });
+    await screen.findByRole('checkbox', { name: 'Dimo' });
 
     expect(
       screen.queryByPlaceholderText('importSessions.searchPlaceholder')

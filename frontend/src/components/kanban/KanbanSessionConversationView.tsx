@@ -151,7 +151,7 @@ function areConversationSurfacePropsEqual(
 }
 
 const GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY =
-  '__VIBEX_CONVERSATION_PLACEMENT_CONTEXT__' as const;
+  '__DIMO_CONVERSATION_PLACEMENT_CONTEXT__' as const;
 const globalConversationPlacementScope = globalThis as typeof globalThis & {
   [GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY]?: Context<ConversationPlacementContextValue | null>;
 };

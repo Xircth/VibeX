@@ -156,7 +156,7 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
     out
 }
 
-/// Maps VibeX / Codex mode identifiers + workspace directories onto Codex `approvalPolicy`
+/// Maps Dimo / Codex mode identifiers + workspace directories onto Codex `approvalPolicy`
 /// and `turn/start` `sandboxPolicy` (`readOnly`, `workspaceWrite`, `dangerFullAccess`).
 pub(crate) fn build_codex_turn_policy(
     permission_mode: Option<&str>,
@@ -909,7 +909,7 @@ pub(super) fn prepare_codex_launch_env(
             .file_stem()
             .and_then(|s| s.to_str())
             .is_some_and(|stem| stem.eq_ignore_ascii_case("codex"))
-        && !launch_env.contains_key("VIBEX_CODEX_PATH")
+        && !launch_env.contains_key("DIMO_CODEX_PATH")
         && !launch_env.contains_key("CODEX_PATH")
     {
         launch_env.insert(

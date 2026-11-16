@@ -2,14 +2,14 @@
 status: accepted
 date: 2026-08-07
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 升级 React 19 作为 Astryx 采纳的前置门槛
 
 ## Context
 
-VibeX 前端当前锁定 `react ^18.2.0` / `react-dom ^18.2.0`(实际 18.3.1)。
+Dimo 前端当前锁定 `react ^18.2.0` / `react-dom ^18.2.0`(实际 18.3.1)。
 [ADR-0039](0039-adopt-astryx-for-chat-composer-and-message-rendering.md) 采纳 Astryx 组件库重构
 会话输入体系,而 `@astryxdesign/core` 的 peerDependencies 为 `react >= 19.0.0`、
 `react-dom >= 19.0.0`、`@stylexjs/stylex ^0.19.0` —— 不升级 React 19 无法安装使用。

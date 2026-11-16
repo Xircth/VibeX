@@ -3,22 +3,22 @@ status: superseded in part by ADR-0087
 date: 2026-07-29
 amended: 2026-11-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Agent 管理能力采用 ACP 优先、本地补缺（优先级已由 ADR-0087 反转为独立引擎优先、ACP 次选）
 
 > **修订说明（2026-11-14）**：本文中「ACP 优先、本地补缺」的优先级规则已被 [ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md) 取代——现行规范为**独立 Agent 引擎与原生本地适配优先，ACP 为次选**。下文关于凭据掩码、订阅只读边界、事件驱动刷新以及纯 ACP 通道 Agent 的状态判定细则仍对相应场景有效。
 
-VibeX 对所有 Agent 使用同一套管理能力接口。在早期阶段曾优先采用 Agent 通过 ACP 广告的认证
+Dimo 对所有 Agent 使用同一套管理能力接口。在早期阶段曾优先采用 Agent 通过 ACP 广告的认证
 状态、账户状态与订阅可见性；按 [ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)，具备独立引擎或已验证原生适配的内置 Agent 现优先使用独立引擎与原生状态探测，ACP 作为未覆盖项及普通 Registry Agent 的次选通道。ACP 不
-承担 VibeX 的持久配置写入。
+承担 Dimo 的持久配置写入。
 
-订阅相关能力限定为只读的账户套餐、额度、用量与重置时间展示。VibeX 不执行购买、
+订阅相关能力限定为只读的账户套餐、额度、用量与重置时间展示。Dimo 不执行购买、
 升级、降级或取消订阅；需要改变订阅时只引导用户前往 Agent 官方渠道。
 
 认证状态显示已通过账号登录、已通过 API Key 登录或暂未登录。按 ADR-0037，用户可以
-从设置页启动 Built-in Agent Profile 固定声明的官方登录、注销或初始化流程；VibeX
+从设置页启动 Built-in Agent Profile 固定声明的官方登录、注销或初始化流程；Dimo
 不解释或代理终端交互，也不接受用户提供的命令文本。Built-in Agent Profile 已适配的
 原生 Runtime 配置字段可经由受控配置编辑器写入或清除，API Key 只是其中一种字段。
 

@@ -12,7 +12,7 @@ describe('computer-use plugin registration', () => {
     const settingsPages: Array<Record<string, unknown>> = [];
     const noop = vi.fn(() => () => undefined);
     const ctx = {
-      pluginId: 'vibex-plugin-computer-use',
+      pluginId: 'dimo-plugin-computer-use',
       worker: { invoke: vi.fn() },
       events: { emit: vi.fn(), on: noop },
       services: { provide: noop },

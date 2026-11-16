@@ -1,4 +1,4 @@
-export const HOST_REFERENCE_DIR = '.vibex/ssh-hosts';
+export const HOST_REFERENCE_DIR = '.dimo/ssh-hosts';
 export const LOCAL_HOST_FILE_NAME = 'local.sshconfig';
 
 export type SshHostTarget = {
@@ -34,7 +34,7 @@ export function formatSshHostConfig(
   target: SshHostTarget
 ): string {
   const lines = [
-    `# VibeX Host: ${name}`,
+    `# Dimo Host: ${name}`,
     `Host ${target.alias}`,
     `  HostName ${target.host}`,
     `  User ${target.user}`,
@@ -66,7 +66,7 @@ export function sshTargetFromProvision(
 export function mentionedHostFileNames(text: string): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
-  const pattern = /\[@:([^\]]*)\]\(\.vibex\/ssh-hosts\/([^)]+)\)/g;
+  const pattern = /\[@:([^\]]*)\]\(\.dimo\/ssh-hosts\/([^)]+)\)/g;
   for (const match of text.matchAll(pattern)) {
     const fileName = (match[2] ?? '').trim();
     if (!fileName || seen.has(fileName)) continue;

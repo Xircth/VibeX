@@ -3214,7 +3214,7 @@ export function useCollaborationSpaceRuntime(
       }
     };
     window.addEventListener('online', handleReconnect);
-    window.addEventListener('vibex:host-client-changed', handleReconnect);
+    window.addEventListener('dimo:host-client-changed', handleReconnect);
 
     return () => {
       cancelled = true;
@@ -3222,7 +3222,7 @@ export function useCollaborationSpaceRuntime(
       unlistenWorkspaceSessions?.();
       unlistenAgentEvents?.();
       window.removeEventListener('online', handleReconnect);
-      window.removeEventListener('vibex:host-client-changed', handleReconnect);
+      window.removeEventListener('dimo:host-client-changed', handleReconnect);
     };
   }, [
     applyDirectMessages,
@@ -6670,7 +6670,7 @@ export function useCollaborationSpaceRuntime(
             setDraggingMember(payload);
             const serialized = JSON.stringify(payload);
             event.dataTransfer?.setData(
-              'application/x-vibex-space-member',
+              'application/x-dimo-space-member',
               serialized
             );
             event.dataTransfer?.setData('text/plain', serialized);
@@ -7484,7 +7484,7 @@ export function useCollaborationSpaceRuntime(
       setIsSupervisorDropTarget(false);
       let payload = draggingMember;
       const raw =
-        event.dataTransfer?.getData('application/x-vibex-space-member') ||
+        event.dataTransfer?.getData('application/x-dimo-space-member') ||
         event.dataTransfer?.getData('text/plain');
       if (raw) {
         try {
@@ -7870,7 +7870,7 @@ export function useCollaborationSpaceRuntime(
           setDropTargetSpaceId('');
           let payload = draggingMember;
           const raw =
-            event.dataTransfer?.getData('application/x-vibex-space-member') ||
+            event.dataTransfer?.getData('application/x-dimo-space-member') ||
             event.dataTransfer?.getData('text/plain');
           if (raw) {
             try {

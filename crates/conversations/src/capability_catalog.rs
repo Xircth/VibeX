@@ -214,8 +214,8 @@ fn native_model_source(
             configured(&["CODEX_HOME"], ".codex"),
             &[
                 "config.toml",
-                "vibex-model-catalog.json",
-                "vibex-model-catalog.source.json",
+                "dimo-model-catalog.json",
+                "dimo-model-catalog.source.json",
             ],
         ),
         "claude_code" => (
@@ -530,9 +530,9 @@ async fn settle_session_authentication<T>(
 
 fn capability_probe_working_dir(agent_id: &AgentId, session_id: AgentSessionId) -> PathBuf {
     // Process TEMP is often ACCESS_DENIED (os error 5) or C:\Windows on this
-    // host. `get_vibex_temp_dir` already probes writability and falls back to
+    // host. `get_dimo_temp_dir` already probes writability and falls back to
     // LocalAppData / home / the exe directory.
-    utils::path::get_vibex_temp_dir()
+    utils::path::get_dimo_temp_dir()
         .join("agent-capability-probe")
         .join(agent_id.as_str())
         .join(session_id.to_string())
@@ -628,7 +628,7 @@ mod tests {
         let agent_id = AgentId::parse("grok").unwrap();
         let session_id = AgentSessionId::new();
         let dir = capability_probe_working_dir(&agent_id, session_id);
-        let host = utils::path::get_vibex_temp_dir();
+        let host = utils::path::get_dimo_temp_dir();
         assert_eq!(
             dir,
             host.join("agent-capability-probe")
@@ -657,7 +657,7 @@ mod tests {
         };
         assert_eq!(dir(&environment), Some(PathBuf::from("/custom/pi-agent")));
 
-        // A lock written before VibeX read `PI_CODING_AGENT_DIR` keeps hashing
+        // A lock written before Dimo read `PI_CODING_AGENT_DIR` keeps hashing
         // the directory it always did.
         environment.remove("PI_CODING_AGENT_DIR");
         assert_eq!(dir(&environment), Some(PathBuf::from("/legacy/pi")));
@@ -722,7 +722,7 @@ mod tests {
         assert_ne!(without_settings, with_settings);
     }
 
-    /// Editing an Agent's native model config outside VibeX must invalidate
+    /// Editing an Agent's native model config outside Dimo must invalidate
     /// the catalog even though the install lock env carries only `PATH`.
     #[tokio::test]
     async fn fingerprint_tracks_native_model_config_edits_for_every_agent() {

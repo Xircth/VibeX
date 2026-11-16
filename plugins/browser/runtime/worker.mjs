@@ -1,4 +1,4 @@
-import { definePluginWorker } from '@vibex/plugin-sdk';
+import { definePluginWorker } from '@dimoai/plugin-sdk';
 
 const KV_SETTINGS_KEY = 'browser_runtime_settings_v1';
 

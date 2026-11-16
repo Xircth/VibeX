@@ -1,7 +1,7 @@
 //! Locate an agent's session file by `external_session_id` and parse it for
-//! explicit import. Product conversation history is persisted in VibeX
+//! explicit import. Product conversation history is persisted in Dimo
 //! `conversation_events`; this loader must not be used as an on-demand history
-//! source. VibeX-authored.
+//! source. Dimo-authored.
 
 use std::path::{Path, PathBuf};
 
@@ -157,7 +157,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("vibex-loader-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dimo-loader-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

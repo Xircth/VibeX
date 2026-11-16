@@ -10,9 +10,9 @@ pub const RELAY_CONTROL_TIMEOUT_MS: u64 = 45_000;
 pub const HAPPY_EYEBALLS_LAN_WINDOW_MS: u64 = 250;
 
 /// Returns the configured official multi-tenant domestic relay endpoint.
-/// Precedence: `VIBEX_RELAY_URL` / `VIBEX_RELAY_HOST` env var -> `fallback_host` -> `DEFAULT_OFFICIAL_RELAY_HOST`.
+/// Precedence: `DIMO_RELAY_URL` / `DIMO_RELAY_HOST` env var -> `fallback_host` -> `DEFAULT_OFFICIAL_RELAY_HOST`.
 pub fn official_relay_endpoint(fallback_host: Option<&str>) -> Option<TunnelEndpoint> {
-    if let Ok(raw) = std::env::var("VIBEX_RELAY_URL").or_else(|_| std::env::var("VIBEX_RELAY_HOST"))
+    if let Ok(raw) = std::env::var("DIMO_RELAY_URL").or_else(|_| std::env::var("DIMO_RELAY_HOST"))
         && let Ok(ep) = parse_tunnel_endpoint(&raw, DEFAULT_OFFICIAL_RELAY_PORT)
     {
         return Some(ep);
@@ -289,11 +289,11 @@ mod tests {
     fn install_command_includes_the_public_host() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
-            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com");
+            std::env::set_var("DIMO_SITE_URL", "https://site.example.com");
         }
         let cmd = install_command("tok_abc", 17891, "203.0.113.10");
         unsafe {
-            std::env::remove_var("VIBEX_SITE_URL");
+            std::env::remove_var("DIMO_SITE_URL");
         }
         assert_eq!(
             cmd,
@@ -305,12 +305,12 @@ mod tests {
     fn install_command_uses_sudo_for_privileged_ports() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
-            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com");
+            std::env::set_var("DIMO_SITE_URL", "https://site.example.com");
         }
         let cmd_443 = install_command("tok_abc", 443, "203.0.113.10");
         let cmd_8443 = install_command("tok_abc", 8443, "203.0.113.10");
         unsafe {
-            std::env::remove_var("VIBEX_SITE_URL");
+            std::env::remove_var("DIMO_SITE_URL");
         }
         assert_eq!(
             cmd_443,
@@ -323,14 +323,14 @@ mod tests {
     }
 
     #[test]
-    fn install_command_respects_vibex_site_url_env() {
+    fn install_command_respects_dimo_site_url_env() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
-            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com/");
+            std::env::set_var("DIMO_SITE_URL", "https://site.example.com/");
         }
         let cmd = install_command("tok_abc", 17891, "relay.example.com");
         unsafe {
-            std::env::remove_var("VIBEX_SITE_URL");
+            std::env::remove_var("DIMO_SITE_URL");
         }
         assert_eq!(
             cmd,

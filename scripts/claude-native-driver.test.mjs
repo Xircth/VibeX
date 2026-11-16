@@ -538,7 +538,7 @@ test('session/fork (forkSession) and session/revert (resumeSessionAt) stage exac
   }
 });
 
-test('CLI subprocess --probe and VIBEX_CLAUDE_SDK_PATH dynamic module resolution work over real OS pipes', async () => {
+test('CLI subprocess --probe and DIMO_CLAUDE_SDK_PATH dynamic module resolution work over real OS pipes', async () => {
   const probeOutput = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [DRIVER_SCRIPT, '--probe'], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -555,7 +555,7 @@ test('CLI subprocess --probe and VIBEX_CLAUDE_SDK_PATH dynamic module resolution
   });
   assert.equal(probeOutput, PROBE_OK);
 
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-sdk-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-sdk-'));
   const mockSdkFile = path.join(tmpDir, 'mock-sdk.mjs');
   await fs.writeFile(
     mockSdkFile,
@@ -569,7 +569,7 @@ test('CLI subprocess --probe and VIBEX_CLAUDE_SDK_PATH dynamic module resolution
 
   try {
     const child = spawn(process.execPath, [DRIVER_SCRIPT], {
-      env: { ...process.env, VIBEX_CLAUDE_SDK_PATH: mockSdkFile },
+      env: { ...process.env, DIMO_CLAUDE_SDK_PATH: mockSdkFile },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -677,7 +677,7 @@ test('turn_completed captures assistant message.model as served_model and sessio
 });
 
 test('standalone claude CLI fallback handles bidirectional stream-json, permissions, AskUserQuestion, TodoWrite, usage, placeholder stripping, and multi-turn resume', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-cli-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-cli-'));
   const argsLogFile = path.join(tmpDir, 'cli-invocations.jsonl');
   const mockCliScript = path.join(tmpDir, 'mock-claude-cli.mjs');
   const isWindows = process.platform === 'win32';
@@ -875,7 +875,7 @@ rl.on('line', async (line) => {
     env: {
       ...process.env,
       CLAUDE_CONFIG_DIR: tmpDir,
-      VIBEX_FORCE_CLAUDE_CLI_FALLBACK: '1',
+      DIMO_FORCE_CLAUDE_CLI_FALLBACK: '1',
       CLAUDE_CODE_EXECUTABLE: mockCliEntry,
     },
   });
@@ -979,10 +979,10 @@ rl.on('line', async (line) => {
 });
 
 test('initialize fails immediately when neither @anthropic-ai/claude-agent-sdk nor standalone claude CLI is available', async () => {
-  const emptyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-no-claude-'));
+  const emptyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-no-claude-'));
   const harness = createHarness({
     env: {
-      VIBEX_FORCE_CLAUDE_CLI_FALLBACK: '1',
+      DIMO_FORCE_CLAUDE_CLI_FALLBACK: '1',
       PATH: emptyDir,
       Path: emptyDir,
       HOME: emptyDir,
@@ -1005,7 +1005,7 @@ test('initialize fails immediately when neither @anthropic-ai/claude-agent-sdk n
 });
 
 test('agent-sdk mode unwraps npm claude.cmd to bundled bin/claude.exe or cli.js instead of passing .cmd directly to sdk.query', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-npm-shim-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-npm-shim-'));
   const npmBinDir = path.join(tmpDir, 'npm');
   const pkgBinDir = path.join(npmBinDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin');
   await fs.mkdir(pkgBinDir, { recursive: true });
@@ -1052,7 +1052,7 @@ test('agent-sdk mode unwraps npm claude.cmd to bundled bin/claude.exe or cli.js 
 });
 
 test('agent-sdk mode never triggers spawn EINVAL when CLAUDE_CODE_EXECUTABLE points to a custom .cmd wrapper on Windows', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-cmd-sdk-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-cmd-sdk-'));
   const isWindows = process.platform === 'win32';
   const mockScript = path.join(tmpDir, 'mock-sdk-cli.mjs');
   const customWrapper = isWindows ? path.join(tmpDir, 'custom-claude.cmd') : mockScript;
@@ -1145,7 +1145,7 @@ rl.on('line', (line) => {
 });
 
 test('agent-sdk mode retries with unwrapped standalone claude binary when optional SDK platform binary is absent', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-omit-opt-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-omit-opt-'));
   const npmBinDir = path.join(tmpDir, 'npm');
   const pkgBinDir = path.join(npmBinDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin');
   await fs.mkdir(pkgBinDir, { recursive: true });
@@ -1215,7 +1215,7 @@ test('agent-sdk mode retries with unwrapped standalone claude binary when option
 });
 
 test('discoverClaudeModels merges gateway /v1/models, query().supportedModels(), and settings.json env, prioritizes concrete models, and marks isDefault', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-models-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-models-'));
   await fs.writeFile(
     path.join(tmpDir, 'settings.json'),
     JSON.stringify({
@@ -1308,7 +1308,7 @@ test('discoverClaudeModels merges gateway /v1/models, query().supportedModels(),
 });
 
 test('effectiveEnv does not inject ANTHROPIC_API_KEY when ANTHROPIC_AUTH_TOKEN is already set', async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-auth-guard-'));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dimo-claude-auth-guard-'));
   let capturedEnv = null;
   const mockSdk = {
     query({ options }) {

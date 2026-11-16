@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-10-18
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # UI transcript 以 JSONL / vendor 文件为权威，打开窗口对齐 Codeg

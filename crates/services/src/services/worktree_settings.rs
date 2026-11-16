@@ -138,7 +138,7 @@ pub async fn run_project_workspace_delete_command(
     workspace_dir: &Path,
     repos: &[Repo],
 ) -> Result<(), WorktreeSettingsError> {
-    let journal = workspace_dir.join(".vibex-deletion.json");
+    let journal = workspace_dir.join(".dimo-deletion.json");
     let mut completed: Vec<Uuid> = read_section(&journal, "completed_repos")
         .await?
         .unwrap_or_default();
@@ -246,14 +246,14 @@ async fn execute_repository_command(
         Lifecycle::Create => "create",
         Lifecycle::Delete => "delete",
     };
-    let log_path = workspace_dir.join(format!(".vibex-{phase}-{}.log", repo.id));
+    let log_path = workspace_dir.join(format!(".dimo-{phase}-{}.log", repo.id));
     let log = std::fs::File::create(&log_path)?;
     let mut process = lifecycle_process(command, project_id, workspace_id, working_dir);
     process
-        .env("VIBEX_WORKSPACE_PATH", workspace_dir)
-        .env("VIBEX_WORKTREE_PATH", repo_dir)
-        .env("VIBEX_REPO_PATH", repo_dir)
-        .env("VIBEX_SOURCE_REPO_PATH", &repo.path)
+        .env("DIMO_WORKSPACE_PATH", workspace_dir)
+        .env("DIMO_WORKTREE_PATH", repo_dir)
+        .env("DIMO_REPO_PATH", repo_dir)
+        .env("DIMO_SOURCE_REPO_PATH", &repo.path)
         .stdout(log.try_clone()?)
         .stderr(log);
     let mut child = process
@@ -315,9 +315,9 @@ fn lifecycle_process(
     let mut process = utils::process::new_hidden_tokio_command(program, args);
     process
         .current_dir(working_dir)
-        .env("VIBEX_PROJECT_ID", project_id.to_string())
-        .env("VIBEX_WORKSPACE_ID", workspace_id.to_string())
-        .env("VIBEX_WORKTREE_PATH", working_dir)
+        .env("DIMO_PROJECT_ID", project_id.to_string())
+        .env("DIMO_WORKSPACE_ID", workspace_id.to_string())
+        .env("DIMO_WORKTREE_PATH", working_dir)
         .kill_on_drop(true);
     process
 }

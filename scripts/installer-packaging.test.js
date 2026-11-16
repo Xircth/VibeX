@@ -76,51 +76,51 @@ test("Windows Tauri config wires the custom installer template", () => {
 test("Windows NSIS installer stops companion processes and renders custom UI on updates", () => {
   const nsi = fs.readFileSync(path.join(INSTALLER_DIR, "installer.nsi"), "utf8");
   assert.match(nsi, /!macro\s+KillCompanionProcess\s+executableName/);
-  assert.match(nsi, /!macro\s+StopAllVibeXProcesses/);
-  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"vibex-mcp\.exe"/);
-  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"vibex-workflow-mcp\.exe"/);
-  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"vibex-computer-helper\.exe"/);
-  const stopMacroMatches = nsi.match(/!insertmacro\s+StopAllVibeXProcesses/g) || [];
+  assert.match(nsi, /!macro\s+StopAllDimoProcesses/);
+  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"dimo-mcp\.exe"/);
+  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"dimo-workflow-mcp\.exe"/);
+  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"dimo-computer-helper\.exe"/);
+  const stopMacroMatches = nsi.match(/!insertmacro\s+StopAllDimoProcesses/g) || [];
   assert.equal(
     stopMacroMatches.length,
     3,
-    "StopAllVibeXProcesses must be invoked in install, reinstall-uninstall, and uninstall sections",
+    "StopAllDimoProcesses must be invoked in install, reinstall-uninstall, and uninstall sections",
   );
 
   const pages = fs.readFileSync(path.join(INSTALLER_DIR, "pages.nsh"), "utf8");
   const pageMainBlock = pages.slice(
-    pages.indexOf("Function VibeXPageMain"),
-    pages.indexOf("Function VibeXApplyPhase"),
+    pages.indexOf("Function DimoPageMain"),
+    pages.indexOf("Function DimoApplyPhase"),
   );
   assert.doesNotMatch(
     pageMainBlock,
     /\$UpdateMode\s*=\s*1/,
-    "VibeXPageMain must not abort when $UpdateMode = 1",
+    "DimoPageMain must not abort when $UpdateMode = 1",
   );
   const pageFinishBlock = pages.slice(
-    pages.indexOf("Function VibeXPageFinish"),
-    pages.indexOf("Function VibeXPageFinishLeave"),
+    pages.indexOf("Function DimoPageFinish"),
+    pages.indexOf("Function DimoPageFinishLeave"),
   );
   assert.doesNotMatch(
     pageFinishBlock,
     /\$UpdateMode\s*=\s*1/,
-    "VibeXPageFinish must not abort when $UpdateMode = 1",
+    "DimoPageFinish must not abort when $UpdateMode = 1",
   );
   const guiInitBlock = pages.slice(
-    pages.indexOf("Function ${UN}VibeXGuiInit"),
-    pages.indexOf("Function ${UN}VibeXBuildChrome"),
+    pages.indexOf("Function ${UN}DimoGuiInit"),
+    pages.indexOf("Function ${UN}DimoBuildChrome"),
   );
   assert.doesNotMatch(
     guiInitBlock,
     /\$PassiveMode\s*=\s*1/,
-    "VibeXGuiInit must initialize custom frameless window even in passive mode",
+    "DimoGuiInit must initialize custom frameless window even in passive mode",
   );
 });
 
 test("Windows NSIS custom template compiles cleanly with makensis when available", (t) => {
   // Windows: Tauri's bundled NSIS. Elsewhere: makensis on PATH plus a folder of
   // Tauri's NSIS helpers (utils.nsh, FileAssociation.nsh, English.nsh,
-  // SimpChinese.nsh, plugins/nsis_tauri_utils.dll) in VIBEX_NSIS_HELPER_DIR.
+  // SimpChinese.nsh, plugins/nsis_tauri_utils.dll) in DIMO_NSIS_HELPER_DIR.
   const makensisCandidates = [
     path.join(ROOT, "target", ".tauri", "NSIS", "makensis.exe"),
     process.env.LOCALAPPDATA
@@ -131,7 +131,7 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
   ].filter(Boolean);
   const makensis = makensisCandidates.find((p) => fs.existsSync(p));
   const nsisHelperDir =
-    process.env.VIBEX_NSIS_HELPER_DIR ||
+    process.env.DIMO_NSIS_HELPER_DIR ||
     path.join(ROOT, "target", "release", "nsis", "x64");
 
   if (!makensis || !fs.existsSync(path.join(nsisHelperDir, "utils.nsh"))) {
@@ -139,7 +139,7 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
     return;
   }
 
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-nsis-test-"));
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "dimo-nsis-test-"));
   try {
     for (const helper of [
       "utils.nsh",
@@ -152,9 +152,9 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
         path.join(scratch, helper),
       );
     }
-    const dummyBin = path.join(scratch, "vibex.exe");
+    const dummyBin = path.join(scratch, "dimo.exe");
     fs.writeFileSync(dummyBin, "MZ");
-    const outExe = path.join(scratch, "VibeX-setup-test.exe");
+    const outExe = path.join(scratch, "Dimo-setup-test.exe");
     const hooksPath = path.join(INSTALLER_DIR, "hooks.nsh");
     const pluginsDir = fs.existsSync(path.join(nsisHelperDir, "plugins"))
       ? path.join(nsisHelperDir, "plugins")
@@ -169,8 +169,8 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
         /\{\{#if installer_hooks\}\}[\s\S]*?\{\{\/if\}\}/g,
         `!include "${hooksPath}"`,
       )
-      .replace(/\{\{manufacturer\}\}/g, "vibex")
-      .replace(/\{\{product_name\}\}/g, "VibeX")
+      .replace(/\{\{manufacturer\}\}/g, "dimo")
+      .replace(/\{\{product_name\}\}/g, "Dimo")
       .replace(/\{\{version\}\}/g, "0.3.0")
       .replace(/\{\{version_with_build\}\}/g, "0.3.0.0")
       .replace(/\{\{homepage\}\}/g, "")
@@ -182,9 +182,9 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
       )
       .replace(/\{\{sidebar_image\}\}/g, "")
       .replace(/\{\{header_image\}\}/g, "")
-      .replace(/\{\{main_binary_name\}\}/g, "vibex")
+      .replace(/\{\{main_binary_name\}\}/g, "dimo")
       .replace(/\{\{main_binary_path\}\}/g, dummyBin)
-      .replace(/\{\{bundle_id\}\}/g, "com.vibex.app")
+      .replace(/\{\{bundle_id\}\}/g, "com.dimo.app")
       .replace(/\{\{copyright\}\}/g, "")
       .replace(/\{\{out_file\}\}/g, outExe)
       .replace(/\{\{arch\}\}/g, "x64")
@@ -215,8 +215,8 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
 
     const renderedNsi = path.join(scratch, "installer.nsi");
     fs.writeFileSync(renderedNsi, tpl, "utf8");
-    if (process.env.VIBEX_NSIS_KEEP_RENDERED) {
-      fs.copyFileSync(renderedNsi, process.env.VIBEX_NSIS_KEEP_RENDERED);
+    if (process.env.DIMO_NSIS_KEEP_RENDERED) {
+      fs.copyFileSync(renderedNsi, process.env.DIMO_NSIS_KEEP_RENDERED);
     }
     const output = execFileSync(makensis, ["-INPUTCHARSET", "UTF8", renderedNsi], {
       cwd: scratch,
@@ -228,8 +228,8 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
       `makensis emitted variable warnings:\n${output}`,
     );
     assert.ok(fs.existsSync(outExe), "makensis must produce output installer");
-    if (process.env.VIBEX_NSIS_KEEP_OUTPUT) {
-      fs.copyFileSync(outExe, process.env.VIBEX_NSIS_KEEP_OUTPUT);
+    if (process.env.DIMO_NSIS_KEEP_OUTPUT) {
+      fs.copyFileSync(outExe, process.env.DIMO_NSIS_KEEP_OUTPUT);
     }
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });

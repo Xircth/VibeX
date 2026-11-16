@@ -149,7 +149,7 @@ impl AgentConnectionRunner {
         if !crate::acp_transcript::safe_component(new_session_id) {
             return;
         }
-        let root = crate::acp_transcript::vibex_acp_transcripts_root();
+        let root = crate::acp_transcript::dimo_acp_transcripts_root();
         let local_sid = session_id.0.simple().to_string();
         let continues_from =
             if !crate::acp_transcript::read_chain_in(&root, &agent_dir, previous_session_id)
@@ -198,7 +198,7 @@ impl AgentConnectionRunner {
             &self.snapshot.working_dir.to_string_lossy(),
             crate::acp_transcript::now_epoch_ms(),
         );
-        let root = crate::acp_transcript::vibex_acp_transcripts_root();
+        let root = crate::acp_transcript::dimo_acp_transcripts_root();
         let local_sid = session_id.0.simple().to_string();
         if acp_session_id != local_sid
             && !crate::acp_transcript::has_recorded_history(&agent_dir, acp_session_id)

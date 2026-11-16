@@ -65,7 +65,7 @@ vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
     data: [
       {
         repo_id: 'repo-1',
-        repo_name: 'VibeX',
+        repo_name: 'Dimo',
         target_branch_name: 'main',
         commits_ahead: 2,
         commits_behind: 0,

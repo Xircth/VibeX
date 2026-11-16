@@ -221,7 +221,7 @@ impl CheckpointRollbackSafety {
                 } else {
                     Ok(RollbackSafetyReport::Degraded {
                         reason: format!(
-                            "Engine '{}' does not advertise native session revert; VibeX will restore workspace files from the Git checkpoint and fork/re-seed local conversation history.",
+                            "Engine '{}' does not advertise native session revert; Dimo will restore workspace files from the Git checkpoint and fork/re-seed local conversation history.",
                             binding.agent_id.as_str()
                         ),
                     })

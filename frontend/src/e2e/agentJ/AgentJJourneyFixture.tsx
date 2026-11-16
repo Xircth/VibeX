@@ -168,7 +168,7 @@ function JourneySurface({ transport }: { transport: BackendTransport }) {
                 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
               content_hash: 'sha256-fixture',
               revision: 1n,
-              plugin_id: 'vibex.office',
+              plugin_id: 'dimo.office',
               plugin_version: '2.0.0',
               provider_id: 'officecli',
               tool_lock_id: 'officecli@fixture',

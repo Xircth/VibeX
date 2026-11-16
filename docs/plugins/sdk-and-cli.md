@@ -6,12 +6,12 @@
 
 | Package                      | 用途                                                                                       |
 | ---------------------------- | ------------------------------------------------------------------------------------------ |
-| `@vibex/plugin-sdk`          | v2 宿主内 / 联邦模块插件入口（`defineVibeXPlugin`、`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`） |
-| `@vibex/plugin-sdk/worker`   | Worker lifecycle、handler 注册与 Capability Broker client                                  |
-| `@vibex/plugin-sdk/app`      | 独立 HTML Surface App bridge（`definePluginApp`）与 surface lifecycle                      |
-| `@vibex/plugin-sdk/testing`  | `createPluginTestHarness`、`createWorkerHarness`、`createGenerationHarness`、`createAppHarness` |
-| `@vibex/plugin-sdk/protocol` | wire DTO、JSON value、分片重组（`frame.chunk`）与 context 类型                             |
-| `@vibex/plugin-cli`          | build、validate、test、linked install、dev 与确定性 pack                                   |
+| `@dimoai/plugin-sdk`          | v2 宿主内 / 联邦模块插件入口（`defineDimoPlugin`、`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`） |
+| `@dimoai/plugin-sdk/worker`   | Worker lifecycle、handler 注册与 Capability Broker client                                  |
+| `@dimoai/plugin-sdk/app`      | 独立 HTML Surface App bridge（`definePluginApp`）与 surface lifecycle                      |
+| `@dimoai/plugin-sdk/testing`  | `createPluginTestHarness`、`createWorkerHarness`、`createGenerationHarness`、`createAppHarness` |
+| `@dimoai/plugin-sdk/protocol` | wire DTO、JSON value、分片重组（`frame.chunk`）与 context 类型                             |
+| `@dimoai/plugin-cli`          | build、validate、test、linked install、dev 与确定性 pack                                   |
 
 SDK 不导出 Tauri command、Axum route、SQLite schema、Host 文件路径或内部 Rust enum。Full Trust
 Worker 仍可直接使用 Node 标准库；Broker client 用于结构化 Host/Runtime/Artifact/App lifecycle API。
@@ -21,7 +21,7 @@ Worker 仍可直接使用 Node 标准库；Broker client 用于结构化 Host/Ru
 最小 Worker：
 
 ```ts
-import { definePluginWorker } from '@vibex/plugin-sdk/worker';
+import { definePluginWorker } from '@dimoai/plugin-sdk/worker';
 
 export default definePluginWorker((registrar, environment) => {
   registrar.handle('create-document', (input) =>
@@ -97,12 +97,12 @@ Client method 返回 typed error；unsupported、resource missing、timeout 与 
 
 ### 3.1 `protocol: "2.0"` — 宿主内 / 联邦模块 App（`{ "entry": "app/main.js", "protocol": "2.0" }`）
 
-适用于同树 React UI 槽位、命令、面板、Turn Hook、InternalMessageCapture 与 Cordis 风格 IoC 服务。在 `app/main.js` 中使用 `defineVibeXPlugin((ctx) => ...)`，并统一使用命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`；顶层扁平方法仅为向后兼容保留）：
+适用于同树 React UI 槽位、命令、面板、Turn Hook、InternalMessageCapture 与 Cordis 风格 IoC 服务。在 `app/main.js` 中使用 `defineDimoPlugin((ctx) => ...)`，并统一使用命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`；顶层扁平方法仅为向后兼容保留）：
 
 ```ts
-import { defineVibeXPlugin } from '@vibex/plugin-sdk';
+import { defineDimoPlugin } from '@dimoai/plugin-sdk';
 
-export default defineVibeXPlugin((ctx) => {
+export default defineDimoPlugin((ctx) => {
   ctx.ui.registerCommand({
     id: 'refresh-dashboard',
     title: 'Refresh Dashboard',
@@ -123,7 +123,7 @@ export default defineVibeXPlugin((ctx) => {
 适用于独立 HTML Surface（如 `plugin.detail.panel` 与 `artifact.editor` 可编辑文件 Tab），使用 `definePluginApp(({ root, bridge, signal }) => ...)` 建立 bridge：
 
 ```ts
-import { definePluginApp } from '@vibex/plugin-sdk/app';
+import { definePluginApp } from '@dimoai/plugin-sdk/app';
 
 export default definePluginApp(({ bridge, root, signal }) => {
   const button = document.createElement('button');
@@ -257,22 +257,22 @@ Host 校验 opener/surface/generation 绑定，保管文件路径并执行 revis
 
 ## 6. CLI
 
-当前 CLI 命令与预期结果（以 `vibex plugin --help` 为准）：
+当前 CLI 命令与预期结果（以 `dimo plugin --help` 为准）：
 
 ```text
-vibex plugin run server [--http://127.0.0.1:17891] [--token <token>]
-vibex plugin run dev [dir]
-vibex plugin run build [dir]
-vibex plugin run test [dir] [--host]
-vibex-plugin init [dir] [--publisher id] [--template full|panel|kanban-view|…]
-vibex-plugin validate [dir] [--json]
-vibex plugin add --dev [dir]
-vibex-plugin uninstall [dir] [--delete-data]
-vibex plugin pack [dir] [--output file.vxp]
-vibex-plugin doctor [dir]
+dimo plugin run server [--http://127.0.0.1:17891] [--token <token>]
+dimo plugin run dev [dir]
+dimo plugin run build [dir]
+dimo plugin run test [dir] [--host]
+dimo-plugin init [dir] [--publisher id] [--template full|panel|kanban-view|…]
+dimo-plugin validate [dir] [--json]
+dimo plugin add --dev [dir]
+dimo-plugin uninstall [dir] [--delete-data]
+dimo plugin pack [dir] [--output file.vxp]
+dimo-plugin doctor [dir]
 ```
 
-普通 `.vxp` 产品安装仍由 VibeX UI 或 `vibex plugin add --profile` 完成。开发期 reload 由 `dev` 的
+普通 `.vxp` 产品安装仍由 Dimo UI 或 `dimo plugin add --profile` 完成。开发期 reload 由 `dev` 的
 candidate activation 完成。
 
 ### 6.1 `init`
@@ -286,7 +286,7 @@ candidate activation 完成。
 - Full Trust execution metadata；
 - 本地开发脚本。
 
-在 VibeX monorepo 外验证尚未发布的 SDK 时，按 Skill 用 locator 输出替换本地 SDK dependency，
+在 Dimo monorepo 外验证尚未发布的 SDK 时，按 Skill 用 locator 输出替换本地 SDK dependency，
 并暂时移除尚未发布的 CLI devDependency；正式发布后使用 manifest `engines.pluginSdk`
 对应的 registry 版本。`.vxp` 不收录 package.json、package-manager lock、源码、测试或 source map，
 因此不会把本机绝对 SDK 路径写入发布包。
@@ -335,7 +335,7 @@ Build：
 - 相同输入产生相同 bytes。
 
 `test` 会先 build，再由 CLI 把插件测试与当前 SDK 打包到临时目录，并交给 Node test runner
-执行。非 Worker 插件测试直接读取真实的 `.vibex-plugin/plugin.json` 校验，无需改成静态 fixture 导出。
+执行。非 Worker 插件测试直接读取真实的 `.dimo-plugin/plugin.json` 校验，无需改成静态 fixture 导出。
 
 Pack 验证完整 package、写 lock/SBOM/signature input 并生成 `.vxp`。Install 从不运行包内
 build script。
@@ -351,7 +351,7 @@ rollback 或 reinstall。
 ### 7.1 In-Host Plugin & Worker harness
 
 ```ts
-import { createPluginTestHarness, createWorkerHarness } from '@vibex/plugin-sdk/testing';
+import { createPluginTestHarness, createWorkerHarness } from '@dimoai/plugin-sdk/testing';
 
 const harness = createPluginTestHarness({ pluginId: 'acme.my-plugin' });
 await harness.activate(myPlugin);
@@ -397,17 +397,17 @@ SDK 提供 assertions：
 - package build 可复现。
 
 Fake Host 的 fidelity limits 必须列出。跨平台 process lifecycle、CEF/WebView 和真实 Agent
-projection 仍需要 VibeX integration suite，不能由 fake green 代替。
+projection 仍需要 Dimo integration suite，不能由 fake green 代替。
 
-## 8. VibeX 插件开发指南 Skill 的契约
+## 8. Dimo 插件开发指南 Skill 的契约
 
 随 Host 发布的 Skill 是开发路径的一部分，不是营销文档。它必须：
 
 1. 先定位当前 Host 提供的 SDK types、v4 schema、CLI 与 Host API catalog；
 2. 读取目标仓库和适用平台，不猜 SDK 最新版本；
 3. 从用户想要的 contribution 与 Runtime/Host API 需求反推包结构；
-4. 使用 `vibex plugin init/validate/test/build`，不手写生成 metadata；
-5. 为插件编写 contract tests（直接读取真实 `.vibex-plugin/plugin.json` 并覆盖 UI/Worker/App 路径）；
+4. 使用 `dimo plugin init/validate/test/build`，不手写生成 metadata；
+5. 为插件编写 contract tests（直接读取真实 `.dimo-plugin/plugin.json` 并覆盖 UI/Worker/App 路径）；
 6. 通过 `add --dev` 和 candidate reload 验证真实 Host；
 7. 明确记录插件使用的 shell、native、filesystem/network 等 Full Trust 行为；
 8. 在完成前运行 `doctor` 与可复现 pack；

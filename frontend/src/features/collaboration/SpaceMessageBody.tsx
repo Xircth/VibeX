@@ -473,7 +473,7 @@ export function SpaceCardActions({
       options: resolvedOptions,
       schema: {
         type: 'object',
-        'x-vibex-questions': resolvedQuestions as unknown as JsonValue,
+        'x-dimo-questions': resolvedQuestions as unknown as JsonValue,
       },
     };
     if (resolvedText) {
@@ -906,7 +906,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
             <ChatMessage
               sender="user"
               density="compact"
-              className="vibex-user-message"
+              className="dimo-user-message"
             >
               <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--user">
                 <div className="collaboration-bubble-shell">

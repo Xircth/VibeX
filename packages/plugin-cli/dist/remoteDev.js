@@ -2,7 +2,7 @@ import { createServer as createNetServer } from "node:net";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { startFederationDevServer } from "./federationBuild.js";
-export const DEV_REMOTE_SIDECAR = ".vibex-plugin/dev-remote.json";
+export const DEV_REMOTE_SIDECAR = ".dimo-plugin/dev-remote.json";
 export function remotesFromManifest(manifest) {
     if (!manifest || typeof manifest !== "object")
         return [];
@@ -36,7 +36,7 @@ export function remotesFromManifest(manifest) {
     return remotes;
 }
 export async function readPluginRemotes(root) {
-    const raw = await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8");
+    const raw = await readFile(join(root, ".dimo-plugin", "plugin.json"), "utf8");
     return remotesFromManifest(JSON.parse(raw));
 }
 export async function startPluginRemoteDev(options) {
@@ -75,7 +75,7 @@ export async function startPluginRemoteDev(options) {
     return { entry, close };
 }
 async function writeDevRemote(root, remote) {
-    await mkdir(join(root, ".vibex-plugin"), { recursive: true });
+    await mkdir(join(root, ".dimo-plugin"), { recursive: true });
     await writeFile(join(root, DEV_REMOTE_SIDECAR), `${JSON.stringify(remote, null, 2)}\n`);
 }
 async function waitForHttp(url, signal) {

@@ -14,8 +14,8 @@ describe('resolveUserMessageImageFilesystemPath', () => {
     expect(
       resolveUserMessageImageFilesystemPath({
         imagePath: '.vibe-images/screen.png',
-        metadataPath: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
-        metadataProxyUrl: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        metadataPath: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
+        metadataProxyUrl: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
         workspacePath: 'C:\\Users\\me\\proj',
       })
     ).toBe('C:\\Users\\me\\proj\\.vibe-images\\screen.png');
@@ -25,12 +25,12 @@ describe('resolveUserMessageImageFilesystemPath', () => {
     expect(
       userMessageImageFilesystemCandidates({
         imagePath: '.vibe-images/screen.png',
-        metadataPath: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        metadataPath: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
         workspacePath: 'C:\\Users\\me\\proj',
       })
     ).toEqual([
       'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
-      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+      'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
     ]);
   });
 
@@ -76,12 +76,12 @@ describe('resolveUserMessageImageFilesystemPath', () => {
       loadUserMessageImageSrc(
         [
           'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
-          'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+          'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
         ],
         load
       )
     ).resolves.toEqual({
-      path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+      path: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
       url: 'blob:image/png',
     });
     expect(load).toHaveBeenCalledTimes(2);
@@ -144,10 +144,10 @@ describe('splitDisplayContentImages', () => {
     });
   });
 
-  it('strips <vibex-private-bootstrap> wrapper tags from session user turns', () => {
+  it('strips <dimo-private-bootstrap> wrapper tags from session user turns', () => {
     expect(
       splitDisplayContentImages(
-        '<vibex-private-bootstrap>\n用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。\n</vibex-private-bootstrap>'
+        '<dimo-private-bootstrap>\n用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。\n</dimo-private-bootstrap>'
       )
     ).toEqual({
       text: '用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。',

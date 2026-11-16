@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 一行安装：发布资产命名单一来源，install.sh / install.ps1 与 npx 共用解析
@@ -10,7 +10,7 @@ decision-makers:
 本 ADR 交付 `install.sh` 与 `install.ps1`，并修掉它们暴露出的根因——发布资产名
 在三个地方各写了一遍，其中 npx 那一份与 CI 实际产出对不上。
 
-范围只有 **Host Family**（`vibex-server` / `vibex-mcp` / `vibex-workflow-mcp` +
+范围只有 **Host Family**（`dimo-server` / `dimo-mcp` / `dimo-workflow-mcp` +
 `web/`）。桌面应用继续走 Tauri 安装包与自动更新，不由脚本安装。
 
 ## Context
@@ -19,13 +19,13 @@ decision-makers:
 
 | 路径 | 资产名 | 出处 |
 |---|---|---|
-| CI 发布 | `VibeX-${VERSION}-${release_name}-server.tar.gz` | `.github/workflows/host-family-release.yml` |
-| npx | `vibex-host-family-${platform}.tar.gz` | `npx-cli/` |
+| CI 发布 | `Dimo-${VERSION}-${release_name}-server.tar.gz` | `.github/workflows/host-family-release.yml` |
+| npx | `dimo-host-family-${platform}.tar.gz` | `npx-cli/` |
 | 文档 | 同 npx | `docs/deployment/headless-server.md`、README |
 
 两套命名的平台段也不同：CI 用 `linux-x86_64` / `darwin-aarch64`，npx 用
 `linux-x64` / `macos-arm64`。**没有任何一方从另一方推导**，所以
-`npx vibex` 拼出的下载 URL 在 GitHub Release 上不存在。这不是安装脚本缺失导致
+`npx dimo` 拼出的下载 URL 在 GitHub Release 上不存在。这不是安装脚本缺失导致
 的问题，是安装脚本会第四次复制的那个问题。
 
 npx 那条路径里唯一值得保留的是它的校验强度，它做了两级：先用同名 `.sha256`
@@ -49,12 +49,12 @@ npx 那条路径里唯一值得保留的是它的校验强度，它做了两级�
 平台目录名。`host-family-release.yml`、`npx-cli`、`install.sh`、`install.ps1`
 与部署文档全部引用它，不再各自拼串。
 
-命名与平台段取**CI 现有的那一套**（`VibeX-${VERSION}-${release_name}-server.tar.gz`，
+命名与平台段取**CI 现有的那一套**（`Dimo-${VERSION}-${release_name}-server.tar.gz`，
 平台段 `linux-x86_64` / `darwin-aarch64` 形态），因为已发布的 Release 资产按它
 命名，改 CI 会让历史版本不可安装。改的是 npx 与文档。
 
 `npx-cli` 的平台推导（`linux-x64` / `macos-arm64`）随之作废；它对外的缓存目录
-布局 `~/.vibex/host-family/${tag}/${platform}/family/` 可以保留，但 `${platform}`
+布局 `~/.dimo/host-family/${tag}/${platform}/family/` 可以保留，但 `${platform}`
 取值统一到新命名模块。
 
 ### 2. install.sh / install.ps1 的职责边界
@@ -62,12 +62,12 @@ npx 那条路径里唯一值得保留的是它的校验强度，它做了两级�
 脚本按顺序做且只做这些：
 
 1. 探测 OS 与 CPU 架构，映射为平台三元组；不支持的组合直接失败并列出支持列表。
-2. 解析目标版本：默认最新 Release，可用 `VIBEX_VERSION` 固定。
+2. 解析目标版本：默认最新 Release，可用 `DIMO_VERSION` 固定。
 3. 下载压缩包与 `.sha256`，校验压缩包摘要。
 4. 解包后按包内 `SHA256SUMS` 逐文件校验。任一不匹配即中止并清理临时目录。
-5. 安装到 `~/.vibex/host-family/${tag}/${platform}/family/`，与 npx 共用同一
+5. 安装到 `~/.dimo/host-family/${tag}/${platform}/family/`，与 npx 共用同一
    缓存布局，使两条路径互为命中而不是各下一份。
-6. 在用户可执行目录放置 `vibex` 启动器，并打印如何加入 `PATH`。
+6. 在用户可执行目录放置 `dimo` 启动器，并打印如何加入 `PATH`。
 
 脚本**不**做：不装 Agent（ADR-0060：Agent 装在用户环境里，由用户或 Agent 管理页
 负责）、不装桌面应用、不写系统级目录、不要求 root、不注册开机自启。
@@ -79,16 +79,16 @@ npx 那条路径里唯一值得保留的是它的校验强度，它做了两级�
 
 ### 4. 运行参数沿用既有环境变量，脚本不发明新的
 
-`VIBEX_STATIC_ROOT`、`VIBEX_DATA_DIR`、`VIBEX_SERVER_LISTEN`、
-`VIBEX_SERVER_ALLOW_LAN`、`VIBEX_SERVER_TOKEN`、`VIBEX_SERVER_ALLOWED_ORIGINS`
+`DIMO_STATIC_ROOT`、`DIMO_DATA_DIR`、`DIMO_SERVER_LISTEN`、
+`DIMO_SERVER_ALLOW_LAN`、`DIMO_SERVER_TOKEN`、`DIMO_SERVER_ALLOWED_ORIGINS`
 已由 `crates/server` 与 `crates/utils` 读取，默认端口 17891。脚本只负责让
-`vibex-server` 可执行，环境变量的语义与默认值不在脚本里第二次定义。
+`dimo-server` 可执行，环境变量的语义与默认值不在脚本里第二次定义。
 
-默认监听保持回环。`install.sh` 不得默认打开 `VIBEX_SERVER_ALLOW_LAN`。
+默认监听保持回环。`install.sh` 不得默认打开 `DIMO_SERVER_ALLOW_LAN`。
 
 ### 5. 安装路径进冒烟
 
-`scripts/` 已有 `smoke-vibex-server-package.js`。新增一条冒烟覆盖
+`scripts/` 已有 `smoke-dimo-server-package.js`。新增一条冒烟覆盖
 「按命名模块拼名 → 下载 → 两级校验 → 启动 → 探活」，在 Release 工作流里对
 刚上传的资产跑。命名不一致这类缺陷只有端到端跑一次才会暴露，单测拦不住。
 

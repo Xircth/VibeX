@@ -2,7 +2,7 @@
 -- A plugin is a manifest describing how to install its agent skill and the
 -- hook message prefilled into the session composer when the plugin is
 -- activated. The AGENT starts the web console itself (the hook hands it the
--- start command, port and URL); VibeX only watches the agreed URL and opens
+-- start command, port and URL); Dimo only watches the agreed URL and opens
 -- it in the Web Preview once reachable.
 CREATE TABLE plugins (
     id              BLOB PRIMARY KEY,

@@ -348,7 +348,7 @@ function hashSeed(input: string): number {
 }
 
 export function deriveMemberBotAvatar(seed: string): MemberBotAvatarConfig {
-  const normalized = seed.trim() || 'vibex-bot';
+  const normalized = seed.trim() || 'dimo-bot';
   if (normalized.toLowerCase() === 'master') {
     return { ...DEFAULT_MASTER_BOT_AVATAR };
   }
@@ -373,7 +373,7 @@ export function randomMemberBotAvatar(): MemberBotAvatarConfig {
   };
 }
 
-const MEMBER_BOT_AVATARS_STORAGE_KEY = 'vibex-collaboration-member-avatars';
+const MEMBER_BOT_AVATARS_STORAGE_KEY = 'dimo-collaboration-member-avatars';
 
 export function readMemberBotAvatars(
   storage: Pick<Storage, 'getItem'> | undefined = typeof window !== 'undefined'

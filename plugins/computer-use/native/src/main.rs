@@ -82,7 +82,7 @@ fn main() {
 fn request_permission(name: Option<&str>) -> i32 {
     let Some(permission) = name.and_then(OsPermission::from_arg) else {
         eprintln!(
-            "usage: vibex-computer-helper {REQUEST_PERMISSION_ARG} accessibility|screen-recording"
+            "usage: dimo-computer-helper {REQUEST_PERMISSION_ARG} accessibility|screen-recording"
         );
         return EXIT_FAILED;
     };
@@ -131,7 +131,7 @@ async fn run_daemon(args: &[String]) -> i32 {
     let data_dir = data_dir.unwrap_or_else(|| {
         dirs::data_local_dir()
             .unwrap_or_else(std::env::temp_dir)
-            .join("vibex-plugin-computer-use")
+            .join("dimo-plugin-computer-use")
     });
     let _ = std::fs::create_dir_all(&data_dir);
 

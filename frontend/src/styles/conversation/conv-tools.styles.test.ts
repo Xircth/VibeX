@@ -91,7 +91,7 @@ describe('conversation tool-call typography', () => {
 
   it('matches stream prose size on the grouped tool-call summary', () => {
     const label = declarationsFor(
-      ".vibex-tool-call-batch > [role='button'] > span:nth-child(2)"
+      ".dimo-tool-call-batch > [role='button'] > span:nth-child(2)"
     );
     const header = declarationsFor('.conv-activity-header');
     const fold = declarationsFor('.conv-collapsed-process-toggle');
@@ -136,7 +136,7 @@ describe('conversation tool-call typography', () => {
 describe('conversation tool-call fold spacing and hover', () => {
   it('restores Astryx spacing-2 around tool-call folds, not ungrouped rows', () => {
     const fold = declarationsFor(
-      '.conv-activity-batch, .conv-assistant-body .astryx-chat-tool-calls.vibex-tool-call-batch'
+      '.conv-activity-batch, .conv-assistant-body .astryx-chat-tool-calls.dimo-tool-call-batch'
     );
 
     expect(fold['margin-block-start']?.value).toBe('8px');

@@ -1010,7 +1010,7 @@ mod tests {
         assert!(
             notice
                 .and_then(|notice| notice.message.as_deref())
-                .is_some_and(|message| message.contains("更新 VibeX"))
+                .is_some_and(|message| message.contains("更新 Dimo"))
         );
     }
 

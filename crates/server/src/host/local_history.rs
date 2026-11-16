@@ -393,7 +393,7 @@ mod tests {
         Project::create(
             &pool,
             &CreateProject {
-                name: "VibeX".into(),
+                name: "Dimo".into(),
                 ..Default::default()
             },
             project_id,
@@ -402,8 +402,8 @@ mod tests {
         .expect("create project");
         let repo = Repo::find_or_create(
             &pool,
-            std::path::Path::new("/Users/mac/Projects/VibeX"),
-            "VibeX",
+            std::path::Path::new("/Users/mac/Projects/Dimo"),
+            "Dimo",
         )
         .await
         .expect("create repo");
@@ -417,7 +417,7 @@ mod tests {
                 source_agent: AgentKind::Codex,
                 external_session_id: "codex-1".into(),
                 title: Some("Local Codex".into()),
-                workspace_path: Some(std::path::PathBuf::from("/Users/mac/Projects/VibeX")),
+                workspace_path: Some(std::path::PathBuf::from("/Users/mac/Projects/Dimo")),
                 message_count: 2,
                 updated_at: None,
             }],
@@ -444,7 +444,7 @@ mod tests {
         Project::create(
             &pool,
             &CreateProject {
-                name: "VibeX".into(),
+                name: "Dimo".into(),
                 ..Default::default()
             },
             project_id,
@@ -453,8 +453,8 @@ mod tests {
         .expect("create project");
         let repo = Repo::find_or_create(
             &pool,
-            std::path::Path::new("/Users/mac/Projects/VibeX"),
-            "VibeX",
+            std::path::Path::new("/Users/mac/Projects/Dimo"),
+            "Dimo",
         )
         .await
         .expect("create repo");
@@ -481,7 +481,7 @@ mod tests {
                 project_id,
                 parent_workspace_id: None,
                 branch: "main".into(),
-                container_ref: Some("/Users/mac/Projects/VibeX".into()),
+                container_ref: Some("/Users/mac/Projects/Dimo".into()),
                 use_worktree: false,
                 agent_working_dir: None,
             },
@@ -498,7 +498,7 @@ mod tests {
                 external_session_id: "codex-1".into(),
                 title: Some("Local Codex".into()),
                 workspace_path: Some(std::path::PathBuf::from(
-                    "/private/Users/mac/Projects/VibeX",
+                    "/private/Users/mac/Projects/Dimo",
                 )),
                 message_count: 2,
                 updated_at: None,
@@ -526,7 +526,7 @@ mod tests {
         Project::create(
             &pool,
             &CreateProject {
-                name: "VibeX".into(),
+                name: "Dimo".into(),
                 ..Default::default()
             },
             project_id,
@@ -535,8 +535,8 @@ mod tests {
         .expect("create project");
         let repo = Repo::find_or_create(
             &pool,
-            std::path::Path::new("/Users/mac/Projects/VibeX"),
-            "VibeX",
+            std::path::Path::new("/Users/mac/Projects/Dimo"),
+            "Dimo",
         )
         .await
         .expect("create repo");
@@ -563,7 +563,7 @@ mod tests {
                 project_id,
                 parent_workspace_id: None,
                 branch: "feature".into(),
-                container_ref: Some("/Users/mac/Projects/VibeX/.worktrees/feature".into()),
+                container_ref: Some("/Users/mac/Projects/Dimo/.worktrees/feature".into()),
                 use_worktree: true,
                 agent_working_dir: None,
             },
@@ -580,7 +580,7 @@ mod tests {
                     source_agent: AgentKind::Codex,
                     external_session_id: "codex-root".into(),
                     title: Some("Root session".into()),
-                    workspace_path: Some(std::path::PathBuf::from("/Users/mac/Projects/VibeX")),
+                    workspace_path: Some(std::path::PathBuf::from("/Users/mac/Projects/Dimo")),
                     message_count: 2,
                     updated_at: None,
                 },
@@ -589,7 +589,7 @@ mod tests {
                     external_session_id: "codex-tree".into(),
                     title: Some("Worktree session".into()),
                     workspace_path: Some(std::path::PathBuf::from(
-                        "/Users/mac/Projects/VibeX/.worktrees/feature",
+                        "/Users/mac/Projects/Dimo/.worktrees/feature",
                     )),
                     message_count: 1,
                     updated_at: None,
@@ -604,7 +604,7 @@ mod tests {
         let root = page
             .folders
             .iter()
-            .find(|folder| folder.path == "/Users/mac/Projects/VibeX")
+            .find(|folder| folder.path == "/Users/mac/Projects/Dimo")
             .expect("root folder");
         let tree = page
             .folders

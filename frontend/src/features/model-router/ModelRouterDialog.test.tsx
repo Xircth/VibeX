@@ -89,7 +89,7 @@ describe('ModelRouterDialog', () => {
     renderDialog();
 
     await userEvent.click(
-      await screen.findByRole('button', { name: '登录 VibeX 账号' })
+      await screen.findByRole('button', { name: '登录 Dimo 账号' })
     );
 
     expect(

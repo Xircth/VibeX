@@ -4,7 +4,7 @@ use git2::Repository;
 
 use crate::{GitCli, GitService, GitServiceError};
 
-const BOOTSTRAP_COMMIT_NAME: &str = "VibeX";
+const BOOTSTRAP_COMMIT_NAME: &str = "Dimo";
 const BOOTSTRAP_COMMIT_EMAIL: &str = "noreply@vibex.com";
 
 impl GitService {

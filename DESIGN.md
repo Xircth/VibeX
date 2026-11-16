@@ -1,5 +1,5 @@
 ---
-name: VibeX
+name: Dimo
 description: Local-first AI coding-agent orchestration workspace, dressed as a native macOS Tahoe app.
 register: product
 platform: Tauri desktop (React + Tailwind + Radix). macOS Tahoe is the visual target; Windows and Linux degrade gracefully.
@@ -180,22 +180,22 @@ components:
     selectedBackground: "{colors.primary}  # accent fill, contrasting label"
 ---
 
-# Design System: VibeX Tahoe
+# Design System: Dimo Tahoe
 
 `DESIGN.md` is the single current source of truth for frontend design in
-VibeX. Older audits, generated `.impeccable` output, and files with "legacy" in
+Dimo. Older audits, generated `.impeccable` output, and files with "legacy" in
 their names are migration references only.
 
 **Creative North Star: "The Developer Flight Deck, built as a good Mac citizen."**
 
-VibeX is a local engineering control surface for coordinating many agent sessions, worktrees, terminals, previews, and diffs without losing context. The density and calm of a flight deck stay; what changes is the finish — VibeX should now read as a **native macOS Tahoe app**, not a web dashboard wrapped in a window.
+Dimo is a local engineering control surface for coordinating many agent sessions, worktrees, terminals, previews, and diffs without losing context. The density and calm of a flight deck stay; what changes is the finish — Dimo should now read as a **native macOS Tahoe app**, not a web dashboard wrapped in a window.
 
 The macOS contract is a two-layer model:
 
 - A **navigation/controls layer** for the window frame. Title bar, sidebars, status bar, and the tab strip use `#f1f1f1` in light and `#1b1b1b` in dark. The page inside that frame stays `#ffffff` / `#1b1b1b`.
 - A **content layer** of crisp, **opaque grouped surfaces** (inset lists, cards, editors, menus, dialogs, and toasts). Light is `#ffffff`. Dark is `#262626`. Hierarchy comes from that one step and from grouping.
 
-VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`). Reduced transparency drops blur and keeps the same hex. On Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
+Dimo is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`). Reduced transparency drops blur and keeps the same hex. On Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
 
 **Key characteristics:**
 
@@ -207,7 +207,7 @@ VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and
 
 ## 2. Materials & Layering
 
-This is the section that makes VibeX feel like Tahoe rather than a web app. Decide which layer a surface belongs to before styling it.
+This is the section that makes Dimo feel like Tahoe rather than a web app. Decide which layer a surface belongs to before styling it.
 
 ### The Navigation/Controls Layer
 
@@ -274,11 +274,11 @@ The user accent stays separate from this ramp. Light default remains Ink `#1B1B1
 
 ### Color themes
 
-The neutrals above are the built-in **VibeX** theme. Settings → Appearance picks one color theme for light and one for dark. Built-in, user, and plugin themes are equal choices.
+The neutrals above are the built-in **Dimo** theme. Settings → Appearance picks one color theme for light and one for dark. Built-in, user, and plugin themes are equal choices.
 
 - **Role contract.** A theme is `{ id, label, scheme, colors }`. `colors` is keyed by the 31 roles in `THEME_COLOR_ROLES` (`packages/plugin-sdk/src/theme.ts`). Only `background` and `foreground` are required; every other role is derived from them (`frontend/src/lib/theme/compileTheme.ts`). The Host, the plugin CLI, and the editor validate the same contract.
 - **Roles, not tokens.** A theme sets roles; the compiler writes the public tokens (`--surface-*`, `--text-*`, `--border-*`, `--_*` triplets, `--_syntax-*`, terminal colors). Components keep reading tokens and never branch on the active theme.
-- **One stylesheet.** The active non-built-in themes compile into a single `<style data-vibex-color-theme>` scoped to `.legacy-design`, split by scheme, with a `prefers-contrast: more` block. Built-in themes emit nothing, so the token blocks in `index.css` stay the source of the defaults.
+- **One stylesheet.** The active non-built-in themes compile into a single `<style data-dimo-color-theme>` scoped to `.legacy-design`, split by scheme, with a `prefers-contrast: more` block. Built-in themes emit nothing, so the token blocks in `index.css` stay the source of the defaults.
 - **Accent is an override.** A theme carries its own accent. The Appearance accent, when set, overrides it in both schemes; "Follow theme" clears the override.
 - **Contrast gate.** Body and secondary text below 4.5:1 on any page surface, or terminal text below 4.5:1, blocks saving. Faint text, the accent, and status text below their targets show as warnings.
 - **Theme-invariant colors.** Some colors are deliberately the same in every theme: `--qr-paper`, `--document-paper` (white page under rendered user HTML), `--media-letterbox`, and the effort well (`--effort-well*`). They live in the token blocks next to the themeable tokens, not in components.
@@ -294,7 +294,7 @@ The neutrals above are the built-in **VibeX** theme. Settings → Appearance pic
 
 ## 4. Typography
 
-VibeX uses native SF Pro on macOS. Windows and Linux use bundled Inter
+Dimo uses native SF Pro on macOS. Windows and Linux use bundled Inter
 Variable for Latin UI, because Segoe UI and typical Linux system sans render
 poorly in WebView2/Chromium with antialiased smoothing. Chinese follows the
 system face: PingFang SC on macOS, Microsoft YaHei on Windows, Noto Sans CJK
@@ -412,7 +412,7 @@ Use crisp, consistent line icons (lucide) as SF-Symbols stand-ins for system con
 
 ### Signature surfaces
 
-The **Composer Shell** (grounded, always-available action surface) and the **Agent bar** (one compact full-width paged row of equal-size icons; the selected agent shows its name beside its icon, the add and refresh controls follow the last icon of every page, and edge chevrons flip pages, also while dragging an icon) are VibeX's signatures. Keep their surrounding controls quieter than the primary input and the selected agent.
+The **Composer Shell** (grounded, always-available action surface) and the **Agent bar** (one compact full-width paged row of equal-size icons; the selected agent shows its name beside its icon, the add and refresh controls follow the last icon of every page, and edge chevrons flip pages, also while dragging an icon) are Dimo's signatures. Keep their surrounding controls quieter than the primary input and the selected agent.
 
 ### Collaboration space
 

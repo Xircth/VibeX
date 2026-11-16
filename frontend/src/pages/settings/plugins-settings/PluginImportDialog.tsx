@@ -123,7 +123,7 @@ export function PluginImportDialog({
               </div>
             ) : null}
 
-            {importEcosystem !== 'vibex' && canUseCliImport ? (
+            {importEcosystem !== 'dimo' && canUseCliImport ? (
               <div className="plugin-cli-import">
                 <div className="plugin-cli-import-heading">
                   <Command aria-hidden="true" />
@@ -216,16 +216,16 @@ export function PluginImportDialog({
               </div>
             ) : null}
 
-            {importEcosystem === 'vibex' ? (
+            {importEcosystem === 'dimo' ? (
               <div className="plugin-import-method-row">
                 <Archive aria-hidden="true" />
                 <div>
-                  <strong>{t('plugins.vibexZipTitle')}</strong>
-                  <p>{t('plugins.vibexZipDescription')}</p>
+                  <strong>{t('plugins.dimoZipTitle')}</strong>
+                  <p>{t('plugins.dimoZipDescription')}</p>
                 </div>
                 <Button
                   size="sm"
-                  onClick={() => void chooseZipImport('vibex')}
+                  onClick={() => void chooseZipImport('dimo')}
                   disabled={busy}
                 >
                   {t('plugins.chooseZip')}

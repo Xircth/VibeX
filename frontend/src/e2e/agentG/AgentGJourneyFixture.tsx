@@ -18,7 +18,7 @@ type Evidence = {
 };
 
 const OFFICE_ACTION = {
-  pluginId: 'vibex.office',
+  pluginId: 'dimo.office',
   actionId: 'create-presentation',
   label: 'Create presentation',
   requiredSkills: ['office-pptx'],
@@ -126,13 +126,13 @@ class FakeAutomationTransport implements BackendTransport {
         },
       }));
     }
-    if (command === 'get_projects') return [{ id: 'project-1', name: 'VibeX' }];
+    if (command === 'get_projects') return [{ id: 'project-1', name: 'Dimo' }];
     if (command === 'get_project_repositories') {
       return [
         {
           id: 'repo-1',
-          display_name: 'VibeX',
-          path: '/fixture/VibeX',
+          display_name: 'Dimo',
+          path: '/fixture/Dimo',
           default_target_branch: 'main',
         },
       ];

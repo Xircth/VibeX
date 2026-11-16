@@ -1,11 +1,11 @@
-//! The driver as a person manages it from Settings: which release this vibex
+//! The driver as a person manages it from Settings: which release this dimo
 //! runs, which are in the cache, fetching it, clearing older ones — and,
 //! while any of that is under way, how far it has got.
 //!
 //! Only ever the pinned release (`driver`): there is no choosing another, so
-//! "upgrade" is fetching the release this vibex pins where the cache holds
-//! only an older one, left by an earlier vibex (and left in place: another
-//! vibex on the machine may still run it). A download a starting helper
+//! "upgrade" is fetching the release this dimo pins where the cache holds
+//! only an older one, left by an earlier dimo (and left in place: another
+//! dimo on the machine may still run it). A download a starting helper
 //! makes for itself (`local::LocalBackend`) is shown here as well, followed
 //! through the backend's status.
 //!
@@ -25,7 +25,7 @@ use super::events::ComputerEvents;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriverInfo {
-    /// The release this vibex runs.
+    /// The release this dimo runs.
     pub version: String,
     /// Whether that release has a build for this platform.
     pub supported: bool,

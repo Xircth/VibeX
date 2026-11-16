@@ -3,7 +3,7 @@ import {
   usePanels,
   useSettingsPages,
   useViews,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { PluginSurfacePlaceholder } from '@/components/plugins/PluginSurfacePlaceholder';

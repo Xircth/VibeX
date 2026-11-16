@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-17
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 会话辅助能力以协议事实为准，不猜测、不填零、不静默覆盖

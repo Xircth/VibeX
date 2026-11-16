@@ -77,7 +77,7 @@ export const GitFileRow = memo(function GitFileRow({
         expanded: true,
       };
       e.dataTransfer.setData(
-        'application/x-vibex-panel',
+        'application/x-dimo-panel',
         JSON.stringify(payload)
       );
       e.dataTransfer.effectAllowed = 'copy';

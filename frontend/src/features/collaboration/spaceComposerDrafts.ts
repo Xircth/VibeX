@@ -32,7 +32,7 @@ const EMPTY_DRAFT: SpaceComposerDraftSnapshot = {
   images: [],
 };
 
-const STORAGE_KEY = 'vibex:collaboration-space-composer-drafts:v1';
+const STORAGE_KEY = 'dimo:collaboration-space-composer-drafts:v1';
 
 function isEmptyDraft(snapshot: SpaceComposerDraftSnapshot): boolean {
   return snapshot.text.length === 0 && snapshot.images.length === 0;

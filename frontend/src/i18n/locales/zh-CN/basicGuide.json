@@ -1,11 +1,5 @@
 {
   "panelAria": "基础引导",
-  "stepsAria": "基础引导步骤",
-  "steps": {
-    "createProject": "创建或选择项目",
-    "createSession": "在工作区中创建会话",
-    "learnLayout": "熟悉页面构成"
-  },
   "continue": "继续",
   "exit": "跳过基础引导",
   "finish": "结束",
@@ -14,11 +8,11 @@
   "exitConfirm": "确认跳过",
   "endCopy": "更多使用技巧请查看官方文档或社区，Vibing~~~",
   "copy": {
-    "select-project-create": "在 VibeX 中，需要先创建或选择一个**项目**以继续，**项目**就是一个文件夹，用于隔离 Agent 会话与工作状态",
+    "select-project-create": "在 Dimo 中，需要先创建或选择一个**项目**以继续，**项目**就是一个文件夹，用于隔离 Agent 会话与工作状态",
     "select-project-global": "**全局**则是您的用户文件夹，您可以直接点击**全局**以继续",
     "need-agent": "初始化时跳得太快啦，现在还没有可用的 Agent，您需要先在**设置-Agent**中启用与登录 Agent 哦",
     "settings-agent-icon": "先点选一个 Agent，打开它的设置。",
-    "settings-agent-enable": "打开启用开关，让 VibeX 为它安装连接器。",
+    "settings-agent-enable": "打开启用开关，让 Dimo 为它安装连接器。",
     "settings-agent-acp": "正在下载、安装并检查连接器，请稍候。",
     "settings-agent-auth": "完成订阅登录或填写 API，让 Agent 可以真正干活。",
     "return-main": "Agent 已经可用，请回到主窗口继续创建会话。",

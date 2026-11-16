@@ -1,5 +1,5 @@
 {
-  "name": "vibex.remote-ssh",
+  "name": "dimo.remote-ssh",
   "version": "2.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "pack": "node ../../../packages/plugin-cli/dist/cli.js pack"
   },
   "dependencies": {
-    "@vibex/plugin-sdk": "^2.0.0",
+    "@dimoai/plugin-sdk": "^2.0.0",
     "react": "^19.2.8"
   }
 }

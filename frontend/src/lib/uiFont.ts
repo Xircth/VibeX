@@ -43,7 +43,7 @@ export const MONO_FONT_OPTIONS: MonoFontOption[] = [
   { id: 'consolas', label: 'Consolas', stack: `Consolas, ${BUNDLED_FALLBACK}` },
 ];
 
-const FONT_KEY = 'vibex:mono-font';
+const FONT_KEY = 'dimo:mono-font';
 const DEFAULT_FONT_ID = 'default';
 
 export function getMonoFontId(): string {
@@ -68,7 +68,7 @@ export function setMonoFont(id: string): void {
   persistFrontendPreference(FONT_KEY, id);
   applyMonoFont(id);
   // Let live consumers (open xterm terminals) re-read the variable.
-  window.dispatchEvent(new CustomEvent('vibex:mono-font-changed'));
+  window.dispatchEvent(new CustomEvent('dimo:mono-font-changed'));
 }
 
 /** Apply the persisted mono font on startup. */

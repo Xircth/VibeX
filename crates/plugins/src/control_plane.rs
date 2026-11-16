@@ -257,7 +257,7 @@ impl PluginControlPlane {
     ) -> Result<ImportResult, PluginError> {
         if crate::catalog::is_retired_plugin_id(package.id.as_str()) {
             return Err(PluginError::invalid_manifest(format!(
-                "plugin '{}' has been retired and its capability is now built into VibeX",
+                "plugin '{}' has been retired and its capability is now built into Dimo",
                 package.id.as_str()
             )));
         }
@@ -459,7 +459,7 @@ impl PluginControlPlane {
             .collect::<Vec<_>>();
         if !skill_paths.is_empty() || !runtime_paths.is_empty() {
             let mut context =
-                vec!["VibeX has resolved this workflow to verified local resources:".to_owned()];
+                vec!["Dimo has resolved this workflow to verified local resources:".to_owned()];
             context.extend(
                 skill_paths
                     .iter()
@@ -585,7 +585,7 @@ impl PluginControlPlane {
                 let _ = self.registry.delete_plugin(retired_id).await;
             }
         }
-        for delisted_id in ["vibex.kanban-views", "vibex.notes", "vibex.prompt-enhancer"] {
+        for delisted_id in ["dimo.kanban-views", "dimo.notes", "dimo.prompt-enhancer"] {
             if let Some(installed) = self.registry.plugin(delisted_id).await?
                 && matches!(
                     installed.source.kind,
@@ -701,49 +701,49 @@ mod system_bundle_command_tests {
         }
 
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.workspace-git", "project_list"),
+            resolve_system_bundle_domain_command("dimo.core.workspace-git", "project_list"),
             Some("get_projects")
         );
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.workspace-git", "branches"),
+            resolve_system_bundle_domain_command("dimo.core.workspace-git", "branches"),
             Some("get_repo_branches")
         );
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.automation", "list"),
+            resolve_system_bundle_domain_command("dimo.core.automation", "list"),
             Some("automation_list")
         );
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.session", "detail"),
+            resolve_system_bundle_domain_command("dimo.core.session", "detail"),
             Some("conversation_detail")
         );
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.skills", "list"),
+            resolve_system_bundle_domain_command("dimo.core.skills", "list"),
             Some("list_agent_skills")
         );
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.agent-runtime", "management_bar"),
+            resolve_system_bundle_domain_command("dimo.core.agent-runtime", "management_bar"),
             Some("agent_management_bar")
         );
         assert_eq!(
-            resolve_system_bundle_domain_command("vibex.core.channels", "get_webhooks"),
+            resolve_system_bundle_domain_command("dimo.core.channels", "get_webhooks"),
             Some("get_chat_event_webhooks")
         );
 
         let resolved = plane
-            .resolve_dynamic_command_target("vibex.core.workspace-git.project_list")
+            .resolve_dynamic_command_target("dimo.core.workspace-git.project_list")
             .await
             .expect("resolve");
         assert_eq!(
             resolved,
             Some((
-                "vibex.core.workspace-git".to_owned(),
+                "dimo.core.workspace-git".to_owned(),
                 "project_list".to_owned()
             ))
         );
 
         plane
             .register_command_fn(
-                "vibex.core.workspace-git",
+                "dimo.core.workspace-git",
                 "project_list",
                 |plugin_id, command, input| async move {
                     Ok(json!({
@@ -757,10 +757,10 @@ mod system_bundle_command_tests {
             .expect("register handler");
 
         let response = plane
-            .invoke_plugin_command("vibex.core.workspace-git", "project_list", json!({}))
+            .invoke_plugin_command("dimo.core.workspace-git", "project_list", json!({}))
             .await
             .expect("invoke system bundle command");
-        assert_eq!(response["pluginId"], json!("vibex.core.workspace-git"));
+        assert_eq!(response["pluginId"], json!("dimo.core.workspace-git"));
         assert_eq!(response["canonical"], json!("get_projects"));
     }
 }

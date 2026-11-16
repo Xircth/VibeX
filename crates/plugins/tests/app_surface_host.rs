@@ -17,7 +17,7 @@ fn node_executable() -> Option<PathBuf> {
 
 fn write_editor_package(root: &std::path::Path) {
     write_package(root);
-    let manifest_path = root.join(".vibex-plugin/plugin.json");
+    let manifest_path = root.join(".dimo-plugin/plugin.json");
     let mut manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
     manifest["contributes"]["app.fileOpeners"] = json!([{
@@ -33,10 +33,10 @@ fn write_editor_package(root: &std::path::Path) {
 }
 
 fn write_package(root: &std::path::Path) {
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::create_dir_all(root.join("dist/app")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,
           "apiVersion":"1.0",
@@ -44,7 +44,7 @@ fn write_package(root: &std::path::Path) {
           "publisher":"tests",
           "name":"Surface fixture",
           "version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{
             "worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"},
             "app":{"root":"dist/app","document":"index.html","protocol":"1.0"}
@@ -101,17 +101,17 @@ fn write_tab_package(root: &std::path::Path) {
     std::fs::write(root.join("config.json"), "{}").unwrap();
     std::fs::create_dir_all(root.join("contents")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/content.index.json"),
+        root.join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     )
     .unwrap();
-    let manifest_path = root.join(".vibex-plugin/plugin.json");
+    let manifest_path = root.join(".dimo-plugin/plugin.json");
     let mut manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
     manifest["readme"] = json!("README.md");
     manifest["content"] = json!({
         "root": "contents",
-        "index": ".vibex-plugin/content.index.json"
+        "index": ".dimo-plugin/content.index.json"
     });
     manifest["config"] = json!({ "schema": { "type": "object", "additionalProperties": false } });
     manifest["contributes"] = json!({});
@@ -206,7 +206,7 @@ async fn a_structure_tab_opens_through_the_shared_host() {
 
 fn write_status_package(root: &std::path::Path) {
     write_tab_package(root);
-    let manifest_path = root.join(".vibex-plugin/plugin.json");
+    let manifest_path = root.join(".dimo-plugin/plugin.json");
     let mut manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
     manifest["integrations"] = json!([
@@ -369,12 +369,12 @@ async fn published_surface_opens_invokes_and_revokes_through_the_shared_host() {
             request_id: "request-1".to_owned(),
             sequence: 1,
             method: "hello".to_owned(),
-            params: json!({ "name": "VibeX" }),
+            params: json!({ "name": "Dimo" }),
         })
         .await
         .unwrap();
     assert_eq!(result["handler"], "hello");
-    assert_eq!(result["input"]["name"], "VibeX");
+    assert_eq!(result["input"]["name"], "Dimo");
     assert!(result["input"].get("params").is_none());
 
     host.revoke(&issued_identity).await.unwrap();

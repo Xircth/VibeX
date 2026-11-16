@@ -117,7 +117,7 @@ vi.mock('@/stores/useWindowProjectsStore', () => ({
 
 const preview = {
   manifest: {
-    format: 'vibex-backup',
+    format: 'dimo-backup',
     version: 1,
     created_at: '2026-08-03T00:00:00Z',
     app_version: '1.0.0',
@@ -144,7 +144,7 @@ describe('SystemSettings', () => {
         value.mockReset();
     }
     mocks.updateAndSaveConfig.mockResolvedValue(true);
-    mocks.getSettingsPath.mockResolvedValue('/Users/test/.vibex/settings.json');
+    mocks.getSettingsPath.mockResolvedValue('/Users/test/.dimo/settings.json');
     mocks.getProxy.mockResolvedValue({
       mode: 'auto',
       proxy_url: null,
@@ -155,18 +155,18 @@ describe('SystemSettings', () => {
     mocks.getRendering.mockResolvedValue({ acceleration_mode: 'auto' });
     mocks.updateRendering.mockImplementation(async (settings) => settings);
     mocks.getDataDir.mockResolvedValue({
-      current_data_dir: '/Users/test/.vibex',
+      current_data_dir: '/Users/test/.dimo',
       configured_data_dir: null,
-      default_data_dir: '/Users/test/.vibex',
+      default_data_dir: '/Users/test/.dimo',
     });
     mocks.updateDataDir.mockImplementation(async (data_dir: string) => ({
       current_data_dir: data_dir,
-      previous_data_dir: '/Users/test/.vibex',
+      previous_data_dir: '/Users/test/.dimo',
       migrated: true,
       requires_reload: false,
     }));
     mocks.revealInFileManager.mockResolvedValue(undefined);
-    mocks.pickHostDirectory.mockResolvedValue('/Volumes/SSD/VibeXData');
+    mocks.pickHostDirectory.mockResolvedValue('/Volumes/SSD/DimoData');
     mocks.backupCreate.mockResolvedValue(preview);
     mocks.backupInspect.mockResolvedValue(preview);
     mocks.backupRestore.mockResolvedValue({
@@ -235,25 +235,25 @@ describe('SystemSettings', () => {
     await waitFor(() => expect(mocks.getProxy).toHaveBeenCalled());
 
     await user.type(
-      screen.getByPlaceholderText(/vibex-backup\.vibexbak/),
-      '/tmp/vibex-backup.vibexbak'
+      screen.getByPlaceholderText(/dimo-backup\.dimobak/),
+      '/tmp/dimo-backup.dimobak'
     );
     await user.click(screen.getByRole('button', { name: '导出' }));
     await waitFor(() => {
       expect(mocks.backupCreate).toHaveBeenCalledWith({
-        path: '/tmp/vibex-backup.vibexbak',
+        path: '/tmp/dimo-backup.dimobak',
         passphrase: null,
       });
     });
 
     await user.type(
-      screen.getByPlaceholderText('选择或粘贴 .vibexbak 文件路径'),
-      '/tmp/restore.vibexbak'
+      screen.getByPlaceholderText('选择或粘贴 .dimobak 文件路径'),
+      '/tmp/restore.dimobak'
     );
     await user.click(screen.getByRole('button', { name: '预览' }));
     await waitFor(() => {
       expect(mocks.backupInspect).toHaveBeenCalledWith({
-        path: '/tmp/restore.vibexbak',
+        path: '/tmp/restore.dimobak',
         passphrase: null,
       });
     });
@@ -263,7 +263,7 @@ describe('SystemSettings', () => {
     const restoreOptions = mocks.toastWarning.mock.calls.at(-1)?.[1];
     await act(async () => restoreOptions.action.onClick());
     expect(mocks.backupRestore).toHaveBeenCalledWith({
-      path: '/tmp/restore.vibexbak',
+      path: '/tmp/restore.dimobak',
       passphrase: null,
       confirmed: true,
     });
@@ -285,7 +285,7 @@ describe('SystemSettings', () => {
       await screen.findByText(/JSON 设置源|JSON source/i)
     ).toBeInTheDocument();
     expect(
-      await screen.findByText('/Users/test/.vibex/settings.json')
+      await screen.findByText('/Users/test/.dimo/settings.json')
     ).toBeInTheDocument();
   });
 
@@ -316,7 +316,7 @@ describe('SystemSettings', () => {
       (await screen.findAllByText(/数据存储位置|Data storage location/i)).length
     ).toBeGreaterThanOrEqual(1);
     expect(
-      await screen.findByDisplayValue('/Users/test/.vibex')
+      await screen.findByDisplayValue('/Users/test/.dimo')
     ).toBeInTheDocument();
 
     const openBtn = await screen.findByRole('button', {
@@ -324,7 +324,7 @@ describe('SystemSettings', () => {
     });
     await user.click(openBtn);
     expect(mocks.revealInFileManager).toHaveBeenCalledWith(
-      '/Users/test/.vibex'
+      '/Users/test/.dimo'
     );
 
     const changeBtn = screen.getByRole('button', {
@@ -336,7 +336,7 @@ describe('SystemSettings', () => {
     const confirmOptions = mocks.toastWarning.mock.calls.at(-1)?.[1];
     expect(confirmOptions).toBeDefined();
     await act(async () => confirmOptions.action.onClick());
-    expect(mocks.updateDataDir).toHaveBeenCalledWith('/Volumes/SSD/VibeXData');
+    expect(mocks.updateDataDir).toHaveBeenCalledWith('/Volumes/SSD/DimoData');
     expect(screen.getByTestId('database-health-section')).toBeInTheDocument();
   });
 });

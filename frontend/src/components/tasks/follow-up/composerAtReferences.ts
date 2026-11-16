@@ -1,6 +1,12 @@
 import type { DbConversationSummary, GitLogEntry, Tag } from 'shared/types';
 import type { MemberBotAvatarConfig } from '@/features/collaboration/MemberBotAvatar';
 import { serializeTagReferenceMarker } from '@/lib/tagReferenceMarkers';
+import {
+  commitReferenceUri,
+  conversationReferenceUri,
+  projectReferenceUri,
+  shortCommitSha,
+} from './referenceUris';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import { matchTypeaheadTrigger } from './typeahead-triggers';
 
@@ -87,65 +93,21 @@ export type AtReferenceSources = {
   members?: AtReferenceMember[];
 };
 
-const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
-const COMMIT_URI_PREFIX = 'vibex://commit/';
-const PROJECT_URI_PREFIX = 'vibex://project/';
+export {
+  COMMIT_URI_PREFIX,
+  CONVERSATION_URI_PREFIX,
+  PRE_RENAME_URI_SCHEME_PREFIX,
+  PROJECT_URI_PREFIX,
+  commitReferenceUri,
+  conversationReferenceUri,
+  normalizeReferenceUri,
+  parseCommitReferenceUri,
+  parseConversationReferenceUri,
+  parseProjectReferenceUri,
+  projectReferenceUri,
+  shortCommitSha,
+} from './referenceUris';
 
-export function conversationReferenceUri(conversationId: string): string {
-  return `${CONVERSATION_URI_PREFIX}${conversationId}`;
-}
-
-export function commitReferenceUri(repoId: string, sha: string): string {
-  return `${COMMIT_URI_PREFIX}${encodeURIComponent(repoId)}@${sha}`;
-}
-
-export function parseConversationReferenceUri(uri: string): string | null {
-  if (!uri.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) return null;
-  const id = uri.slice(CONVERSATION_URI_PREFIX.length).trim();
-  return id || null;
-}
-
-export function projectReferenceUri(projectId: string, path: string): string {
-  return `${PROJECT_URI_PREFIX}${encodeURIComponent(projectId)}@${encodeURIComponent(path)}`;
-}
-
-export function parseProjectReferenceUri(
-  uri: string
-): { projectId: string; path: string } | null {
-  if (!uri.toLowerCase().startsWith(PROJECT_URI_PREFIX)) return null;
-  const body = uri.slice(PROJECT_URI_PREFIX.length);
-  const separator = body.lastIndexOf('@');
-  if (separator <= 0 || separator === body.length - 1) return null;
-  try {
-    const projectId = decodeURIComponent(body.slice(0, separator));
-    const path = decodeURIComponent(body.slice(separator + 1));
-    if (!projectId || !path) return null;
-    return { projectId, path };
-  } catch {
-    return null;
-  }
-}
-
-export function parseCommitReferenceUri(
-  uri: string
-): { repoId: string; sha: string } | null {
-  if (!uri.toLowerCase().startsWith(COMMIT_URI_PREFIX)) return null;
-  const body = uri.slice(COMMIT_URI_PREFIX.length);
-  const separator = body.lastIndexOf('@');
-  if (separator <= 0 || separator === body.length - 1) return null;
-  try {
-    const repoId = decodeURIComponent(body.slice(0, separator));
-    const sha = body.slice(separator + 1);
-    if (!repoId || !sha) return null;
-    return { repoId, sha };
-  } catch {
-    return null;
-  }
-}
-
-export function shortCommitSha(sha: string): string {
-  return sha.slice(0, 7);
-}
 
 function matchesQuery(
   query: string,

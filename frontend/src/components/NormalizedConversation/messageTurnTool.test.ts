@@ -139,7 +139,7 @@ describe('toolBlockToNormalizedEntry', () => {
       use('tool', {
         variant: 'ListDir',
         target_directory:
-          'C:\\Users\\18190\\Documents\\projects\\vibex-plugin-computer-use\\src',
+          'C:\\Users\\18190\\Documents\\projects\\dimo-plugin-computer-use\\src',
       }),
       null,
       null
@@ -149,7 +149,7 @@ describe('toolBlockToNormalizedEntry', () => {
         action: 'tool',
         tool_name: 'list_dir',
         arguments: {
-          path: 'C:\\Users\\18190\\Documents\\projects\\vibex-plugin-computer-use\\src',
+          path: 'C:\\Users\\18190\\Documents\\projects\\dimo-plugin-computer-use\\src',
         },
       },
     });
@@ -217,7 +217,7 @@ describe('toolBlockToNormalizedEntry', () => {
 
   it('maps list_dir to a directory listing tool', () => {
     const entry = toolBlockToNormalizedEntry(
-      use('list_dir', { target_directory: '/Users/mac/Projects/VibeX' }),
+      use('list_dir', { target_directory: '/Users/mac/Projects/Dimo' }),
       result('src/\nREADME.md'),
       null
     );
@@ -225,7 +225,7 @@ describe('toolBlockToNormalizedEntry', () => {
       action_type: {
         action: 'tool',
         tool_name: 'list_dir',
-        arguments: { path: '/Users/mac/Projects/VibeX' },
+        arguments: { path: '/Users/mac/Projects/Dimo' },
       },
     });
   });
@@ -235,14 +235,14 @@ describe('toolBlockToNormalizedEntry', () => {
       use('搜索', {
         action: {
           type: 'search',
-          query: 'site:github.com vibex workflow creator plugin',
+          query: 'site:github.com dimo workflow creator plugin',
         },
       }),
       result(
         JSON.stringify({
           action: {
             type: 'search',
-            query: 'site:github.com vibex workflow creator plugin',
+            query: 'site:github.com dimo workflow creator plugin',
             sources: [
               {
                 type: 'url',
@@ -257,7 +257,7 @@ describe('toolBlockToNormalizedEntry', () => {
     expect(entry.entry_type).toMatchObject({
       action_type: {
         action: 'search',
-        query: 'site:github.com vibex workflow creator plugin',
+        query: 'site:github.com dimo workflow creator plugin',
       },
     });
   });
@@ -544,7 +544,7 @@ describe('toolBlockToNormalizedEntry', () => {
   it('unwraps Codex mcpToolCall envelopes for MCP metadata, ask_user_question, and delegation tools', () => {
     const mcpEntry = toolBlockToNormalizedEntry(
       use('mcpToolCall', {
-        server: 'vibex-workflow-mcp',
+        server: 'dimo-workflow-mcp',
         tool: 'run_step',
         arguments: { stepId: 'lint' },
       }),
@@ -557,7 +557,7 @@ describe('toolBlockToNormalizedEntry', () => {
     );
     expect(mcpEntry.toolMeta).toEqual({
       mcp: {
-        server: 'vibex-workflow-mcp',
+        server: 'dimo-workflow-mcp',
         tool: 'run_step',
       },
     });
@@ -567,7 +567,7 @@ describe('toolBlockToNormalizedEntry', () => {
 
     const askEntry = toolBlockToNormalizedEntry(
       use('mcpToolCall', {
-        server: 'vibex-delegation-mcp',
+        server: 'dimo-delegation-mcp',
         tool: 'ask_user_question',
         arguments: {
           questions: [

@@ -251,14 +251,14 @@ describe('MainAppRoutes', () => {
   });
 
   it('keeps the settings layout around an independent plugin detail page', async () => {
-    renderAt('/plugins/vibex.office');
+    renderAt('/plugins/dimo.office');
 
     expect(await screen.findByTestId('plugin-detail-page')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
   });
 
   it('keeps the settings layout around a marketplace plugin detail page', async () => {
-    renderAt('/plugins/marketplace/vibex/drawio');
+    renderAt('/plugins/marketplace/dimo/drawio');
 
     expect(
       await screen.findByTestId('marketplace-plugin-detail-page')

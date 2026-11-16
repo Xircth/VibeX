@@ -484,7 +484,7 @@ impl ServerApplicationDomains {
                     .publisher
                     .as_deref()
                     .filter(|s| !s.trim().is_empty())
-                    .unwrap_or("vibex");
+                    .unwrap_or("dimo");
                 let _ = Box::pin(self.plugin_marketplace_install(json!({
                     "owner": owner,
                     "pluginName": dependency.id,
@@ -634,7 +634,7 @@ impl ServerApplicationDomains {
         };
         if package.api_version != "2.0" {
             return Err(ApplicationError::bad_request(format!(
-                "unsupported plugin apiVersion `{}`; VibeX v2 plugin architecture requires apiVersion \"2.0\"",
+                "unsupported plugin apiVersion `{}`; Dimo v2 plugin architecture requires apiVersion \"2.0\"",
                 package.api_version
             )));
         }

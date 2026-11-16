@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-13
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 会话控制面统一持久输入、运行中纠偏与父子关系
@@ -11,7 +11,7 @@ UI transcript 的权威已改为 JSONL / vendor 文件，见
 [ADR-0082](0082-jsonl-transcript-window.md)。本 ADR 的控制面（持久输入、
 纠偏、取消、父子导航）不变。
 
-VibeX 将 Conversation 的创建、输入、纠偏、等待、取消和父子导航收敛到同一个
+Dimo 将 Conversation 的创建、输入、纠偏、等待、取消和父子导航收敛到同一个
 Application Core 会话控制面。普通输入先成为持久领域事实，再由每个 Conversation 的
 单消费者调度器在空闲时创建真实 Turn；运行中纠偏是独立、能力驱动且不得静默降级的
 操作。LLM 委派、桌面、Remote、CLI、SDK、MCP 和 Workflow 都必须经过该控制面。
@@ -22,7 +22,7 @@ Agent 考虑委派的建议，companion 仍可创建 one-shot delegated Conversa
 
 ## Context
 
-VibeX 已经具备持久 Conversation、单一在途 Turn、事件日志、委派子 Conversation、
+Dimo 已经具备持久 Conversation、单一在途 Turn、事件日志、委派子 Conversation、
 first-terminal-wins、取消传播和 Remote Application Core。当前缺口集中在入口：
 
 - Composer 的 follow-up queue 只有一条消息，权威状态位于 React Query 内存；刷新、
@@ -38,7 +38,7 @@ first-terminal-wins、取消传播和 Remote Application Core。当前缺口集�
 
 BB 的 thread SDK、持久 queued messages、active-turn steer 和 parent/child topology
 证明这些原语有产品价值；但 BB 在本次比较的锁定版本中已经移除特殊 Manager Thread。
-VibeX 因此采用普通 Conversation + relation，不引入 Manager Conversation 类型。
+Dimo 因此采用普通 Conversation + relation，不引入 Manager Conversation 类型。
 
 ## Decision drivers
 
@@ -159,7 +159,7 @@ Delegation Broker 不再直接拥有一套平行的 child launch 生命周期。
 
 同一工作区不得并发运行两个可能写入的 child。`write_serialized` 使用父工作区互斥锁；
 `write_isolated` 使用从可验证 checkpoint 创建的独立 worktree。无法安全创建 checkpoint
-时拒绝并行写或回退到显式串行，不得静默共享写目录。VibeX 不自动 merge、push 或发布
+时拒绝并行写或回退到显式串行，不得静默共享写目录。Dimo 不自动 merge、push 或发布
 child 修改；diff/artifact 作为交接证据。
 
 companion token 只能操作其 parent Conversation 和在该 scope 内创建的 descendants，
@@ -169,7 +169,7 @@ Conversation。
 ### 6. 所有适配器共享同一命令与事件
 
 Command Registry 增加上述会话操作和稳定 error envelope。Tauri、Remote HTTP/WS、未来
-CLI/SDK 与 `vibex-mcp` 仅做认证、序列化和展示适配；事件订阅统一使用 conversation
+CLI/SDK 与 `dimo-mcp` 仅做认证、序列化和展示适配；事件订阅统一使用 conversation
 sequence/cursor。命令与事件 schema 按 ADR-0033 版本化，旧客户端对未知 queue/relation/
 steering 事件安全降级。
 
@@ -198,7 +198,7 @@ steering 事件安全降级。
 - native steer 真实可见，unsupported 不再被静默包装成 follow-up；
 - parent/child 导航统一而不污染 Conversation 历史；
 - 并行委派的写入冲突和资源失控成为可执行策略，而不是提示词约定；
-- 相比 BB，VibeX 额外提供事件溯源、多客户端 operation id、能力诚实性与 worktree 安全。
+- 相比 BB，Dimo 额外提供事件溯源、多客户端 operation id、能力诚实性与 worktree 安全。
 
 ### Negative
 

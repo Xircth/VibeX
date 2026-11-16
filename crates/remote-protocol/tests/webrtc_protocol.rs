@@ -32,14 +32,14 @@ fn channel_binding_claims_format_canonical_signing_input_and_extract_sdp_fingerp
     };
     assert_eq!(
         claims.signing_input(),
-        format!("vibex-webrtc-v1|nonce-01930c8a|dev-phone-1|host-mac-1|1762660000|{fingerprint}")
+        format!("dimo-webrtc-v1|nonce-01930c8a|dev-phone-1|host-mac-1|1762660000|{fingerprint}")
     );
 }
 
 #[test]
 fn control_channel_frames_round_trip_spec_envelopes() {
-    assert_eq!(CONTROL_CHANNEL_LABEL, "vibex.control.v1");
-    assert_eq!(BULK_CHANNEL_LABEL, "vibex.bulk.v1");
+    assert_eq!(CONTROL_CHANNEL_LABEL, "dimo.control.v1");
+    assert_eq!(BULK_CHANNEL_LABEL, "dimo.bulk.v1");
 
     let op_id = OperationId::from_uuid(
         Uuid::parse_str("01930c8a-7b12-7000-8000-000000000001").expect("uuid"),

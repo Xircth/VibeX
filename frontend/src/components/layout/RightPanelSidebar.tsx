@@ -1,4 +1,4 @@
-import { usePanels, useSlotContributions } from '@vibex/plugin-sdk';
+import { usePanels, useSlotContributions } from '@dimoai/plugin-sdk';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {

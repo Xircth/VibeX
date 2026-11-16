@@ -366,12 +366,12 @@ pub(in crate::manager) fn enrich_elicitation_schema(
 
     if !has_properties {
         let has_explicit = schema_obj
-            .get("x-vibex-questions")
+            .get("x-dimo-questions")
             .and_then(serde_json::Value::as_array)
             .is_some_and(|items| !items.is_empty());
         if !has_explicit && let Some(questions) = tool_questions {
             schema_obj.insert(
-                "x-vibex-questions".to_string(),
+                "x-dimo-questions".to_string(),
                 serde_json::Value::Array(questions.clone()),
             );
         }
@@ -766,9 +766,9 @@ fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> 
         || title_lower == "ask_question"
         || title_lower.ends_with("_ask_user_question")
         || title_lower.ends_with("/ask_user_question")
-        || title_lower.starts_with("vibex-session-mcp_")
-        || title_lower.starts_with("vibex-delegation-mcp_")
-        || title_lower.starts_with("vibex-workflow-mcp_")
+        || title_lower.starts_with("dimo-session-mcp_")
+        || title_lower.starts_with("dimo-delegation-mcp_")
+        || title_lower.starts_with("dimo-workflow-mcp_")
     {
         return true;
     }
@@ -787,7 +787,7 @@ fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> 
             let normalized = server.trim().to_ascii_lowercase();
             if matches!(
                 normalized.as_str(),
-                "vibex-session-mcp" | "vibex-delegation-mcp" | "vibex-workflow-mcp"
+                "dimo-session-mcp" | "dimo-delegation-mcp" | "dimo-workflow-mcp"
             ) {
                 return true;
             }
@@ -841,9 +841,9 @@ mod tests {
 
         let schema = interaction_question_from_permission(&req, "您倾向于哪种 HTML 课件视觉风格？")
             .expect("interaction_ permission should convert to question schema");
-        let questions = schema["x-vibex-questions"]
+        let questions = schema["x-dimo-questions"]
             .as_array()
-            .expect("x-vibex-questions array");
+            .expect("x-dimo-questions array");
         assert_eq!(questions.len(), 1);
         assert_eq!(questions[0]["id"], "interaction_b8486ad3");
         assert_eq!(questions[0]["question"], "您倾向于哪种 HTML 课件视觉风格？");
@@ -894,7 +894,7 @@ mod tests {
             details: Some(serde_json::json!({
                 "toolCallId": "call_1",
                 "rawInput": {
-                    "ServerName": "vibex-delegation-mcp",
+                    "ServerName": "dimo-delegation-mcp",
                     "ToolName": "ask_user_question",
                     "Arguments": { "questions": [] }
                 }

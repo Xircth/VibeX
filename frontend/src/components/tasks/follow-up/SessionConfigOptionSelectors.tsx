@@ -68,7 +68,7 @@ function configModeMatchesSessionModes(
 }
 
 /**
- * Codex advertises collaboration mode as a session option, but VibeX keeps it
+ * Codex advertises collaboration mode as a session option, but Dimo keeps it
  * at the runtime default. Hiding it at this shared presentation boundary keeps
  * creation and composer menus consistent and prevents an oversized summary.
  */

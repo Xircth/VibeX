@@ -26,7 +26,7 @@ describe('PluginMarketplaceLogo', () => {
   it('resolves the Office glyph from owner and pluginName without offlinePluginId', () => {
     const { container } = render(
       <PluginMarketplaceLogo
-        listing={listing({ owner: 'vibex', pluginName: 'office' })}
+        listing={listing({ owner: 'dimo', pluginName: 'office' })}
         displayName="办公套件"
       />
     );
@@ -39,9 +39,9 @@ describe('PluginMarketplaceLogo', () => {
     const browser = render(
       <PluginMarketplaceLogo
         listing={listing({
-          owner: 'vibex',
+          owner: 'dimo',
           pluginName: 'browser',
-          offlinePluginId: 'vibex.browser',
+          offlinePluginId: 'dimo.browser',
         })}
         displayName="Browser"
       />
@@ -57,9 +57,9 @@ describe('PluginMarketplaceLogo', () => {
     const remoteSsh = render(
       <PluginMarketplaceLogo
         listing={listing({
-          owner: 'vibex',
+          owner: 'dimo',
           pluginName: 'remote-ssh',
-          offlinePluginId: 'vibex.remote-ssh',
+          offlinePluginId: 'dimo.remote-ssh',
         })}
         displayName="Remote SSH"
       />
@@ -145,8 +145,8 @@ describe('PluginMarketplaceLogo', () => {
     vi.unstubAllEnvs();
   });
 
-  it('respects VIBEX_SITE_URL for allowlisted marketplace icon host', () => {
-    vi.stubEnv('VIBEX_SITE_URL', 'https://site.example.com/');
+  it('respects DIMO_SITE_URL for allowlisted marketplace icon host', () => {
+    vi.stubEnv('DIMO_SITE_URL', 'https://site.example.com/');
     expect(allowedMarketplaceIconUrl('https://site.example.com/foo.png')).toBe(
       'https://site.example.com/foo.png'
     );

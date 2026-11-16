@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-15
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Agent Step 复用原生会话配置、按文本交接并投影确认节点
@@ -17,7 +17,7 @@ ADR-0045 与 ADR-0050 已确定 Agent Step 必须使用真实 Child Conversation
 - 输出 Schema 被当作运行时校验器，Agent 未返回合法 JSON 时 Step 失败或触发修复 Turn；
 - `manual` 完成策略只表现为 Step 内部状态，无法在 DAG 上直接看到待确认位置。
 
-这些设计提高了调试成本，也让 Workflow Step 与普通 VibeX 会话走了不同的启动路径。
+这些设计提高了调试成本，也让 Workflow Step 与普通 Dimo 会话走了不同的启动路径。
 
 ## Decision
 

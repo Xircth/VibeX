@@ -3,8 +3,8 @@ from __future__ import annotations
 import base64
 import unittest
 
-from vibex_plugin.blob import BLOB_CHUNK_BYTES, read_blob, write_blob
-from vibex_plugin.worker import JsonValue, PluginHostClient
+from dimo_plugin.blob import BLOB_CHUNK_BYTES, read_blob, write_blob
+from dimo_plugin.worker import JsonValue, PluginHostClient
 
 
 class MemoryBlobHost(PluginHostClient):

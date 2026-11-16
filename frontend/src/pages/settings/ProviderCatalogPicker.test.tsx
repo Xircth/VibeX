@@ -21,7 +21,7 @@ function template(
     Pick<ProviderCatalogTemplateView, 'id' | 'name'>
 ): ProviderCatalogTemplateView {
   return {
-    plugin_id: 'vibex.provider-switch',
+    plugin_id: 'dimo.provider-switch',
     contribution_id: 'claude-code',
     plugin_label: 'ProviderSwitch',
     agent_id: 'claude_code',

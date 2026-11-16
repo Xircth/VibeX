@@ -18,7 +18,7 @@ export async function pingProductHost(session = discoverProductHost()) {
             headers: {
                 authorization: `Bearer ${session.token}`,
                 "content-type": "application/json",
-                "x-vibex-protocol-version": "1.0",
+                "x-dimo-protocol-version": "1.0",
             },
             body: JSON.stringify({ operation_id: randomUUID(), args: {} }),
             signal: AbortSignal.timeout(2000),
@@ -32,14 +32,14 @@ export async function pingProductHost(session = discoverProductHost()) {
 export async function callProductHost(command, args = {}) {
     const host = discoverProductHost();
     if (!host.token) {
-        throw new Error("No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.");
+        throw new Error("No Host is bound. Run `dimo plugin run server --http://127.0.0.1:17891 --token <token>`.");
     }
     const response = await fetch(`${host.url}/api/v1/call/${command}`, {
         method: "POST",
         headers: {
             authorization: `Bearer ${host.token}`,
             "content-type": "application/json",
-            "x-vibex-protocol-version": "1.0",
+            "x-dimo-protocol-version": "1.0",
         },
         body: JSON.stringify({
             operation_id: randomUUID(),
@@ -53,7 +53,7 @@ export async function callProductHost(command, args = {}) {
     return (body.data ?? body);
 }
 function queueLinkedInstall(sourcePath) {
-    const inbox = join(homedir(), ".vibex", "imports");
+    const inbox = join(homedir(), ".dimo", "imports");
     mkdirSync(inbox, { recursive: true });
     appendFileSync(join(inbox, "links.jsonl"), `${JSON.stringify({ path: sourcePath, kind: "developer_link" })}\n`);
 }

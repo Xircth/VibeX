@@ -429,7 +429,7 @@ export interface PluginHostNamespace {
   };
 }
 
-export interface VibeXPluginContext {
+export interface DimoPluginContext {
   readonly pluginId: string;
   readonly generation: number;
   readonly scope: EffectScope;
@@ -539,7 +539,7 @@ export interface CreatePluginContextOptions {
 
 export function createPluginContext(
   options: CreatePluginContextOptions
-): VibeXPluginContext {
+): DimoPluginContext {
   const { pluginId, generation = 1, initialConfig } = options;
   const scope = new EffectScope();
   const volatileConfig = getPluginVolatileConfig(pluginId, initialConfig);
@@ -1378,20 +1378,20 @@ export function createPluginContext(
   };
 }
 
-export interface VibeXPluginDefinition {
+export interface DimoPluginDefinition {
   readonly apiVersion?: '2.0' | '1.0';
   readonly id?: string;
   readonly activate: (
-    ctx: VibeXPluginContext
+    ctx: DimoPluginContext
   ) => void | Disposer | Promise<void | Disposer>;
   readonly deactivate?: () => void | Promise<void>;
 }
 
-export function defineVibeXPlugin(
+export function defineDimoPlugin(
   definition:
-    | VibeXPluginDefinition
-    | VibeXPluginDefinition['activate']
-): VibeXPluginDefinition {
+    | DimoPluginDefinition
+    | DimoPluginDefinition['activate']
+): DimoPluginDefinition {
   if (typeof definition === 'function') {
     return {
       apiVersion: '2.0',
@@ -1404,17 +1404,17 @@ export function defineVibeXPlugin(
   };
 }
 
-export const definePlugin = defineVibeXPlugin;
+export const definePlugin = defineDimoPlugin;
 
-export type VibexPluginModule = VibeXPluginDefinition;
+export type DimoPluginModule = DimoPluginDefinition;
 
-export function isVibeXPluginDefinition(
+export function isDimoPluginDefinition(
   value: unknown
-): value is VibeXPluginDefinition {
+): value is DimoPluginDefinition {
   if (!value || typeof value !== 'object') {
     return false;
   }
-  const candidate = value as Partial<VibeXPluginDefinition>;
+  const candidate = value as Partial<DimoPluginDefinition>;
   return (
     (candidate.apiVersion === '2.0' || candidate.apiVersion === '1.0') &&
     typeof candidate.activate === 'function'

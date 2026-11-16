@@ -101,15 +101,15 @@ function applyClaudeExecutableToSdkOptions(options, rawExecutable, env, { isCliF
 }
 
 export async function resolveClaudeAgentSdk({ env = process.env, cwd } = {}) {
-  if (readString(env?.VIBEX_FORCE_CLAUDE_CLI_FALLBACK) === '1') {
+  if (readString(env?.DIMO_FORCE_CLAUDE_CLI_FALLBACK) === '1') {
     return createClaudeCliSdkFallback({ env });
   }
 
   const candidates = [];
-  const explicitSdkPath = readString(env?.VIBEX_CLAUDE_SDK_PATH);
+  const explicitSdkPath = readString(env?.DIMO_CLAUDE_SDK_PATH);
   if (explicitSdkPath) candidates.push(explicitSdkPath);
 
-  const managedAgentDir = readString(env?.VIBEX_CLAUDE_AGENT_DIR);
+  const managedAgentDir = readString(env?.DIMO_CLAUDE_AGENT_DIR);
   if (managedAgentDir) {
     candidates.push(
       path.join(managedAgentDir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
@@ -343,7 +343,7 @@ export class ClaudeNativeSidecarServer {
       CLAUDE_AGENT_SDK_CLIENT_APP:
         this.config.env.CLAUDE_AGENT_SDK_CLIENT_APP ??
         this.baseEnv.CLAUDE_AGENT_SDK_CLIENT_APP ??
-        'vibex/claude-native-driver',
+        'dimo/claude-native-driver',
     };
     const apiKey = readString(this.config.auth?.apiKey);
     const oauthToken = readString(this.config.auth?.oauthToken);
@@ -506,7 +506,7 @@ export class ClaudeNativeSidecarServer {
     };
 
     const explicitClaudeExecutable = readString(
-      params.pathToClaudeCodeExecutable ?? env.CLAUDE_CODE_EXECUTABLE ?? env.VIBEX_CLAUDE_PATH
+      params.pathToClaudeCodeExecutable ?? env.CLAUDE_CODE_EXECUTABLE ?? env.DIMO_CLAUDE_PATH
     );
     if (explicitClaudeExecutable) {
       applyClaudeExecutableToSdkOptions(options, explicitClaudeExecutable, env, { isCliFallback });

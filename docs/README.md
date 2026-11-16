@@ -1,6 +1,6 @@
-# VibeX Documentation Index
+# Dimo Documentation Index
 
-Welcome to the VibeX documentation hub. Every document here describes **current `v0.4.x` behavior or a permanent architectural contract** — ephemeral scratch notes, historical QA waves, and completed migration trackers are intentionally excluded.
+Welcome to the Dimo documentation hub. Every document here describes **current `v0.4.x` behavior or a permanent architectural contract** — ephemeral scratch notes, historical QA waves, and completed migration trackers are intentionally excluded.
 
 ## 1. Product, Design & Domain Model
 
@@ -18,18 +18,18 @@ Welcome to the VibeX documentation hub. Every document here describes **current 
 | [`docs/architecture.md`](architecture.md) | End-to-end system architecture: Single-Seam Host (`ApplicationCore` + `HostCommandRegistry` + `HostEventBus`), Dual-Stage Workbench, Dedicated-Engine-first `AgentRuntime` (with ACP fallback), Collaboration Space identity, DAG Workflows, Plugin Kernel, and 26-crate Cargo workspace map. |
 | [`docs/protocol/v1/README.md`](protocol/v1/README.md) | Versioned Remote Protocol v1 OpenAPI & JSON Schemas (`/api/v1/capabilities`, `/api/v1/commands/{command}`, `/api/v1/ws` durable attach). |
 | [`docs/companion/README.md`](companion/README.md) | Companion & Remote Client guide: pairing invitations, durable WebSocket attach/fold contract, idempotent writes, and native iOS (`mobile/ios`) & Android (`mobile/android`) apps. |
-| [`docs/deployment/headless-server.md`](deployment/headless-server.md) | `vibex-server` headless deployment, `@omnione/vibex` CLI (`serve`, `list`, `install`), Docker Compose, security boundaries, upgrades, and operational runbook. |
+| [`docs/deployment/headless-server.md`](deployment/headless-server.md) | `dimo-server` headless deployment, `dimo` CLI (`serve`, `list`, `install`), Docker Compose, security boundaries, upgrades, and operational runbook. |
 
 ## 3. Plugin Platform v4 (`Everything is a Plugin`)
 
 | Document | Purpose |
 | --- | --- |
 | [`docs/plugins/README.md`](plugins/README.md) | Entry point for plugin users, authors, and platform contributors. |
-| [`docs/plugins/user-guide.md`](plugins/user-guide.md) | Installing, enabling, configuring, updating, and removing plugins via UI or `vibex plugin` CLI. |
-| [`docs/plugins/developer-guide.md`](plugins/developer-guide.md) | Authoring full-trust v4 packages with `@vibex/plugin-sdk` (`^2.0.0`), Python/Rust Worker SDKs, `vibex-plugin` CLI, and live `--dev` linking. |
-| [`docs/plugins/official-plugins.md`](plugins/official-plugins.md) | Reference guide to VibeX's 17 official plugins (`plugins/*` & `vibex-plugin.json`) and built-in Collaboration Space. |
-| [`docs/plugins/package-v4.md`](plugins/package-v4.md) | Normative `.vibex-plugin/plugin.json` v4 package layout, `README.md` summary frontmatter, `contents/`, `depends/`, and `config.json`. |
-| [`docs/plugins/sdk-and-cli.md`](plugins/sdk-and-cli.md) | `@vibex/plugin-sdk` API surface, `vibex-plugin` author CLI commands, and linked development workflow. |
+| [`docs/plugins/user-guide.md`](plugins/user-guide.md) | Installing, enabling, configuring, updating, and removing plugins via UI or `dimo plugin` CLI. |
+| [`docs/plugins/developer-guide.md`](plugins/developer-guide.md) | Authoring full-trust v4 packages with `@dimoai/plugin-sdk` (`^2.0.0`), Python/Rust Worker SDKs, `dimo-plugin` CLI, and live `--dev` linking. |
+| [`docs/plugins/official-plugins.md`](plugins/official-plugins.md) | Reference guide to Dimo's 17 official plugins (`plugins/*` & `dimo-plugin.json`) and built-in Collaboration Space. |
+| [`docs/plugins/package-v4.md`](plugins/package-v4.md) | Normative `.dimo-plugin/plugin.json` v4 package layout, `README.md` summary frontmatter, `contents/`, `depends/`, and `config.json`. |
+| [`docs/plugins/sdk-and-cli.md`](plugins/sdk-and-cli.md) | `@dimoai/plugin-sdk` API surface, `dimo-plugin` author CLI commands, and linked development workflow. |
 | [`docs/plugins/platform-architecture.md`](plugins/platform-architecture.md) | Plugin Kernel internals: Activation Generations, Runtime locks, Full-Trust Worker/App surfaces, and Remote Host execution seam. |
 | [`docs/plugin-contract/bindings.md`](plugin-contract/bindings.md) | Generated contract matrix of the 23 contribution kinds (`L0`–`L3`) and Host API permissions. |
 

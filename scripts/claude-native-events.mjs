@@ -5,7 +5,7 @@ const SUBAGENT_TOOL_NAMES = new Set(['Task', 'Agent', 'dispatch_agent']);
 const PLACEHOLDER_SESSION_PREFIXES = [
   'prepared-',
   'pending-',
-  'vibex-new-session-',
+  'dimo-new-session-',
   'claude-native-',
   'codex-native-',
 ];

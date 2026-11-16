@@ -2,8 +2,8 @@ import {
   type Disposer,
   kanbanViewRegistry,
   type KanbanViewContribution,
-  type VibeXPluginContext,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+} from '@dimoai/plugin-sdk';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
 import { pluginSurfaceId } from '@/lib/hostSurfaceIds';
@@ -15,7 +15,7 @@ import {
 const KANBAN_VIEW_SLOT = 'app.kanban.view';
 
 export interface RegisterBuiltinKanbanViewsOptions {
-  readonly ctx?: VibeXPluginContext;
+  readonly ctx?: DimoPluginContext;
   readonly viewIds?: readonly string[];
   readonly pluginId?: string;
 }

@@ -2,7 +2,7 @@ import { backendListen } from '@/lib/backendTransport';
 import { getBackendTransport } from '@/lib/transport';
 
 export const COLLABORATION_SPACE_CHANGED_EVENT =
-  'vibex://collaboration-space-changed' as const;
+  'dimo://collaboration-space-changed' as const;
 
 export async function collaborationCall<T>(
   capability: 'collaboration' | 'workspace',

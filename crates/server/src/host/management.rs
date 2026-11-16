@@ -1391,11 +1391,11 @@ mod tests {
             kind: ProfileManagementActionKind::Login,
             programs: &[
                 agents::ProfileManagementProgram {
-                    program: "vibex-test-agent-cli",
+                    program: "dimo-test-agent-cli",
                     args: &["cli-login"],
                 },
                 agents::ProfileManagementProgram {
-                    program: "vibex-test-agent-acp",
+                    program: "dimo-test-agent-acp",
                     args: &["--cli", "adapter-login"],
                 },
             ],
@@ -1406,10 +1406,10 @@ mod tests {
     #[tokio::test]
     async fn management_action_falls_back_to_the_adapter_entry_point() {
         let temp = tempfile::tempdir().unwrap();
-        let adapter = temp.path().join("vibex-test-agent-acp.cmd");
+        let adapter = temp.path().join("dimo-test-agent-acp.cmd");
         std::fs::write(&adapter, []).unwrap();
-        let pool = lock_pool("vibex_test_agent", &[("acp_adapter", &adapter)]).await;
-        let agent_id = AgentId::parse("vibex_test_agent").unwrap();
+        let pool = lock_pool("dimo_test_agent", &[("acp_adapter", &adapter)]).await;
+        let agent_id = AgentId::parse("dimo_test_agent").unwrap();
 
         let resolved = resolve_management_action_program(
             &pool,
@@ -1427,10 +1427,10 @@ mod tests {
     #[tokio::test]
     async fn management_action_prefers_the_standalone_cli_entry_point() {
         let temp = tempfile::tempdir().unwrap();
-        let cli = temp.path().join("vibex-test-agent-cli.cmd");
+        let cli = temp.path().join("dimo-test-agent-cli.cmd");
         std::fs::write(&cli, []).unwrap();
-        let pool = lock_pool("vibex_test_agent", &[("agent_runtime", &cli)]).await;
-        let agent_id = AgentId::parse("vibex_test_agent").unwrap();
+        let pool = lock_pool("dimo_test_agent", &[("agent_runtime", &cli)]).await;
+        let agent_id = AgentId::parse("dimo_test_agent").unwrap();
 
         let resolved = resolve_management_action_program(
             &pool,

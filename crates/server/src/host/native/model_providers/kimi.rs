@@ -12,7 +12,7 @@ pub(super) async fn native_kimi_draft(kimi_home: &Path) -> Result<Option<ImportD
     let provider = table
         .get("providers")
         .and_then(toml::Value::as_table)
-        .and_then(|providers| providers.get("vibex"))
+        .and_then(|providers| providers.get("dimo"))
         .and_then(toml::Value::as_table);
     let Some(provider) = provider else {
         return Ok(None);
@@ -35,7 +35,7 @@ pub(super) async fn native_kimi_draft(kimi_home: &Path) -> Result<Option<ImportD
     let model = table
         .get("models")
         .and_then(toml::Value::as_table)
-        .and_then(|models| models.get("vibex"))
+        .and_then(|models| models.get("dimo"))
         .and_then(toml::Value::as_table)
         .and_then(|model| model.get("model"))
         .and_then(toml::Value::as_str)
@@ -61,7 +61,7 @@ pub(super) async fn native_kimi_provider_drafts(
     let models = table.get("models").and_then(toml::Value::as_table);
     Ok(providers
         .iter()
-        .filter(|(id, _)| *id != "vibex")
+        .filter(|(id, _)| *id != "dimo")
         .filter_map(|(id, value)| {
             let provider = value.as_table()?;
             let api_url = provider
@@ -108,33 +108,33 @@ pub(super) async fn apply_kimi(
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
     table.insert(
         "default_model".to_string(),
-        toml::Value::String("vibex".to_string()),
+        toml::Value::String("dimo".to_string()),
     );
     let providers = toml_table_entry(&mut table, "providers")?;
-    let vibex_provider = toml_table_entry(providers, "vibex")?;
-    vibex_provider.insert(
+    let dimo_provider = toml_table_entry(providers, "dimo")?;
+    dimo_provider.insert(
         "type".to_string(),
         toml::Value::String("openai".to_string()),
     );
-    vibex_provider.insert(
+    dimo_provider.insert(
         "base_url".to_string(),
         toml::Value::String(provider.api_url.clone()),
     );
-    vibex_provider.insert(
+    dimo_provider.insert(
         "api_key".to_string(),
         toml::Value::String(provider.api_key.clone()),
     );
     let models = toml_table_entry(&mut table, "models")?;
-    let vibex_model = toml_table_entry(models, "vibex")?;
-    vibex_model.insert(
+    let dimo_model = toml_table_entry(models, "dimo")?;
+    dimo_model.insert(
         "provider".to_string(),
-        toml::Value::String("vibex".to_string()),
+        toml::Value::String("dimo".to_string()),
     );
-    vibex_model.insert(
+    dimo_model.insert(
         "model".to_string(),
         toml::Value::String(model_default(&provider.model)),
     );
-    vibex_model
+    dimo_model
         .entry("max_context_size".to_string())
         .or_insert(toml::Value::Integer(262_144));
     write_toml_mutation(&path, original, &table, true).await?;
@@ -151,9 +151,9 @@ pub fn has_synthetic_gate(agent_id: &AgentId) -> bool {
 /// The mutations that put Kimi back on the vendor's own endpoint for the
 /// duration of an official login: the synthetic provider, the model that points
 /// at it and the local gate credential all have to go, or the CLI signs in
-/// against VibeX. Returned rather than applied so the caller can restore them
+/// against Dimo. Returned rather than applied so the caller can restore them
 /// when the login terminal never starts.
-pub async fn prepare_kimi_vibex_configuration_cleanup(
+pub async fn prepare_kimi_dimo_configuration_cleanup(
     home: &Path,
     environment: &HashMap<String, String>,
 ) -> Result<Vec<NativeFileMutation>, crate::host::native::NativeError> {
@@ -173,7 +173,7 @@ pub async fn prepare_kimi_vibex_configuration_cleanup(
             .ok_or_else(|| format!("{} 顶层必须是表", config_path.display()))?;
         // A round trip through `toml::Value` drops comments and reflows the
         // file, so a config that never mentioned the gate is left byte-exact.
-        let mut changed = root.get("default_model").and_then(toml::Value::as_str) == Some("vibex");
+        let mut changed = root.get("default_model").and_then(toml::Value::as_str) == Some("dimo");
         if changed {
             root.remove("default_model");
         }
@@ -181,10 +181,10 @@ pub async fn prepare_kimi_vibex_configuration_cleanup(
             .get_mut("providers")
             .and_then(toml::Value::as_table_mut)
         {
-            changed |= providers.remove("vibex").is_some();
+            changed |= providers.remove("dimo").is_some();
         }
         if let Some(models) = root.get_mut("models").and_then(toml::Value::as_table_mut) {
-            changed |= models.remove("vibex").is_some();
+            changed |= models.remove("dimo").is_some();
         }
         if changed {
             let serialized = toml::to_string_pretty(&document)
@@ -218,8 +218,8 @@ pub async fn prepare_kimi_vibex_configuration_cleanup(
 /// Whether a Kimi credential document is the local gate this app wrote rather
 /// than a token the vendor CLI obtained from a real login.
 pub fn kimi_credential_is_synthetic(value: &Value) -> bool {
-    value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true)
-        || value.get("access_token").and_then(Value::as_str) == Some("vibex-local-gate")
+    value.get("_dimo_synthetic").and_then(Value::as_bool) == Some(true)
+        || value.get("access_token").and_then(Value::as_str) == Some("dimo-local-gate")
 }
 
 pub(super) async fn seed_kimi_gate_credential(
@@ -247,8 +247,8 @@ pub(super) async fn seed_kimi_gate_credential(
         expected: original,
         replacement: Some(
             serde_json::to_vec_pretty(&serde_json::json!({
-                "access_token": "vibex-local-gate",
-                "_vibex_synthetic": true
+                "access_token": "dimo-local-gate",
+                "_dimo_synthetic": true
             }))
             .map_err(|error| format!("序列化 Kimi credential 失败：{error}"))?,
         ),

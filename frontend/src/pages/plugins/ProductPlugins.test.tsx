@@ -41,16 +41,16 @@ vi.mock('@tauri-apps/api/webview', () => ({
 
 const plugin = {
   id: 'office',
-  publisher: 'vibex',
+  publisher: 'dimo',
   packageDigest: 'digest',
-  name: 'VibeX Office',
+  name: 'Dimo Office',
   version: '4.0.0',
   description: 'Preview and work with Office documents.',
   enabled: true,
   builtin: true,
   sourceKind: 'builtin',
   sourcePath: '/plugin/office',
-  formats: ['vibex'],
+  formats: ['dimo'],
   skills: [],
   runtimes: [],
   warnings: [],
@@ -68,12 +68,12 @@ const drawioPlugin = {
   enabled: false,
   builtin: false,
   sourceKind: 'archive',
-  sourcePath: '/Users/mac/Projects/vibex-drawio/dist/drawio-1.0.0.vxp',
+  sourcePath: '/Users/mac/Projects/dimo-drawio/dist/drawio-1.0.0.vxp',
 };
 
 const detail = {
   summary: 'Preview and work with Office documents.',
-  readme: '# VibeX Office\n\nOpen Word, Excel, and PowerPoint files.',
+  readme: '# Dimo Office\n\nOpen Word, Excel, and PowerPoint files.',
   contents: [
     {
       path: 'contents/skills/office-docx/SKILL.md',
@@ -241,7 +241,7 @@ describe('product plugin experience', () => {
     ).toBeVisible();
 
     resolveCatalog?.({ plugins: [plugin], runtimes: [] });
-    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(await screen.findByText('Dimo Office')).toBeVisible();
   });
 
   it('does not show managed runtimes on the installed plugin list', async () => {
@@ -254,12 +254,12 @@ describe('product plugin experience', () => {
             id: 'remote-ssh',
             version:
               '{"level":30,"msg":"SQLite migrations are applied automatically when the local runtime database opens."}',
-            referencedPlugins: ['vibex.remote-ssh'],
+            referencedPlugins: ['dimo.remote-ssh'],
           },
         ],
       })
     );
-    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(await screen.findByText('Dimo Office')).toBeVisible();
     expect(screen.queryByText('托管 Runtime')).not.toBeInTheDocument();
     expect(screen.queryByText(/SQLite migrations/)).not.toBeInTheDocument();
   });
@@ -343,7 +343,7 @@ describe('product plugin experience', () => {
       'desktop.tauri',
     ]);
 
-    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(await screen.findByText('Dimo Office')).toBeVisible();
     expect(
       screen.getByText('Preview and work with Office documents.')
     ).toBeVisible();
@@ -468,21 +468,21 @@ describe('product plugin experience', () => {
   it('replaces a same-id package after explicit confirmation and binds its capabilities to all agents', async () => {
     const installed = {
       ...drawioPlugin,
-      id: 'vibex.workflow-creator',
-      name: 'VibeX Workflow Creator',
+      id: 'dimo.workflow-creator',
+      name: 'Dimo Workflow Creator',
       version: '1.0.0',
       sourceKind: 'builtin',
-      sourcePath: '/app/builtin/vibex.workflow-creator',
+      sourcePath: '/app/builtin/dimo.workflow-creator',
       enabled: true,
     };
     const incoming = {
       ...installed,
       version: '1.0.1',
       sourceKind: 'snapshot',
-      sourcePath: '/Users/me/vibex.workflow-creator-1.0.1.vxp',
-      skills: [{ id: 'vibex-workflow-creator', path: 'contents/skills' }],
+      sourcePath: '/Users/me/dimo.workflow-creator-1.0.1.vxp',
+      skills: [{ id: 'dimo-workflow-creator', path: 'contents/skills' }],
       mcpCount: 1,
-      mcpServers: ['vibex-workflow-mcp'],
+      mcpServers: ['dimo-workflow-mcp'],
     };
     vi.mocked(open).mockResolvedValue(incoming.sourcePath);
     const call = vi.fn(async (command: string) => {
@@ -529,7 +529,7 @@ describe('product plugin experience', () => {
       expect(call).toHaveBeenCalledWith('plugin_control_preview_import', {
         path: incoming.sourcePath,
         developerLink: false,
-        packageKind: 'vibex',
+        packageKind: 'dimo',
       })
     );
     expect(
@@ -546,7 +546,7 @@ describe('product plugin experience', () => {
         path: incoming.sourcePath,
         developerLink: false,
         conflictDecision: 'replace',
-        packageKind: 'vibex',
+        packageKind: 'dimo',
         permissionIds: [],
       })
     );
@@ -622,7 +622,7 @@ describe('product plugin experience', () => {
       path: drawioPlugin.sourcePath,
       developerLink: false,
       conflictDecision: 'reject',
-      packageKind: 'vibex',
+      packageKind: 'dimo',
       permissionIds: [],
     });
     expect(call).toHaveBeenCalledWith('plugin_control_set_enabled', {
@@ -666,7 +666,7 @@ describe('product plugin experience', () => {
     ]);
 
     fireEvent.click(
-      await screen.findByRole('switch', { name: /VibeX Office/i })
+      await screen.findByRole('switch', { name: /Dimo Office/i })
     );
 
     await waitFor(() =>
@@ -718,7 +718,7 @@ describe('product plugin experience', () => {
     ]);
 
     fireEvent.click(
-      await screen.findByRole('switch', { name: /VibeX Office/i })
+      await screen.findByRole('switch', { name: /Dimo Office/i })
     );
 
     await waitFor(() =>
@@ -743,11 +743,11 @@ describe('product plugin experience', () => {
         return {
           official: [
             {
-              owner: 'vibex',
-              pluginName: 'vibex.office',
+              owner: 'dimo',
+              pluginName: 'dimo.office',
               tag: '1.0.0',
               version: '1.0.0',
-              displayName: 'VibeX Office',
+              displayName: 'Dimo Office',
               summary: 'Office files',
               category: 'productivity',
               sourceKind: 'official',
@@ -783,7 +783,7 @@ describe('product plugin experience', () => {
             sourceKind: 'github',
           },
           summary: 'Take notes',
-          readme: '# Notes\n\nTake notes in VibeX.',
+          readme: '# Notes\n\nTake notes in Dimo.',
           contents: [
             {
               path: 'contents/mcp/notes/server.json',
@@ -858,7 +858,7 @@ describe('product plugin experience', () => {
       .getByText('办公套件')
       .closest('.product-plugin-card');
     expect(officeRow).not.toBeNull();
-    expect(within(officeRow as HTMLElement).getByText('vibex')).toBeVisible();
+    expect(within(officeRow as HTMLElement).getByText('dimo')).toBeVisible();
     expect(within(officeRow as HTMLElement).getByText('AIGC')).toBeVisible();
     expect(
       within(officeRow as HTMLElement).getByText(/已安装|Installed/)
@@ -873,7 +873,7 @@ describe('product plugin experience', () => {
         name: /^(安装|Install)$/,
       })
     ).toBeVisible();
-    expect(screen.queryByText(/vibex\/vibex.office@/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/dimo\/dimo.office@/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /^AIGC$/ }));
     expect(screen.queryByText('Notes')).not.toBeInTheDocument();
     expect(screen.getByText('办公套件')).toBeVisible();
@@ -931,11 +931,11 @@ describe('product plugin experience', () => {
         return {
           official: [
             {
-              owner: 'vibex',
-              pluginName: 'vibex.office',
+              owner: 'dimo',
+              pluginName: 'dimo.office',
               tag: '1.0.0',
               version: '1.0.0',
-              displayName: 'VibeX Office',
+              displayName: 'Dimo Office',
               summary: 'Office files',
               category: 'productivity',
               sourceKind: 'official',
@@ -1243,15 +1243,15 @@ describe('product plugin experience', () => {
       if (command === 'plugin_marketplace_listing') {
         return {
           listing: {
-            owner: 'vibex',
-            pluginName: 'vibex.office',
+            owner: 'dimo',
+            pluginName: 'dimo.office',
             tag: '1.0.0',
             version: '1.0.0',
-            displayName: 'VibeX Office',
+            displayName: 'Dimo Office',
             summary: 'Office files',
             category: 'productivity',
             sourceKind: 'official',
-            offlinePluginId: 'vibex.office',
+            offlinePluginId: 'dimo.office',
           },
           summary: 'Office files',
           readme: '# Office',
@@ -1260,7 +1260,7 @@ describe('product plugin experience', () => {
       }
       throw new Error(command);
     });
-    renderRoute('/plugins/marketplace/vibex/vibex.office', call);
+    renderRoute('/plugins/marketplace/dimo/dimo.office', call);
 
     const heading = (
       await screen.findAllByRole('heading', { name: '办公套件' })
@@ -1285,13 +1285,13 @@ describe('product plugin experience', () => {
     renderRoute('/plugins/office', call);
 
     expect(
-      (await screen.findAllByRole('heading', { name: 'VibeX Office' }))[0]
+      (await screen.findAllByRole('heading', { name: 'Dimo Office' }))[0]
     ).toBeVisible();
     expect(
       screen.getByText('Preview and work with Office documents.')
     ).toBeVisible();
     const detailHeading = screen.getAllByRole('heading', {
-      name: 'VibeX Office',
+      name: 'Dimo Office',
     })[0];
     const detailHeader = detailHeading.closest('header');
     const metadata = screen.getByRole('group', {
@@ -1354,8 +1354,8 @@ describe('product plugin experience', () => {
   it('shows source and version chips and official copy on the catalog', async () => {
     const official = {
       ...plugin,
-      id: 'vibex.office',
-      name: 'VibeX Office',
+      id: 'dimo.office',
+      name: 'Dimo Office',
       description: 'Package summary that should be replaced.',
     };
     const call = vi.fn().mockResolvedValue({
@@ -1367,14 +1367,14 @@ describe('product plugin experience', () => {
     expect(await screen.findByText('办公套件')).toBeVisible();
     expect(
       screen.getByText(
-        '在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
+        '在 Dimo 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
       )
     ).toBeVisible();
     const officialRow = screen
       .getByText('办公套件')
       .closest('.product-plugin-row');
     expect(officialRow).toHaveTextContent('v4.0.0');
-    expect(officialRow).not.toHaveTextContent('vibex/vibex.office@');
+    expect(officialRow).not.toHaveTextContent('dimo/dimo.office@');
     const installedRow = screen
       .getByText('Drawio')
       .closest('.product-plugin-row');
@@ -1439,7 +1439,7 @@ describe('product plugin experience', () => {
       expect(screen.queryByText('Drawio')).not.toBeInTheDocument()
     );
     expect(toastMock.success).toHaveBeenCalledWith('已卸载 Drawio');
-    expect(screen.getByText('VibeX Office')).toBeVisible();
+    expect(screen.getByText('Dimo Office')).toBeVisible();
   });
 
   it('offers uninstall for official marketplace packages', async () => {
@@ -1457,11 +1457,11 @@ describe('product plugin experience', () => {
     });
     renderRoute('/plugins', call);
 
-    const officialRow = (await screen.findByText('VibeX Office')).closest(
+    const officialRow = (await screen.findByText('Dimo Office')).closest(
       '.product-plugin-row'
     );
     fireEvent.contextMenu(officialRow as HTMLElement);
-    const menu = await screen.findByRole('menu', { name: 'VibeX Office' });
+    const menu = await screen.findByRole('menu', { name: 'Dimo Office' });
     expect(
       within(menu).getByRole('menuitem', {
         name: /卸载插件|uninstall plugin/i,
@@ -1538,7 +1538,7 @@ describe('product plugin experience', () => {
         </BackendTransportProvider>
       </QueryClientProvider>
     );
-    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(await screen.findByText('Dimo Office')).toBeVisible();
     const catalogCalls = () =>
       call.mock.calls.filter(
         ([command]) => command === 'plugin_control_catalog'
@@ -1555,7 +1555,7 @@ describe('product plugin experience', () => {
         </BackendTransportProvider>
       </QueryClientProvider>
     );
-    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(await screen.findByText('Dimo Office')).toBeVisible();
     expect(catalogCalls()).toHaveLength(1);
   });
 
@@ -1617,7 +1617,7 @@ describe('product plugin experience', () => {
     expect(
       within(telemetryRail).queryByText(/稳定版|Stable/)
     ).not.toBeInTheDocument();
-    expect(within(telemetryRail).getByText('VibeX Trust Hub')).toBeVisible();
+    expect(within(telemetryRail).getByText('Dimo Trust Hub')).toBeVisible();
     expect(within(telemetryRail).getByText('Socket')).toBeVisible();
     expect(within(telemetryRail).getByText('Snyk')).toBeVisible();
     expect(within(telemetryRail).getAllByText('PASS')).toHaveLength(3);
@@ -1654,7 +1654,7 @@ describe('product plugin experience', () => {
 
     renderRoute('/plugins/office', call);
     expect(
-      (await screen.findAllByRole('heading', { name: 'VibeX Office' }))[0]
+      (await screen.findAllByRole('heading', { name: 'Dimo Office' }))[0]
     ).toBeVisible();
     expect(
       screen.queryByRole('tab', { name: /包结构|Package/ })
@@ -1669,12 +1669,12 @@ describe('product plugin experience', () => {
   it('supports the 3-option add-plugin menu and GitHub repository pull popconfirm with mini-card', async () => {
     const githubPreviewPlugin = {
       ...drawioPlugin,
-      id: 'vibex.drawio',
+      id: 'dimo.drawio',
       name: 'Drawio',
       version: '1.0.0',
       sourceKind: 'snapshot',
-      sourcePath: '/tmp/vibex-drawio-main.tar.gz',
-      sourceOrigin: 'https://github.com/Xircth/vibex-drawio',
+      sourcePath: '/tmp/dimo-drawio-main.tar.gz',
+      sourceOrigin: 'https://github.com/DimoADE/Dimo-drawio',
     };
     const call = vi.fn(async (command: string) => {
       if (command === 'plugin_control_catalog') {
@@ -1729,7 +1729,7 @@ describe('product plugin experience', () => {
       name: /GitHub仓库地址|GitHub repository URL/i,
     });
     fireEvent.change(repoInput, {
-      target: { value: 'https://github.com/Xircth/vibex-drawio' },
+      target: { value: 'https://github.com/DimoADE/Dimo-drawio' },
     });
     fireEvent.click(
       within(popconfirm).getByRole('button', { name: /^拉取$|^Pull$/i })
@@ -1737,9 +1737,9 @@ describe('product plugin experience', () => {
 
     await waitFor(() =>
       expect(call).toHaveBeenCalledWith('plugin_control_preview_import', {
-        path: 'https://github.com/Xircth/vibex-drawio',
+        path: 'https://github.com/DimoADE/Dimo-drawio',
         developerLink: false,
-        packageKind: 'vibex',
+        packageKind: 'dimo',
       })
     );
 
@@ -1758,7 +1758,7 @@ describe('product plugin experience', () => {
       if (command === 'plugin_marketplace_listing') {
         return {
           listing: {
-            owner: 'vibex',
+            owner: 'dimo',
             pluginName: 'computer-use',
             tag: '2.0.0',
             version: '2.0.0',
@@ -1766,8 +1766,8 @@ describe('product plugin experience', () => {
             summary: '连接本机应用、终端窗口与无障碍自动化。',
             category: 'ai-enhancement',
             sourceKind: 'official',
-            offlinePluginId: 'vibex-plugin-computer-use',
-            repo: 'https://github.com/Xircth/vibex-plugin-computer-use',
+            offlinePluginId: 'dimo-plugin-computer-use',
+            repo: 'https://github.com/DimoADE/Dimo-plugin-computer-use',
           },
           summary: '连接本机应用、终端窗口与无障碍自动化。',
           readme: '# 电脑控制',
@@ -1776,7 +1776,7 @@ describe('product plugin experience', () => {
       }
       throw new Error(command);
     });
-    renderRoute('/plugins/marketplace/vibex/computer-use', call);
+    renderRoute('/plugins/marketplace/dimo/computer-use', call);
 
     expect(
       (await screen.findAllByRole('heading', { name: '电脑控制' }))[0]

@@ -15,7 +15,7 @@ import {
   resetAccountHostConfigsForTests,
 } from '@/features/model-router/accountHostConfigs';
 import * as openExternalModule from '@/features/model-router/openExternal';
-import { resetAccountOverviewCache } from '@/features/model-router/useVibeXAccount';
+import { resetAccountOverviewCache } from '@/features/model-router/useDimoAccount';
 import { configApi, webServiceApi } from '@/lib/api';
 
 import { AccountSettings } from './AccountSettings';
@@ -186,7 +186,7 @@ describe('AccountSettings', () => {
     );
   });
 
-  it('hides Subscription & Usage and Host list when signed out of VibeX', () => {
+  it('hides Subscription & Usage and Host list when signed out of Dimo', () => {
     render(
       <MemoryRouter>
         <AccountSettings />
@@ -201,7 +201,7 @@ describe('AccountSettings', () => {
       screen.queryByTestId('account-host-list-section')
     ).not.toBeInTheDocument();
     expect(
-      screen.getAllByText(/登录 VibeX 账号|Sign in to VibeX/i).length
+      screen.getAllByText(/登录 Dimo 账号|Sign in to Dimo/i).length
     ).toBeGreaterThanOrEqual(1);
     expect(
       screen.getByText(/登录安全与设备管理|Sign-in Security & Devices/i)
@@ -230,7 +230,7 @@ describe('AccountSettings', () => {
                 osArch: 'aarch64',
                 updatedAt: '2026-11-11T06:30:00.000Z',
                 fingerprint: 'v1_macbook_studio',
-                vibeXSettings: {
+                dimoSettings: {
                   userConfig: { send_message_shortcut: 'ModifierEnter' },
                   frontendPreferences: { ui_zoom: 1.15 },
                 },
@@ -351,7 +351,7 @@ describe('AccountSettings', () => {
       screen.getByTestId('account-subscription-section')
     ).toBeInTheDocument();
     expect(screen.getByTestId('subscription-plan-name')).toHaveTextContent(
-      /VibeX 订阅套餐|VibeX Subscriber Plan/i
+      /Dimo 订阅套餐|Dimo Subscriber Plan/i
     );
     expect(screen.getByTestId('subscription-balance-value')).toHaveTextContent(
       '38.50'
@@ -405,7 +405,7 @@ describe('AccountSettings', () => {
       );
       expect(setEnabledSpy).toHaveBeenCalledWith('CODEX', true);
     });
-    expect(window.localStorage.getItem('vibex:ui-zoom')).toBe('1.15');
+    expect(window.localStorage.getItem('dimo:ui-zoom')).toBe('1.15');
     expect(screen.getByTestId('provider-instance-manager')).toBeInTheDocument();
   });
 });

@@ -138,7 +138,7 @@ async fn workflow_debug_uses_an_unpublished_snapshot_until_explicit_publish() {
             .into_iter()
             .map(str::to_string),
     );
-    let source_path = "~/.vibex/workflows/application-debug.vibex-workflow.json";
+    let source_path = "~/.dimo/workflows/application-debug.dimo-workflow.json";
 
     let debug = registry
         .execute_name(

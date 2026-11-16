@@ -150,7 +150,7 @@ function escapeMentionLabel(value: string): string {
 }
 
 export function serializeAgentMention(mention: AgentMention): string {
-  return `[&${escapeMentionLabel(mention.display_name)}](vibex://agent/${encodeURIComponent(
+  return `[&${escapeMentionLabel(mention.display_name)}](dimo://agent/${encodeURIComponent(
     mention.agent_kind
   )})`;
 }

@@ -1279,7 +1279,7 @@ fn list_local_apps() -> Vec<LocalAppEntry> {
             "updater",
             "update.exe",
             "elevate.exe",
-            "vibex",
+            "dimo",
             "cua-driver",
             "explorer.exe",
             "applicationframehost.exe",

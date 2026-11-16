@@ -87,7 +87,7 @@ describe('composer @ references', () => {
   });
 
   it('lists projects by name with their absolute path', () => {
-    const groups = buildAtReferenceGroups('vibe', {
+    const groups = buildAtReferenceGroups('dimo', {
       files: [],
       conversations: [],
       commits: [],
@@ -96,8 +96,8 @@ describe('composer @ references', () => {
       projects: [
         {
           id: 'proj-1',
-          name: 'VibeX',
-          path: '/Users/mac/Projects/VibeX',
+          name: 'Dimo',
+          path: '/Users/mac/Projects/Dimo',
         },
         {
           id: 'proj-2',
@@ -110,11 +110,11 @@ describe('composer @ references', () => {
       {
         id: 'project:proj-1',
         tab: 'project',
-        label: 'VibeX',
-        detail: '/Users/mac/Projects/VibeX',
-        insertText: `[VibeX](${projectReferenceUri(
+        label: 'Dimo',
+        detail: '/Users/mac/Projects/Dimo',
+        insertText: `[Dimo](${projectReferenceUri(
           'proj-1',
-          '/Users/mac/Projects/VibeX'
+          '/Users/mac/Projects/Dimo'
         )})`,
       },
     ]);
@@ -132,13 +132,13 @@ describe('composer @ references', () => {
           id: 'lab.sshconfig',
           label: 'Lab',
           detail: 'root@203.0.113.8',
-          insertText: '[@:Lab](.vibex/ssh-hosts/lab.sshconfig)',
+          insertText: '[@:Lab](.dimo/ssh-hosts/lab.sshconfig)',
         },
         {
           id: 'edge.sshconfig',
           label: 'Edge',
           detail: 'deploy@198.51.100.8',
-          insertText: '[@:Edge](.vibex/ssh-hosts/edge.sshconfig)',
+          insertText: '[@:Edge](.dimo/ssh-hosts/edge.sshconfig)',
         },
       ],
     });
@@ -287,7 +287,7 @@ describe('composer @ references', () => {
       instructions: [],
       actions: [
         {
-          id: 'plugin:vibex.host-surface/sample-action',
+          id: 'plugin:dimo.host-surface/sample-action',
           title: '插入示例说明',
           insertText: '请先阅读示例面板里的说明，再继续。',
         },
@@ -295,7 +295,7 @@ describe('composer @ references', () => {
     });
     expect(groups.find((group) => group.tab === 'action')?.items).toEqual([
       {
-        id: 'plugin:vibex.host-surface/sample-action',
+        id: 'plugin:dimo.host-surface/sample-action',
         tab: 'action',
         label: '插入示例说明',
         insertText: '请先阅读示例面板里的说明，再继续。',

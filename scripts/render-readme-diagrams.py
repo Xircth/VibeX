@@ -262,14 +262,14 @@ def hero() -> str:
         )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880">
-  <title>VibeX 一体化 Agent-Native 开发平台全景图</title>
-  <desc>VibeX unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity across Desktop, WebUI, Server, Mobile, and IM.</desc>
+  <title>Dimo 一体化 Agent-Native 开发平台全景图</title>
+  <desc>Dimo unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity across Desktop, WebUI, Server, Mobile, and IM.</desc>
   {DEFS}
   <rect width="1200" height="880" rx="24" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.5"/>
 
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
     <!-- Header -->
-    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX 一体化 Agent-Native 开发平台全景</text>
+    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">Dimo 一体化 Agent-Native 开发平台全景</text>
     <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">多 Agent 可视化调度 · 自由标签 / 无限画布空间 · 三层自由协作引擎 · 一切皆插件 · 多 Host 全端互联</text>
 
     <!-- Flow lines from Agents to ACP -->
@@ -293,7 +293,7 @@ def hero() -> str:
     {dash("M238 330 V344", 0.25, "#2563EB")}
     {dash("M962 330 V344", 0.28, "#059669")}
 
-    <!-- Layer 3: VibeX Platform Core Container -->
+    <!-- Layer 3: Dimo Platform Core Container -->
     <g filter="url(#host-shadow)">
       <rect x="38" y="344" width="1124" height="392" rx="22" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <rect x="39" y="345" width="1122" height="48" rx="21" fill="url(#host-header-grad)"/>
@@ -302,7 +302,7 @@ def hero() -> str:
       <circle cx="66" cy="369" r="6" fill="#2563EB"/>
       <circle cx="84" cy="369" r="6" fill="#7C3AED"/>
       <circle cx="102" cy="369" r="6" fill="#10B981"/>
-      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX 高性能本地优先核心（多 Agent 开发环境 × Vibe Coding 工具链）</text>
+      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">Dimo 高性能本地优先核心（多 Agent 开发环境 × Vibe Coding 工具链）</text>
       <rect x="916" y="356" width="224" height="26" rx="13" fill="#0F172A"/>
       <text x="1028" y="373" text-anchor="middle" fill="#F8FAFC" font-size="11" font-weight="700">Rust 原生高性能 · 代码数据本地可控</text>
     </g>
@@ -454,12 +454,12 @@ def flow() -> str:
     for i, x in enumerate(xs):
         connectors.append(dash(f"M{x} 182 H{x + 80}", 0.12 * i, "#4F46E5"))
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320">
-  <title>VibeX Vibe Coding 工程化闭环</title>
+  <title>Dimo Vibe Coding 工程化闭环</title>
   <desc>From rich multimodal context to isolated Git worktrees, 3-tier multi-agent collaboration, infinite canvas steering, and anywhere review.</desc>
   {DEFS}
   <rect width="1200" height="320" rx="20" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.2"/>
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
-    <text x="600" y="46" text-anchor="middle" fill="#0F172A" font-size="18" font-weight="800">VibeX 多 Agent 协同与 Vibe Coding 研发流</text>
+    <text x="600" y="46" text-anchor="middle" fill="#0F172A" font-size="18" font-weight="800">Dimo 多 Agent 协同与 Vibe Coding 研发流</text>
     <text x="600" y="70" text-anchor="middle" fill="#475569" font-size="12" font-weight="500">精准上下文输入 · 多 Worktree 并行改码 · 三层 Agent 自由协作 · 跨 Agent 接力与实时纠偏 · 全端随时审批合并</text>
     {"".join(cards)}
   </g>
@@ -516,14 +516,14 @@ def hero_en() -> str:
         )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880">
-  <title>VibeX All-in-One Agent-Native Development Platform</title>
-  <desc>VibeX unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity.</desc>
+  <title>Dimo All-in-One Agent-Native Development Platform</title>
+  <desc>Dimo unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity.</desc>
   {DEFS}
   <rect width="1200" height="880" rx="24" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.5"/>
 
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
     <!-- Header -->
-    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX All-in-One Agent-Native Development Platform</text>
+    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">Dimo All-in-One Agent-Native Development Platform</text>
     <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">Multi-Agent Visualization · Tabs &amp; Infinite Canvas · 3-Tier Collaboration · Everything is a Plugin · Multi-Host Everywhere</text>
 
     <!-- Flow lines from Agents to ACP -->
@@ -547,7 +547,7 @@ def hero_en() -> str:
     {dash("M238 330 V344", 0.25, "#2563EB")}
     {dash("M962 330 V344", 0.28, "#059669")}
 
-    <!-- Layer 3: VibeX Platform Core Container -->
+    <!-- Layer 3: Dimo Platform Core Container -->
     <g filter="url(#host-shadow)">
       <rect x="38" y="344" width="1124" height="392" rx="22" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <rect x="39" y="345" width="1122" height="48" rx="21" fill="url(#host-header-grad)"/>
@@ -556,7 +556,7 @@ def hero_en() -> str:
       <circle cx="66" cy="369" r="6" fill="#2563EB"/>
       <circle cx="84" cy="369" r="6" fill="#7C3AED"/>
       <circle cx="102" cy="369" r="6" fill="#10B981"/>
-      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX High-Performance Core (Multi-Agent Workspace × Vibe Coding Toolkit)</text>
+      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">Dimo High-Performance Core (Multi-Agent Workspace × Vibe Coding Toolkit)</text>
       <rect x="886" y="356" width="254" height="26" rx="13" fill="#0F172A"/>
       <text x="1013" y="373" text-anchor="middle" fill="#F8FAFC" font-size="10.5" font-weight="700">Native Rust Speed · Local-First Data</text>
     </g>

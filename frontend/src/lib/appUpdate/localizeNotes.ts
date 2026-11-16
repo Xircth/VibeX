@@ -6,7 +6,7 @@ function prefersChinese(locale: string): boolean {
 }
 
 /**
- * VibeX release notes are published as one markdown body with `## English`
+ * Dimo release notes are published as one markdown body with `## English`
  * and `## 中文` halves. Show the half that matches the interface language;
  * otherwise keep the whole body.
  */

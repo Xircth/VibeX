@@ -513,12 +513,12 @@ impl PluginControlPlane {
             }
         }
         if best_match.is_none()
-            && let Some(rest) = trimmed.strip_prefix("vibex.")
+            && let Some(rest) = trimmed.strip_prefix("dimo.")
             && let Some((slug, command_name)) = rest.split_once('.')
             && !slug.is_empty()
             && !command_name.is_empty()
         {
-            return Ok(Some((format!("vibex.{slug}"), command_name.to_owned())));
+            return Ok(Some((format!("dimo.{slug}"), command_name.to_owned())));
         }
         Ok(best_match)
     }

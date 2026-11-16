@@ -96,7 +96,7 @@ export class CompletionCopilot {
     }
     return {
       completion: null,
-      error: 'Custom model function is required in VibeX worker CompletionCopilot.',
+      error: 'Custom model function is required in Dimo worker CompletionCopilot.',
     };
   }
 }

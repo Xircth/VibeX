@@ -864,7 +864,7 @@ describe('AgentSettings', () => {
     await user.click(enableSwitch);
     expect(
       screen.getByText(
-        '关闭启用该 Agent 后，将无法使用该 Agent 创建会话。您可以选择是否卸载或清除该 Agent 的数据；卸载时仅移除 VibeX 托管的运行时副本，不会影响您自行安装的本地 CLI 与登录态。'
+        '关闭启用该 Agent 后，将无法使用该 Agent 创建会话。您可以选择是否卸载或清除该 Agent 的数据；卸载时仅移除 Dimo 托管的运行时副本，不会影响您自行安装的本地 CLI 与登录态。'
       )
     ).toBeVisible();
     expect(screen.getByRole('button', { name: '仅关闭' })).toBeVisible();
@@ -1223,7 +1223,7 @@ describe('AgentSettings', () => {
       providers: [
         {
           id: 'prov-router-1',
-          name: 'VibeX ModelRouter',
+          name: 'Dimo ModelRouter',
           agent_id: 'codex',
           api_url: 'https://site.test/api/router/v1',
           api_key_masked: 'vxr-••••',
@@ -1251,7 +1251,7 @@ describe('AgentSettings', () => {
     render(<AgentSettings />);
     await screen.findAllByText('Codex');
 
-    const listener = tauriListeners.get('vibex://modelrouter-import');
+    const listener = tauriListeners.get('dimo://modelrouter-import');
     expect(listener).toBeDefined();
 
     await act(async () => {
@@ -1264,7 +1264,7 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(api.saveModelProvider).toHaveBeenCalledWith({
         id: null,
-        name: 'VibeX ModelRouter',
+        name: 'Dimo ModelRouter',
         agent_id: 'codex',
         api_url: 'https://site.test/api/router/v1',
         api_key: 'vxr-secret',

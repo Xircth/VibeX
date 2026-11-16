@@ -4,7 +4,7 @@
 //! `commands::computer`), and that is why the keys are a closed list. On
 //! macOS a hotkey on an ordinary key is a Carbon hotkey, which needs no
 //! permission at all; a hotkey on a media key is watched through an event
-//! tap, which needs Input Monitoring — a permission vibex must never hold,
+//! tap, which needs Input Monitoring — a permission dimo must never hold,
 //! because every agent's shell would inherit it. So only the keys below are
 //! ever registered, whatever a settings record says.
 //!
@@ -24,7 +24,7 @@ use serde::Serialize;
 use crate::computer::keys::Platform;
 
 /// Where the stop shortcut stands. Held with the OS by the desktop app
-/// alone: vibex-server has none, and says so with this left empty.
+/// alone: dimo-server has none, and says so with this left empty.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StopKeyStatus {
@@ -185,7 +185,7 @@ impl StopShortcut {
 
     /// What a settings record's spelling comes to on `platform`: nothing for
     /// the empty string, the shortcut it spells, or — for a spelling that is
-    /// not one here (a record from another platform's vibex) — the default,
+    /// not one here (a record from another platform's dimo) — the default,
     /// because a stop shortcut that silently stopped existing is the worse
     /// surprise.
     pub fn from_setting(spelling: &str, platform: Platform) -> Option<StopShortcut> {

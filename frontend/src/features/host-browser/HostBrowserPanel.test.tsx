@@ -107,7 +107,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -136,7 +136,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -150,7 +150,7 @@ describe('HostBrowserPanel', () => {
 
     await waitFor(() => {
       expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-        pluginId: 'vibex.browser',
+        pluginId: 'dimo.browser',
         handler: 'browser.dispatch',
         input: {
           operation: 'tab.create',
@@ -180,7 +180,7 @@ describe('HostBrowserPanel', () => {
     );
     await waitFor(() => {
       expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-        pluginId: 'vibex.browser',
+        pluginId: 'dimo.browser',
         handler: 'browser.dispatch',
         input: {
           operation: 'tab.navigate',
@@ -222,7 +222,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -261,7 +261,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -296,7 +296,7 @@ describe('HostBrowserPanel', () => {
     window.dispatchEvent(new Event('resize'));
     await waitFor(() => {
       expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-        pluginId: 'vibex.browser',
+        pluginId: 'dimo.browser',
         handler: 'browser.dispatch',
         input: {
           operation: 'surface.set',
@@ -325,7 +325,7 @@ describe('HostBrowserPanel', () => {
     window.dispatchEvent(new Event('resize'));
     await waitFor(() => {
       expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-        pluginId: 'vibex.browser',
+        pluginId: 'dimo.browser',
         handler: 'browser.dispatch',
         input: {
           operation: 'surface.set',
@@ -347,7 +347,7 @@ describe('HostBrowserPanel', () => {
       i18n.t(`browserPanel.${key}`, { ns: 'panels' });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -427,7 +427,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -485,7 +485,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
         panelApi={{ updateParameters: () => {}, setTitle }}
@@ -512,7 +512,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -555,7 +555,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -593,7 +593,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
         panelApi={{ updateParameters, setTitle: () => {} }}
@@ -646,7 +646,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
         panelApi={{ updateParameters, setTitle: vi.fn() }}
@@ -675,8 +675,8 @@ describe('HostBrowserPanel', () => {
           visitedAt: 20,
         },
         {
-          url: 'https://github.com/Xircth/VibeX',
-          title: 'Xircth/VibeX: IADE',
+          url: 'https://github.com/DimoADE/Dimo',
+          title: 'DimoADE/Dimo: IADE',
           favicon: 'https://github.com/favicon.ico',
           visitedAt: 40,
         },
@@ -684,7 +684,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -692,7 +692,7 @@ describe('HostBrowserPanel', () => {
     await user.type(screen.getByRole('combobox'), 'github');
     const options = await screen.findAllByRole('option');
     expect(options[0]).toHaveTextContent('xintaofei/codeg');
-    expect(options[1]).toHaveTextContent('Xircth/VibeX');
+    expect(options[1]).toHaveTextContent('DimoADE/Dimo');
     expect(options.at(-1)).toHaveTextContent('github.com');
     expect(options.length).toBeGreaterThanOrEqual(3);
     expect(options[0].querySelector('img')?.getAttribute('src')).toBe(
@@ -711,7 +711,7 @@ describe('HostBrowserPanel', () => {
     });
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -751,7 +751,7 @@ describe('HostBrowserPanel', () => {
     });
     const { rerender } = render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -783,14 +783,14 @@ describe('HostBrowserPanel', () => {
     backendCall.mockClear();
     rerender(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible={false}
         requestedUrl={null}
       />
     );
     await waitFor(() => {
       expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-        pluginId: 'vibex.browser',
+        pluginId: 'dimo.browser',
         handler: 'browser.dispatch',
         input: {
           operation: 'surface.set',
@@ -811,10 +811,10 @@ describe('HostBrowserPanel', () => {
       title: 'GitHub',
       grant: { level: 'none' },
     });
-    const panelId = 'plugin:vibex.browser/browser:1';
+    const panelId = 'plugin:dimo.browser/browser:1';
     const { unmount } = render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
         panelApi={{ id: panelId, updateParameters: () => {} }}
@@ -838,7 +838,7 @@ describe('HostBrowserPanel', () => {
     unmount();
     await waitFor(() => {
       expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-        pluginId: 'vibex.browser',
+        pluginId: 'dimo.browser',
         handler: 'browser.dispatch',
         input: {
           operation: 'surface.set',
@@ -909,7 +909,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -1012,7 +1012,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -1079,7 +1079,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -1175,7 +1175,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -1257,7 +1257,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -1325,7 +1325,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />
@@ -1426,7 +1426,7 @@ describe('HostBrowserPanel', () => {
     );
     render(
       <HostBrowserPanel
-        pluginId="vibex.browser"
+        pluginId="dimo.browser"
         panelVisible
         requestedUrl={null}
       />

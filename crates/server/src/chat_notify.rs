@@ -1,4 +1,4 @@
-//! Host-owned IM outbound: one publisher seam for desktop and vibex-server.
+//! Host-owned IM outbound: one publisher seam for desktop and dimo-server.
 
 use std::sync::Arc;
 

@@ -394,7 +394,7 @@ describe('OpenCodeProviderConnections', () => {
       generation: 4,
       items: [
         {
-          pluginId: 'vibex.provider-switch',
+          pluginId: 'dimo.provider-switch',
           id: 'opencode',
           kind: 'provider_model_catalog',
           label: 'OpenCode presets',
@@ -409,7 +409,7 @@ describe('OpenCodeProviderConnections', () => {
       templates: [
         {
           id: 'openrouter',
-          plugin_id: 'vibex.provider-switch',
+          plugin_id: 'dimo.provider-switch',
           contribution_id: 'opencode',
           plugin_label: 'ProviderSwitch',
           agent_id: 'opencode',
@@ -424,7 +424,7 @@ describe('OpenCodeProviderConnections', () => {
         },
         {
           id: 'siliconflow',
-          plugin_id: 'vibex.provider-switch',
+          plugin_id: 'dimo.provider-switch',
           contribution_id: 'opencode',
           plugin_label: 'ProviderSwitch',
           agent_id: 'opencode',
@@ -516,7 +516,7 @@ describe('OpenCodeProviderConnections', () => {
       generation: 4,
       items: [
         {
-          pluginId: 'vibex.provider-switch',
+          pluginId: 'dimo.provider-switch',
           id: 'opencode',
           kind: 'provider_model_catalog',
           label: 'OpenCode presets',
@@ -531,7 +531,7 @@ describe('OpenCodeProviderConnections', () => {
       templates: [
         {
           id: 'siliconflow',
-          plugin_id: 'vibex.provider-switch',
+          plugin_id: 'dimo.provider-switch',
           contribution_id: 'opencode',
           plugin_label: 'ProviderSwitch',
           agent_id: 'opencode',

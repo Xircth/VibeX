@@ -23,18 +23,18 @@ pub struct DataDirSettings {
 
 /// Lightweight bootstrap configuration file path (`bootstrap.json`).
 ///
-/// Stored in the OS config directory (`%APPDATA%\vibex\vibex\config\bootstrap.json` on Windows)
+/// Stored in the OS config directory (`%APPDATA%\dimo\dimo\config\bootstrap.json` on Windows)
 /// so the Host can locate a user-configured custom data directory before opening `db.sqlite`.
 pub fn bootstrap_config_path() -> PathBuf {
     if let Some(explicit) =
-        std::env::var_os("VIBEX_BOOTSTRAP_CONFIG_PATH").filter(|value| !value.is_empty())
+        std::env::var_os("DIMO_BOOTSTRAP_CONFIG_PATH").filter(|value| !value.is_empty())
     {
         return PathBuf::from(explicit);
     }
-    ProjectDirs::from("app", "vibex", "vibex")
+    ProjectDirs::from("app", "dimo", "dimo")
         .map(|dirs| dirs.config_dir().join("bootstrap.json"))
-        .or_else(|| dirs::home_dir().map(|home| home.join(".vibex").join("bootstrap.json")))
-        .unwrap_or_else(|| PathBuf::from(".vibex-bootstrap.json"))
+        .or_else(|| dirs::home_dir().map(|home| home.join(".dimo").join("bootstrap.json")))
+        .unwrap_or_else(|| PathBuf::from(".dimo-bootstrap.json"))
 }
 
 pub fn load_bootstrap_config_from(path: &Path) -> BootstrapConfig {
@@ -67,17 +67,44 @@ pub fn read_custom_data_dir_from(bootstrap_path: &Path) -> Option<PathBuf> {
 }
 
 pub fn read_custom_data_dir() -> Option<PathBuf> {
-    read_custom_data_dir_from(&bootstrap_config_path())
+    let current = bootstrap_config_path();
+    if let Some(dir) = read_custom_data_dir_from(&current) {
+        return Some(dir);
+    }
+    let previous = pre_rename_bootstrap_config_path();
+    (previous != current)
+        .then(|| read_custom_data_dir_from(&previous))
+        .flatten()
 }
 
 /// Data directory used before release builds moved data under the install
-/// directory (`%APPDATA%\vibex\vibex\data` on Windows). Also the fallback when
+/// directory (`%APPDATA%\dimo\dimo\data` on Windows). Also the fallback when
 /// the install directory is read-only.
 pub fn legacy_roaming_data_dir() -> PathBuf {
+    ProjectDirs::from("app", "dimo", "dimo")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .or_else(|| dirs::data_dir().map(|path| path.join("dimo")))
+        .unwrap_or_else(|| PathBuf::from(".dimo-data"))
+}
+
+/// Where the previous brand (`VibeX`) kept its data on this machine.
+///
+/// Users upgrading from VibeX keep their conversations, worktrees and settings
+/// only if this directory is adopted, so it is resolved for read purposes and
+/// never written through [`asset_dir`](crate::assets::asset_dir).
+pub fn pre_rename_data_dir() -> PathBuf {
     ProjectDirs::from("app", "vibex", "vibex")
         .map(|dirs| dirs.data_dir().to_path_buf())
         .or_else(|| dirs::data_dir().map(|path| path.join("vibex")))
         .unwrap_or_else(|| PathBuf::from(".vibex-data"))
+}
+
+/// Where the previous brand (`VibeX`) kept `bootstrap.json`.
+pub fn pre_rename_bootstrap_config_path() -> PathBuf {
+    ProjectDirs::from("app", "vibex", "vibex")
+        .map(|dirs| dirs.config_dir().join("bootstrap.json"))
+        .or_else(|| dirs::home_dir().map(|home| home.join(".vibex").join("bootstrap.json")))
+        .unwrap_or_else(|| PathBuf::from(".vibex-bootstrap.json"))
 }
 
 fn is_cargo_build_or_test_dir(dir: &Path) -> bool {
@@ -100,7 +127,7 @@ pub fn probe_writable_dir(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
-    let probe = dir.join(format!(".vibex-write-probe-{}", std::process::id()));
+    let probe = dir.join(format!(".dimo-write-probe-{}", std::process::id()));
     match std::fs::write(&probe, b"ok") {
         Ok(()) => {
             let _ = std::fs::remove_file(&probe);
@@ -152,16 +179,23 @@ pub struct LegacyDataDirAdoption {
 }
 
 /// Returns the adoption to perform at startup, if any. Only release builds
-/// without an explicit data directory (`VIBEX_DATA_DIR` or `bootstrap.json`)
+/// without an explicit data directory (`DIMO_DATA_DIR` or `bootstrap.json`)
 /// adopt, and only when the legacy directory holds a database.
+///
+/// Both the pre-rename (`VibeX`) directory and the older in-roaming default are
+/// candidates; the pre-rename directory wins because it is the one an upgrading
+/// user actually has populated.
 pub fn pending_legacy_data_dir_adoption() -> Option<LegacyDataDirAdoption> {
     if cfg!(debug_assertions)
-        || std::env::var_os("VIBEX_DATA_DIR").is_some_and(|value| !value.is_empty())
+        || renamed_env_var("DIMO_DATA_DIR").is_some()
         || read_custom_data_dir().is_some()
     {
         return None;
     }
-    legacy_data_dir_adoption(legacy_roaming_data_dir(), install_data_dir()?)
+    let target_dir = install_data_dir()?;
+    [pre_rename_data_dir(), legacy_roaming_data_dir()]
+        .into_iter()
+        .find_map(|dir| legacy_data_dir_adoption(dir, target_dir.clone()))
 }
 
 pub fn legacy_data_dir_adoption(
@@ -184,7 +218,7 @@ pub fn default_data_dir_without_custom() -> PathBuf {
     }
 }
 
-/// Default Host data directory shared by Desktop release builds and `vibex-server`.
+/// Default Host data directory shared by Desktop release builds and `dimo-server`.
 ///
 /// Desktop debug builds still use the repo `dev_assets/` tree via [`asset_dir`] unless
 /// overridden by `bootstrap.json`.
@@ -197,7 +231,7 @@ pub fn default_host_data_dir() -> PathBuf {
 static DATA_DIR_FOR_THIS_RUN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Opens `dir` for the rest of this process. Used when a legacy data directory
-/// could not be moved yet (for example, an older VibeX still holds it open):
+/// could not be moved yet (for example, an older Dimo still holds it open):
 /// the user's existing data is opened in place and the move is retried on the
 /// next launch. Must run before anything resolves the data directory.
 pub fn use_data_dir_for_this_run(dir: PathBuf) {
@@ -228,14 +262,25 @@ pub fn asset_dir() -> PathBuf {
     path
 }
 
-/// Canonical Host data directory for Desktop and `vibex-server`.
+/// Canonical Host data directory for Desktop and `dimo-server`.
 ///
-/// `VIBEX_DATA_DIR` wins. Otherwise this is [`asset_dir`] so debug Desktop
+/// Reads a `DIMO_*` environment variable, falling back to the equivalent
+/// `VIBEX_*` name so environments configured before the rename keep working.
+pub fn renamed_env_var(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            let legacy = name.strip_prefix("DIMO_").map(|rest| format!("VIBEX_{rest}"))?;
+            std::env::var_os(legacy).filter(|value| !value.is_empty())
+        })
+}
+
+/// `DIMO_DATA_DIR` wins. Otherwise this is [`asset_dir`] so debug Desktop
 /// keeps using `dev_assets/` (unless customized) and release builds use
 /// `<install_dir>/data` (Roaming when the install dir is read-only) or the
 /// user's custom data directory.
 pub fn host_data_dir() -> PathBuf {
-    if let Some(explicit) = std::env::var_os("VIBEX_DATA_DIR").filter(|value| !value.is_empty()) {
+    if let Some(explicit) = renamed_env_var("DIMO_DATA_DIR") {
         let path = PathBuf::from(explicit);
         let _ = std::fs::create_dir_all(&path);
         return path;
@@ -272,10 +317,15 @@ pub fn config_path() -> PathBuf {
     host_data_dir().join("config.json")
 }
 
-/// Settings live next to the Host database. `~/.vibex/settings.json` is copied
-/// once if the Host file does not exist yet.
+/// Settings live next to the Host database. `~/.dimo/settings.json` (or
+/// pre-rename `~/.vibex/settings.json`) is copied once if the Host file does
+/// not exist yet.
 pub fn settings_path() -> PathBuf {
     let dest = host_data_dir().join("settings.json");
+    adopt_legacy_file(
+        dirs::home_dir().map(|home| home.join(".dimo").join("settings.json")),
+        &dest,
+    );
     adopt_legacy_file(
         dirs::home_dir().map(|home| home.join(".vibex").join("settings.json")),
         &dest,
@@ -285,6 +335,10 @@ pub fn settings_path() -> PathBuf {
 
 pub fn im_env_path() -> PathBuf {
     let dest = host_data_dir().join(".env");
+    adopt_legacy_file(
+        dirs::home_dir().map(|home| home.join(".dimo").join(".env")),
+        &dest,
+    );
     adopt_legacy_file(
         dirs::home_dir().map(|home| home.join(".vibex").join(".env")),
         &dest,
@@ -305,13 +359,20 @@ fn adopt_legacy_file(legacy: Option<PathBuf>, dest: &Path) {
     let _ = std::fs::copy(legacy, dest);
 }
 
-/// Directories Tauri used for `app.path().app_data_dir()` with identifier
-/// `com.vibex.app`. Host product files now live in [`host_data_dir`].
+/// Directories Tauri used for `app.path().app_data_dir()`. Host product files
+/// now live in [`host_data_dir`].
+///
+/// The `com.vibex.app` / `VibeX` / `vibex` entries are the pre-rename
+/// identifiers: files written before the Dimo rename are still picked up from
+/// there when the new location does not have them yet.
 pub fn tauri_app_data_dir_candidates() -> Vec<PathBuf> {
     let Some(data) = dirs::data_dir() else {
         return Vec::new();
     };
     let mut dirs = vec![
+        data.join("com.dimo.app"),
+        data.join("Dimo"),
+        data.join("dimo"),
         data.join("com.vibex.app"),
         data.join("VibeX"),
         data.join("vibex"),
@@ -389,7 +450,7 @@ pub fn host_identity_path(data_root: &Path) -> PathBuf {
 
 /// Stable Host identity for the given data directory.
 ///
-/// Desktop and `vibex-server` must persist this next to the database so pairing
+/// Desktop and `dimo-server` must persist this next to the database so pairing
 /// and capabilities keep the same identity across restarts and Host family
 /// processes.
 pub fn load_or_create_host_id(data_root: &Path) -> std::io::Result<String> {
@@ -487,7 +548,7 @@ fn existing_materialized_plugin_roots(data_root: &Path) -> BTreeMap<String, Path
             if version.file_name().to_string_lossy().starts_with('.') {
                 continue;
             }
-            if !path.join(".vibex-plugin/plugin.json").is_file() {
+            if !path.join(".dimo-plugin/plugin.json").is_file() {
                 continue;
             }
             let modified = std::fs::metadata(&path)
@@ -545,9 +606,9 @@ mod tests {
         let extra = data
             .path()
             .join("builtin-plugins/dev.example.extra/aaaaaaaaaaaa");
-        std::fs::create_dir_all(extra.join(".vibex-plugin")).unwrap();
+        std::fs::create_dir_all(extra.join(".dimo-plugin")).unwrap();
         std::fs::write(
-            extra.join(".vibex-plugin/plugin.json"),
+            extra.join(".dimo-plugin/plugin.json"),
             br#"{"id":"dev.example.extra"}"#,
         )
         .unwrap();
@@ -615,19 +676,19 @@ mod tests {
         assert!(
             files.iter().any(|path| {
                 path.components()
-                    .any(|component| component.as_os_str() == "com.vibex.app")
+                    .any(|component| component.as_os_str() == "com.dimo.app")
                     && path
                         .file_name()
                         .is_some_and(|name| name == "agent-model-providers.json")
             }),
-            "expected com.vibex.app candidate, got {files:?}"
+            "expected com.dimo.app candidate, got {files:?}"
         );
     }
 
     #[test]
     fn install_data_dir_uses_install_dir_data_and_skips_cargo_target_dirs() {
         let root = tempfile::tempdir().unwrap();
-        let install_dir = root.path().join("VibeX");
+        let install_dir = root.path().join("Dimo");
         std::fs::create_dir_all(&install_dir).unwrap();
 
         let resolved = super::install_data_dir_for_exe_dir(&install_dir)

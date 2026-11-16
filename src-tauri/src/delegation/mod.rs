@@ -1,4 +1,4 @@
-//! Wires the in-process `delegation` broker to VibeX's `AgentRuntime` + DB.
+//! Wires the in-process `delegation` broker to Dimo's `AgentRuntime` + DB.
 //!
 //! The broker and its trait boundaries live in `crates/delegation`; this module
 //! provides the concrete implementations: lookups over the `Session` model,

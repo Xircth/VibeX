@@ -1006,7 +1006,7 @@ async fn ensure_conversation_binding_for_controls(
     // A missing binding shows agent mentions. Recording an empty MCP list would
     // look like a session that started before delegation was delivered and hide
     // them (ADR-0065). This row does not decide which servers the process gets.
-    let mcp_servers_json = r#"["vibex-delegation-mcp"]"#;
+    let mcp_servers_json = r#"["dimo-delegation-mcp"]"#;
     ConversationAgentBindingRecord::create(
         pool,
         Uuid::new_v4(),

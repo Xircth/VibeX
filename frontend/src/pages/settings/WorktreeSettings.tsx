@@ -360,7 +360,7 @@ export function WorktreeSettings() {
                       })
                     }
                     onBlur={() => void flushWorktree()}
-                    placeholder="vibex"
+                    placeholder="dimo"
                     width="160px"
                     className="w-40 [&_input]:text-sm"
                     status={

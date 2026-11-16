@@ -6,7 +6,7 @@
 //! whose application is hidden. To it such a window is only off screen — as
 //! are the hidden windows every application keeps (a main window closed to
 //! the menu bar, a panel made ahead of time), which nobody means to share and
-//! vibex leaves out of its lists. The application's accessibility interface
+//! dimo leaves out of its lists. The application's accessibility interface
 //! tells them apart: it says whether the application is hidden (`AXHidden`),
 //! and lists the windows a person can bring up, minimized ones among them,
 //! each saying whether it is (`AXMinimized`); ordered-out windows are not in

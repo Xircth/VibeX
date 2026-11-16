@@ -16,9 +16,9 @@ export const PLUGIN_WATCH_IGNORED_DIRECTORIES = new Set([
 ]);
 const ignoredDirectories = PLUGIN_WATCH_IGNORED_DIRECTORIES;
 const ignoredFiles = new Set([
-  '.vibex-plugin/developer-link.json',
-  '.vibex-plugin/package.lock.json',
-  '.vibex-plugin/dev-remote.json',
+  '.dimo-plugin/developer-link.json',
+  '.dimo-plugin/package.lock.json',
+  '.dimo-plugin/dev-remote.json',
 ]);
 
 export type PluginSourceWatcher = {

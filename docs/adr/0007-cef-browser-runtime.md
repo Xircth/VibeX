@@ -1,7 +1,7 @@
 # Web Preview 采用独立 CEF Browser Runtime
 
 > **Superseded in product path** (`codeg-browser-plugin` design):
-> desktop preview is `crates/browser-host` + official plugin `vibex.browser`.
+> desktop preview is `crates/browser-host` + official plugin `dimo.browser`.
 > CEF is not initialized, linked, or bundled.
 
 > [ADR-0069](0069-everything-is-a-plugin-platform.md) Batch 5 改为 Host 系统
@@ -19,7 +19,7 @@ localhost 流量经过一个 Rust HTTP 代理。代理需要缓冲 HTML、移除
 导航历史、DevTools 与页面进程隔离都受到 iframe 或代理实现限制。继续扩展代理只会
 把 Chromium 已经解决的问题重新实现一遍。
 
-VibeX 必须继续使用 Tauri、Rust 和 React，同时在 Windows、macOS 与 Linux 提供
+Dimo 必须继续使用 Tauri、Rust 和 React，同时在 Windows、macOS 与 Linux 提供
 一致的 Chromium 能力。因此系统 WebView 也不满足目标：Tauri 在不同平台使用
 WebView2、WKWebView 与 WebKitGTK，行为和调试接口并不一致。
 

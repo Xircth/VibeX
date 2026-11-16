@@ -21,11 +21,11 @@ pub struct NativeCodexProvider {
 }
 
 /// Codex 原生配置的 Provider 状态。`config.toml` / `auth.json` 是当前启用项的
-/// 唯一真相源；VibeX 预设只在原生 `model_provider = "vibex"` 时才算启用。
+/// 唯一真相源；Dimo 预设只在原生 `model_provider = "dimo"` 时才算启用。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NativeCodexState {
     pub providers: Vec<NativeCodexProvider>,
-    /// `model_provider` 键，包括 VibeX 投影槽 `vibex`。
+    /// `model_provider` 键，包括 Dimo 投影槽 `dimo`。
     pub active_provider: Option<String>,
     /// 顶层 `openai_base_url` / `api_base_url`（内置 OpenAI provider 端点）。
     pub base_url: Option<String>,
@@ -34,12 +34,12 @@ pub struct NativeCodexState {
     /// `auth.json` 的 `OPENAI_API_KEY`，或当前 Provider 表内的 `api_key` /
     /// `experimental_bearer_token`。
     pub credential_present: bool,
-    /// `auth.json` 中的 `OPENAI_API_KEY` 原文，纳入 VibeX 预设时复用。
+    /// `auth.json` 中的 `OPENAI_API_KEY` 原文，纳入 Dimo 预设时复用。
     pub auth_api_key: String,
 }
 
-/// 原生 Codex Provider 已纳入 VibeX 预设。启用态以 `config.toml` 的
-/// `model_provider` 为准：指向 `vibex` 槽时沿用 store 绑定，否则按原生
+/// 原生 Codex Provider 已纳入 Dimo 预设。启用态以 `config.toml` 的
+/// `model_provider` 为准：指向 `dimo` 槽时沿用 store 绑定，否则按原生
 /// 当前项的 id / URL 标记对应预设。
 pub(super) fn project_with_codex_native(
     store: &ProviderStore,
@@ -50,7 +50,7 @@ pub(super) fn project_with_codex_native(
     let Some(native) = native else {
         return view;
     };
-    if native_uses_vibex_projection(Some(native)) {
+    if native_uses_dimo_projection(Some(native)) {
         return view;
     }
     apply_native_active_binding(
@@ -98,7 +98,7 @@ pub(super) fn codex_native_drafts(native: Option<&NativeCodexState>) -> Vec<Nati
     let mut drafts = native
         .providers
         .iter()
-        .filter(|provider| provider.id != "vibex" && !provider.api_url.is_empty())
+        .filter(|provider| provider.id != "dimo" && !provider.api_url.is_empty())
         .map(|provider| NativeProviderDraft {
             id: provider.id.clone(),
             name: provider.name.clone(),
@@ -233,8 +233,8 @@ pub(super) fn codex_provider_secret(provider: &toml::Table) -> String {
         .unwrap_or_default()
 }
 
-pub(super) fn native_uses_vibex_projection(native: Option<&NativeCodexState>) -> bool {
-    native.is_some_and(|state| state.active_provider.as_deref() == Some("vibex"))
+pub(super) fn native_uses_dimo_projection(native: Option<&NativeCodexState>) -> bool {
+    native.is_some_and(|state| state.active_provider.as_deref() == Some("dimo"))
 }
 
 pub(super) fn is_native_codex_channel(
@@ -244,7 +244,7 @@ pub(super) fn is_native_codex_channel(
     let Some(native) = native else {
         return false;
     };
-    if provider.id == "vibex" {
+    if provider.id == "dimo" {
         return false;
     }
     native
@@ -312,7 +312,7 @@ pub(super) async fn native_codex_drafts(codex_home: &Path) -> Result<Vec<ImportD
     };
     let mut drafts = Vec::new();
     for provider in state.providers {
-        if provider.id == "vibex" {
+        if provider.id == "dimo" {
             continue;
         }
         let api_key = if !key.is_empty() {
@@ -358,11 +358,11 @@ pub(super) const CODEX_CONFIG_KEYS: &[&str] = &[
     "model_catalog_json",
 ];
 
-pub(super) const CODEX_PROVIDER_ENTRY_BACKUP_KEY: &str = "model_providers.vibex";
+pub(super) const CODEX_PROVIDER_ENTRY_BACKUP_KEY: &str = "model_providers.dimo";
 
-pub(super) const CODEX_CATALOG_FILE: &str = "vibex-model-catalog.json";
+pub(super) const CODEX_CATALOG_FILE: &str = "dimo-model-catalog.json";
 
-pub(super) const CODEX_SOURCE_FILE: &str = "vibex-model-catalog.source.json";
+pub(super) const CODEX_SOURCE_FILE: &str = "dimo-model-catalog.source.json";
 
 pub(super) async fn capture_codex_toml(
     path: &Path,
@@ -377,7 +377,7 @@ pub(super) async fn capture_codex_toml(
     let provider = table
         .get("model_providers")
         .and_then(toml::Value::as_table)
-        .and_then(|providers| providers.get("vibex"))
+        .and_then(|providers| providers.get("dimo"))
         .cloned();
     backup
         .toml_values
@@ -467,24 +467,24 @@ pub(super) fn restore_codex_toml_values(
             }
         }
     }
-    let original_vibex = backup
+    let original_dimo = backup
         .toml_values
         .get(CODEX_PROVIDER_ENTRY_BACKUP_KEY)
         .cloned()
         .flatten();
-    if original_vibex.is_some() || table.contains_key("model_providers") {
+    if original_dimo.is_some() || table.contains_key("model_providers") {
         let providers = table
             .entry("model_providers".to_string())
             .or_insert_with(|| toml::Value::Table(toml::Table::new()));
         let providers = providers.as_table_mut().ok_or_else(|| {
             crate::host::native::NativeError::from("Codex model_providers 必须是表")
         })?;
-        match original_vibex {
+        match original_dimo {
             Some(value) => {
-                providers.insert("vibex".to_string(), value);
+                providers.insert("dimo".to_string(), value);
             }
             None => {
-                providers.remove("vibex");
+                providers.remove("dimo");
             }
         }
         if providers.is_empty() {
@@ -515,7 +515,7 @@ pub(super) async fn apply_codex(
     let mut table = parse_toml_table_bytes(&config_path, config_original.as_deref())?;
     table.remove("api_base_url");
     table.remove("openai_base_url");
-    let provider_name = "vibex".to_string();
+    let provider_name = "dimo".to_string();
     table.insert(
         "model_provider".to_string(),
         toml::Value::String(provider_name.clone()),
@@ -543,7 +543,7 @@ pub(super) async fn apply_codex(
             toml::Value::String(provider.api_url.clone()),
         );
     }
-    provider_table.insert("name".to_string(), toml::Value::String("vibex".to_string()));
+    provider_table.insert("name".to_string(), toml::Value::String("dimo".to_string()));
     provider_table.insert(
         "wire_api".to_string(),
         toml::Value::String("responses".to_string()),
@@ -654,7 +654,7 @@ pub(super) async fn remove_native_codex_provider(
     codex_home: &Path,
     provider: &StoredProvider,
 ) -> Result<(), crate::host::native::NativeError> {
-    if provider.id == "vibex" {
+    if provider.id == "dimo" {
         return Ok(());
     }
     let path = codex_home.join("config.toml");
@@ -680,7 +680,7 @@ pub(super) async fn remove_native_codex_provider(
                 return None;
             }
             providers.iter().find_map(|(id, value)| {
-                if id == "vibex" {
+                if id == "dimo" {
                     return None;
                 }
                 value

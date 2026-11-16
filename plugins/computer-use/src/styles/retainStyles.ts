@@ -13,7 +13,7 @@ function ensure(id: string, css: string) {
   if (!node || node.tagName !== 'STYLE' || !node.isConnected) {
     node = document.createElement('style');
     node.id = id;
-    node.setAttribute('data-vibex-plugin', 'vibex-plugin-computer-use');
+    node.setAttribute('data-dimo-plugin', 'dimo-plugin-computer-use');
     node.textContent = css;
     parent.appendChild(node);
     return;

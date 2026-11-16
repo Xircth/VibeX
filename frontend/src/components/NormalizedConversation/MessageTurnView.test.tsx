@@ -802,7 +802,7 @@ describe('MessageTurnView', () => {
 
     const bubbleRule =
       conversationMessageStyles.match(
-        /\.vibex-user-message \.conv-user-bubble\s*\{[^}]+\}/u
+        /\.dimo-user-message \.conv-user-bubble\s*\{[^}]+\}/u
       )?.[0] ?? '';
     expect(bubbleRule).toContain('font-size: 0.875rem;');
     expect(bubbleRule).toContain('line-height: 1.43;');
@@ -958,10 +958,10 @@ describe('MessageTurnView', () => {
       data: {
         exists: true,
         file_name: 'screen.png',
-        path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        path: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
         size_bytes: 123n,
         format: 'png',
-        proxy_url: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        proxy_url: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
       },
       isLoading: false,
     });
@@ -1001,7 +1001,7 @@ describe('MessageTurnView', () => {
       'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );
     expect(hostFileSrcMock).not.toHaveBeenCalledWith(
-      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png'
+      'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png'
     );
   });
 

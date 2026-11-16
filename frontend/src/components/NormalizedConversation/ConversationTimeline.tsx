@@ -261,7 +261,7 @@ export function buildTimelineNavEntries(
   return entries;
 }
 
-export function vibexTurnIdFromTimelineRowId(rowId: string): string {
+export function dimoTurnIdFromTimelineRowId(rowId: string): string {
   return rowId.replace(/:(?:assistant(?::\d+)?|user)$/u, '');
 }
 
@@ -275,7 +275,7 @@ export function isTimelineTurnInFlight(
     if (row.turn.role !== 'assistant') {
       return true;
     }
-    const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+    const baseId = dimoTurnIdFromTimelineRowId(row.turn.id);
     const userId = baseId !== row.turn.id ? `${baseId}:user` : null;
     if (!userId) {
       return true;
@@ -398,7 +398,7 @@ export function contextCompactPresentationForRow(
 ): ContextCompactPresentation | null {
   const row = timeline[index];
   if (!row || row.turn.role !== 'assistant') return null;
-  const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+  const baseId = dimoTurnIdFromTimelineRowId(row.turn.id);
   const targetUserId = `${baseId}:user`;
   let userTurn: MessageTurn | undefined;
   for (let i = index - 1; i >= 0; i -= 1) {
@@ -428,7 +428,7 @@ export function buildContextCompactPresentationByRowKey(
 
   for (const row of timeline) {
     if (row.turn.role === 'assistant') {
-      const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+      const baseId = dimoTurnIdFromTimelineRowId(row.turn.id);
       const userTurn =
         latestTurnById.get(`${baseId}:user`) ??
         (row.turn.id.startsWith('acp-') ? lastNonSteerUserTurn : undefined);
@@ -629,12 +629,12 @@ const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
 const EMPTY_TIMELINE_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 /**
- * Conversation view backed by the canonical VibeX event log: projected timeline
+ * Conversation view backed by the canonical Dimo event log: projected timeline
  * rows are hydrated from storage and updated from `conversation-events`, then
  * rendered turn-by-turn via {@link MessageTurnView}.
  *
  * Inline turn stats are intentionally absent — token/usage surfaces move out of
- * the timeline in the relocation phase. VibeX-authored.
+ * the timeline in the relocation phase. Dimo-authored.
  */
 const AgentTimelineConversation = forwardRef<
   VirtualizedListRef,
@@ -1062,7 +1062,7 @@ const AgentTimelineConversation = forwardRef<
         hasInteraction: Boolean(pendingQuestionRow) || hasPendingPermission,
         hasRunningTool,
         currentTurnId: streamingAssistantRow
-          ? vibexTurnIdFromTimelineRowId(streamingAssistantRow.turn.id)
+          ? dimoTurnIdFromTimelineRowId(streamingAssistantRow.turn.id)
           : (conversation.currentTurnId ?? undefined),
       }),
     [
@@ -1623,7 +1623,7 @@ const AgentTimelineConversation = forwardRef<
         const turnId = item.item.turn.id;
         return (
           turnId === detail.turnId ||
-          vibexTurnIdFromTimelineRowId(turnId) === detail.turnId
+          dimoTurnIdFromTimelineRowId(turnId) === detail.turnId
         );
       });
       if (index < 0) return;
@@ -1673,14 +1673,14 @@ const AgentTimelineConversation = forwardRef<
       const needle = detail.snippet?.trim();
       let index = -1;
       if (detail.messageId) {
-        const targetTurnPrefix = vibexTurnIdFromTimelineRowId(detail.messageId);
+        const targetTurnPrefix = dimoTurnIdFromTimelineRowId(detail.messageId);
         index = timelineItems.findIndex(
           (item) =>
             (item.kind === 'message' &&
               (item.item.turn.id === detail.messageId ||
                 item.item.key === detail.messageId ||
                 (Boolean(targetTurnPrefix) &&
-                  vibexTurnIdFromTimelineRowId(item.item.turn.id) ===
+                  dimoTurnIdFromTimelineRowId(item.item.turn.id) ===
                     targetTurnPrefix))) ||
             (item.kind === 'side' && item.row.row_id === detail.messageId)
         );
@@ -1690,7 +1690,7 @@ const AgentTimelineConversation = forwardRef<
           (item) =>
             item.kind === 'message' &&
             (item.item.turn.id === detail.turnId ||
-              vibexTurnIdFromTimelineRowId(item.item.turn.id) === detail.turnId)
+              dimoTurnIdFromTimelineRowId(item.item.turn.id) === detail.turnId)
         );
       }
       if (index < 0 && detail.turnOrdinal != null) {
@@ -1968,7 +1968,7 @@ const AgentTimelineConversation = forwardRef<
               jumpToVirtualIndex(jumpTarget, 'center');
             };
       const copyText = assistantCopyText(row.turn);
-      const vibexTurnId = vibexTurnIdFromTimelineRowId(row.turn.id);
+      const dimoTurnId = dimoTurnIdFromTimelineRowId(row.turn.id);
       const forkPointStatus = row.forkPointStatus ?? null;
       const canOfferFork = forkSupported && forkPointStatus !== 'unsupported';
       const forkDisabledReason =
@@ -1982,7 +1982,7 @@ const AgentTimelineConversation = forwardRef<
         row.phase === 'optimistic';
       const onForkFromHere = canOfferFork
         ? () => {
-            void handleForkFromTurn(vibexTurnId);
+            void handleForkFromTurn(dimoTurnId);
           }
         : null;
       const settled = buildSettledTurnStats(row.turn);
@@ -2017,7 +2017,7 @@ const AgentTimelineConversation = forwardRef<
               : t(
                   `conversation:runtime.request.${requestStatusKey({
                     request: runtimeStatus.request,
-                    currentTurnId: vibexTurnId,
+                    currentTurnId: dimoTurnId,
                     connection: runtimeStatus.connection,
                     hasInteraction:
                       Boolean(pendingQuestionRow) || hasPendingPermission,
@@ -2095,7 +2095,7 @@ const AgentTimelineConversation = forwardRef<
         nextOrdinal += 1;
         map.set(row.turn.id.replace(/:user$/, ''), activeOrdinal);
       } else if (row.turn.role === 'assistant' && activeOrdinal !== null) {
-        map.set(vibexTurnIdFromTimelineRowId(row.turn.id), activeOrdinal);
+        map.set(dimoTurnIdFromTimelineRowId(row.turn.id), activeOrdinal);
       }
     }
     if (
@@ -2145,7 +2145,7 @@ const AgentTimelineConversation = forwardRef<
       for (let i = timeline.length - 1; i >= 0; i -= 1) {
         const r = timeline[i];
         if (r?.turn.role === 'assistant') {
-          return vibexTurnIdFromTimelineRowId(r.turn.id);
+          return dimoTurnIdFromTimelineRowId(r.turn.id);
         }
       }
       return null;
@@ -2628,7 +2628,7 @@ const AgentTimelineConversation = forwardRef<
                   },
                 });
               }
-              const turnId = vibexTurnIdFromTimelineRowId(row.turn.id);
+              const turnId = dimoTurnIdFromTimelineRowId(row.turn.id);
               const forkPointStatus = row.forkPointStatus ?? null;
               const canOfferFork =
                 forkSupported && forkPointStatus !== 'unsupported';
@@ -2771,7 +2771,7 @@ const AgentTimelineConversation = forwardRef<
                               data-index={virtualRow.index}
                               data-turn-id={
                                 row
-                                  ? vibexTurnIdFromTimelineRowId(row.turn.id)
+                                  ? dimoTurnIdFromTimelineRowId(row.turn.id)
                                   : undefined
                               }
                               data-message-id={row?.turn.id}
@@ -2845,7 +2845,7 @@ const AgentTimelineConversation = forwardRef<
                                   }
                                   hasTurnError={
                                     turnIdsWithErrors.has(
-                                      vibexTurnIdFromTimelineRowId(row.turn.id)
+                                      dimoTurnIdFromTimelineRowId(row.turn.id)
                                     ) ||
                                     inlineRuntimePresentation.isConnectionRecovering
                                   }
@@ -2858,7 +2858,7 @@ const AgentTimelineConversation = forwardRef<
                               ) : null}
                               {row?.turn.role === 'assistant' && entry.isLast
                                 ? (() => {
-                                    const turnId = vibexTurnIdFromTimelineRowId(
+                                    const turnId = dimoTurnIdFromTimelineRowId(
                                       row.turn.id
                                     );
                                     const fileChanges =

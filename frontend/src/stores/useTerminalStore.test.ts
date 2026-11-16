@@ -21,7 +21,7 @@ describe('useTerminalStore persistence', () => {
 
     await waitFor(() => {
       const persisted = JSON.parse(
-        localStorage.getItem('vibex-terminal-sessions') ?? '{}'
+        localStorage.getItem('dimo-terminal-sessions') ?? '{}'
       ) as {
         state?: {
           sessionsByWorkspace?: Record<

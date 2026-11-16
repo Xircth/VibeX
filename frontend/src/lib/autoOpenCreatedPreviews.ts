@@ -8,7 +8,7 @@ import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 export const DEFAULT_AUTO_OPEN_CREATED_PREVIEWS = true;
 export const AUTO_OPEN_CREATED_PREVIEWS_KEY =
-  'vibex:auto-open-created-previews' as const;
+  'dimo:auto-open-created-previews' as const;
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;

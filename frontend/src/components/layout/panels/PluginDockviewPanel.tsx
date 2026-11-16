@@ -1,4 +1,4 @@
-import { usePanels } from '@vibex/plugin-sdk';
+import { usePanels } from '@dimoai/plugin-sdk';
 import { useEffect, useMemo, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';

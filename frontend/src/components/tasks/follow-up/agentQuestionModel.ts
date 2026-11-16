@@ -86,16 +86,16 @@ export function questionTabsFromRequest(
   request: ConversationQuestionRequest
 ): QuestionTab[] {
   const root = asObject(request.schema);
-  const vibexQuestions = root?.['x-vibex-questions'];
-  if (Array.isArray(vibexQuestions)) {
-    const parsed = vibexQuestions.flatMap((rawQuestion, index) => {
+  const dimoQuestions = root?.['x-dimo-questions'];
+  if (Array.isArray(dimoQuestions)) {
+    const parsed = dimoQuestions.flatMap((rawQuestion, index) => {
       const question = asObject(rawQuestion);
       if (!question) return [];
       const explicitChoices = parseObjectChoices(question.options);
       const choices =
         explicitChoices.length > 0
           ? explicitChoices
-          : vibexQuestions.length === 1 && request.options.length > 0
+          : dimoQuestions.length === 1 && request.options.length > 0
             ? request.options.map((label) => choiceFromLabel(label, label, ''))
             : [];
       const prompt = readString(question.question) || `Question ${index + 1}`;
@@ -272,7 +272,7 @@ export function questionRequestFromToolUse(
     options: [],
     schema:
       parsedQuestions.length > 0
-        ? { type: 'object', 'x-vibex-questions': parsedQuestions }
+        ? { type: 'object', 'x-dimo-questions': parsedQuestions }
         : null,
   };
 }
@@ -284,7 +284,7 @@ export function mergeQuestionRequestWithToolUse(
   if (!use) return request;
   const fromUse = questionRequestFromToolUse(use);
   const useRoot = asObject(fromUse.schema);
-  const rawUseQuestions = useRoot?.['x-vibex-questions'];
+  const rawUseQuestions = useRoot?.['x-dimo-questions'];
   if (!Array.isArray(rawUseQuestions) || rawUseQuestions.length === 0) {
     return request;
   }
@@ -399,7 +399,7 @@ export function mergeQuestionRequestWithToolUse(
     prompt: request.prompt || fromUse.prompt,
     schema: {
       ...(root ?? { type: 'object' }),
-      'x-vibex-questions': rawUseQuestions,
+      'x-dimo-questions': rawUseQuestions,
     } as ConversationQuestionRequest['schema'],
   };
 }
@@ -477,7 +477,7 @@ export function responseContent(
   state: Record<string, QuestionAnswerState>
 ) {
   const root = asObject(request.schema);
-  if (Array.isArray(root?.['x-vibex-questions'])) {
+  if (Array.isArray(root?.['x-dimo-questions'])) {
     const answers = questions.map((question) => {
       const answer = state[question.id];
       const labels = answerLabels(question, answer);

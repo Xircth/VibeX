@@ -272,7 +272,7 @@ export class WebTransport implements BackendTransport {
       headers: {
         Authorization: `Bearer ${this.token}`,
         'Content-Type': 'application/json',
-        'X-VibeX-Protocol-Version': PROTOCOL_VERSION,
+        'X-Dimo-Protocol-Version': PROTOCOL_VERSION,
       },
     });
     if (!response.ok) {
@@ -283,7 +283,7 @@ export class WebTransport implements BackendTransport {
         // Preserve a stable local error even if an intermediary returned HTML.
       }
       throw new WebTransportError(
-        envelope.message ?? `VibeX Server returned HTTP ${response.status}`,
+        envelope.message ?? `Dimo Server returned HTTP ${response.status}`,
         envelope.code ?? 'remote_http_error',
         envelope.retryable ?? false,
         envelope.operation_id
@@ -297,8 +297,8 @@ export class WebTransport implements BackendTransport {
       return;
     }
     const socket = new WebSocket(this.webSocketUrl(), [
-      'vibex.v1',
-      `vibex.token.${base64UrlEncode(this.token)}`,
+      'dimo.v1',
+      `dimo.token.${base64UrlEncode(this.token)}`,
     ]);
     this.socket = socket;
     this.attachLifecycleListeners();

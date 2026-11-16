@@ -65,7 +65,7 @@ function report(
     listening: true,
     plugins: [
       {
-        pluginId: 'vibex.multi-agent',
+        pluginId: 'dimo.multi-agent',
         name: '多智能体协同',
         description: '把任务交给另一个 Agent。',
         enabled: true,
@@ -74,7 +74,7 @@ function report(
         connection: 'running',
         servers: [
           {
-            id: 'vibex-delegation-mcp',
+            id: 'dimo-delegation-mcp',
             product: 'delegation',
             tools: [
               { name: 'delegate_to_agent', group: 'delegation' },
@@ -128,7 +128,7 @@ describe('StatusBarMcp', () => {
       report({
         plugins: [
           {
-            pluginId: 'vibex.browser',
+            pluginId: 'dimo.browser',
             name: 'Browser',
             description: 'Built-in browser tabs.',
             enabled: true,
@@ -137,7 +137,7 @@ describe('StatusBarMcp', () => {
             connection: 'running',
             servers: [
               {
-                id: 'vibex-browser',
+                id: 'dimo-browser',
                 product: null,
                 tools: [
                   { name: 'browser_list_tabs', group: 'browser' },
@@ -166,7 +166,7 @@ describe('StatusBarMcp', () => {
     expect(await screen.findByText('多智能体协同')).toBeInTheDocument();
     expect(screen.getByText(/1 个 MCP/)).toBeInTheDocument();
     expect(
-      screen.getByTestId('mcp-plugin-status-vibex.multi-agent')
+      screen.getByTestId('mcp-plugin-status-dimo.multi-agent')
     ).toHaveTextContent('运行中');
     expect(
       screen.queryByRole('status', { name: /运行中/ })
@@ -203,7 +203,7 @@ describe('StatusBarMcp', () => {
     );
 
     await waitFor(() =>
-      expect(setEnabled).toHaveBeenCalledWith('vibex.multi-agent', false)
+      expect(setEnabled).toHaveBeenCalledWith('dimo.multi-agent', false)
     );
   });
 
@@ -232,7 +232,7 @@ describe('StatusBarMcp', () => {
           report().plugins[0],
           {
             ...report().plugins[0],
-            pluginId: 'vibex.session-enhance',
+            pluginId: 'dimo.session-enhance',
             name: '会话增强',
             enabled: false,
             connection: 'disabled',
@@ -243,10 +243,10 @@ describe('StatusBarMcp', () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
     expect(
-      await screen.findByTestId('mcp-plugin-status-vibex.multi-agent')
+      await screen.findByTestId('mcp-plugin-status-dimo.multi-agent')
     ).toHaveTextContent('运行中');
     expect(
-      screen.getByTestId('mcp-plugin-status-vibex.session-enhance')
+      screen.getByTestId('mcp-plugin-status-dimo.session-enhance')
     ).toHaveTextContent('已停止');
   });
 
@@ -264,7 +264,7 @@ describe('StatusBarMcp', () => {
             connection: 'running',
             servers: [
               {
-                id: 'vibex-delegation-mcp',
+                id: 'dimo-delegation-mcp',
                 product: 'delegation',
                 tools: [
                   { name: 'post_space_message', group: 'collaboration' },
@@ -323,7 +323,7 @@ describe('StatusBarMcp', () => {
         apps: ['claude_code', 'codex'],
       },
       {
-        id: 'vibex-delegation-mcp',
+        id: 'dimo-delegation-mcp',
         spec: { type: 'http', url: 'http://127.0.0.1:9999/mcp' },
         global: true,
         apps: [],

@@ -16,15 +16,15 @@ fn write(path: &std::path::Path, contents: &str) {
 fn product_package(integrations: &str) -> PluginPackage {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         &format!(
             r#"{{
               "manifestVersion":4,"apiVersion":"1.0",
-              "id":"dev.vibex.chrome","publisher":"dev.vibex","name":"Chrome","version":"1.0.0",
+              "id":"dev.dimo.chrome","publisher":"dev.dimo","name":"Chrome","version":"1.0.0",
               "readme":"README.md",
-              "content":{{"root":"contents","index":".vibex-plugin/content.index.json"}},
+              "content":{{"root":"contents","index":".dimo-plugin/content.index.json"}},
               "config":{{"schema":{{"type":"object","additionalProperties":false}}}},
-              "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+              "engines":{{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
               "entrypoints":{{
                 "worker":{{"path":"dist/worker.mjs","runtime":"node","protocol":"1.1"}},
                 "app":{{"root":"dist/app","document":"index.html","protocol":"1.0"}}
@@ -39,7 +39,7 @@ fn product_package(integrations: &str) -> PluginPackage {
     );
     write(&root.path().join("config.json"), "{}");
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
     write(&root.path().join("dist/worker.mjs"), "export default {};");
@@ -136,14 +136,14 @@ fn cards_and_sections_become_addressable_app_surfaces() {
 fn authors_still_cannot_declare_the_synthesized_slots_directly() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.chrome","publisher":"dev.vibex","name":"Chrome","version":"1.0.0",
+          "id":"dev.dimo.chrome","publisher":"dev.dimo","name":"Chrome","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "integrations":[{"id":"sneaky","kind":"app.surface","slot":"conversation.timeline.card","appEntrypoint":"app","handler":"surface.createSession"}]
         }"#,
     );
@@ -153,7 +153,7 @@ fn authors_still_cannot_declare_the_synthesized_slots_directly() {
     );
     write(&root.path().join("config.json"), "{}");
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
 
@@ -218,7 +218,7 @@ fn status_after_mcp_keeps_its_slot_and_remote() {
         r#"[{
           "id":"computer","kind":"app.status","slot":"status.after-mcp",
           "text":"电脑控制","icon":"monitor","handler":"surface.createSession",
-          "remote":{"name":"vibex_computer_use","entry":"dist/remoteEntry.js","module":"./view"}
+          "remote":{"name":"dimo_computer_use","entry":"dist/remoteEntry.js","module":"./view"}
         }]"#,
     );
     assert!(
@@ -230,7 +230,7 @@ fn status_after_mcp_keeps_its_slot_and_remote() {
     assert_eq!(status.slot, "status.after-mcp");
     assert_eq!(status.icon.as_deref(), Some("monitor"));
     let remote = status.remote.as_ref().expect("remote");
-    assert_eq!(remote.name, "vibex_computer_use");
+    assert_eq!(remote.name, "dimo_computer_use");
     assert_eq!(remote.module, "./view");
 }
 
@@ -291,14 +291,14 @@ fn provider_import_sources_survive_normalization() {
 fn provider_catalogs_are_read_at_inspect() {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.catalog","publisher":"dev.vibex","name":"Catalog","version":"1.0.0",
+          "id":"dev.dimo.catalog","publisher":"dev.dimo","name":"Catalog","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "integrations":[
             {
               "id":"claude-code",
@@ -316,7 +316,7 @@ fn provider_catalogs_are_read_at_inspect() {
     );
     write(&root.path().join("config.json"), "{}");
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
     write(
@@ -404,7 +404,7 @@ fn the_icon_set_matches_the_published_contract() {
         .collect::<Vec<_>>();
     assert_eq!(
         published, CONTRIBUTION_ICONS,
-        "Rust icon set drifted from @vibex/plugin-contract/catalog/icons"
+        "Rust icon set drifted from @dimo/plugin-contract/catalog/icons"
     );
 }
 

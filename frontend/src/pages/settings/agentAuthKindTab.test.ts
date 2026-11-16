@@ -29,7 +29,7 @@ describe('agentAuthKindTab', () => {
     rememberAgentAuthKindTab('codex', 'official_api');
 
     expect(
-      JSON.parse(localStorage.getItem('vibex:agent-auth-kind-tab')!)
+      JSON.parse(localStorage.getItem('dimo:agent-auth-kind-tab')!)
     ).toEqual({
       codex: 'official_api',
     });

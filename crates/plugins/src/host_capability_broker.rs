@@ -623,7 +623,7 @@ impl HostCapabilityBroker {
         })
     }
 
-    /// `list` and `save` touch only VibeX's own preset store. `bind` changes
+    /// `list` and `save` touch only Dimo's own preset store. `bind` changes
     /// which endpoint an agent actually talks to, so it goes through the Host
     /// confirmation the seam contract requires and lands in the plugin audit
     /// either way — a decline is evidence too.
@@ -1981,7 +1981,7 @@ impl HostCapabilityBroker {
                     broker_error("files_root_denied", "Target file must have a valid parent")
                 })?;
                 let temp_name =
-                    format!(".vibex-tmp-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+                    format!(".dimo-tmp-{}-{}", std::process::id(), uuid::Uuid::new_v4());
                 let temp_path = parent.join(temp_name);
                 let write_result = async {
                     let mut file = tokio::fs::File::create(&temp_path).await?;
@@ -3069,7 +3069,7 @@ mod tests {
 
         let missing = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.get",
@@ -3081,7 +3081,7 @@ mod tests {
 
         let stored = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.put",
@@ -3093,7 +3093,7 @@ mod tests {
 
         broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.put",
@@ -3104,7 +3104,7 @@ mod tests {
 
         broker
             .call(
-                "vibex.other",
+                "dimo.other",
                 1,
                 "storage",
                 "kv.put",
@@ -3115,7 +3115,7 @@ mod tests {
 
         let read_back = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.get",
@@ -3127,7 +3127,7 @@ mod tests {
 
         let listed = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.list",
@@ -3139,7 +3139,7 @@ mod tests {
 
         broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.delete",
@@ -3149,7 +3149,7 @@ mod tests {
             .expect("kv.delete");
         let after_delete = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "storage",
                 "kv.get",
@@ -3161,7 +3161,7 @@ mod tests {
 
         let other_intact = broker
             .call(
-                "vibex.other",
+                "dimo.other",
                 1,
                 "storage",
                 "kv.get",
@@ -3192,14 +3192,14 @@ mod tests {
 
         let response = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "network",
                 "fetch",
                 json!({
                     "url": format!("http://{addr}/test"),
                     "method": "POST",
-                    "headers": { "x-plugin": "vibex.git" },
+                    "headers": { "x-plugin": "dimo.git" },
                     "body": { "ping": true }
                 }),
             )
@@ -3263,7 +3263,7 @@ mod tests {
 
         let error = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "network",
                 "fetch",
@@ -3315,7 +3315,7 @@ mod tests {
     #[tokio::test]
     async fn exec_spawn_reaps_exited_processes_and_enforces_concurrency_limit() {
         let broker = sqlite_broker().await;
-        let plugin = "vibex.exec-limit";
+        let plugin = "dimo.exec-limit";
         let (program, short_args, long_args): (&str, Vec<&str>, Vec<&str>) = if cfg!(windows) {
             (
                 "cmd",
@@ -3377,7 +3377,7 @@ mod tests {
 
         broker
             .call(
-                "vibex.other-exec",
+                "dimo.other-exec",
                 1,
                 "exec",
                 "spawn",
@@ -3391,7 +3391,7 @@ mod tests {
             .await
             .expect("kill plugin processes");
         broker
-            .call("vibex.other-exec", 1, "exec", "kill", json!({}))
+            .call("dimo.other-exec", 1, "exec", "kill", json!({}))
             .await
             .expect("kill other plugin processes");
     }
@@ -3402,7 +3402,7 @@ mod tests {
 
         let toast = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "app",
                 "notify.toast",
@@ -3425,7 +3425,7 @@ mod tests {
 
         let exec_res = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "exec",
                 "run",
@@ -3461,7 +3461,7 @@ mod tests {
         // Without any grant, files.* must fail closed with files_root_denied
         let denied = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "read",
@@ -3473,7 +3473,7 @@ mod tests {
 
         broker
             .grant_capability(
-                "vibex.files-test",
+                "dimo.files-test",
                 crate::HostCapabilityGrant::new(
                     "files.*",
                     json!({
@@ -3487,7 +3487,7 @@ mod tests {
         // 1. Atomic write with automatic parent directory creation
         let write_res = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "write",
@@ -3504,7 +3504,7 @@ mod tests {
         // 2. Read back as utf8 and base64
         let read_utf8 = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "read",
@@ -3520,7 +3520,7 @@ mod tests {
 
         let read_b64 = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "read",
@@ -3539,7 +3539,7 @@ mod tests {
         // 3. Stat file and directory
         let stat_res = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "stat",
@@ -3555,7 +3555,7 @@ mod tests {
         // 4. List directory
         let list_res = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "list",
@@ -3571,7 +3571,7 @@ mod tests {
         // 5. Reject `..` path traversal
         let traversal_err = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "read",
@@ -3584,7 +3584,7 @@ mod tests {
         // 6. Reject absolute path outside authorized root
         let outside_err = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "read",
@@ -3598,7 +3598,7 @@ mod tests {
         let oversized = "x".repeat(512);
         let limit_err = broker
             .call(
-                "vibex.files-test",
+                "dimo.files-test",
                 1,
                 "files",
                 "write",
@@ -3620,7 +3620,7 @@ mod tests {
         // Initially absent
         let initial = broker
             .call(
-                "vibex.plugin-a",
+                "dimo.plugin-a",
                 1,
                 "secrets",
                 "get",
@@ -3633,7 +3633,7 @@ mod tests {
         // Store secret for plugin-a
         let put_res = broker
             .call(
-                "vibex.plugin-a",
+                "dimo.plugin-a",
                 1,
                 "secrets",
                 "put",
@@ -3649,7 +3649,7 @@ mod tests {
         // Read back from plugin-a
         let get_a = broker
             .call(
-                "vibex.plugin-a",
+                "dimo.plugin-a",
                 1,
                 "secrets",
                 "get",
@@ -3668,7 +3668,7 @@ mod tests {
         // Cross-plugin isolation: plugin-b cannot read plugin-a's secret
         let get_b = broker
             .call(
-                "vibex.plugin-b",
+                "dimo.plugin-b",
                 1,
                 "secrets",
                 "get",
@@ -3681,7 +3681,7 @@ mod tests {
         // Verify audit logs recorded the secret key and outcome, but NEVER the plaintext secret value
         let audits = broker
             .plugins
-            .audit_events("vibex.plugin-a")
+            .audit_events("dimo.plugin-a")
             .await
             .expect("list audit");
         assert!(!audits.is_empty());
@@ -3697,7 +3697,7 @@ mod tests {
         // Delete secret
         let delete_res = broker
             .call(
-                "vibex.plugin-a",
+                "dimo.plugin-a",
                 1,
                 "secrets",
                 "delete",
@@ -3709,7 +3709,7 @@ mod tests {
 
         let after_delete = broker
             .call(
-                "vibex.plugin-a",
+                "dimo.plugin-a",
                 1,
                 "secrets",
                 "get",
@@ -3725,7 +3725,7 @@ mod tests {
         let broker = sqlite_broker().await;
 
         let initial = broker
-            .call("vibex.git", 1, "events", "subscribe", json!({}))
+            .call("dimo.git", 1, "events", "subscribe", json!({}))
             .await
             .expect("initial subscribe");
         assert_eq!(initial["cursor"], 0);
@@ -3748,7 +3748,7 @@ mod tests {
         // Filter by topic = "git"
         let git_batch = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "events",
                 "subscribe",
@@ -3767,7 +3767,7 @@ mod tests {
         // Ack cursor 1 on topic "git"
         let ack_res = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "events",
                 "ack",
@@ -3780,7 +3780,7 @@ mod tests {
         // Subsequent subscribe for topic "git" without explicit cursor resumes after acked cursor 1
         let next_batch = broker
             .call(
-                "vibex.git",
+                "dimo.git",
                 1,
                 "events",
                 "subscribe",
@@ -3801,7 +3801,7 @@ mod tests {
         broker
             .register_agent_handler_fn(
                 "code.summarize",
-                Some(vec!["vibex.authorized".to_owned()]),
+                Some(vec!["dimo.authorized".to_owned()]),
                 |caller, handler_id, input| async move {
                     Ok(json!({
                         "caller": caller,
@@ -3815,7 +3815,7 @@ mod tests {
         // 1. Plugin without `agent.invoke` grant gets permission_denied
         let ungranted = broker
             .call(
-                "vibex.authorized",
+                "dimo.authorized",
                 1,
                 "agent",
                 "invoke",
@@ -3828,8 +3828,8 @@ mod tests {
             .expect_err("missing grant must fail");
         assert_eq!(ungranted.code(), "permission_denied");
 
-        // Grant `agent.invoke` to both `vibex.authorized` and `vibex.other`
-        for plugin_id in ["vibex.authorized", "vibex.other"] {
+        // Grant `agent.invoke` to both `dimo.authorized` and `dimo.other`
+        for plugin_id in ["dimo.authorized", "dimo.other"] {
             broker
                 .grant_capability(
                     plugin_id,
@@ -3844,7 +3844,7 @@ mod tests {
         // 2. Authorized + visible plugin succeeds
         let ok_res = broker
             .call(
-                "vibex.authorized",
+                "dimo.authorized",
                 1,
                 "agent",
                 "invoke",
@@ -3855,14 +3855,14 @@ mod tests {
             )
             .await
             .expect("authorized agent.invoke");
-        assert_eq!(ok_res["caller"], "vibex.authorized");
+        assert_eq!(ok_res["caller"], "dimo.authorized");
         assert_eq!(ok_res["handler"], "code.summarize");
         assert_eq!(ok_res["echo"], json!({ "file": "main.rs" }));
 
         // 3. Granted plugin that is not in handler's visibility list gets handler_not_visible
         let invisible = broker
             .call(
-                "vibex.other",
+                "dimo.other",
                 1,
                 "agent",
                 "invoke",
@@ -3884,7 +3884,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::write(temp.path().join("README.md"), "# Dynamic Command Test").expect("readme");
         let mut package = crate::PluginPackage::for_test(
-            "vibex.dynamic-test",
+            "dimo.dynamic-test",
             "Dynamic Command Test",
             "1.0.0",
             crate::PluginSourceKind::Snapshot,
@@ -3908,7 +3908,7 @@ mod tests {
 
         control_plane
             .register_command_fn(
-                "vibex.dynamic-test",
+                "dimo.dynamic-test",
                 "ping",
                 |plugin_id, command, input| async move {
                     Ok(json!({
@@ -3922,26 +3922,26 @@ mod tests {
 
         // While disabled / no active generation, invoking must fail with plugin_not_active
         let inactive_err = control_plane
-            .invoke_plugin_command("vibex.dynamic-test", "ping", json!({ "seq": 1 }))
+            .invoke_plugin_command("dimo.dynamic-test", "ping", json!({ "seq": 1 }))
             .await
             .expect_err("inactive plugin command must fail");
         assert_eq!(inactive_err.code(), "plugin_not_active");
 
         // Enable plugin so it publishes an active generation
         control_plane
-            .set_enabled("vibex.dynamic-test", true)
+            .set_enabled("dimo.dynamic-test", true)
             .await
             .expect("enable plugin");
 
         // Resolve `<plugin_id>.<command_name>` dynamically
         let resolved = control_plane
-            .resolve_dynamic_command_target("vibex.dynamic-test.ping")
+            .resolve_dynamic_command_target("dimo.dynamic-test.ping")
             .await
             .expect("resolve dynamic command")
             .expect("matched target");
         assert_eq!(
             resolved,
-            ("vibex.dynamic-test".to_owned(), "ping".to_owned())
+            ("dimo.dynamic-test".to_owned(), "ping".to_owned())
         );
 
         let result = control_plane
@@ -3951,7 +3951,7 @@ mod tests {
         assert_eq!(
             result,
             json!({
-                "pluginId": "vibex.dynamic-test",
+                "pluginId": "dimo.dynamic-test",
                 "command": "ping",
                 "pong": { "seq": 42 },
             })
@@ -3980,7 +3980,7 @@ mod tests {
         .expect("write worker.mjs");
 
         let mut package = crate::PluginPackage::for_test(
-            "vibex.worker-rpc",
+            "dimo.worker-rpc",
             "Worker RPC Test",
             "1.0.0",
             crate::PluginSourceKind::DeveloperLink,
@@ -4004,18 +4004,18 @@ mod tests {
             .await
             .expect("import worker plugin");
         control_plane
-            .activate_and_enable(&node, "vibex.worker-rpc", &[], broker.clone())
+            .activate_and_enable(&node, "dimo.worker-rpc", &[], broker.clone())
             .await
             .expect("activate worker plugin");
 
         let resolved = control_plane
-            .resolve_dynamic_command_target("vibex.worker-rpc.rpc.echo")
+            .resolve_dynamic_command_target("dimo.worker-rpc.rpc.echo")
             .await
             .expect("resolve worker command")
             .expect("matched worker target");
         assert_eq!(
             resolved,
-            ("vibex.worker-rpc".to_owned(), "rpc.echo".to_owned())
+            ("dimo.worker-rpc".to_owned(), "rpc.echo".to_owned())
         );
 
         let response = control_plane
@@ -4027,7 +4027,7 @@ mod tests {
         assert_eq!(response["echo"], json!({ "hello": "worker" }));
 
         control_plane
-            .deactivate_worker("vibex.worker-rpc")
+            .deactivate_worker("dimo.worker-rpc")
             .await
             .expect("deactivate worker");
     }
@@ -4054,13 +4054,13 @@ mod tests {
             storage_kv: true,
         };
         for grant in manifest.to_capability_grants() {
-            broker.grant_capability("vibex.grants-guard", grant).await;
+            broker.grant_capability("dimo.grants-guard", grant).await;
         }
 
         // 1. fs.read allows reading inside `allowed_dir`, denies writing, denies sibling `user2`, and denies `..`
         let read_ok = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "files",
                 "read",
@@ -4072,7 +4072,7 @@ mod tests {
 
         let write_denied = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "files",
                 "write",
@@ -4087,7 +4087,7 @@ mod tests {
 
         let sibling_denied = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "files",
                 "read",
@@ -4099,7 +4099,7 @@ mod tests {
 
         let traversal_denied = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "files",
                 "read",
@@ -4115,7 +4115,7 @@ mod tests {
         // 2. net.fetch rejects `@` userinfo, blocks SSRF metadata IPs, and enforces host allowlist
         let deceptive_err = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "network",
                 "fetch",
@@ -4127,7 +4127,7 @@ mod tests {
 
         let ssrf_err = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "network",
                 "fetch",
@@ -4139,7 +4139,7 @@ mod tests {
 
         let unlisted_host_err = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "network",
                 "fetch",
@@ -4152,7 +4152,7 @@ mod tests {
         // 3. net.websocket validates allowlist and rejects unlisted or SSRF hosts
         let ws_ok = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "network",
                 "websocket",
@@ -4165,7 +4165,7 @@ mod tests {
         // 4. env.read returns only explicitly granted environment variables
         let env_denied = broker
             .call(
-                "vibex.grants-guard",
+                "dimo.grants-guard",
                 1,
                 "env",
                 "read",
@@ -4176,7 +4176,7 @@ mod tests {
         assert_eq!(env_denied.code(), "env_denied");
 
         let env_snapshot = broker
-            .call("vibex.grants-guard", 1, "env", "read", json!({}))
+            .call("dimo.grants-guard", 1, "env", "read", json!({}))
             .await
             .expect("env snapshot");
         let env_obj = env_snapshot["env"].as_object().expect("env object");

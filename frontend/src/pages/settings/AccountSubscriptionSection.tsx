@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   openAccountWebPath,
-  useVibeXAccount,
+  useDimoAccount,
   type AccountTier,
   type RouterCreditGrant,
 } from '@/features/model-router';
@@ -58,7 +58,7 @@ function formatIsoDate(iso: string): string {
 export function AccountSubscriptionSection() {
   const { t } = useTranslation(['settings', 'common']);
   const { isSignedIn, overview, user, isLoading, isFetching, refresh } =
-    useVibeXAccount();
+    useDimoAccount();
 
   const nowIso = overview?.serverNow || new Date().toISOString();
   const balanceMicro = overview?.balanceMicro ?? 0;
@@ -202,7 +202,7 @@ export function AccountSubscriptionSection() {
         </div>
       ) : (
         <>
-          {/* Card 1: VibeX Subscription Plan + Credits Usage */}
+          {/* Card 1: Dimo Subscription Plan + Credits Usage */}
           <div
             data-testid="subscription-plan-credits-card"
             className="settings-card space-y-5 rounded-xl border border-border bg-card p-5"

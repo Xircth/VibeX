@@ -174,7 +174,7 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
     }
 }
 
-/// Shared Application Core used by `vibex-server` and the desktop remote listener.
+/// Shared Application Core used by `dimo-server` and the desktop remote listener.
 #[allow(clippy::too_many_arguments)]
 pub fn host_application_core(
     pool: SqlitePool,

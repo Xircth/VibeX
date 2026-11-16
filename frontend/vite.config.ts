@@ -10,7 +10,7 @@ import { vxSourceAnnotation } from './vite.vx-source-annotation';
 const DEV_ONBOARDING_VIDEO_PREFIX = '/__dev/onboarding-videos/';
 const SIBLING_SITE_VIDEO_DIR = path.resolve(
   __dirname,
-  '../../vibex-site/public/videos/onboarding'
+  '../../dimo-site/public/videos/onboarding'
 );
 
 function devOnboardingVideos(): Plugin {
@@ -111,7 +111,7 @@ function createFilteredLogger() {
 
 export default defineConfig(({ command }) => ({
   envDir: path.resolve(__dirname, '..'),
-  envPrefix: ['VITE_', 'VIBEX_'],
+  envPrefix: ['VITE_', 'DIMO_'],
   customLogger: createFilteredLogger(),
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -164,7 +164,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: 'shared', replacement: path.resolve(__dirname, '../shared') },
       {
-        find: '@vibex/plugin-sdk',
+        find: '@dimoai/plugin-sdk',
         replacement: path.resolve(
           __dirname,
           '../packages/plugin-sdk/src/index.ts'

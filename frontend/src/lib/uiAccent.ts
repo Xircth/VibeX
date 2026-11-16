@@ -18,8 +18,8 @@ import {
  * `--accent-hsl` / `--accent-foreground-hsl` on the document root, which every
  * theme block reads before its own accent.
  */
-export const ACCENT_COLOR_KEY = 'vibex:accent-color' as const;
-export const ACCENT_COLOR_CHANGED_EVENT = 'vibex:accent-color-changed';
+export const ACCENT_COLOR_KEY = 'dimo:accent-color' as const;
+export const ACCENT_COLOR_CHANGED_EVENT = 'dimo:accent-color-changed';
 export const DEFAULT_ACCENT_COLOR = '#1b1b1b';
 export const DEFAULT_DARK_ACCENT_COLOR = '#e7ebef';
 export const ACCENT_HSL_VAR = '--accent-hsl';

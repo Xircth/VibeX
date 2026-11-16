@@ -121,37 +121,37 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !include "{{installer_hooks}}"
 {{/if}}
 
-!define MUI_CUSTOMFUNCTION_GUIINIT VibeXGuiInitInstaller
-!define MUI_CUSTOMFUNCTION_UNGUIINIT un.VibeXGuiInitUninstaller
+!define MUI_CUSTOMFUNCTION_GUIINIT DimoGuiInitInstaller
+!define MUI_CUSTOMFUNCTION_UNGUIINIT un.DimoGuiInitUninstaller
 
 ; MUI2 has no GUIEND hook; release GDI/GDI+ resources from the NSIS callbacks.
 Function .onGUIEnd
-  Call VibeXGuiEnd
+  Call DimoGuiEnd
 FunctionEnd
 
 Function un.onGUIEnd
-  Call un.VibeXGuiEnd
+  Call un.DimoGuiEnd
 FunctionEnd
 
 ; ============================================================================
 ; Installer: main (welcome / custom location / existing) -> progress -> finish
 ; ============================================================================
-Page custom VibeXPageMain VibeXPageMainLeave
+Page custom DimoPageMain DimoPageMainLeave
 
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW VibeXInstFilesShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW DimoInstFilesShow
 !insertmacro MUI_PAGE_INSTFILES
 
-Page custom VibeXPageFinish VibeXPageFinishLeave
+Page custom DimoPageFinish DimoPageFinishLeave
 
 ; ============================================================================
 ; Uninstaller: confirm -> progress -> finish
 ; ============================================================================
-UninstPage custom un.VibeXPageConfirm un.VibeXPageConfirmLeave
+UninstPage custom un.DimoPageConfirm un.DimoPageConfirmLeave
 
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.VibeXInstFilesShow
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.DimoInstFilesShow
 !insertmacro MUI_UNPAGE_INSTFILES
 
-UninstPage custom un.VibeXPageFinish
+UninstPage custom un.DimoPageFinish
 
 ; ============================================================================
 ; Languages
@@ -163,8 +163,8 @@ UninstPage custom un.VibeXPageFinish
 {{#each language_files}}
   !include "{{this}}"
 {{/each}}
-!ifdef VIBEX_INSTALLER_DIR
-  !include "${VIBEX_INSTALLER_DIR}\strings.nsh"
+!ifdef DIMO_INSTALLER_DIR
+  !include "${DIMO_INSTALLER_DIR}\strings.nsh"
 !endif
 
 Function .onInit
@@ -231,7 +231,7 @@ Section EarlyChecks
 SectionEnd
 
 Section WebView2
-  ${If} $VibeXAction == "uninstall"
+  ${If} $DimoAction == "uninstall"
     Goto webview2_done
   ${EndIf}
 
@@ -247,31 +247,31 @@ Section WebView2
   ${If} $4 == ""
     ${If} $UpdateMode <> 1
       !if "${INSTALLWEBVIEW2MODE}" == "downloadBootstrapper"
-        vibex_webview2_download:
+        dimo_webview2_download:
         Delete "$TEMP\MicrosoftEdgeWebview2Setup.exe"
-        !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_WEBVIEW2)"
+        !insertmacro DimoSetStage "" "$(DIMO_PROGRESS_WEBVIEW2)"
         DetailPrint "$(webview2Downloading)"
         ; urlmon returns an HRESULT, which the error view shows as the error code.
         System::Call 'urlmon::URLDownloadToFileW(p 0, w "https://go.microsoft.com/fwlink/p/?LinkId=2124703", w "$TEMP\MicrosoftEdgeWebview2Setup.exe", i 0, p 0) i.s'
-        Pop $VibeXErrCode
-        ${If} $VibeXErrCode == 0
+        Pop $DimoErrCode
+        ${If} $DimoErrCode == 0
         ${AndIf} ${FileExists} "$TEMP\MicrosoftEdgeWebview2Setup.exe"
           DetailPrint "$(webview2DownloadSuccess)"
         ${Else}
           DetailPrint "$(webview2DownloadError)"
-          ${If} $VibeXErrCode == "error"
-            StrCpy $VibeXErrCode 0x80004005
+          ${If} $DimoErrCode == "error"
+            StrCpy $DimoErrCode 0x80004005
           ${EndIf}
-          IntFmt $VibeXErrCode "0x%08X" $VibeXErrCode
+          IntFmt $DimoErrCode "0x%08X" $DimoErrCode
           ${If} ${Silent}
           ${OrIf} $PassiveMode = 1
             Abort "$(webview2AbortError)"
           ${EndIf}
-          StrCpy $VibeXErrTitle "$(VIBEX_WEBVIEW2_FAILED)"
-          Call VibeXShowError
-          Goto vibex_webview2_download
+          StrCpy $DimoErrTitle "$(DIMO_WEBVIEW2_FAILED)"
+          Call DimoShowError
+          Goto dimo_webview2_download
         ${EndIf}
-        Call VibeXTick
+        Call DimoTick
         StrCpy $6 "$TEMP\MicrosoftEdgeWebview2Setup.exe"
         Goto install_webview2
       !endif
@@ -296,11 +296,11 @@ Section WebView2
 
       install_webview2:
         DetailPrint "$(installingWebview2)"
-        !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_WEBVIEW2_INSTALL)"
+        !insertmacro DimoSetStage "" "$(DIMO_PROGRESS_WEBVIEW2_INSTALL)"
         ExecWait "$6 ${WEBVIEW2INSTALLERARGS} /install" $1
         ${If} $1 = 0
           DetailPrint "$(webview2InstallSuccess)"
-          Call VibeXTick
+          Call DimoTick
         ${Else}
           DetailPrint "$(webview2InstallError)"
           ${If} ${Silent}
@@ -308,10 +308,10 @@ Section WebView2
             Abort "$(webview2AbortError)"
           ${EndIf}
           !if "${INSTALLWEBVIEW2MODE}" == "downloadBootstrapper"
-            IntFmt $VibeXErrCode "0x%08X" $1
-            StrCpy $VibeXErrTitle "$(VIBEX_WEBVIEW2_INSTALL_FAILED)"
-            Call VibeXShowError
-            Goto vibex_webview2_download
+            IntFmt $DimoErrCode "0x%08X" $1
+            StrCpy $DimoErrTitle "$(DIMO_WEBVIEW2_INSTALL_FAILED)"
+            Call DimoShowError
+            Goto dimo_webview2_download
           !else
             Abort "$(webview2AbortError)"
           !endif
@@ -366,17 +366,17 @@ SectionEnd
   ${EndIf}
 !macroend
 
-!macro StopAllVibeXProcesses
+!macro StopAllDimoProcesses
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
-  !insertmacro KillCompanionProcess "vibex-mcp.exe"
-  !insertmacro KillCompanionProcess "vibex-workflow-mcp.exe"
-  !insertmacro KillCompanionProcess "vibex-computer-helper.exe"
+  !insertmacro KillCompanionProcess "dimo-mcp.exe"
+  !insertmacro KillCompanionProcess "dimo-workflow-mcp.exe"
+  !insertmacro KillCompanionProcess "dimo-computer-helper.exe"
 !macroend
 
-Section Install VibeXSecInstall
-  ${If} $VibeXAction == "uninstall"
-    !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_UNINSTALL)"
-    !insertmacro StopAllVibeXProcesses
+Section Install DimoSecInstall
+  ${If} $DimoAction == "uninstall"
+    !insertmacro DimoSetStage "" "$(DIMO_PROGRESS_UNINSTALL)"
+    !insertmacro StopAllDimoProcesses
     ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
     ${If} $4 == ""
       StrCpy $4 "$INSTDIR"
@@ -387,7 +387,7 @@ Section Install VibeXSecInstall
     ${EndIf}
     Delete "$4\uninstall.exe"
     RMDir "$4"
-    Goto vibex_install_done
+    Goto dimo_install_done
   ${EndIf}
 
   SetOutPath $INSTDIR
@@ -396,13 +396,13 @@ Section Install VibeXSecInstall
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  !insertmacro StopAllVibeXProcesses
+  !insertmacro StopAllDimoProcesses
 
-  !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_EXTRACT)"
+  !insertmacro DimoSetStage "" "$(DIMO_PROGRESS_EXTRACT)"
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
-  Call VibeXTick
+  Call DimoTick
 
   ; Copy resources
   {{#each resources_dirs}}
@@ -410,16 +410,16 @@ Section Install VibeXSecInstall
   {{/each}}
   {{#each resources}}
     File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
-    Call VibeXTick
+    Call DimoTick
   {{/each}}
 
   ; Copy external binaries
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
-    Call VibeXTick
+    Call DimoTick
   {{/each}}
 
-  !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_INSTALL)"
+  !insertmacro DimoSetStage "" "$(DIMO_PROGRESS_INSTALL)"
 
   ; Create file associations
   {{#each file_associations as |association| ~}}
@@ -438,7 +438,7 @@ Section Install VibeXSecInstall
 
   ; Create uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
-  Call VibeXTick
+  Call DimoTick
 
   ; Save $INSTDIR in registry for future installations
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR
@@ -478,7 +478,7 @@ Section Install VibeXSecInstall
     WriteRegStr SHCTX "${UNINSTKEY}" "HelpLink" "${HOMEPAGE}"
   !endif
 
-  !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_FINISH)"
+  !insertmacro DimoSetStage "" "$(DIMO_PROGRESS_FINISH)"
 
   ; Create start menu shortcut
   Call CreateOrUpdateStartMenuShortcut
@@ -490,14 +490,14 @@ Section Install VibeXSecInstall
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
-  vibex_install_done:
-  Call VibeXTickDone
+  dimo_install_done:
+  Call DimoTickDone
   ${If} $PassiveMode = 1
     SetAutoClose true
   ${EndIf}
 SectionEnd
-!if ${VibeXSecInstall} != ${VIBEX_SEC_INSTALL}
-  !error "VIBEX_SEC_INSTALL must match the index of Section Install"
+!if ${DimoSecInstall} != ${DIMO_SEC_INSTALL}
+  !error "DIMO_SEC_INSTALL must match the index of Section Install"
 !endif
 
 Function .onInstSuccess
@@ -536,15 +536,15 @@ Section Uninstall
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
 
-  !insertmacro StopAllVibeXProcesses
+  !insertmacro StopAllDimoProcesses
 
-  !insertmacro VibeXSetStage "un." "$(VIBEX_PROGRESS_UNINSTALL)"
+  !insertmacro DimoSetStage "un." "$(DIMO_PROGRESS_UNINSTALL)"
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
-  Call un.VibeXTick
+  Call un.DimoTick
 
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"
-    Call un.VibeXTick
+    Call un.DimoTick
   {{/each}}
 
   {{#each binaries}}
@@ -630,7 +630,7 @@ Section Uninstall
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
     !insertmacro NSIS_HOOK_POSTUNINSTALL
   !endif
-  Call un.VibeXTickDone
+  Call un.DimoTickDone
 
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1

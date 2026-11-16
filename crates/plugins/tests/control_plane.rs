@@ -14,22 +14,22 @@ fn package(id: &str, source: PluginSourceKind, root: &std::path::Path) -> Plugin
 fn write_linked_package(root: &std::path::Path, body: &str) {
     let skill = root.join("contents/skills/linked/SKILL.md");
     std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.linked","publisher":"dev.vibex","name":"Linked","version":"1.0.0",
+          "id":"dev.dimo.linked","publisher":"dev.dimo","name":"Linked","version":"1.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","properties":{},"additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3","pluginSdk":"^1.0.0"},
           "integrations":[{"id":"linked","kind":"content.skill","resource":"contents/skills/linked"}]
         }"#,
     )
     .unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/content.index.json"),
+        root.join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/linked/SKILL.md","kind":"skill","title":"Linked"}]}"#,
     )
     .unwrap();
@@ -50,7 +50,7 @@ fn write_linked_package(root: &std::path::Path, body: &str) {
 fn full_trust_candidates_implicitly_receive_every_declared_host_capability() {
     let root = tempfile::tempdir().unwrap();
     let mut candidate = package(
-        "dev.vibex.permissions",
+        "dev.dimo.permissions",
         PluginSourceKind::Snapshot,
         root.path(),
     );
@@ -105,7 +105,7 @@ async fn import_is_disabled_and_same_id_requires_an_explicit_decision() {
     let second_root = tempfile::tempdir().unwrap();
 
     let first = package(
-        "dev.vibex.same-id",
+        "dev.dimo.same-id",
         PluginSourceKind::Snapshot,
         first_root.path(),
     );
@@ -117,7 +117,7 @@ async fn import_is_disabled_and_same_id_requires_an_explicit_decision() {
     assert_eq!(imported.plugin.activation, PluginActivation::Disabled);
 
     let replacement = package(
-        "dev.vibex.same-id",
+        "dev.dimo.same-id",
         PluginSourceKind::DeveloperLink,
         second_root.path(),
     );
@@ -166,11 +166,11 @@ async fn refresh_developer_links_replaces_changed_source() {
         .import(package, ConflictDecision::Reject)
         .await
         .unwrap();
-    let before = control.plugin("dev.vibex.linked").await.unwrap().unwrap();
+    let before = control.plugin("dev.dimo.linked").await.unwrap().unwrap();
     write_linked_package(root.path(), "changed");
     let changed = control.refresh_developer_links().await.unwrap();
-    assert_eq!(changed, vec!["dev.vibex.linked".to_string()]);
-    let after = control.plugin("dev.vibex.linked").await.unwrap().unwrap();
+    assert_eq!(changed, vec!["dev.dimo.linked".to_string()]);
+    let after = control.plugin("dev.dimo.linked").await.unwrap().unwrap();
     assert_ne!(after.package_digest, before.package_digest);
     let unchanged = control.refresh_developer_links().await.unwrap();
     assert!(unchanged.is_empty());
@@ -197,7 +197,7 @@ async fn reclaim_drops_managed_runtimes_with_no_plugin_refs() {
     std::fs::write(&artifact, "x").unwrap();
     control
         .record_runtime(
-            "dev.vibex.linked",
+            "dev.dimo.linked",
             RuntimeInstallation {
                 id: "orphan".into(),
                 version: "1.0.0".into(),
@@ -207,12 +207,12 @@ async fn reclaim_drops_managed_runtimes_with_no_plugin_refs() {
                 ownership: "managed".into(),
                 installer: "test".into(),
                 probe: Vec::new(),
-                referenced_plugins: vec!["dev.vibex.linked".into()],
+                referenced_plugins: vec!["dev.dimo.linked".into()],
             },
         )
         .await
         .unwrap();
-    control.uninstall("dev.vibex.linked").await.unwrap();
+    control.uninstall("dev.dimo.linked").await.unwrap();
     let reclaimed = control
         .reclaim_unreferenced_runtimes(runtime_root.path())
         .await
@@ -226,20 +226,20 @@ async fn replacement_cannot_take_over_another_publishers_plugin_id() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control = PluginControlPlane::new(registry);
     let mut original = PluginPackage::for_test(
-        "dev.vibex.identity",
+        "dev.dimo.identity",
         "Identity",
         "1.0.0",
         PluginSourceKind::Snapshot,
         root.path(),
     );
-    original.publisher = Some("dev.vibex".into());
+    original.publisher = Some("dev.dimo".into());
     control
         .import(original, ConflictDecision::Reject)
         .await
         .unwrap();
 
     let mut takeover = PluginPackage::for_test(
-        "dev.vibex.identity",
+        "dev.dimo.identity",
         "Identity",
         "2.0.0",
         PluginSourceKind::Snapshot,
@@ -258,7 +258,7 @@ async fn uninstall_removes_membership_but_retains_runtime_artifacts() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
-    let package = package("dev.vibex.remove", PluginSourceKind::Snapshot, root.path());
+    let package = package("dev.dimo.remove", PluginSourceKind::Snapshot, root.path());
 
     control_plane
         .import(package, ConflictDecision::Reject)
@@ -266,7 +266,7 @@ async fn uninstall_removes_membership_but_retains_runtime_artifacts() {
         .expect("import plugin");
     control_plane
         .record_runtime_for_test(
-            "dev.vibex.remove",
+            "dev.dimo.remove",
             "example-cli",
             "1.0.0",
             "/usr/local/bin/example",
@@ -275,13 +275,13 @@ async fn uninstall_removes_membership_but_retains_runtime_artifacts() {
         .expect("runtime lock");
 
     control_plane
-        .uninstall("dev.vibex.remove")
+        .uninstall("dev.dimo.remove")
         .await
         .expect("uninstall");
 
     assert!(
         control_plane
-            .plugin("dev.vibex.remove")
+            .plugin("dev.dimo.remove")
             .await
             .unwrap()
             .is_none()
@@ -294,12 +294,12 @@ async fn same_runtime_id_can_lock_multiple_versions_without_displacing_plugins()
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
-    let mut first = package("dev.vibex.first", PluginSourceKind::Snapshot, root.path());
+    let mut first = package("dev.dimo.first", PluginSourceKind::Snapshot, root.path());
     first.runtimes.push(runtime("shared-cli", "1.0.0"));
-    let mut second = package("dev.vibex.second", PluginSourceKind::Snapshot, root.path());
+    let mut second = package("dev.dimo.second", PluginSourceKind::Snapshot, root.path());
     second.runtimes.push(runtime("shared-cli", "1.0.0"));
     let mut incoming = package(
-        "dev.vibex.incoming",
+        "dev.dimo.incoming",
         PluginSourceKind::Snapshot,
         root.path(),
     );
@@ -312,7 +312,7 @@ async fn same_runtime_id_can_lock_multiple_versions_without_displacing_plugins()
     }
     control_plane
         .record_runtime(
-            "dev.vibex.first",
+            "dev.dimo.first",
             RuntimeInstallation {
                 id: "shared-cli".to_owned(),
                 version: "1.0.0".to_owned(),
@@ -329,13 +329,13 @@ async fn same_runtime_id_can_lock_multiple_versions_without_displacing_plugins()
         .unwrap();
     control_plane
         .record_runtime(
-            "dev.vibex.incoming",
+            "dev.dimo.incoming",
             RuntimeInstallation {
                 id: "shared-cli".to_owned(),
                 version: "2.0.0".to_owned(),
                 target: "test-target".to_owned(),
                 content_digest: "sha256:shared-2".to_owned(),
-                executable_path: "/opt/vibex/shared/2/shared".into(),
+                executable_path: "/opt/dimo/shared/2/shared".into(),
                 ownership: "managed".to_owned(),
                 installer: "binary".to_owned(),
                 probe: vec!["--version".to_owned()],
@@ -349,8 +349,8 @@ async fn same_runtime_id_can_lock_multiple_versions_without_displacing_plugins()
     assert_eq!(inventory.len(), 2);
     assert_eq!(inventory[0].version, "1.0.0");
     assert_eq!(inventory[1].version, "2.0.0");
-    assert_eq!(inventory[0].referenced_plugins, vec!["dev.vibex.first"]);
-    assert_eq!(inventory[1].referenced_plugins, vec!["dev.vibex.incoming"]);
+    assert_eq!(inventory[0].referenced_plugins, vec!["dev.dimo.first"]);
+    assert_eq!(inventory[1].referenced_plugins, vec!["dev.dimo.incoming"]);
 }
 
 #[tokio::test]
@@ -358,7 +358,7 @@ async fn enabled_portable_action_resolves_from_the_unified_catalog() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
-    let mut plugin = package("dev.vibex.actions", PluginSourceKind::Snapshot, root.path());
+    let mut plugin = package("dev.dimo.actions", PluginSourceKind::Snapshot, root.path());
     plugin.invocations.push(plugins::InvocationDefinition {
         id: "review".to_owned(),
         label: "Review".to_owned(),
@@ -375,12 +375,12 @@ async fn enabled_portable_action_resolves_from_the_unified_catalog() {
         .await
         .unwrap();
     control_plane
-        .set_enabled("dev.vibex.actions", true)
+        .set_enabled("dev.dimo.actions", true)
         .await
         .unwrap();
 
     let action = control_plane
-        .resolve_action("dev.vibex.actions", "review")
+        .resolve_action("dev.dimo.actions", "review")
         .await
         .unwrap();
 
@@ -403,7 +403,7 @@ async fn activation_publishes_one_atomic_generation_for_app_and_agent_contributi
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
     let mut plugin = package(
-        "dev.vibex.full-stack",
+        "dev.dimo.full-stack",
         PluginSourceKind::Snapshot,
         root.path(),
     );
@@ -428,7 +428,7 @@ async fn activation_publishes_one_atomic_generation_for_app_and_agent_contributi
     assert!(disabled.items.is_empty());
 
     control_plane
-        .set_enabled("dev.vibex.full-stack", true)
+        .set_enabled("dev.dimo.full-stack", true)
         .await
         .unwrap();
     let active = control_plane.contributions().await.unwrap();
@@ -438,7 +438,7 @@ async fn activation_publishes_one_atomic_generation_for_app_and_agent_contributi
         active
             .items
             .iter()
-            .filter(|item| item.plugin_id == "dev.vibex.full-stack")
+            .filter(|item| item.plugin_id == "dev.dimo.full-stack")
             .map(|item| item.kind)
             .collect::<Vec<_>>(),
         [ContributionKind::Skill, ContributionKind::FileOpener]
@@ -459,7 +459,7 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
-    let mut plugin = package("dev.vibex.preview", PluginSourceKind::Snapshot, root.path());
+    let mut plugin = package("dev.dimo.preview", PluginSourceKind::Snapshot, root.path());
     plugin.skills.clear();
     plugin.app.file_openers.push(FileOpenerContribution {
         id: "office".to_owned(),
@@ -476,7 +476,7 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
         .await
         .unwrap();
     control_plane
-        .set_enabled("dev.vibex.preview", true)
+        .set_enabled("dev.dimo.preview", true)
         .await
         .unwrap();
 
@@ -485,11 +485,11 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
         .await
         .unwrap()
         .expect("enabled provider");
-    assert_eq!(resolved.plugin_id, "dev.vibex.preview");
+    assert_eq!(resolved.plugin_id, "dev.dimo.preview");
     assert_eq!(resolved.handler, "office.openPreview");
 
     control_plane
-        .set_enabled("dev.vibex.preview", false)
+        .set_enabled("dev.dimo.preview", false)
         .await
         .unwrap();
     assert!(
@@ -507,7 +507,7 @@ async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
     let mut plugin = package(
-        "dev.vibex.workflow",
+        "dev.dimo.workflow",
         PluginSourceKind::Snapshot,
         root.path(),
     );
@@ -516,7 +516,7 @@ async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
         id: "workflow".to_owned(),
         label: "Workflow Studio".to_owned(),
         extensions: Vec::new(),
-        file_name_suffixes: vec![".vibex-workflow.json".to_owned()],
+        file_name_suffixes: vec![".dimo-workflow.json".to_owned()],
         media_types: Vec::new(),
         priority: 100,
         handler: "workflow.open".to_owned(),
@@ -527,7 +527,7 @@ async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
         .await
         .unwrap();
     control_plane
-        .set_enabled("dev.vibex.workflow", true)
+        .set_enabled("dev.dimo.workflow", true)
         .await
         .unwrap();
 
@@ -539,7 +539,7 @@ async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
             .is_none()
     );
     let resolved = control_plane
-        .resolve_file_opener_for_file(Some("release.vibex-workflow.json"), Some("json"), None)
+        .resolve_file_opener_for_file(Some("release.dimo-workflow.json"), Some("json"), None)
         .await
         .unwrap()
         .expect("compound Workflow suffix");
@@ -551,7 +551,7 @@ async fn disable_withdraws_contributions_before_the_generation_is_gone() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
-    let mut plugin = package("dev.vibex.preview", PluginSourceKind::Snapshot, root.path());
+    let mut plugin = package("dev.dimo.preview", PluginSourceKind::Snapshot, root.path());
     plugin.skills.clear();
     plugin.app.file_openers.push(FileOpenerContribution {
         id: "office".to_owned(),
@@ -568,11 +568,11 @@ async fn disable_withdraws_contributions_before_the_generation_is_gone() {
         .await
         .unwrap();
     control_plane
-        .set_enabled("dev.vibex.preview", true)
+        .set_enabled("dev.dimo.preview", true)
         .await
         .unwrap();
     control_plane
-        .set_enabled("dev.vibex.preview", false)
+        .set_enabled("dev.dimo.preview", false)
         .await
         .unwrap();
 
@@ -586,7 +586,7 @@ async fn disable_withdraws_contributions_before_the_generation_is_gone() {
     );
     assert_eq!(
         control_plane
-            .plugin("dev.vibex.preview")
+            .plugin("dev.dimo.preview")
             .await
             .unwrap()
             .unwrap()

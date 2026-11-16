@@ -16,7 +16,7 @@ export type KanbanSessionListView = (typeof KANBAN_SESSION_LIST_VIEWS)[number];
 
 export const DEFAULT_KANBAN_SESSION_LIST_VIEW: KanbanSessionListView = 'status';
 export const KANBAN_SESSION_LIST_VIEW_KEY =
-  'vibex:kanban-session-list-view' as const;
+  'dimo:kanban-session-list-view' as const;
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;

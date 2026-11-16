@@ -28,7 +28,7 @@ import {
   resolveAccountStorageKey,
   resolveLegacyAccountStorageKeys,
 } from './accountHostConfigs';
-import { useVibeXAccount } from './useVibeXAccount';
+import { useDimoAccount } from './useDimoAccount';
 
 const PUSH_DEBOUNCE_MS = 350;
 const ECHO_COOLDOWN_MS = 180;
@@ -523,7 +523,7 @@ export function resetAccountSavedHostsForTests(): void {
 }
 
 export function useAccountSavedHosts() {
-  const { isSignedIn, user } = useVibeXAccount();
+  const { isSignedIn, user } = useDimoAccount();
   const state = useSyncExternalStore(
     subscribeStore,
     getStoreSnapshot,
@@ -578,7 +578,7 @@ export function useAccountSavedHosts() {
 }
 
 export function AccountSavedHostsSyncBridge(): null {
-  const { isSignedIn, user } = useVibeXAccount();
+  const { isSignedIn, user } = useDimoAccount();
   const accountKey = isSignedIn ? resolveAccountStorageKey(user) : null;
   const userRef = useRef(user);
   userRef.current = user;

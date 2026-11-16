@@ -1,3 +1,3 @@
-import type { VibexPluginModule } from '@vibex/plugin-sdk';
-declare const plugin: VibexPluginModule;
+import type { DimoPluginModule } from '@dimoai/plugin-sdk';
+declare const plugin: DimoPluginModule;
 export default plugin;

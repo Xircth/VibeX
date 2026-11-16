@@ -112,9 +112,9 @@ fn initialize_repo_without_user_creates_initial_commit() {
     let head = s.get_head_info(&repo_path).unwrap();
     assert_eq!(head.branch, "main");
     assert!(!head.oid.is_empty());
-    // Bootstrap commit uses the local VibeX identity, not a global gitconfig lookup.
+    // Bootstrap commit uses the local Dimo identity, not a global gitconfig lookup.
     let (name, email) = get_head_author(&repo_path);
-    assert_eq!(name.as_deref(), Some("VibeX"));
+    assert_eq!(name.as_deref(), Some("Dimo"));
     assert_eq!(email.as_deref(), Some("noreply@vibex.com"));
 }
 
@@ -126,7 +126,7 @@ fn commit_without_user_config_succeeds() {
     s.initialize_repo_with_main_branch(&repo_path).unwrap();
     write_file(&repo_path, "f.txt", "x\n");
     // No configure_user call here. Regular commits require a Git identity;
-    // only the bootstrap commit may use the VibeX fallback signature.
+    // only the bootstrap commit may use the Dimo fallback signature.
     let res = s.commit(&repo_path, "no user config");
     if has_global_git_identity() {
         assert!(res.is_ok(), "{res:?}");

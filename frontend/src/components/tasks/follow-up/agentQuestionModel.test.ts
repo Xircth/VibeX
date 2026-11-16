@@ -19,7 +19,7 @@ function grokRequest(): ConversationQuestionRequest {
     options: [],
     schema: {
       type: 'object',
-      'x-vibex-questions': [
+      'x-dimo-questions': [
         {
           id: 'tracker',
           header: 'Tracker',
@@ -146,9 +146,9 @@ describe('agentQuestionModel', () => {
         questions: grokRequest().schema
           ? (
               grokRequest().schema as {
-                'x-vibex-questions': Array<Record<string, unknown>>;
+                'x-dimo-questions': Array<Record<string, unknown>>;
               }
-            )['x-vibex-questions']
+            )['x-dimo-questions']
           : [],
       }),
       meta: null,
@@ -310,10 +310,10 @@ describe('agentQuestionModel', () => {
     const wrapped = questionRequestFromToolUse({
       type: 'tool_use',
       tool_use_id: 'call-mcp-1',
-      tool_name: 'vibex-delegation-mcp__ask_user_question',
+      tool_name: 'dimo-delegation-mcp__ask_user_question',
       kind: 'other',
       input_preview: JSON.stringify({
-        server: 'vibex-delegation-mcp',
+        server: 'dimo-delegation-mcp',
         tool: 'ask_user_question',
         arguments: {
           questions: [
@@ -334,7 +334,7 @@ describe('agentQuestionModel', () => {
     const empty = questionRequestFromToolUse({
       type: 'tool_use',
       tool_use_id: 'call-mcp-2',
-      tool_name: 'vibex-delegation-mcp__ask_user_question',
+      tool_name: 'dimo-delegation-mcp__ask_user_question',
       kind: 'other',
       input_preview: '{}',
       meta: null,
@@ -351,7 +351,7 @@ describe('agentQuestionModel', () => {
       options: [],
       schema: {
         type: 'object',
-        'x-vibex-questions': [
+        'x-dimo-questions': [
           {
             id: 'auth',
             fieldName: 'auth',

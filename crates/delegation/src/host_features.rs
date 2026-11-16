@@ -1,4 +1,4 @@
-//! Production companion tools shared by desktop and `vibex-server`.
+//! Production companion tools shared by desktop and `dimo-server`.
 
 use std::sync::{Arc, Mutex};
 
@@ -445,7 +445,7 @@ impl CompanionFeaturePort for HostCompanionFeatures {
                             message,
                             requested_schema: json!({
                                 "type": "object",
-                                "x-vibex-questions": questions,
+                                "x-dimo-questions": questions,
                             }),
                         },
                     },
@@ -796,7 +796,7 @@ async fn collaboration_tool(
             .get(key)
             .and_then(Value::as_str)
             .and_then(|value| {
-                Uuid::parse_str(value.trim().trim_start_matches("vibex://conversation/")).ok()
+                Uuid::parse_str(value.trim().trim_start_matches("dimo://conversation/")).ok()
             })
     };
     let operation_id = uuid_arg("operation_id").unwrap_or_else(Uuid::new_v4);
@@ -2294,7 +2294,7 @@ mod tests {
         .await
         .expect("query direct messages");
         assert_eq!(raw_envelopes.len(), 1);
-        assert!(raw_envelopes[0].contains("<vibex-private-bootstrap>"));
+        assert!(raw_envelopes[0].contains("<dimo-private-bootstrap>"));
         assert!(raw_envelopes[0].contains("Lander 刚为用户创建了你。"));
 
         // Verify the new bot's conversation received the queued input without XML wrapper tags:
@@ -2309,7 +2309,7 @@ mod tests {
         let payload: Value = serde_json::from_str(&queued_inputs[0]).expect("parse payload");
         let text = payload["text"].as_str().expect("input text");
         assert!(text.contains("Lander 刚为用户创建了你。"), "{text}");
-        assert!(!text.contains("<vibex-private-bootstrap>"), "{text}");
+        assert!(!text.contains("<dimo-private-bootstrap>"), "{text}");
     }
 
     #[tokio::test]

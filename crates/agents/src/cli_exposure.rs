@@ -1,4 +1,4 @@
-//! Stable terminal command exposure for VibeX-managed Agent runtimes.
+//! Stable terminal command exposure for Dimo-managed Agent runtimes.
 
 use std::{
     borrow::Cow,
@@ -11,12 +11,12 @@ use std::{
 use api_types::AgentId;
 use uuid::Uuid;
 
-const PROFILE_BLOCK_START: &str = "# >>> VibeX managed Agent CLI >>>";
-const PROFILE_BLOCK_END: &str = "# <<< VibeX managed Agent CLI <<<";
-const SHIM_MARKER_PREFIX: &str = "# VibeX Agent CLI: ";
-const WINDOWS_SHIM_MARKER_PREFIX: &str = "rem VibeX Agent CLI: ";
-const TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "# VibeX toolchain: ";
-const WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "rem VibeX toolchain: ";
+const PROFILE_BLOCK_START: &str = "# >>> Dimo managed Agent CLI >>>";
+const PROFILE_BLOCK_END: &str = "# <<< Dimo managed Agent CLI <<<";
+const SHIM_MARKER_PREFIX: &str = "# Dimo Agent CLI: ";
+const WINDOWS_SHIM_MARKER_PREFIX: &str = "rem Dimo Agent CLI: ";
+const TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "# Dimo toolchain: ";
+const WINDOWS_TOOLCHAIN_SHIM_MARKER_PREFIX: &str = "rem Dimo toolchain: ";
 
 /// A published shim is a handful of lines. Anything larger is a real executable
 /// and is never scanned for the ownership marker.
@@ -92,7 +92,7 @@ pub enum CliExposureError {
         existing_path: PathBuf,
     },
     #[error(
-        "terminal command `{command}` already exists at `{existing_path}` and is not a VibeX toolchain shim"
+        "terminal command `{command}` already exists at `{existing_path}` and is not a Dimo toolchain shim"
     )]
     ToolchainCommandConflict {
         command: String,
@@ -103,7 +103,7 @@ pub enum CliExposureError {
 }
 
 /// Ensure `~/.local/bin` is on the user PATH so user-environment Agent CLIs
-/// are visible after install. Does not write a VibeX-owned shim.
+/// are visible after install. Does not write a Dimo-owned shim.
 pub fn ensure_user_cli_path(home_dir: &Path, shell: ShellFamily) -> Result<(), CliExposureError> {
     ensure_shell_path(home_dir, shell)
 }
@@ -183,7 +183,7 @@ pub fn export_managed_bun_to_user_environment(
         let dest_exe = user_bin.join("bun.exe");
         if source_exe.is_file() && !paths_refer_to_same_file(&source_exe, &dest_exe) {
             let temporary =
-                dest_exe.with_file_name(format!(".bun.exe.vibex-toolchain-{}.tmp", Uuid::new_v4()));
+                dest_exe.with_file_name(format!(".bun.exe.dimo-toolchain-{}.tmp", Uuid::new_v4()));
             if fs::copy(&source_exe, &temporary).is_ok()
                 && replace_file_atomically(&temporary, &dest_exe).is_err()
             {
@@ -454,7 +454,7 @@ fn shim_is_owned_by(contents: &[u8], agent_id: &AgentId) -> bool {
     shim_marker_owner(contents).is_some_and(|owner| owner.eq_ignore_ascii_case(agent_id.as_str()))
 }
 
-/// The value on one of VibeX's ownership marker lines, in a file it published.
+/// The value on one of Dimo's ownership marker lines, in a file it published.
 ///
 /// Every marker is read the same way: the first line carrying either the POSIX
 /// or the Windows prefix yields the name that follows it. Both prefixes are
@@ -496,10 +496,10 @@ fn toolchain_shim_marker_owner(contents: &[u8]) -> Option<&str> {
 
 /// The Agent that owns the published CLI shim at `path`, if `path` is one.
 ///
-/// VibeX writes shims for its managed Runtimes into the user's `~/.local/bin`,
+/// Dimo writes shims for its managed Runtimes into the user's `~/.local/bin`,
 /// where they are indistinguishable from a user-installed command by name alone.
 /// Callers asking "does this machine already have this Runtime?" must be able to
-/// tell VibeX's own artifact from the user's, and the marker line is the only
+/// tell Dimo's own artifact from the user's, and the marker line is the only
 /// durable evidence of that.
 pub fn published_cli_shim_agent(path: &Path) -> Option<AgentId> {
     read_published_shim(path).map(|(agent_id, _)| agent_id)
@@ -526,11 +526,11 @@ fn read_published_shim(path: &Path) -> Option<(AgentId, Vec<u8>)> {
     Some((agent_id, contents))
 }
 
-/// Resolve a command to the *user's* executable, stepping over any VibeX
+/// Resolve a command to the *user's* executable, stepping over any Dimo
 /// published shim.
 ///
-/// VibeX publishes its managed Runtime under the vendor command name, so a probe
-/// that stops at the first PATH hit reports VibeX's own installation as one the
+/// Dimo publishes its managed Runtime under the vendor command name, so a probe
+/// that stops at the first PATH hit reports Dimo's own installation as one the
 /// user already had: the Agent is adopted as user-provided and the user's real
 /// Runtime — when they have one — is never consulted. Resolving through here
 /// keeps that distinction: `None` means the user has no Runtime of their own,
@@ -542,7 +542,7 @@ pub async fn resolve_user_runtime_command(command: &str) -> Option<PathBuf> {
         .next()
 }
 
-/// Every user-owned Runtime on PATH, skipping VibeX shims and WindowsApps aliases.
+/// Every user-owned Runtime on PATH, skipping Dimo shims and WindowsApps aliases.
 pub async fn resolve_user_runtime_commands(command: &str) -> Vec<PathBuf> {
     let command = command.trim();
     if command.is_empty() {
@@ -571,7 +571,7 @@ pub async fn resolve_user_runtime_commands(command: &str) -> Vec<PathBuf> {
     found
 }
 
-/// The first `command` on `search_path` that is not a shim VibeX published.
+/// The first `command` on `search_path` that is not a shim Dimo published.
 #[cfg(test)]
 fn first_user_runtime_in(
     command: &str,
@@ -620,27 +620,27 @@ fn unquote_posix_shim_value(value: &str) -> Option<String> {
     Some(inner.replace("'\"'\"'", "'"))
 }
 
-/// Whether VibeX published the file at hand.
+/// Whether Dimo published the file at hand.
 ///
 /// The marker line is the only evidence of that, and it is what keeps a user's
 /// own command of the same name from being mistaken for one of ours.
-fn is_vibex_published_shim(contents: &[u8]) -> bool {
+fn is_dimo_published_shim(contents: &[u8]) -> bool {
     shim_marker_owner(contents).is_some() || toolchain_shim_marker_owner(contents).is_some()
 }
 
-/// Remove shims VibeX published whose target no longer exists.
+/// Remove shims Dimo published whose target no longer exists.
 ///
 /// A shim outlives the installation it points at: the managed tree is deleted,
 /// or an install is abandoned before it is promoted, and the command stays on
 /// the user's `PATH` pointing at nothing. It carries the vendor command name, so
 /// a dead shim shadows whatever the user installed under that name — their own
-/// Runtime, or their own Node — and the failure names neither VibeX nor the
+/// Runtime, or their own Node — and the failure names neither Dimo nor the
 /// shim. Nothing else removes it, because nothing else knows it is there.
 ///
-/// Only a file carrying one of VibeX's own ownership markers is ever considered,
+/// Only a file carrying one of Dimo's own ownership markers is ever considered,
 /// and the sweep is deliberately literal about liveness: a shim is orphaned only
 /// when the program it names is not an existing file. A shim whose command is
-/// merely *unexpected* — one VibeX would no longer publish — still runs, and
+/// merely *unexpected* — one Dimo would no longer publish — still runs, and
 /// removing it would take a working command away from the user.
 pub fn remove_orphaned_cli_shims(
     home_dir: &Path,
@@ -665,11 +665,11 @@ pub fn remove_orphaned_cli_shims(
         let Ok(contents) = fs::read(&shim_path) else {
             continue;
         };
-        if !is_vibex_published_shim(&contents) {
+        if !is_dimo_published_shim(&contents) {
             continue;
         }
         let Some(target) = shim_runtime_target(&contents) else {
-            // Not readable as a shim VibeX wrote: it cannot be proven that the
+            // Not readable as a shim Dimo wrote: it cannot be proven that the
             // target is gone, so the file is left alone rather than guessed at.
             continue;
         };
@@ -702,7 +702,7 @@ fn write_shim_atomically(
     runtime_path_entries: &[PathBuf],
 ) -> Result<(), CliExposureError> {
     let temporary = shim_path.with_file_name(format!(
-        ".{}.vibex-{}.tmp",
+        ".{}.dimo-{}.tmp",
         shim_path
             .file_name()
             .and_then(|value| value.to_str())
@@ -844,7 +844,7 @@ fn write_toolchain_shim_atomically(
     toolchain_bin_dir: &Path,
 ) -> Result<(), CliExposureError> {
     let temporary = shim_path.with_file_name(format!(
-        ".{}.vibex-toolchain-{}.tmp",
+        ".{}.dimo-toolchain-{}.tmp",
         shim_path
             .file_name()
             .and_then(|value| value.to_str())
@@ -1278,12 +1278,12 @@ mod tests {
         let contents = render_shim(
             ShellFamily::Windows,
             &agent_id,
-            Path::new(r"C:\Users\Dev%20\VibeX\agents\claude.cmd"),
-            &[PathBuf::from(r"C:\Users\Dev%20\VibeX\node")],
+            Path::new(r"C:\Users\Dev%20\Dimo\agents\claude.cmd"),
+            &[PathBuf::from(r"C:\Users\Dev%20\Dimo\node")],
         );
 
-        assert!(contents.contains("set \"PATH=C:\\Users\\Dev%%20\\VibeX\\node;%PATH%\"\r\n"));
-        assert!(contents.contains("\"C:\\Users\\Dev%%20\\VibeX\\agents\\claude.cmd\" %*\r\n"));
+        assert!(contents.contains("set \"PATH=C:\\Users\\Dev%%20\\Dimo\\node;%PATH%\"\r\n"));
+        assert!(contents.contains("\"C:\\Users\\Dev%%20\\Dimo\\agents\\claude.cmd\" %*\r\n"));
         assert!(contents.ends_with("exit /b %ERRORLEVEL%\r\n"));
     }
 
@@ -1587,7 +1587,7 @@ mod tests {
         assert!(
             fs::read_to_string(&node_shim)
                 .unwrap()
-                .contains("# VibeX toolchain: node")
+                .contains("# Dimo toolchain: node")
         );
 
         let output = Command::new("/bin/sh")
@@ -1643,18 +1643,18 @@ mod tests {
     #[test]
     fn shim_ownership_is_read_from_the_marker_line_alone() {
         assert_eq!(
-            shim_marker_owner(b"#!/bin/sh\n# VibeX Agent CLI: pi\nexec /x \"$@\"\n"),
+            shim_marker_owner(b"#!/bin/sh\n# Dimo Agent CLI: pi\nexec /x \"$@\"\n"),
             Some("pi")
         );
         assert_eq!(
-            shim_marker_owner(b"@echo off\r\nrem VibeX Agent CLI: codex\r\n\"x\" %*\r\n"),
+            shim_marker_owner(b"@echo off\r\nrem Dimo Agent CLI: codex\r\n\"x\" %*\r\n"),
             Some("codex")
         );
-        assert_eq!(shim_marker_owner(b"rem VibeX toolchain: node\n"), None);
-        // A command that merely mentions VibeX is not one VibeX published, and
+        assert_eq!(shim_marker_owner(b"rem Dimo toolchain: node\n"), None);
+        // A command that merely mentions Dimo is not one Dimo published, and
         // neither is a user's own script next to a published shim.
         assert_eq!(
-            shim_marker_owner(b"# see VibeX Agent CLI: pi\nexec /x\n"),
+            shim_marker_owner(b"# see Dimo Agent CLI: pi\nexec /x\n"),
             None
         );
         assert_eq!(
@@ -1778,7 +1778,7 @@ mod tests {
         .unwrap();
         assert_eq!(published.command_name, "pi");
 
-        // VibeX's shim comes first on PATH and would otherwise be reported as the
+        // Dimo's shim comes first on PATH and would otherwise be reported as the
         // Runtime the user already had.
         let search_path =
             std::env::join_paths([published.shim_path.parent().unwrap(), &real_bin]).unwrap();
@@ -1793,11 +1793,11 @@ mod tests {
     #[test]
     fn a_shim_reports_the_target_it_runs() {
         assert_eq!(
-            shim_runtime_target(b"#!/bin/sh\n# VibeX Agent CLI: pi\nexec '/opt/pi' \"$@\"\n"),
+            shim_runtime_target(b"#!/bin/sh\n# Dimo Agent CLI: pi\nexec '/opt/pi' \"$@\"\n"),
             Some(PathBuf::from("/opt/pi"))
         );
         assert_eq!(
-            shim_runtime_target(b"@echo off\r\nrem VibeX Agent CLI: pi\r\n\"C:/Pi/pi.cmd\" %*\r\n"),
+            shim_runtime_target(b"@echo off\r\nrem Dimo Agent CLI: pi\r\n\"C:/Pi/pi.cmd\" %*\r\n"),
             Some(PathBuf::from("C:/Pi/pi.cmd"))
         );
         // The batch form doubles `%`; the shim's own escaping is undone.
@@ -1912,16 +1912,16 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn the_sweep_never_removes_a_command_vibex_did_not_publish() {
+    fn the_sweep_never_removes_a_command_dimo_did_not_publish() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         let bin = home.join(".local").join("bin");
         fs::create_dir_all(&bin).unwrap();
         // The user's own command under the vendor name, pointed at a Runtime that
-        // does not exist. VibeX did not write it, so it is not VibeX's to delete.
+        // does not exist. Dimo did not write it, so it is not Dimo's to delete.
         fs::write(bin.join("pi"), "#!/bin/sh\nexec /opt/gone/pi \"$@\"\n").unwrap();
-        // VibeX's marker with nothing after it names no command to check.
-        fs::write(bin.join("mystery"), "# VibeX Agent CLI:\n").unwrap();
+        // Dimo's marker with nothing after it names no command to check.
+        fs::write(bin.join("mystery"), "# Dimo Agent CLI:\n").unwrap();
 
         assert!(remove_orphaned_cli_shims(&home).unwrap().is_empty());
         assert!(bin.join("pi").exists());

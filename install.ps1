@@ -1,25 +1,25 @@
-# Install the VibeX Host family (vibex-server, vibex-mcp, vibex-workflow-mcp
+# Install the Dimo Host family (dimo-server, dimo-mcp, dimo-workflow-mcp
 # and the web bundle) from a GitHub Release.
 #
 # The desktop app is not installed by this script; it ships as a Tauri
 # installer with its own updater. Coding agents are not installed either —
 # they live in your own environment (ADR-0060).
 #
-#   irm https://raw.githubusercontent.com/Xircth/VibeX/master/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/DimoADE/Dimo/master/install.ps1 | iex
 #
 # Environment:
-#   VIBEX_VERSION      Install this version instead of the latest release.
-#   VIBEX_PLATFORM     Override platform detection (e.g. windows-x86_64).
-#   VIBEX_GITHUB_REPO        Source repository. Default Xircth/VibeX.
-#   VIBEX_HOST_FAMILY_BASE   Override the download origin (no trailing slash).
-#   VIBEX_INSTALL_DIR        Where the `vibex.cmd` launcher goes. Default %LOCALAPPDATA%\VibeX\bin.
-#   VIBEX_PRINT_PLAN         Print the resolved platform and URLs, then exit.
+#   DIMO_VERSION      Install this version instead of the latest release.
+#   DIMO_PLATFORM     Override platform detection (e.g. windows-x86_64).
+#   DIMO_GITHUB_REPO        Source repository. Default DimoADE/Dimo.
+#   DIMO_HOST_FAMILY_BASE   Override the download origin (no trailing slash).
+#   DIMO_INSTALL_DIR        Where the `dimo.cmd` launcher goes. Default %LOCALAPPDATA%\Dimo\bin.
+#   DIMO_PRINT_PLAN         Print the resolved platform and URLs, then exit.
 
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:VIBEX_GITHUB_REPO) { $env:VIBEX_GITHUB_REPO } else { "Xircth/VibeX" }
-$CacheRoot = Join-Path $HOME ".vibex" "host-family"
-$InstallDir = if ($env:VIBEX_INSTALL_DIR) { $env:VIBEX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "VibeX" "bin" }
+$Repo = if ($env:DIMO_GITHUB_REPO) { $env:DIMO_GITHUB_REPO } else { "DimoADE/Dimo" }
+$CacheRoot = Join-Path $HOME ".dimo" "host-family"
+$InstallDir = if ($env:DIMO_INSTALL_DIR) { $env:DIMO_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Dimo" "bin" }
 # Kept in step with npx-cli/bin/release-assets.js by scripts/release-assets.test.js.
 $SupportedPlatforms = @(
     "linux-x86_64",
@@ -35,8 +35,8 @@ function Fail([string]$Message) {
 }
 
 function Get-Platform {
-    if ($env:VIBEX_PLATFORM) {
-        return $env:VIBEX_PLATFORM
+    if ($env:DIMO_PLATFORM) {
+        return $env:DIMO_PLATFORM
     }
 
     $os = if ($IsWindows -or $env:OS -eq "Windows_NT") {
@@ -121,11 +121,11 @@ function Assert-Sha256Sums([string]$Root) {
 
 function Write-Launcher([string]$FamilyRoot) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    $server = Join-Path $FamilyRoot "vibex-server.exe"
+    $server = Join-Path $FamilyRoot "dimo-server.exe"
     if (-not (Test-Path $server)) {
-        $server = Join-Path $FamilyRoot "vibex-server"
+        $server = Join-Path $FamilyRoot "dimo-server"
     }
-    $cmd = Join-Path $InstallDir "vibex.cmd"
+    $cmd = Join-Path $InstallDir "dimo.cmd"
     Set-Content -Path $cmd -Encoding ascii -Value "@echo off`r`n`"$server`" %*"
     return $cmd
 }
@@ -133,21 +133,21 @@ function Write-Launcher([string]$FamilyRoot) {
 $platform = Get-Platform
 Assert-SupportedPlatform $platform
 
-if ($env:VIBEX_VERSION) {
-    $tag = if ($env:VIBEX_VERSION.StartsWith("v")) { $env:VIBEX_VERSION } else { "v$($env:VIBEX_VERSION)" }
+if ($env:DIMO_VERSION) {
+    $tag = if ($env:DIMO_VERSION.StartsWith("v")) { $env:DIMO_VERSION } else { "v$($env:DIMO_VERSION)" }
 } else {
     $tag = Get-LatestTag
 }
 $version = $tag.TrimStart("v")
-$archive = "VibeX-$version-$platform-server.tar.gz"
-$baseUrl = if ($env:VIBEX_HOST_FAMILY_BASE) {
-    $env:VIBEX_HOST_FAMILY_BASE.TrimEnd("/")
+$archive = "Dimo-$version-$platform-server.tar.gz"
+$baseUrl = if ($env:DIMO_HOST_FAMILY_BASE) {
+    $env:DIMO_HOST_FAMILY_BASE.TrimEnd("/")
 } else {
     "https://github.com/$Repo/releases/download/$tag"
 }
 $familyRoot = Join-Path $CacheRoot $tag $platform "family"
 
-if ($env:VIBEX_PRINT_PLAN) {
+if ($env:DIMO_PRINT_PLAN) {
     Write-Output "platform=$platform"
     Write-Output "tag=$tag"
     Write-Output "archive=$archive"
@@ -160,12 +160,12 @@ if ($env:VIBEX_PRINT_PLAN) {
 $temp = $null
 try {
     if (Test-Path (Join-Path $familyRoot "SHA256SUMS")) {
-        Write-Host "VibeX Host family $tag is already installed for $platform."
+        Write-Host "Dimo Host family $tag is already installed for $platform."
         Assert-Sha256Sums $familyRoot
     } else {
-        $temp = Join-Path ([IO.Path]::GetTempPath()) ("vibex-install-" + [guid]::NewGuid().ToString("N"))
+        $temp = Join-Path ([IO.Path]::GetTempPath()) ("dimo-install-" + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $temp | Out-Null
-        Write-Host "Downloading VibeX Host family $tag for $platform..."
+        Write-Host "Downloading Dimo Host family $tag for $platform..."
         $archivePath = Join-Path $temp $archive
         $checksumPath = "$archivePath.sha256"
         Invoke-WebRequest -Uri "$baseUrl/$archive" -OutFile $archivePath
@@ -198,16 +198,16 @@ try {
 
     $launcher = Write-Launcher $familyRoot
     Write-Host ""
-    Write-Host "Installed VibeX Host family $tag to $familyRoot"
+    Write-Host "Installed Dimo Host family $tag to $familyRoot"
     Write-Host "Launcher: $launcher"
 
     $onPath = ($env:PATH -split ";" | ForEach-Object { $_.TrimEnd("\") }) -contains $InstallDir.TrimEnd("\")
     if ($onPath) {
         Write-Host ""
-        Write-Host "Run ``vibex`` to start the server on http://127.0.0.1:17891"
+        Write-Host "Run ``dimo`` to start the server on http://127.0.0.1:17891"
     } else {
         Write-Host ""
-        Write-Host "Add $InstallDir to your PATH, then run ``vibex``."
+        Write-Host "Add $InstallDir to your PATH, then run ``dimo``."
     }
 } finally {
     if ($temp -and (Test-Path $temp)) {

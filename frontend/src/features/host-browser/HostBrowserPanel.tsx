@@ -1052,9 +1052,9 @@ export function HostBrowserPanel({
         };
       });
     };
-    window.addEventListener('vibex:browser-grant-changed', onGrantChanged);
+    window.addEventListener('dimo:browser-grant-changed', onGrantChanged);
     return () =>
-      window.removeEventListener('vibex:browser-grant-changed', onGrantChanged);
+      window.removeEventListener('dimo:browser-grant-changed', onGrantChanged);
   }, []);
 
   useEffect(() => {
@@ -1607,7 +1607,7 @@ export function HostBrowserPanel({
                     void updateBrowserSettings({ originGrants: nextGrants });
                   }
                   window.dispatchEvent(
-                    new CustomEvent('vibex:browser-grant-changed', {
+                    new CustomEvent('dimo:browser-grant-changed', {
                       detail: {
                         tabId,
                         level,

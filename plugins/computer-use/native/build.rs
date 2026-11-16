@@ -36,5 +36,5 @@ fn fingerprint_helper_sources() {
         feed(&std::fs::read(file).unwrap_or_default());
         feed(&[0]);
     }
-    println!("cargo:rustc-env=VIBEX_COMPUTER_SOURCE={hash:016x}");
+    println!("cargo:rustc-env=DIMO_COMPUTER_SOURCE={hash:016x}");
 }

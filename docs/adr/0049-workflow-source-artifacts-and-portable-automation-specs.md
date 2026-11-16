@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Workflow 源产物与可移植 Automation Spec
@@ -19,8 +19,8 @@ Automation 同样缺少稳定的复制、粘贴和导入格式。直接导出数
 
 ## Decision
 
-1. 本机配置的 `*.vibex-workflow.json` 是 Workflow 创作阶段的唯一事实源，称为
-   Workflow source artifact。默认存放在 `~/.vibex/workflows/`，也允许选择 Workspace 内路径；
+1. 本机配置的 `*.dimo-workflow.json` 是 Workflow 创作阶段的唯一事实源，称为
+   Workflow source artifact。默认存放在 `~/.dimo/workflows/`，也允许选择 Workspace 内路径；
    原生 Studio、Plugin artifact editor 与 Agent/MCP 都编辑该文件。
 2. source artifact 使用显式 `formatVersion` 和公开 JSON Schema。保存使用 Artifact revision/CAS，
    外部修改冲突不能静默覆盖。
@@ -43,7 +43,7 @@ Automation 同样缺少稳定的复制、粘贴和导入格式。直接导出数
   WorkflowDraft 权威。
 - 删除源文件不删除已发布版本或历史 Run；引用发布版本的 Automation 仍可解释并运行。
 - 跨 Workspace 复制 Workflow 通过 source artifact 完成；AutomationSpec 使用可移植的相对路径或
-  `~/.vibex/workflows/` profile 路径，不导出展开后的主机绝对路径；缺失引用在导入时显式处理。
+  `~/.dimo/workflows/` profile 路径，不导出展开后的主机绝对路径；缺失引用在导入时显式处理。
 - ADR-0032 的可重放目标语义继续有效，本 ADR 扩展其公共创作格式与 Workflow target 更新语义。
 
 ## Considered options

@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from vibex_plugin import PluginSdkError, define_plugin_worker
-from vibex_plugin.stdio import PluginWorkerSession
+from dimo_plugin import PluginSdkError, define_plugin_worker
+from dimo_plugin.stdio import PluginWorkerSession
 
 
 class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
@@ -26,7 +26,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "params": {
                     "protocolRange": ["1.1"],
                     "hostVersion": "0.1.3",
-                    "pluginIdentity": {"publisher": "vibex", "id": "echo"},
+                    "pluginIdentity": {"publisher": "dimo", "id": "echo"},
                     "packageVersion": "1.0.0",
                     "packageDigest": "sha256:test",
                     "generationId": 1,
@@ -119,7 +119,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_accepts_frames_larger_than_one_mib(self) -> None:
         import json
-        from vibex_plugin.stdio import MAX_FRAME_BYTES
+        from dimo_plugin.stdio import MAX_FRAME_BYTES
 
         self.assertGreaterEqual(MAX_FRAME_BYTES, 32 * 1024 * 1024)
         outbound: asyncio.Queue[dict] = asyncio.Queue()
@@ -160,7 +160,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def test_reassembles_a_chunked_image_and_continues(self) -> None:
         import json
 
-        from vibex_plugin.frame import FrameLimits, encode_message
+        from dimo_plugin.frame import FrameLimits, encode_message
 
         outbound: asyncio.Queue[dict] = asyncio.Queue()
         session = PluginWorkerSession(
@@ -236,7 +236,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
         await session.close()
 
     async def test_isolated_exports_worker_not_fs_helpers(self) -> None:
-        import vibex_plugin.isolated as isolated
+        import dimo_plugin.isolated as isolated
 
         self.assertTrue(hasattr(isolated, "define_plugin_worker"))
         self.assertTrue(hasattr(isolated, "PluginSdkError"))

@@ -89,36 +89,27 @@ describe('BasicGuideOverlay', () => {
       .forEach((node) => node.remove());
   });
 
-  it('frames skip and steps in a raised bottom-left stack', () => {
+  it('frames skip without the step list in a raised bottom-left stack', () => {
     renderOverlay(ACTIVE_GUIDE);
     const panel = screen.getByRole('complementary', { name: '基础引导' });
     expect(panel).toBeInTheDocument();
     expect(panel.querySelector('.dialog-surface')).toBeNull();
-    expect(screen.getByText('创建或选择项目')).toBeInTheDocument();
-    expect(screen.getByText('在工作区中创建会话')).toBeInTheDocument();
-    expect(screen.getByText('熟悉页面构成')).toBeInTheDocument();
-    expect(panel.querySelectorAll('.astryx-step__description')).toHaveLength(0);
+    expect(panel.querySelector('.astryx-step')).toBeNull();
+    expect(screen.queryByText('创建或选择项目')).toBeNull();
+    expect(screen.queryByText('在工作区中创建会话')).toBeNull();
+    expect(screen.queryByText('熟悉页面构成')).toBeNull();
     expect(
       within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
     ).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
     const skip = screen.getByRole('button', { name: '跳过基础引导' });
-    const steps = panel.querySelector('.astryx-step');
     const frame = panel.querySelector('.basic-guide-panel__stack--framed');
     const footer = panel.querySelector('.basic-guide-panel__footer');
     expect(skip).toBeInTheDocument();
-    expect(steps).toBeTruthy();
     expect(frame).toBeTruthy();
     expect(footer).toBeTruthy();
     expect(frame?.contains(skip)).toBe(true);
-    expect(frame?.contains(steps)).toBe(true);
     expect(footer?.contains(skip)).toBe(true);
-    expect(
-      Boolean(
-        steps &&
-          steps.compareDocumentPosition(skip) & Node.DOCUMENT_POSITION_FOLLOWING
-      )
-    ).toBe(true);
     expect(panel.className).toMatch(/basic-guide-panel--bottom/);
     expect(panel.className).not.toMatch(/basic-guide-panel--workspace/);
     expect(panel.className).not.toMatch(/basic-guide-panel--kanban/);
@@ -165,7 +156,7 @@ describe('BasicGuideOverlay', () => {
     expect(
       screen.queryByRole('complementary', { name: '基础引导' })
     ).toBeNull();
-    expect(screen.queryByText('创建或选择项目')).toBeNull();
+    expect(screen.queryByRole('button', { name: '跳过基础引导' })).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
   });
 

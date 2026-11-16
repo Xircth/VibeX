@@ -141,7 +141,7 @@ impl LocalContainerService {
             }
         }
         let previously_complete = available_repos.len() == repositories.len();
-        let journal_path = workspace_dir.join(".vibex-initialization.json");
+        let journal_path = workspace_dir.join(".dimo-initialization.json");
         let mut initialization: Initialization = read_section(&journal_path, "initialization")
             .await
             .map_err(|e| ContainerError::Other(anyhow!(e)))?

@@ -54,7 +54,7 @@ import {
 import { presentPreflightItems } from './agentPreflightSnapshot';
 import { AgentSectionHeading } from './SettingsSection';
 
-const OPERATION_DIAGNOSTICS_KEY = 'vibex:operation-diagnostics';
+const OPERATION_DIAGNOSTICS_KEY = 'dimo:operation-diagnostics';
 
 type AgentDetailProps = {
   agent: AgentManagementView;
@@ -124,7 +124,7 @@ export function AgentDetail({
   const toggleOperationDiagnostics = (enabled: boolean) => {
     setOperationDiagnosticsEnabled(enabled);
     localStorage.setItem(OPERATION_DIAGNOSTICS_KEY, enabled ? 'on' : 'off');
-    void persistFrontendPreference('vibex:operation-diagnostics', enabled);
+    void persistFrontendPreference('dimo:operation-diagnostics', enabled);
   };
   const unreadDiagnostics = diagnostics.filter(
     (diagnostic) => !diagnostic.read

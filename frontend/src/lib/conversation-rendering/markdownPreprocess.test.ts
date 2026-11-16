@@ -148,7 +148,7 @@ describe('preprocessForBlockSplit & splitIntoBlocks', () => {
     expect(blocks[2].text).toBe('Paragraph after table.');
   });
 
-  it('strips trailing ## Tag Reference appendix into tagAppendix and resolves VibeX inline tag markers', () => {
+  it('strips trailing ## Tag Reference appendix into tagAppendix and resolves Dimo inline tag markers', () => {
     const docWithHeadingAppendix = [
       'Body paragraph 1.',
       '',

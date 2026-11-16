@@ -1332,7 +1332,7 @@ pub async fn memory_context_text(
         }
     }
     lines.push(
-        "- 记忆工具：`memory_search` 查找更多记忆或按 `topic` 调取主题文档，`memory_write` 记录/更新/移除长期事实或主题（见 `vibex-bot` Skill 的 `MEMORY.md`）。".to_string(),
+        "- 记忆工具：`memory_search` 查找更多记忆或按 `topic` 调取主题文档，`memory_write` 记录/更新/移除长期事实或主题（见 `dimo-bot` Skill 的 `MEMORY.md`）。".to_string(),
     );
     Ok(Some(lines.join("\n")))
 }

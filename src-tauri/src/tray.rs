@@ -13,7 +13,7 @@ use crate::app_chrome::{MENU_ID_NEW_WINDOW, MENU_ID_OPEN_SETTINGS};
 pub const TRAY_MENU_ID_SHOW: &str = "tray:show";
 pub const TRAY_MENU_ID_HIDE: &str = "tray:hide";
 pub const TRAY_MENU_ID_QUIT: &str = "tray:quit";
-pub const TRAY_ICON_ID: &str = "vibex-tray";
+pub const TRAY_ICON_ID: &str = "dimo-tray";
 
 /// Bring the main window to the foreground (unminimize + show + focus).
 pub fn show_main_window(app: &AppHandle) {
@@ -93,10 +93,10 @@ pub fn install_tray_icon(app: &AppHandle) -> tauri::Result<()> {
     let new_window = MenuItem::with_id(app, MENU_ID_NEW_WINDOW, "新建窗口", true, None::<&str>)?;
     let open_settings =
         MenuItem::with_id(app, MENU_ID_OPEN_SETTINGS, "打开设置", true, None::<&str>)?;
-    let show_item = MenuItem::with_id(app, TRAY_MENU_ID_SHOW, "显示 VibeX", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, TRAY_MENU_ID_SHOW, "显示 Dimo", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, TRAY_MENU_ID_HIDE, "隐藏窗口", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, TRAY_MENU_ID_QUIT, "退出 VibeX", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, TRAY_MENU_ID_QUIT, "退出 Dimo", true, None::<&str>)?;
     let menu = MenuBuilder::new(app)
         .items(&[
             &new_window,
@@ -110,7 +110,7 @@ pub fn install_tray_icon(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
-        .tooltip("VibeX")
+        .tooltip("Dimo")
         .menu(&menu)
         // `false` is required so a left-click fires TrayIconEvent::Click instead
         // of the OS consuming it to pop the menu (notably macOS, tauri#11413).

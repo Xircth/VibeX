@@ -2,12 +2,12 @@
 status: accepted
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Agent 安装使用有限并发与资源锁
 
-VibeX 允许多个 Agent 的安装尝试并行，但默认最多同时运行两个，其余保持可独立
+Dimo 允许多个 Agent 的安装尝试并行，但默认最多同时运行两个，其余保持可独立
 取消的排队状态。用户连续添加 Agent 时，添加关系立即生效，不等待队列执行；单个
 Agent 的安装、修复、更新和卸载操作始终串行。
 

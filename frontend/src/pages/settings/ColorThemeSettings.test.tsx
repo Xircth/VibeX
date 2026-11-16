@@ -1,4 +1,4 @@
-import { THEME_COLOR_ROLES } from '@vibex/plugin-sdk';
+import { THEME_COLOR_ROLES } from '@dimoai/plugin-sdk';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +22,7 @@ import { ColorThemeSettings } from './ColorThemeSettings';
 
 function themeStylesheet(): string {
   return (
-    document.head.querySelector('style[data-vibex-color-theme]')?.textContent ??
+    document.head.querySelector('style[data-dimo-color-theme]')?.textContent ??
     ''
   );
 }
@@ -49,7 +49,7 @@ describe('ColorThemeSettings', () => {
     await user.click(screen.getAllByRole('button', { name: '复制并编辑' })[1]);
 
     const name = screen.getByRole('textbox', { name: '名称' });
-    expect(name).toHaveValue('VibeX 副本');
+    expect(name).toHaveValue('Dimo 副本');
 
     const background = screen.getByRole('textbox', { name: '背景 色值' });
     fireEvent.change(background, { target: { value: '#0b0e14' } });

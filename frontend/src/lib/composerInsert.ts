@@ -1,4 +1,4 @@
-export const COMPOSER_INSERT_EVENT = 'vibex:composer-insert';
+export const COMPOSER_INSERT_EVENT = 'dimo:composer-insert';
 
 export type ComposerInsertDetail = {
   text: string;
@@ -48,7 +48,7 @@ export function requestComposerTokenInsert(token: {
   return true;
 }
 
-export const COMPOSER_IMAGE_INSERT_EVENT = 'vibex:composer-image-insert';
+export const COMPOSER_IMAGE_INSERT_EVENT = 'dimo:composer-image-insert';
 
 export type ComposerImageInsertDetail = {
   file: File;

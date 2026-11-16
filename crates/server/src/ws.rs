@@ -84,7 +84,7 @@ where
     upgrade
         .max_frame_size(MAX_CLIENT_FRAME_BYTES)
         .max_message_size(MAX_CLIENT_FRAME_BYTES)
-        .protocols(["vibex.v1"])
+        .protocols(["dimo.v1"])
         .on_upgrade(move |socket| handle_socket(socket, state, credential, e2ee))
 }
 

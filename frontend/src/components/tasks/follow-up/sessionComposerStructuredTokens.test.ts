@@ -50,10 +50,10 @@ describe('session composer structured commands', () => {
     expect(
       formatSessionComposerCommand({
         type: '!',
-        key: 'vibex.office/create-presentation',
+        key: 'dimo.office/create-presentation',
         value: 'Create a presentation',
       })
-    ).toBe('[!:vibex.office/create-presentation](Create a presentation)');
+    ).toBe('[!:dimo.office/create-presentation](Create a presentation)');
   });
 
   it('escapes command keys and values without exposing escape text in the chip', () => {
@@ -272,14 +272,14 @@ describe('session composer structured commands', () => {
   it('retains unique PluginAction identities separately from editable prompt text', () => {
     const action = formatSessionComposerCommand({
       type: '!',
-      key: 'vibex.office/create-presentation|创建 PPT',
+      key: 'dimo.office/create-presentation|创建 PPT',
       value: '',
     });
     const message = `${action}Edit this prompt ${action}`;
 
     expect(getSessionComposerPluginActionInvocations(message)).toEqual([
       {
-        pluginId: 'vibex.office',
+        pluginId: 'dimo.office',
         actionId: 'create-presentation',
       },
     ]);
@@ -301,25 +301,25 @@ describe('session composer structured commands', () => {
 
   it('parses project references as @name chips that serialize to the absolute path', () => {
     const project =
-      '[VibeX](vibex://project/proj-1@%2FUsers%2Fmac%2FProjects%2FVibeX)';
+      '[Dimo](dimo://project/proj-1@%2FUsers%2Fmac%2FProjects%2FDimo)';
     expect(getSessionComposerStructuredTokens(project)).toEqual([
       expect.objectContaining({
         kind: 'project',
-        label: '@VibeX',
-        value: '/Users/mac/Projects/VibeX',
-        title: '/Users/mac/Projects/VibeX',
+        label: '@Dimo',
+        value: '/Users/mac/Projects/Dimo',
+        title: '/Users/mac/Projects/Dimo',
       }),
     ]);
     expect(
       serializeSessionComposerBackendMessage(`Open ${project} please`)
-    ).toBe('Open /Users/mac/Projects/VibeX please');
+    ).toBe('Open /Users/mac/Projects/Dimo please');
     expect(getSessionComposerFileRefs(`See ${project}`)).toEqual([]);
   });
 
   it('parses conversation and commit markdown links as tokens', () => {
     const conversation =
-      '[Fix auth](vibex://conversation/550e8400-e29b-41d4-a716-446655440000)';
-    const commit = '[abcdef1](vibex://commit/repo-1@abcdef1234567890)';
+      '[Fix auth](dimo://conversation/550e8400-e29b-41d4-a716-446655440000)';
+    const commit = '[abcdef1](dimo://commit/repo-1@abcdef1234567890)';
     expect(getSessionComposerStructuredTokens(conversation)).toEqual([
       expect.objectContaining({
         kind: 'conversation',
@@ -367,7 +367,7 @@ describe('session composer structured commands', () => {
         kind: 'agent_mention',
         label: 'Codex',
         value: 'codex',
-        raw: '[&Codex](vibex://agent/codex)',
+        raw: '[&Codex](dimo://agent/codex)',
       }),
     ]);
   });

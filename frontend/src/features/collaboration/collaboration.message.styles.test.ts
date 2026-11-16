@@ -253,7 +253,7 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(attachments['align-self']?.value).toBe('flex-end');
 
     const bubble = declarationsFor(
-      '.collaboration-message .vibex-user-message .conv-user-bubble'
+      '.collaboration-message .dimo-user-message .conv-user-bubble'
     );
     expect(bubble.width?.value).toBe('fit-content');
     expect(bubble['max-width']?.value).toBe('100%');
@@ -267,7 +267,7 @@ describe('collaboration assistant list and message cluster chrome', () => {
     );
 
     const bubble = declarationsFor(
-      '.collaboration-message .vibex-user-message .conv-user-bubble'
+      '.collaboration-message .dimo-user-message .conv-user-bubble'
     );
     expect(bubble.background?.value).toBe('hsl(var(--primary))');
     expect(bubble.color?.value).toBe('hsl(var(--primary-foreground))');

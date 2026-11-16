@@ -742,7 +742,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
                 },
             },
             acp_adapter: ComponentVersionEvidence {
-                id: "vibex-acp".to_string(),
+                id: "dimo-acp".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
             plugins,

@@ -18,7 +18,7 @@ import type { OnboardingAgentOption } from './onboardingAgentModel';
 /**
  * Dialog shown when locally installed Agent CLIs / desktop apps are detected
  * during onboarding. Lists each detected agent with a checkbox (all checked
- * by default). Confirming adds the selected agents to the VibeX roster.
+ * by default). Confirming adds the selected agents to the Dimo roster.
  */
 export function LocalAgentDetectedDialog({
   open,
@@ -167,7 +167,7 @@ export type LocalDetectedAgent = {
 
 /**
  * Filter the full agent option list down to those that have a locally detected
- * CLI or desktop installation (or an installed adapter not yet enabled in VibeX).
+ * CLI or desktop installation (or an installed adapter not yet enabled in Dimo).
  */
 export function findLocallyDetectedAgents(
   agents: OnboardingAgentOption[],

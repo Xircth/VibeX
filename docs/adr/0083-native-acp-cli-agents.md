@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-10-21
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Kiro、Auggie、TRAE、Command Code 与 ZCode 走现有 ACP 管线

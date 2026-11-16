@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { parseThemeDefinition, type ThemeDefinition } from '@vibex/plugin-sdk';
+import { parseThemeDefinition, type ThemeDefinition } from '@dimoai/plugin-sdk';
 import { describe, expect, it } from 'vitest';
 
 import { checkThemeContrast } from './themeContrast';
@@ -13,7 +13,7 @@ function inTreePluginThemes(): Array<[string, unknown]> {
     const manifestPath = join(
       PLUGINS_DIR,
       entry.name,
-      '.vibex-plugin/plugin.json'
+      '.dimo-plugin/plugin.json'
     );
     if (!entry.isDirectory() || !existsSync(manifestPath)) return [];
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {

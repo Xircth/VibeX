@@ -1,4 +1,4 @@
-import type { ThemeDefinition, ThemeScheme } from '@vibex/plugin-sdk';
+import type { ThemeDefinition, ThemeScheme } from '@dimoai/plugin-sdk';
 import { Copy, Pencil, Upload } from 'lucide-react';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';

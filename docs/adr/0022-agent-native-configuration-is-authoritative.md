@@ -2,22 +2,22 @@
 status: accepted
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Agent 原生配置是本地持久设置的权威来源
 
-Built-in Agent 的官方 Runtime 配置文件是相关持久设置的唯一权威来源，VibeX 通过
+Built-in Agent 的官方 Runtime 配置文件是相关持久设置的唯一权威来源，Dimo 通过
 Local Management Provider 充当受控编辑器，而不在自身数据库中维护完整镜像，也不经由
 ACP 写入持久配置。Provider 每次编辑前读取最新配置，只修改用户明确提交且自身认识的
-字段，保留未知字段，原子写入后重新读取验证；VibeX 启动时不得用旧缓存覆盖用户通过
+字段，保留未知字段，原子写入后重新读取验证；Dimo 启动时不得用旧缓存覆盖用户通过
 官方 CLI 或其他工具完成的外部修改。
 
-VibeX 只持有自身领域内的数据，例如界面偏好；API Key 属于 Agent 原生配置文件。
-即使 ACP 后续提供等价的持久配置能力，VibeX 仍以配置文件为唯一持久配置入口。
+Dimo 只持有自身领域内的数据，例如界面偏好；API Key 属于 Agent 原生配置文件。
+即使 ACP 后续提供等价的持久配置能力，Dimo 仍以配置文件为唯一持久配置入口。
 
 配置页面只编辑 Provider 明确理解且能验证的字段，未知字段必须原样保留；需要直接
-处理未适配配置时，VibeX 提供打开官方配置文件或目录的入口，而不提供通用 JSON/YAML
+处理未适配配置时，Dimo 提供打开官方配置文件或目录的入口，而不提供通用 JSON/YAML
 原始编辑器。
 
 配置页面在结构化表单后只读预览磁盘中的完整原文，使用户能够核对未适配字段与实际
@@ -32,5 +32,5 @@ VibeX 只持有自身领域内的数据，例如界面偏好；API Key 属于 Ag
 最新值；同一字段被外部与当前表单同时修改时显示冲突，并要求用户明确采用外部值或用
 当前值覆盖，禁止静默覆盖。
 
-配置保存后的新值只保证用于后续新建或重绑定的 Agent session；VibeX 不重启、不修改
+配置保存后的新值只保证用于后续新建或重绑定的 Agent session；Dimo 不重启、不修改
 或尝试重新配置已经运行的 Agent session。

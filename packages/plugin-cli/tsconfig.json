@@ -11,8 +11,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@vibex/plugin-sdk": ["../plugin-sdk/dist/index.d.ts"],
-      "@vibex/plugin-sdk/*": ["../plugin-sdk/dist/*.d.ts"]
+      "@dimoai/plugin-sdk": ["../plugin-sdk/dist/index.d.ts"],
+      "@dimoai/plugin-sdk/*": ["../plugin-sdk/dist/*.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],

@@ -92,11 +92,11 @@ describe('materializeMentionedHostFiles', () => {
       files: [
         {
           fileName: 'edge-sshedge.sshconfig',
-          path: '/home/u/.vibex/ssh-hosts/edge-sshedge.sshconfig',
+          path: '/home/u/.dimo/ssh-hosts/edge-sshedge.sshconfig',
         },
         {
           fileName: 'local.sshconfig',
-          path: '/home/u/.vibex/ssh-hosts/local.sshconfig',
+          path: '/home/u/.dimo/ssh-hosts/local.sshconfig',
         },
       ],
     });
@@ -108,10 +108,10 @@ describe('materializeMentionedHostFiles', () => {
     );
     await expect(
       materializeMentionedHostFiles({
-        text: 'deploy [@:Edge](.vibex/ssh-hosts/edge-sshedge.sshconfig) [@:local](.vibex/ssh-hosts/local.sshconfig)',
+        text: 'deploy [@:Edge](.dimo/ssh-hosts/edge-sshedge.sshconfig) [@:local](.dimo/ssh-hosts/local.sshconfig)',
       })
     ).resolves.toBe(
-      'deploy [@:Edge](/home/u/.vibex/ssh-hosts/edge-sshedge.sshconfig) [@:local](/home/u/.vibex/ssh-hosts/local.sshconfig)'
+      'deploy [@:Edge](/home/u/.dimo/ssh-hosts/edge-sshedge.sshconfig) [@:local](/home/u/.dimo/ssh-hosts/local.sshconfig)'
     );
     expect(backendCall).toHaveBeenCalledWith('write_ssh_host_files', {
       files: [

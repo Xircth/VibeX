@@ -79,7 +79,7 @@ interface KanbanSessionContextValue {
 }
 
 const GLOBAL_KANBAN_SESSION_CONTEXT_KEY =
-  '__VIBEX_KANBAN_SESSION_CONTEXT__' as const;
+  '__DIMO_KANBAN_SESSION_CONTEXT__' as const;
 const globalKanbanSessionScope = globalThis as typeof globalThis & {
   [GLOBAL_KANBAN_SESSION_CONTEXT_KEY]?: Context<KanbanSessionContextValue | null>;
 };

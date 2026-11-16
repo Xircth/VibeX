@@ -523,8 +523,8 @@ fn expand_home_path(home: &std::path::Path, value: &str) -> std::path::PathBuf {
 }
 
 fn kimi_credential_is_synthetic(value: &Value) -> bool {
-    value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true)
-        || value.get("access_token").and_then(Value::as_str) == Some("vibex-local-gate")
+    value.get("_dimo_synthetic").and_then(Value::as_bool) == Some(true)
+        || value.get("access_token").and_then(Value::as_str) == Some("dimo-local-gate")
 }
 
 #[cfg(test)]
@@ -715,7 +715,7 @@ mod tests {
     #[tokio::test]
     async fn grok_auth_file_counts_as_an_official_account() {
         let home = std::env::temp_dir().join(format!(
-            "vibex-grok-auth-{}-{}",
+            "dimo-grok-auth-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

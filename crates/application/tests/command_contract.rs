@@ -163,7 +163,7 @@ impl ApplicationDomainPort for CatalogDomain {
     ) -> Result<serde_json::Value, application::ApplicationError> {
         assert_eq!(command, DomainCommand::PluginActionCatalog);
         assert_eq!(args, json!({}));
-        Ok(json!({"plugin": {"id": "vibex.office"}}))
+        Ok(json!({"plugin": {"id": "dimo.office"}}))
     }
 }
 
@@ -296,7 +296,7 @@ fn conversation_catalog_wire_uses_camel_case() {
     let catalog = ConversationCatalog {
         projects: vec![ConversationCatalogProject {
             id: Uuid::nil(),
-            name: "VibeX".into(),
+            name: "Dimo".into(),
             path: "/tmp/app".into(),
         }],
         workspaces: vec![ConversationCatalogWorkspace {
@@ -383,5 +383,5 @@ async fn registered_product_command_uses_the_application_domain_port() {
         .expect("registered product command");
 
     assert_eq!(response.operation_id, operation_id);
-    assert_eq!(response.data["plugin"]["id"], "vibex.office");
+    assert_eq!(response.data["plugin"]["id"], "dimo.office");
 }

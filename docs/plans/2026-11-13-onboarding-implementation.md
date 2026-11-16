@@ -7,7 +7,7 @@ native configuration controls, project service and history import job.
 Acceptance:
 
 - Welcome offers optional browser sign-in. The website approves the request after
-  login; the desktop polls for the result. No VibeX verification-code UI.
+  login; the desktop polls for the result. No Dimo verification-code UI.
 - One Agent page combines a flat status list, installation, authentication and
   native configuration. All built-ins remain visible, including unsupported
   platforms. Details are initially closed. ACP Registry is available below.
@@ -31,7 +31,7 @@ project/history preparation API and existing project dialogs. Mock external acco
 and Host boundaries in tests; do not call account approval or mutate real history
 for an unattended test.
 
-Visual direction: preserve VibeX's existing grayscale tokens and native controls.
+Visual direction: preserve Dimo's existing grayscale tokens and native controls.
 Replace the split selection/install pages with a compact list and optional detail
 column, and replace the folded screenshots with the account component.
 
@@ -62,7 +62,7 @@ records. The final section describes current layout and validation results.
   continue starts the job, waits for successful completion and selects Global plus
   imported projects. Failure recovery is verified by rendered-component tests.
 
-Integration limits: no unattended authorization of a real VibeX account, no bulk
+Integration limits: no unattended authorization of a real Dimo account, no bulk
 installation/authentication of all 21 Agents, and no mutation of the user's actual
 history. Native OS folder dialogs and repository cloning were tested at their
 existing dialog/API seams; screenshots do not certify native service integration.
@@ -103,7 +103,7 @@ not a new product-wide type rule. This task extends the incumbent system.
 
 ## Agent status and roster refinement
 
-- Added the centered VibeX Logo above the welcome title. Removed the Agent-page
+- Added the centered Dimo Logo above the welcome title. Removed the Agent-page
   title, row borders, selection checkboxes and external editor control.
 - Rows expose installation/authentication state and the corresponding action.
   Installation opens details immediately, streams progress, then refreshes the

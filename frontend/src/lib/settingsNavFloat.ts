@@ -6,8 +6,8 @@ import { useSyncExternalStore } from 'react';
 
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
-export const DEFAULT_SETTINGS_NAV_FLOAT = true;
-export const SETTINGS_NAV_FLOAT_KEY = 'vibex:settings-nav-float' as const;
+export const DEFAULT_SETTINGS_NAV_FLOAT = false;
+export const SETTINGS_NAV_FLOAT_KEY = 'dimo:settings-nav-float' as const;
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;

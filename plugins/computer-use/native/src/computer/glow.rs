@@ -98,7 +98,7 @@ mod platform {
 
     const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
     const DWMWA_CLOAKED: u32 = 14;
-    const CLASS_NAME: &str = "VibexComputerGlow";
+    const CLASS_NAME: &str = "DimoComputerGlow";
 
     #[derive(Clone)]
     pub struct GlowState {

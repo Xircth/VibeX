@@ -300,7 +300,7 @@ fn subscription_auth_allowed(settings_path: &Path) -> bool {
 
 fn write_token(path: &Path, token: &Value) -> std::io::Result<()> {
     let bytes = serde_json::to_vec_pretty(token).unwrap_or_default();
-    let tmp = path.with_extension("json.vibex-tmp");
+    let tmp = path.with_extension("json.dimo-tmp");
     std::fs::write(&tmp, bytes)?;
     if std::fs::rename(&tmp, path).is_err() {
         let _ = std::fs::remove_file(path);
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn api_key_auth_is_not_a_subscription() {
-        let dir = std::env::temp_dir().join(format!("vibex-agy-plan-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dimo-agy-plan-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(

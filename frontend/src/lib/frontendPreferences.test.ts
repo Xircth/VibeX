@@ -25,8 +25,8 @@ describe('syncFrontendPreferences', () => {
     const changed = await syncFrontendPreferences(api);
 
     expect(changed).toBe(true);
-    expect(localStorage.getItem('vibex:ui-zoom')).toBe('1.25');
-    expect(localStorage.getItem('vibex:ui-language')).toBe('en');
+    expect(localStorage.getItem('dimo:ui-zoom')).toBe('1.25');
+    expect(localStorage.getItem('dimo:ui-language')).toBe('en');
     expect(api.update).not.toHaveBeenCalled();
   });
 
@@ -38,14 +38,14 @@ describe('syncFrontendPreferences', () => {
 
     await syncFrontendPreferences(api);
 
-    expect(localStorage.getItem('vibex:session-list-appearance')).toBe('full');
-    expect(localStorage.getItem('vibex:kanban-session-list-view')).toBe(
+    expect(localStorage.getItem('dimo:session-list-appearance')).toBe('full');
+    expect(localStorage.getItem('dimo:kanban-session-list-view')).toBe(
       'mixed'
     );
   });
 
   it('migrates existing browser preferences missing from the JSON document', async () => {
-    localStorage.setItem('vibex:mono-font', 'menlo');
+    localStorage.setItem('dimo:mono-font', 'menlo');
     api.get.mockResolvedValue({ ui_zoom: 1 });
     api.update.mockResolvedValue({ ui_zoom: 1, mono_font: 'menlo' });
 
@@ -56,7 +56,7 @@ describe('syncFrontendPreferences', () => {
   });
 
   it('does not rewrite identical browser preferences', async () => {
-    localStorage.setItem('vibex:ui-zoom', '1.25');
+    localStorage.setItem('dimo:ui-zoom', '1.25');
     api.get.mockResolvedValue({ ui_zoom: 1.25 });
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
 
@@ -68,13 +68,13 @@ describe('syncFrontendPreferences', () => {
   });
 
   it('migrates legacy fixed kanban_board_style to canvas during preference sync', async () => {
-    localStorage.setItem('vibex:kanban-board-style', 'fixed');
+    localStorage.setItem('dimo:kanban-board-style', 'fixed');
     api.get.mockResolvedValue({ kanban_board_style: 'fixed' });
     api.update.mockResolvedValue({ kanban_board_style: 'canvas' });
 
     await syncFrontendPreferences(api);
 
     expect(api.update).toHaveBeenCalledWith({ kanban_board_style: 'canvas' });
-    expect(localStorage.getItem('vibex:kanban-board-style')).toBe('canvas');
+    expect(localStorage.getItem('dimo:kanban-board-style')).toBe('canvas');
   });
 });

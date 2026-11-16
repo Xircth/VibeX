@@ -14,7 +14,7 @@ function writeArtifact(root, relativePath, contents) {
 
 test("generates a five-platform updater manifest without asset collisions", () => {
   const temporaryRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "vibex-updater-manifest-"),
+    path.join(os.tmpdir(), "dimo-updater-manifest-"),
   );
   const artifactsDir = path.join(temporaryRoot, "artifacts");
   const outputDir = path.join(temporaryRoot, "release");
@@ -22,32 +22,32 @@ test("generates a five-platform updater manifest without asset collisions", () =
   try {
     const fixtures = [
       [
-        "VibeX-windows-x64/bundle/nsis/VibeX_0.1.1_x64-setup.exe",
+        "Dimo-windows-x64/bundle/nsis/Dimo_0.1.1_x64-setup.exe",
         "windows bundle",
         "windows signature",
       ],
       [
-        "VibeX-windows-arm64/bundle/nsis/VibeX_0.1.1_arm64-setup.exe",
+        "Dimo-windows-arm64/bundle/nsis/Dimo_0.1.1_arm64-setup.exe",
         "windows ARM64 bundle",
         "windows ARM64 signature",
       ],
       [
-        "VibeX-linux-x64/bundle/appimage/VibeX_0.1.1_amd64.AppImage",
+        "Dimo-linux-x64/bundle/appimage/Dimo_0.1.1_amd64.AppImage",
         "linux bundle",
         "linux signature",
       ],
       [
-        "VibeX-linux-arm64/bundle/appimage/VibeX_0.1.1_arm64.AppImage",
+        "Dimo-linux-arm64/bundle/appimage/Dimo_0.1.1_arm64.AppImage",
         "linux ARM64 bundle",
         "linux ARM64 signature",
       ],
       [
-        "VibeX-macos-arm64/bundle/macos/VibeX.app.tar.gz",
+        "Dimo-macos-arm64/bundle/macos/Dimo.app.tar.gz",
         "macOS arm64 bundle",
         "macOS arm64 signature",
       ],
       [
-        "VibeX-macos-arm64/bundle/dmg/VibeX_0.1.1_aarch64.dmg",
+        "Dimo-macos-arm64/bundle/dmg/Dimo_0.1.1_aarch64.dmg",
         "macOS arm64 disk image",
       ],
     ];
@@ -65,7 +65,7 @@ test("generates a five-platform updater manifest without asset collisions", () =
     const manifestPath = generateUpdaterManifest({
       artifactsDir,
       outputDir,
-      repository: "Xircth/VibeX",
+      repository: "DimoADE/Dimo",
       releaseTag: "v0.1.1",
       version: "0.1.1",
       notesFile: notesPath,
@@ -80,33 +80,33 @@ test("generates a five-platform updater manifest without asset collisions", () =
       platforms: {
         "windows-x86_64": {
           signature: "windows signature",
-          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-windows-x86_64-setup.exe",
+          url: "https://github.com/DimoADE/Dimo/releases/download/v0.1.1/Dimo-0.1.1-windows-x86_64-setup.exe",
         },
         "windows-aarch64": {
           signature: "windows ARM64 signature",
-          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-windows-aarch64-setup.exe",
+          url: "https://github.com/DimoADE/Dimo/releases/download/v0.1.1/Dimo-0.1.1-windows-aarch64-setup.exe",
         },
         "linux-x86_64": {
           signature: "linux signature",
-          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-linux-x86_64.AppImage",
+          url: "https://github.com/DimoADE/Dimo/releases/download/v0.1.1/Dimo-0.1.1-linux-x86_64.AppImage",
         },
         "linux-aarch64": {
           signature: "linux ARM64 signature",
-          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-linux-aarch64.AppImage",
+          url: "https://github.com/DimoADE/Dimo/releases/download/v0.1.1/Dimo-0.1.1-linux-aarch64.AppImage",
         },
         "darwin-aarch64": {
           signature: "macOS arm64 signature",
-          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-darwin-aarch64.app.tar.gz",
+          url: "https://github.com/DimoADE/Dimo/releases/download/v0.1.1/Dimo-0.1.1-darwin-aarch64.app.tar.gz",
         },
       },
     });
 
     for (const assetName of [
-      "VibeX-0.1.1-windows-x86_64-setup.exe",
-      "VibeX-0.1.1-windows-aarch64-setup.exe",
-      "VibeX-0.1.1-linux-x86_64.AppImage",
-      "VibeX-0.1.1-linux-aarch64.AppImage",
-      "VibeX-0.1.1-darwin-aarch64.app.tar.gz",
+      "Dimo-0.1.1-windows-x86_64-setup.exe",
+      "Dimo-0.1.1-windows-aarch64-setup.exe",
+      "Dimo-0.1.1-linux-x86_64.AppImage",
+      "Dimo-0.1.1-linux-aarch64.AppImage",
+      "Dimo-0.1.1-darwin-aarch64.app.tar.gz",
     ]) {
       assert.equal(fs.existsSync(path.join(outputDir, assetName)), true);
       assert.equal(
@@ -115,7 +115,7 @@ test("generates a five-platform updater manifest without asset collisions", () =
       );
     }
 
-    for (const assetName of ["VibeX-0.1.1-darwin-aarch64.dmg"]) {
+    for (const assetName of ["Dimo-0.1.1-darwin-aarch64.dmg"]) {
       assert.equal(fs.existsSync(path.join(outputDir, assetName)), true);
     }
   } finally {

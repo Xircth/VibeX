@@ -15,12 +15,12 @@ pub const ALWAYS_SKIP_DIRS: &[&str] = &[".git", "node_modules"];
 ///
 /// This is a user-owned directory, not Tauri app data. Agent Runtime and ACP
 /// are installed into the user environment (`~/.local/bin`, npm prefix, uv
-/// tools). Clearing VibeX application data must not remove those CLIs or the
+/// tools). Clearing Dimo application data must not remove those CLIs or the
 /// Node/uv used to write them. On macOS, keeping executables out of
 /// `~/Library/Application Support` also avoids dyld treating an ancestor as an
 /// application bundle.
 pub fn managed_artifacts_directory(home_dir: &Path, _app_data_dir: &Path) -> PathBuf {
-    home_dir.join(".local").join("share").join("vibex")
+    home_dir.join(".local").join("share").join("dimo")
 }
 
 /// Convert absolute paths to relative paths based on worktree path
@@ -152,21 +152,21 @@ pub fn is_user_home_directory(path: &Path) -> bool {
             .eq_ignore_ascii_case(&right.to_string_lossy())
 }
 
-pub fn get_vibex_temp_dir() -> std::path::PathBuf {
-    let dir_name = vibex_temp_leaf();
-    first_writable_directory(vibex_temp_candidates(dir_name))
+pub fn get_dimo_temp_dir() -> std::path::PathBuf {
+    let dir_name = dimo_temp_leaf();
+    first_writable_directory(dimo_temp_candidates(dir_name))
         .unwrap_or_else(|| std::env::temp_dir().join(dir_name))
 }
 
-fn vibex_temp_leaf() -> &'static str {
+fn dimo_temp_leaf() -> &'static str {
     if cfg!(debug_assertions) {
-        "vibex-dev"
+        "dimo-dev"
     } else {
-        "vibex"
+        "dimo"
     }
 }
 
-fn vibex_temp_candidates(dir_name: &str) -> Vec<PathBuf> {
+fn dimo_temp_candidates(dir_name: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if cfg!(target_os = "linux") {
         // Prefer /var/tmp over tmpfs /tmp when the location is writable.
@@ -182,7 +182,7 @@ fn vibex_temp_candidates(dir_name: &str) -> Vec<PathBuf> {
         } else {
             "tmp"
         };
-        candidates.push(local.join("VibeX").join(local_leaf));
+        candidates.push(local.join("Dimo").join(local_leaf));
     }
     if let Some(home) = dirs::home_dir() {
         candidates.push(home.join(".cache").join(dir_name));
@@ -203,15 +203,15 @@ fn first_writable_directory(candidates: impl IntoIterator<Item = PathBuf>) -> Op
 }
 
 /// Named subdirectory of host scratch. Created if missing.
-pub fn vibex_scratch_subdir(name: &str) -> io::Result<PathBuf> {
-    let dir = get_vibex_temp_dir().join(name);
+pub fn dimo_scratch_subdir(name: &str) -> io::Result<PathBuf> {
+    let dir = get_dimo_temp_dir().join(name);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// Unique subdirectory of host scratch. Caller owns cleanup.
-pub fn unique_vibex_scratch_dir(purpose: &str) -> io::Result<PathBuf> {
-    let dir = get_vibex_temp_dir().join(format!("{purpose}-{}", uuid::Uuid::new_v4()));
+pub fn unique_dimo_scratch_dir(purpose: &str) -> io::Result<PathBuf> {
+    let dir = get_dimo_temp_dir().join(format!("{purpose}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -220,7 +220,7 @@ fn directory_is_writable(path: &Path) -> bool {
     if std::fs::create_dir_all(path).is_err() {
         return false;
     }
-    let probe = path.join(format!(".vibex-write-{}", std::process::id()));
+    let probe = path.join(format!(".dimo-write-{}", std::process::id()));
     match std::fs::write(&probe, b"") {
         Ok(()) => {
             let _ = std::fs::remove_file(&probe);
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_make_path_relative_macos_private_alias() {
         // Simulate a worktree under /var with a path reported under /private/var
-        let worktree = "/var/folders/zz/abc123/T/vibex-dev/worktrees/vk-test";
+        let worktree = "/var/folders/zz/abc123/T/dimo-dev/worktrees/vk-test";
         let path_under_private = format!(
             "/private/var{}/hello-world.txt",
             worktree.strip_prefix("/var").unwrap()
@@ -366,10 +366,10 @@ mod tests {
     #[test]
     fn managed_artifacts_avoid_macos_app_bundle_data_directories() {
         let home = Path::new("/Users/developer");
-        let app_data = home.join("Library/Application Support/com.vibex.app");
+        let app_data = home.join("Library/Application Support/com.dimo.app");
         let root = managed_artifacts_directory(home, &app_data);
 
-        assert_eq!(root, home.join(".local/share/vibex"));
+        assert_eq!(root, home.join(".local/share/dimo"));
         assert_ne!(root, app_data);
     }
 
@@ -390,8 +390,8 @@ mod tests {
     }
 
     #[test]
-    fn vibex_temp_dir_is_writable_on_the_current_platform() {
-        let path = get_vibex_temp_dir();
+    fn dimo_temp_dir_is_writable_on_the_current_platform() {
+        let path = get_dimo_temp_dir();
         let probe = path.join(format!("probe-{}", std::process::id()));
         std::fs::write(&probe, b"ok").expect("temp directory must be writable");
         let _ = std::fs::remove_file(&probe);
@@ -449,8 +449,8 @@ mod tests {
 
     #[test]
     fn unique_scratch_is_writable_under_host_temp() {
-        let host = get_vibex_temp_dir();
-        let dir = unique_vibex_scratch_dir("probe").expect("unique scratch");
+        let host = get_dimo_temp_dir();
+        let dir = unique_dimo_scratch_dir("probe").expect("unique scratch");
         assert!(
             dir.starts_with(&host),
             "scratch {} must live under host temp {}",
@@ -463,8 +463,8 @@ mod tests {
 
     #[test]
     fn named_scratch_is_stable_and_writable() {
-        let first = vibex_scratch_subdir("named-scratch").unwrap();
-        let second = vibex_scratch_subdir("named-scratch").unwrap();
+        let first = dimo_scratch_subdir("named-scratch").unwrap();
+        let second = dimo_scratch_subdir("named-scratch").unwrap();
         assert_eq!(first, second);
         std::fs::write(first.join(".write-probe"), b"ok").unwrap();
         let _ = std::fs::remove_file(first.join(".write-probe"));

@@ -262,7 +262,7 @@
             Some(turn1_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "Hello <vibex-internal-meta plugin=\"p1\" channel=\"ch\" nonce=\"n1\">{\"secret\":42}</vib".into(),
+                text: "Hello <dimo-internal-meta plugin=\"p1\" channel=\"ch\" nonce=\"n1\">{\"secret\":42}</di".into(),
                 message_id: None,
             },
             None,
@@ -279,7 +279,7 @@
             Some(turn1_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "ex-internal-meta>world!".into(),
+                text: "mo-internal-meta>world!".into(),
                 message_id: None,
             },
             None,
@@ -1071,7 +1071,7 @@
             Some(turn_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "Hello user!\n<vibex-internal-meta channel=\"vibex.memory:extract:n77\">{\"key\":".into(),
+                text: "Hello user!\n<dimo-internal-meta channel=\"dimo.memory:extract:n77\">{\"key\":".into(),
                 message_id: None,
             },
             None,
@@ -1092,7 +1092,7 @@
             Some(turn_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "\"val\"}</vibex-internal-meta>\n\nHow can I help?".into(),
+                text: "\"val\"}</dimo-internal-meta>\n\nHow can I help?".into(),
                 message_id: None,
             },
             None,
@@ -1106,8 +1106,8 @@
             }]
         );
         let captured = rx.try_recv().expect("captured internal message");
-        assert_eq!(captured.plugin_id, "vibex.memory");
-        assert_eq!(captured.channel, "vibex.memory:extract:n77");
+        assert_eq!(captured.plugin_id, "dimo.memory");
+        assert_eq!(captured.channel, "dimo.memory:extract:n77");
         assert_eq!(captured.nonce, "n77");
         assert_eq!(captured.parsed_payload, serde_json::json!({"key": "val"}));
     }

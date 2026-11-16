@@ -8,16 +8,16 @@ const path = require("path");
 const { archiveName, releaseBaseUrl } = require("./release-assets");
 
 const CLI_VERSION = require("../package.json").version;
-const DEFAULT_GITHUB_REPO = "Xircth/VibeX";
-const CACHE_ROOT = path.join(os.homedir(), ".vibex", "host-family");
+const DEFAULT_GITHUB_REPO = "DimoADE/Dimo";
+const CACHE_ROOT = path.join(os.homedir(), ".dimo", "host-family");
 const LOCAL_DIST_DIR = path.join(__dirname, "..", "dist");
 
 function githubRepo() {
-  return process.env.VIBEX_GITHUB_REPO || DEFAULT_GITHUB_REPO;
+  return process.env.DIMO_GITHUB_REPO || DEFAULT_GITHUB_REPO;
 }
 
 function familyTag() {
-  return process.env.VIBEX_HOST_FAMILY_TAG || `v${CLI_VERSION}`;
+  return process.env.DIMO_HOST_FAMILY_TAG || `v${CLI_VERSION}`;
 }
 
 function familyAssetName(platform) {
@@ -25,8 +25,8 @@ function familyAssetName(platform) {
 }
 
 function familyBaseUrl() {
-  if (process.env.VIBEX_HOST_FAMILY_BASE) {
-    return process.env.VIBEX_HOST_FAMILY_BASE.replace(/\/+$/, "");
+  if (process.env.DIMO_HOST_FAMILY_BASE) {
+    return process.env.DIMO_HOST_FAMILY_BASE.replace(/\/+$/, "");
   }
   return releaseBaseUrl(githubRepo(), familyTag());
 }
@@ -191,7 +191,7 @@ function chmodBinaries(root) {
   if (process.platform === "win32") {
     return;
   }
-  for (const name of ["vibex-server", "vibex-mcp"]) {
+  for (const name of ["dimo-server", "dimo-mcp"]) {
     const binary = path.join(root, name);
     if (fs.existsSync(binary)) {
       fs.chmodSync(binary, 0o755);
@@ -200,8 +200,8 @@ function chmodBinaries(root) {
 }
 
 function localFamilyRoot(platform) {
-  if (process.env.VIBEX_HOST_FAMILY_DIR) {
-    return path.resolve(process.env.VIBEX_HOST_FAMILY_DIR);
+  if (process.env.DIMO_HOST_FAMILY_DIR) {
+    return path.resolve(process.env.DIMO_HOST_FAMILY_DIR);
   }
   const extracted = path.join(LOCAL_DIST_DIR, "host-family", platform);
   if (fs.existsSync(path.join(extracted, "SHA256SUMS"))) {

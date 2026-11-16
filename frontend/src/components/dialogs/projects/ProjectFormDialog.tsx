@@ -106,7 +106,7 @@ function createReadme(projectName: string, projectDescription: string): string {
   return [
     `# ${projectName}`,
     '',
-    description || 'Project created with VibeX.',
+    description || 'Project created with Dimo.',
     '',
   ].join('\n');
 }

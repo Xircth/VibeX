@@ -605,7 +605,7 @@ pub struct AgentModelProviderView {
     pub api_key: String,
     pub credential_present: bool,
     pub bound: bool,
-    /// `true` 表示该 Provider 由 VibeX 的预设存储管理。
+    /// `true` 表示该 Provider 由 Dimo 的预设存储管理。
     pub managed: bool,
 }
 

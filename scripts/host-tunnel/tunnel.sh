@@ -1,18 +1,19 @@
 #!/bin/sh
-# VibeX public tunnel installer. POSIX sh. Safe to pipe: curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh
+# Dimo public tunnel installer. POSIX sh. Safe to pipe: curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh
 set -eu
 
 TOKEN=""
 PORT=""
 HOST=""
 BIND="0.0.0.0"
-SITE_URL="${VIBEX_SITE_URL:-https://vibex.xforever.xin}"
+BIND_SET=0
+SITE_URL="${DIMO_SITE_URL:-https://vibex.xforever.xin}"
 SITE_URL="${SITE_URL%/}"
 PY_URL="${SITE_URL}/tunnel.py"
 MODE="install"
 
 usage() {
-  echo "usage: sh tunnel.sh -t <token> -p <port> [-h <public-host>] [--bind 0.0.0.0]" >&2
+  echo "usage: sh tunnel.sh [-t <token> -p <port>] [-h <public-host>] [--bind 0.0.0.0]" >&2
   echo "       sh tunnel.sh status" >&2
   exit 2
 }
@@ -151,7 +152,7 @@ resolve_python() {
 connection_name() {
   name="$(uname -n 2>/dev/null || true)"
   name="${name%%.*}"
-  [ -n "${name}" ] || name="vibex"
+  [ -n "${name}" ] || name="dimo"
   printf '%s\n' "${name}"
 }
 
@@ -202,24 +203,30 @@ PY
 }
 
 service_status() {
-  if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/vibex-tunnel.service ]; then
-    case "$(systemctl is-active vibex-tunnel 2>/dev/null || true)" in
-      active) printf '%s\n' "running"; return ;;
-      failed) printf '%s\n' "failed"; return ;;
-      activating|reloading) printf '%s\n' "starting"; return ;;
-    esac
-  fi
-  if [ -f "${CONFDIR}/tunnel.pid" ]; then
-    pid="$(tr -d '\n' < "${CONFDIR}/tunnel.pid")"
-    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
-      if port_listening "${PORT}"; then
-        printf '%s\n' "running"
-      else
-        printf '%s\n' "starting"
+  if command -v systemctl >/dev/null 2>&1; then
+    for unit in dimo-tunnel vibex-tunnel; do
+      if [ -f "/etc/systemd/system/${unit}.service" ]; then
+        case "$(systemctl is-active "${unit}" 2>/dev/null || true)" in
+          active) printf '%s\n' "running"; return ;;
+          failed) printf '%s\n' "failed"; return ;;
+          activating|reloading) printf '%s\n' "starting"; return ;;
+        esac
       fi
-      return
-    fi
+    done
   fi
+  for pidfile in "${CONFDIR}/tunnel.pid" "${LEGACY_CONFDIR}/tunnel.pid"; do
+    if [ -f "${pidfile}" ]; then
+      pid="$(tr -d '\n' < "${pidfile}")"
+      if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        if port_listening "${PORT}"; then
+          printf '%s\n' "running"
+        else
+          printf '%s\n' "starting"
+        fi
+        return
+      fi
+    fi
+  done
   if port_listening "${PORT}"; then
     printf '%s\n' "running"
     return
@@ -249,7 +256,7 @@ print_report() {
   printf '%s\n' "连接"
   printf '  连接名称    %s\n' "${name}"
   printf '  端口        %s\n' "${PORT}"
-  printf '  服务名称    %s\n' "vibex-tunnel"
+  printf '  服务名称    %s\n' "dimo-tunnel"
   printf '  服务状态    %s\n' "$(service_state_label "${state}")"
   printf '  监听        %s\n' "${BIND}:${PORT}"
   if [ -n "${ipaddr}" ]; then
@@ -288,6 +295,7 @@ while [ "${#}" -gt 0 ]; do
     --bind)
       [ "${#}" -ge 2 ] || usage
       BIND="${2}"
+      BIND_SET=1
       shift 2
       ;;
     --help)
@@ -299,6 +307,97 @@ while [ "${#}" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$(id -u)" -eq 0 ]; then
+  LIBDIR="/usr/local/lib/dimo-tunnel"
+  CONFDIR="/etc/dimo-tunnel"
+  LOGFILE="/var/log/dimo-tunnel.log"
+  LEGACY_CONFDIR="/etc/vibex-tunnel"
+else
+  LIBDIR="${HOME}/.dimo-tunnel"
+  CONFDIR="${HOME}/.dimo-tunnel"
+  LOGFILE="${HOME}/.dimo-tunnel/tunnel.log"
+  LEGACY_CONFDIR="${HOME}/.vibex-tunnel"
+fi
+
+read_saved_value() {
+  key="${1}"
+  for dir in "${CONFDIR}" "${LEGACY_CONFDIR}"; do
+    if [ -f "${dir}/${key}" ]; then
+      val="$(tr -d '\r\n' < "${dir}/${key}")"
+      if [ -n "${val}" ]; then
+        printf '%s\n' "${val}"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+stop_legacy_daemons() {
+  for pidfile in "${LEGACY_CONFDIR}/tunnel.pid" "${HOME}/.vibex-tunnel/tunnel.pid"; do
+    if [ -f "${pidfile}" ]; then
+      legacy_pid="$(tr -d '\r\n' < "${pidfile}" 2>/dev/null || true)"
+      if [ -n "${legacy_pid}" ] && kill -0 "${legacy_pid}" 2>/dev/null; then
+        kill "${legacy_pid}" 2>/dev/null || true
+      fi
+      rm -f "${pidfile}"
+    fi
+  done
+  if command -v systemctl >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ] && [ -d /etc/systemd/system ]; then
+    if [ -f /etc/systemd/system/vibex-tunnel.service ] || systemctl list-unit-files vibex-tunnel.service >/dev/null 2>&1; then
+      systemctl disable --now vibex-tunnel >/dev/null 2>&1 || true
+      rm -f /etc/systemd/system/vibex-tunnel.service
+      systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+  fi
+  if command -v launchctl >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
+    LEGACY_PLIST="${HOME}/Library/LaunchAgents/com.vibex.tunnel.plist"
+    if [ -f "${LEGACY_PLIST}" ]; then
+      launchctl bootout "gui/$(id -u)" "${LEGACY_PLIST}" >/dev/null 2>&1 || launchctl unload "${LEGACY_PLIST}" >/dev/null 2>&1 || true
+      rm -f "${LEGACY_PLIST}"
+    fi
+  fi
+}
+
+PYTHON="$(resolve_python || true)"
+
+if [ "${MODE}" = "status" ]; then
+  if [ -z "${PORT}" ]; then
+    PORT="$(read_saved_value port || true)"
+  fi
+  if [ -z "${HOST}" ]; then
+    HOST="$(read_saved_value public-host || true)"
+  fi
+  if [ "${BIND_SET}" -eq 0 ]; then
+    saved_bind="$(read_saved_value bind || true)"
+    if [ -n "${saved_bind}" ]; then
+      BIND="${saved_bind}"
+    fi
+  fi
+  if [ -z "${PORT}" ]; then
+    echo "tunnel is not installed" >&2
+    exit 1
+  fi
+  print_report
+  exit 0
+fi
+
+if [ -z "${TOKEN}" ]; then
+  TOKEN="$(read_saved_value token || true)"
+fi
+if [ -z "${PORT}" ]; then
+  PORT="$(read_saved_value port || true)"
+fi
+if [ -z "${HOST}" ]; then
+  HOST="$(read_saved_value public-host || true)"
+fi
+if [ "${BIND_SET}" -eq 0 ]; then
+  saved_bind="$(read_saved_value bind || true)"
+  if [ -n "${saved_bind}" ]; then
+    BIND="${saved_bind}"
+  fi
+fi
 
 if [ "${MODE}" = "install" ]; then
   [ -n "${TOKEN}" ] || usage
@@ -316,36 +415,6 @@ if [ "${MODE}" = "install" ]; then
   fi
 fi
 
-if [ "$(id -u)" -eq 0 ]; then
-  LIBDIR="/usr/local/lib/vibex-tunnel"
-  CONFDIR="/etc/vibex-tunnel"
-  LOGFILE="/var/log/vibex-tunnel.log"
-else
-  LIBDIR="${HOME}/.vibex-tunnel"
-  CONFDIR="${HOME}/.vibex-tunnel"
-  LOGFILE="${HOME}/.vibex-tunnel/tunnel.log"
-fi
-
-PYTHON="$(resolve_python || true)"
-
-if [ "${MODE}" = "status" ]; then
-  if [ -z "${PORT}" ] && [ -f "${CONFDIR}/port" ]; then
-    PORT="$(tr -d '\n' < "${CONFDIR}/port")"
-  fi
-  if [ -z "${HOST}" ] && [ -f "${CONFDIR}/public-host" ]; then
-    HOST="$(tr -d '\n' < "${CONFDIR}/public-host")"
-  fi
-  if [ -f "${CONFDIR}/bind" ]; then
-    BIND="$(tr -d '\n' < "${CONFDIR}/bind")"
-  fi
-  if [ -z "${PORT}" ]; then
-    echo "tunnel is not installed" >&2
-    exit 1
-  fi
-  print_report
-  exit 0
-fi
-
 mkdir -p "${LIBDIR}" "${CONFDIR}"
 download "${PY_URL}" "${LIBDIR}/server.py"
 chmod 755 "${LIBDIR}/server.py"
@@ -356,12 +425,14 @@ printf '%s\n' "${BIND}" > "${CONFDIR}/bind"
 printf '%s\n' "${HOST}" > "${CONFDIR}/public-host"
 printf '%s\n' "waiting" > "${CONFDIR}/host"
 
+stop_legacy_daemons
+
 START_CMD="${PYTHON} ${LIBDIR}/server.py --token ${TOKEN} --port ${PORT} --bind ${BIND} --status-file ${CONFDIR}/host"
 
 if command -v systemctl >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ] && [ -d /etc/systemd/system ]; then
-  cat > /etc/systemd/system/vibex-tunnel.service <<EOF
+  cat > /etc/systemd/system/dimo-tunnel.service <<EOF
 [Unit]
-Description=VibeX public tunnel
+Description=Dimo public tunnel
 After=network-online.target
 Wants=network-online.target
 
@@ -376,21 +447,21 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable vibex-tunnel >/dev/null 2>&1 || true
-  systemctl restart vibex-tunnel
+  systemctl enable dimo-tunnel >/dev/null 2>&1 || true
+  systemctl restart dimo-tunnel
   print_report
   exit 0
 fi
 
 if command -v launchctl >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
-  PLIST="${HOME}/Library/LaunchAgents/com.vibex.tunnel.plist"
+  PLIST="${HOME}/Library/LaunchAgents/com.dimo.tunnel.plist"
   mkdir -p "${HOME}/Library/LaunchAgents"
   cat > "${PLIST}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.vibex.tunnel</string>
+  <key>Label</key><string>com.dimo.tunnel</string>
   <key>ProgramArguments</key>
   <array>
     <string>${PYTHON}</string>
@@ -411,7 +482,7 @@ if command -v launchctl >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
 </dict>
 </plist>
 EOF
-  launchctl unload "${PLIST}" >/dev/null 2>&1 || true
+  launchctl bootout "gui/$(id -u)" "${PLIST}" >/dev/null 2>&1 || launchctl unload "${PLIST}" >/dev/null 2>&1 || true
   launchctl load "${PLIST}"
   print_report
   exit 0

@@ -347,7 +347,7 @@ pub(in crate::manager) fn ordered_session_config_overrides(
 
 /// Effective auto-approve mode for a permission decision. ACP session modes
 /// are Agent-owned semantics: for example Claude Code's `auto` asks its model
-/// classifier to decide. They must never silently upgrade VibeX's independent
+/// classifier to decide. They must never silently upgrade Dimo's independent
 /// auto-approval policy.
 pub(in crate::manager) async fn effective_auto_approve_mode(
     configured: AgentAutoApproveMode,

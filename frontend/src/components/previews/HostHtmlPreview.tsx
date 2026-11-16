@@ -8,7 +8,7 @@ import { FilePreviewLoading } from '@/components/panels/FilePreviewLoading';
 
 /**
  * The page runs with scripts enabled but without `allow-same-origin`, so it
- * keeps an opaque origin: it cannot reach the VibeX DOM or its Tauri bridge,
+ * keeps an opaque origin: it cannot reach the Dimo DOM or its Tauri bridge,
  * while its own scripts, forms and popups behave normally.
  */
 const PREVIEW_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups';

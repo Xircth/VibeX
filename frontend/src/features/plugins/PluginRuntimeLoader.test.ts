@@ -8,7 +8,7 @@ import {
 describe('PluginRuntimeLoader ESM fallback', () => {
   it('rewrites shared bare imports without touching nested export lists in strings', () => {
     const code = `
-import { definePluginApp } from '@vibex/plugin-sdk/app';
+import { definePluginApp } from '@dimoai/plugin-sdk/app';
 const note = \`
 export { hidden as default }
 \`;
@@ -16,7 +16,7 @@ export default definePluginApp;
 `;
     const rewritten = rewriteSharedBareImports(code);
     expect(rewritten).toContain(
-      'globalThis.__VIBEX_HOST_MODULES__["@vibex/plugin-sdk/app"]'
+      'globalThis.__DIMO_HOST_MODULES__["@dimoai/plugin-sdk/app"]'
     );
     expect(rewritten).toContain('export { hidden as default }');
   });
@@ -46,11 +46,11 @@ export {
   local as alias,
   local as default
 };
-export { defineVibeXPlugin } from '@vibex/plugin-sdk';
+export { defineDimoPlugin } from '@dimoai/plugin-sdk';
 `);
     expect(mod.alias).toBe('kept');
     expect(mod.default).toBe('kept');
-    expect(typeof mod.defineVibeXPlugin).toBe('function');
+    expect(typeof mod.defineDimoPlugin).toBe('function');
   });
 
   it('does not rewrite export lists that only appear inside template strings', () => {

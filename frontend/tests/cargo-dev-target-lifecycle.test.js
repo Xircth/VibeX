@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 
 test('桌面开发启动复用有效的 Cargo debug 产物', () => {
   const workspaceRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'vibex-cargo-dev-launcher-')
+    path.join(os.tmpdir(), 'dimo-cargo-dev-launcher-')
   );
   const fakeBin = path.join(workspaceRoot, 'bin');
   const fakePnpm = path.join(fakeBin, 'pnpm');
@@ -79,7 +79,7 @@ test('显式重置 Cargo debug 产物时保留 target 下的兄弟目录', () =>
     path.join(repoRoot, 'scripts', 'cargo-dev-target.js')
   );
   const workspaceRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'vibex-cargo-dev-target-')
+    path.join(os.tmpdir(), 'dimo-cargo-dev-target-')
   );
   const oldDebugArtifact = path.join(
     workspaceRoot,
@@ -92,7 +92,7 @@ test('显式重置 Cargo debug 产物时保留 target 下的兄弟目录', () =>
     workspaceRoot,
     'target',
     'release',
-    'vibex'
+    'dimo'
   );
 
   try {

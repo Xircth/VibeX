@@ -11,7 +11,7 @@ function delegatedQuestion(): ConversationQuestionRequest {
     asked_at: '2026-08-08T10:05:00+08:00',
     schema: {
       type: 'object',
-      'x-vibex-questions': [
+      'x-dimo-questions': [
         {
           id: 'approach',
           header: 'Approach',
@@ -264,7 +264,7 @@ describe('AgentQuestionCard', () => {
       options: [],
       schema: {
         type: 'object',
-        'x-vibex-questions': [
+        'x-dimo-questions': [
           {
             id: 'interaction_b8486ad3',
             header: '您倾向于哪种 HTML 课件视…',

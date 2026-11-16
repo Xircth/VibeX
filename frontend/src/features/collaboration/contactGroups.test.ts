@@ -191,7 +191,7 @@ describe('local state helpers', () => {
     ]);
     expect(readCollapsedSections('w2').size).toBe(0);
     window.localStorage.setItem(
-      'vibex.collaboration.contactGroups.collapsed.w3',
+      'dimo.collaboration.contactGroups.collapsed.w3',
       '{bad'
     );
     expect(readCollapsedSections('w3').size).toBe(0);

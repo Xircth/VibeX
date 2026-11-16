@@ -14,8 +14,8 @@ pub struct SystemBundlePluginManifest {
 
 pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
     SystemBundlePluginManifest {
-        id: "vibex.core.plugin-manager",
-        package_name: "@vibex/core-plugin-manager",
+        id: "dimo.core.plugin-manager",
+        package_name: "@dimo/core-plugin-manager",
         plane: "boot",
         version: "2.0.0",
         bundle: "system",
@@ -43,8 +43,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.hmr",
-        package_name: "@vibex/core-hmr",
+        id: "dimo.core.hmr",
+        package_name: "@dimo/core-hmr",
         plane: "boot",
         version: "2.0.0",
         bundle: "system",
@@ -58,8 +58,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.settings",
-        package_name: "@vibex/core-settings",
+        id: "dimo.core.settings",
+        package_name: "@dimo/core-settings",
         plane: "boot",
         version: "2.0.0",
         bundle: "system",
@@ -75,8 +75,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.credentials",
-        package_name: "@vibex/core-credentials",
+        id: "dimo.core.credentials",
+        package_name: "@dimo/core-credentials",
         plane: "boot",
         version: "2.0.0",
         bundle: "system",
@@ -90,8 +90,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.agent-runtime",
-        package_name: "@vibex/core-agent-runtime",
+        id: "dimo.core.agent-runtime",
+        package_name: "@dimo/core-agent-runtime",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -121,8 +121,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.session",
-        package_name: "@vibex/core-session",
+        id: "dimo.core.session",
+        package_name: "@dimo/core-session",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -159,8 +159,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.llm-providers",
-        package_name: "@vibex/core-llm-providers",
+        id: "dimo.core.llm-providers",
+        package_name: "@dimo/core-llm-providers",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -189,8 +189,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.skills",
-        package_name: "@vibex/core-skills",
+        id: "dimo.core.skills",
+        package_name: "@dimo/core-skills",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -210,8 +210,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.mcp",
-        package_name: "@vibex/core-mcp",
+        id: "dimo.core.mcp",
+        package_name: "@dimo/core-mcp",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -231,8 +231,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.delegation",
-        package_name: "@vibex/core-delegation",
+        id: "dimo.core.delegation",
+        package_name: "@dimo/core-delegation",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -240,8 +240,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         commands: &["collaboration_call", "delegation_cancel"],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.compaction",
-        package_name: "@vibex/core-compaction",
+        id: "dimo.core.compaction",
+        package_name: "@dimo/core-compaction",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -252,8 +252,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.approval",
-        package_name: "@vibex/core-approval",
+        id: "dimo.core.approval",
+        package_name: "@dimo/core-approval",
         plane: "agent",
         version: "2.0.0",
         bundle: "system",
@@ -261,8 +261,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         commands: &["agent_respond_permission", "plugin_resolve_provider_bind"],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.shell",
-        package_name: "@vibex/core-shell",
+        id: "dimo.core.shell",
+        package_name: "@dimo/core-shell",
         plane: "execution",
         version: "2.0.0",
         bundle: "system",
@@ -279,8 +279,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.workspace-git",
-        package_name: "@vibex/core-workspace-git",
+        id: "dimo.core.workspace-git",
+        package_name: "@dimo/core-workspace-git",
         plane: "execution",
         version: "2.0.0",
         bundle: "system",
@@ -331,8 +331,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.filesystem",
-        package_name: "@vibex/core-filesystem",
+        id: "dimo.core.filesystem",
+        package_name: "@dimo/core-filesystem",
         plane: "execution",
         version: "2.0.0",
         bundle: "system",
@@ -354,8 +354,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.automation",
-        package_name: "@vibex/core-automation",
+        id: "dimo.core.automation",
+        package_name: "@dimo/core-automation",
         plane: "execution",
         version: "2.0.0",
         bundle: "system",
@@ -381,8 +381,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.core.channels",
-        package_name: "@vibex/core-channels",
+        id: "dimo.core.channels",
+        package_name: "@dimo/core-channels",
         plane: "execution",
         version: "2.0.0",
         bundle: "system",
@@ -401,8 +401,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.webui.layout",
-        package_name: "@vibex/webui-layout",
+        id: "dimo.webui.layout",
+        package_name: "@dimo/webui-layout",
         plane: "webui",
         version: "2.0.0",
         bundle: "system",
@@ -414,8 +414,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.webui.conversation",
-        package_name: "@vibex/webui-conversation",
+        id: "dimo.webui.conversation",
+        package_name: "@dimo/webui-conversation",
         plane: "webui",
         version: "2.0.0",
         bundle: "system",
@@ -430,8 +430,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.webui.kanban",
-        package_name: "@vibex/webui-kanban",
+        id: "dimo.webui.kanban",
+        package_name: "@dimo/webui-kanban",
         plane: "webui",
         version: "2.0.0",
         bundle: "system",
@@ -449,8 +449,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         ],
     },
     SystemBundlePluginManifest {
-        id: "vibex.webui.commands",
-        package_name: "@vibex/webui-commands",
+        id: "dimo.webui.commands",
+        package_name: "@dimo/webui-commands",
         plane: "webui",
         version: "2.0.0",
         bundle: "system",
@@ -458,8 +458,8 @@ pub const SYSTEM_BUNDLE_PLUGIN_MANIFESTS: &[SystemBundlePluginManifest] = &[
         commands: &["plugin_action_catalog", "plugin_command_invoke"],
     },
     SystemBundlePluginManifest {
-        id: "vibex.webui.theme",
-        package_name: "@vibex/webui-theme",
+        id: "dimo.webui.theme",
+        package_name: "@dimo/webui-theme",
         plane: "webui",
         version: "2.0.0",
         bundle: "system",
@@ -502,106 +502,106 @@ pub fn resolve_system_bundle_domain_command(
     }
 
     let alias = match (manifest.id, normalized.as_str()) {
-        ("vibex.core.workspace-git", "project_list" | "list_projects" | "projects") => {
+        ("dimo.core.workspace-git", "project_list" | "list_projects" | "projects") => {
             Some("get_projects")
         }
-        ("vibex.core.workspace-git", "project_repositories" | "repositories") => {
+        ("dimo.core.workspace-git", "project_repositories" | "repositories") => {
             Some("get_project_repositories")
         }
-        ("vibex.core.workspace-git", "repo_branches" | "branches") => Some("get_repo_branches"),
-        ("vibex.core.workspace-git", "workspace_branch_status" | "branch_status" | "status") => {
+        ("dimo.core.workspace-git", "repo_branches" | "branches") => Some("get_repo_branches"),
+        ("dimo.core.workspace-git", "workspace_branch_status" | "branch_status" | "status") => {
             Some("get_workspace_branch_status")
         }
-        ("vibex.core.workspace-git", "workspace_commit_history" | "commit_history" | "history") => {
+        ("dimo.core.workspace-git", "workspace_commit_history" | "commit_history" | "history") => {
             Some("get_workspace_commit_history")
         }
-        ("vibex.core.workspace-git", "workspace_commit_graph" | "commit_graph" | "graph") => {
+        ("dimo.core.workspace-git", "workspace_commit_graph" | "commit_graph" | "graph") => {
             Some("get_workspace_commit_graph")
         }
-        ("vibex.core.workspace-git", "workspace_push" | "push") => Some("push_workspace_branch"),
-        ("vibex.core.workspace-git", "workspace_pull" | "pull") => Some("pull_workspace_branch"),
-        ("vibex.core.workspace-git", "workspace_fetch" | "fetch") => Some("fetch_workspace"),
-        ("vibex.core.workspace-git", "workspace_merge" | "merge") => Some("merge_workspace"),
-        ("vibex.core.workspace-git", "workspace_rebase" | "rebase") => Some("rebase_workspace"),
-        ("vibex.core.automation", "list") => Some("automation_list"),
-        ("vibex.core.automation", "engine_status" | "status") => Some("automation_engine_status"),
-        ("vibex.core.automation", "create") => Some("automation_create"),
-        ("vibex.core.automation", "create_workflow") => Some("automation_create_workflow"),
-        ("vibex.core.automation", "update") => Some("automation_update"),
-        ("vibex.core.automation", "set_enabled") => Some("automation_set_enabled"),
-        ("vibex.core.automation", "delete") => Some("automation_delete"),
-        ("vibex.core.automation", "run_now") => Some("automation_run_now"),
-        ("vibex.core.automation", "cancel_run") => Some("automation_cancel_run"),
-        ("vibex.core.automation", "runs") => Some("automation_runs"),
-        ("vibex.core.automation", "preview" | "preview_next_runs") => {
+        ("dimo.core.workspace-git", "workspace_push" | "push") => Some("push_workspace_branch"),
+        ("dimo.core.workspace-git", "workspace_pull" | "pull") => Some("pull_workspace_branch"),
+        ("dimo.core.workspace-git", "workspace_fetch" | "fetch") => Some("fetch_workspace"),
+        ("dimo.core.workspace-git", "workspace_merge" | "merge") => Some("merge_workspace"),
+        ("dimo.core.workspace-git", "workspace_rebase" | "rebase") => Some("rebase_workspace"),
+        ("dimo.core.automation", "list") => Some("automation_list"),
+        ("dimo.core.automation", "engine_status" | "status") => Some("automation_engine_status"),
+        ("dimo.core.automation", "create") => Some("automation_create"),
+        ("dimo.core.automation", "create_workflow") => Some("automation_create_workflow"),
+        ("dimo.core.automation", "update") => Some("automation_update"),
+        ("dimo.core.automation", "set_enabled") => Some("automation_set_enabled"),
+        ("dimo.core.automation", "delete") => Some("automation_delete"),
+        ("dimo.core.automation", "run_now") => Some("automation_run_now"),
+        ("dimo.core.automation", "cancel_run") => Some("automation_cancel_run"),
+        ("dimo.core.automation", "runs") => Some("automation_runs"),
+        ("dimo.core.automation", "preview" | "preview_next_runs") => {
             Some("automation_preview_next_runs")
         }
-        ("vibex.core.automation", "templates") => Some("automation_templates"),
-        ("vibex.core.automation", "unseen_failures") => Some("automation_unseen_failures"),
-        ("vibex.core.automation", "mark_seen") => Some("automation_mark_seen"),
-        ("vibex.core.automation", "export_spec") => Some("automation_export_spec"),
-        ("vibex.core.automation", "import_spec") => Some("automation_import_spec"),
-        ("vibex.core.session", "detail") => Some("conversation_detail"),
-        ("vibex.core.session", "events_since") => Some("conversation_events_since"),
-        ("vibex.core.session", "rows_since") => Some("conversation_rows_since"),
-        ("vibex.core.session", "touch") => Some("conversation_touch"),
-        ("vibex.core.session", "timeline_page") => Some("conversation_timeline_page"),
-        ("vibex.core.session", "search") => Some("conversation_search"),
-        ("vibex.core.session", "export_markdown") => Some("conversation_export_markdown"),
-        ("vibex.core.session", "export_html") => Some("conversation_export_html"),
-        ("vibex.core.session", "export") => Some("conversation_export"),
-        ("vibex.core.session", "close") => Some("conversation_close"),
-        ("vibex.core.session", "fork") => Some("conversation_fork"),
-        ("vibex.core.session", "scratch_get") => Some("get_scratch"),
-        ("vibex.core.session", "scratch_create") => Some("create_scratch"),
-        ("vibex.core.session", "scratch_update") => Some("update_scratch"),
-        ("vibex.core.session", "scratch_delete") => Some("delete_scratch"),
-        ("vibex.core.skills", "agent_skills_list" | "list" | "skills") => Some("list_agent_skills"),
-        ("vibex.core.agent-runtime", "management_bar" | "list") => Some("agent_management_bar"),
-        ("vibex.core.agent-runtime", "capability_catalog") => Some("agent_capability_catalog"),
-        ("vibex.core.agent-runtime", "capability_catalog_fresh") => {
+        ("dimo.core.automation", "templates") => Some("automation_templates"),
+        ("dimo.core.automation", "unseen_failures") => Some("automation_unseen_failures"),
+        ("dimo.core.automation", "mark_seen") => Some("automation_mark_seen"),
+        ("dimo.core.automation", "export_spec") => Some("automation_export_spec"),
+        ("dimo.core.automation", "import_spec") => Some("automation_import_spec"),
+        ("dimo.core.session", "detail") => Some("conversation_detail"),
+        ("dimo.core.session", "events_since") => Some("conversation_events_since"),
+        ("dimo.core.session", "rows_since") => Some("conversation_rows_since"),
+        ("dimo.core.session", "touch") => Some("conversation_touch"),
+        ("dimo.core.session", "timeline_page") => Some("conversation_timeline_page"),
+        ("dimo.core.session", "search") => Some("conversation_search"),
+        ("dimo.core.session", "export_markdown") => Some("conversation_export_markdown"),
+        ("dimo.core.session", "export_html") => Some("conversation_export_html"),
+        ("dimo.core.session", "export") => Some("conversation_export"),
+        ("dimo.core.session", "close") => Some("conversation_close"),
+        ("dimo.core.session", "fork") => Some("conversation_fork"),
+        ("dimo.core.session", "scratch_get") => Some("get_scratch"),
+        ("dimo.core.session", "scratch_create") => Some("create_scratch"),
+        ("dimo.core.session", "scratch_update") => Some("update_scratch"),
+        ("dimo.core.session", "scratch_delete") => Some("delete_scratch"),
+        ("dimo.core.skills", "agent_skills_list" | "list" | "skills") => Some("list_agent_skills"),
+        ("dimo.core.agent-runtime", "management_bar" | "list") => Some("agent_management_bar"),
+        ("dimo.core.agent-runtime", "capability_catalog") => Some("agent_capability_catalog"),
+        ("dimo.core.agent-runtime", "capability_catalog_fresh") => {
             Some("agent_capability_catalog_fresh")
         }
-        ("vibex.core.agent-runtime", "refresh_capability_catalog") => {
+        ("dimo.core.agent-runtime", "refresh_capability_catalog") => {
             Some("agent_refresh_capability_catalog")
         }
-        ("vibex.core.agent-runtime", "enhance") => Some("enhance_prompt"),
-        ("vibex.core.agent-runtime", "cancel_enhance" | "cancel_prompt_enhancement") => {
+        ("dimo.core.agent-runtime", "enhance") => Some("enhance_prompt"),
+        ("dimo.core.agent-runtime", "cancel_enhance" | "cancel_prompt_enhancement") => {
             Some("cancel_enhance_prompt")
         }
-        ("vibex.core.channels", "get_webhooks" | "webhooks") => Some("get_chat_event_webhooks"),
-        ("vibex.core.channels", "set_webhooks") => Some("set_chat_event_webhooks"),
-        ("vibex.core.channels", "get_language" | "language") => Some("get_chat_message_language"),
-        ("vibex.core.channels", "set_language") => Some("set_chat_message_language"),
-        ("vibex.core.channels", "list") => Some("list_chat_channels"),
-        ("vibex.core.settings", "user_system_info" | "system_info" | "info") => {
+        ("dimo.core.channels", "get_webhooks" | "webhooks") => Some("get_chat_event_webhooks"),
+        ("dimo.core.channels", "set_webhooks") => Some("set_chat_event_webhooks"),
+        ("dimo.core.channels", "get_language" | "language") => Some("get_chat_message_language"),
+        ("dimo.core.channels", "set_language") => Some("set_chat_message_language"),
+        ("dimo.core.channels", "list") => Some("list_chat_channels"),
+        ("dimo.core.settings", "user_system_info" | "system_info" | "info") => {
             Some("get_user_system_info")
         }
-        ("vibex.core.settings", "frontend_preferences_get") => Some("get_frontend_preferences"),
-        ("vibex.core.settings", "frontend_preferences_update") => {
+        ("dimo.core.settings", "frontend_preferences_get") => Some("get_frontend_preferences"),
+        ("dimo.core.settings", "frontend_preferences_update") => {
             Some("update_frontend_preferences")
         }
-        ("vibex.core.mcp", "status") => Some("plugin_mcp_status"),
-        ("vibex.core.mcp", "ensure_running") => Some("plugin_mcp_ensure_running"),
-        ("vibex.core.mcp", "state") => Some("official_product_mcp_state"),
-        ("vibex.core.delegation", "call") => Some("collaboration_call"),
-        ("vibex.core.delegation", "cancel") => Some("delegation_cancel"),
-        ("vibex.core.filesystem", "artifacts") => Some("artifact_list"),
-        ("vibex.core.plugin-manager", "catalog") => Some("plugin_control_catalog"),
-        ("vibex.core.plugin-manager", "contributions") => Some("plugin_contribution_catalog"),
-        ("vibex.webui.conversation", "enhance") => Some("enhance_prompt"),
-        ("vibex.webui.conversation", "cancel_enhance" | "cancel_prompt_enhancement") => {
+        ("dimo.core.mcp", "status") => Some("plugin_mcp_status"),
+        ("dimo.core.mcp", "ensure_running") => Some("plugin_mcp_ensure_running"),
+        ("dimo.core.mcp", "state") => Some("official_product_mcp_state"),
+        ("dimo.core.delegation", "call") => Some("collaboration_call"),
+        ("dimo.core.delegation", "cancel") => Some("delegation_cancel"),
+        ("dimo.core.filesystem", "artifacts") => Some("artifact_list"),
+        ("dimo.core.plugin-manager", "catalog") => Some("plugin_control_catalog"),
+        ("dimo.core.plugin-manager", "contributions") => Some("plugin_contribution_catalog"),
+        ("dimo.webui.conversation", "enhance") => Some("enhance_prompt"),
+        ("dimo.webui.conversation", "cancel_enhance" | "cancel_prompt_enhancement") => {
             Some("cancel_enhance_prompt")
         }
-        ("vibex.webui.kanban", "task_get") => Some("get_task"),
-        ("vibex.webui.kanban", "task_create") => Some("create_task"),
-        ("vibex.webui.kanban", "task_create_and_start") => Some("create_task_and_start"),
-        ("vibex.webui.kanban", "task_update") => Some("update_task"),
-        ("vibex.webui.kanban", "task_delete") => Some("delete_task"),
-        ("vibex.webui.kanban", "tag_list") => Some("get_tags"),
-        ("vibex.webui.kanban", "tag_create") => Some("create_tag"),
-        ("vibex.webui.kanban", "tag_update") => Some("update_tag"),
-        ("vibex.webui.kanban", "tag_delete") => Some("delete_tag"),
+        ("dimo.webui.kanban", "task_get") => Some("get_task"),
+        ("dimo.webui.kanban", "task_create") => Some("create_task"),
+        ("dimo.webui.kanban", "task_create_and_start") => Some("create_task_and_start"),
+        ("dimo.webui.kanban", "task_update") => Some("update_task"),
+        ("dimo.webui.kanban", "task_delete") => Some("delete_task"),
+        ("dimo.webui.kanban", "tag_list") => Some("get_tags"),
+        ("dimo.webui.kanban", "tag_create") => Some("create_tag"),
+        ("dimo.webui.kanban", "tag_update") => Some("update_tag"),
+        ("dimo.webui.kanban", "tag_delete") => Some("delete_tag"),
         _ => None,
     };
     if alias.is_some() {

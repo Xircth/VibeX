@@ -25,7 +25,7 @@ export type ToolDisplayEntry = NormalizedEntry & {
 /**
  * Adapts a unified-timeline tool block (the normalized `ContentBlock`
  * tool_use + paired tool_result) into a `NormalizedEntry` adapter, so the
- * timeline can reuse VibeX's existing rich tool cards (file/search/command/
+ * timeline can reuse Dimo's existing rich tool cards (file/search/command/
  * generic) via `DisplayConversationEntry`.
  *
  * The backend projects a tool call's `tool_name` as `title ?? kind ?? call_id`
@@ -33,7 +33,7 @@ export type ToolDisplayEntry = NormalizedEntry & {
  * notably OpenAI/Codex function calls — therefore arrive with `tool_name` set
  * to an opaque `call_…` id. We recover the real action from the parsed tool
  * input (command / path / pattern / url) regardless of the name, so a shell
- * call renders as a "终端" card instead of a raw id. VibeX-authored.
+ * call renders as a "终端" card instead of a raw id. Dimo-authored.
  */
 
 /** Opaque tool identifiers that carry no display meaning on their own. */

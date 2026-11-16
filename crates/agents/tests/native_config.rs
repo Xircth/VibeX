@@ -443,7 +443,7 @@ async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
                     .collect(),
                 values: BTreeMap::from([(
                     "openai_api_key".to_string(),
-                    Some("not-validated-by-vibex".to_string()),
+                    Some("not-validated-by-dimo".to_string()),
                 )]),
             },
             false,
@@ -458,7 +458,7 @@ async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
     let persisted: serde_json::Value =
         serde_json::from_slice(filesystem.files.lock().unwrap().get(&path).unwrap()).unwrap();
     assert_eq!(persisted["unknown"]["external"], 1);
-    assert_eq!(persisted["OPENAI_API_KEY"], "not-validated-by-vibex");
+    assert_eq!(persisted["OPENAI_API_KEY"], "not-validated-by-dimo");
 
     let stale = provider.read(&codex, false).await.unwrap();
     filesystem.files.lock().unwrap().insert(
@@ -818,10 +818,10 @@ async fn codex_websockets_reads_custom_provider_default_false() {
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol"
-model_provider = "vibex"
+model_provider = "dimo"
 
-[model_providers.vibex]
-name = "vibex"
+[model_providers.dimo]
+name = "dimo"
 base_url = "https://beeapi.ai/v1"
 wire_api = "responses"
 requires_openai_auth = true
@@ -958,10 +958,10 @@ async fn codex_websockets_writes_active_custom_provider_and_legacy_features() {
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol"
-model_provider = "vibex"
+model_provider = "dimo"
 
-[model_providers.vibex]
-name = "vibex"
+[model_providers.dimo]
+name = "dimo"
 base_url = "https://beeapi.ai/v1"
 wire_api = "responses"
 requires_openai_auth = true
@@ -1007,7 +1007,7 @@ requires_openai_auth = true
     .unwrap();
     // 开启 WebSocket：写进活跃自定义 provider 表，并同步 legacy features 键。
     assert_eq!(
-        config["model_providers"]["vibex"]["supports_websockets"].as_bool(),
+        config["model_providers"]["dimo"]["supports_websockets"].as_bool(),
         Some(true)
     );
     assert_eq!(
@@ -1052,7 +1052,7 @@ requires_openai_auth = true
     )
     .unwrap();
     assert_eq!(
-        config["model_providers"]["vibex"]["supports_websockets"].as_bool(),
+        config["model_providers"]["dimo"]["supports_websockets"].as_bool(),
         Some(false)
     );
     assert_eq!(
@@ -1088,7 +1088,7 @@ requires_openai_auth = true
     )
     .unwrap();
     assert!(
-        config["model_providers"]["vibex"]
+        config["model_providers"]["dimo"]
             .get("supports_websockets")
             .is_none()
     );
@@ -1311,7 +1311,7 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
         Some("always-approve")
     );
     assert_eq!(
-        grok_config["model"]["vibex"]["api_backend"].as_str(),
+        grok_config["model"]["dimo"]["api_backend"].as_str(),
         Some("responses")
     );
     assert_eq!(
@@ -1427,7 +1427,7 @@ api_key = "sk-gateway"
 model = "grok-4"
 api_backend = "chat_completions"
 
-[model.vibex]
+[model.dimo]
 base_url = "https://stale.example/v1"
 api_key = "sk-stale"
 "#
@@ -1488,7 +1488,7 @@ async fn grok_permission_save_does_not_rewrite_the_active_model() {
         Some("always-approve")
     );
     assert_eq!(grok_config["models"]["default"].as_str(), Some("gateway"));
-    assert!(grok_config["model"].get("vibex").is_none());
+    assert!(grok_config["model"].get("dimo").is_none());
     assert_eq!(
         grok_config["model"]["gateway"]["base_url"].as_str(),
         Some("https://gateway.example/v1")
@@ -1537,21 +1537,21 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let path = PathBuf::from("/home/user/.kimi-code/config.toml");
     let config = String::from_utf8(filesystem.files.lock().unwrap()[&path].clone()).unwrap();
     let config: toml::Value = toml::from_str(&config).unwrap();
-    assert_eq!(config["default_model"].as_str(), Some("vibex"));
+    assert_eq!(config["default_model"].as_str(), Some("dimo"));
     assert_eq!(
-        config["models"]["vibex"]["provider"].as_str(),
-        Some("vibex")
+        config["models"]["dimo"]["provider"].as_str(),
+        Some("dimo")
     );
     assert_eq!(
-        config["models"]["vibex"]["model"].as_str(),
+        config["models"]["dimo"]["model"].as_str(),
         Some("demo-model")
     );
     assert_eq!(
-        config["models"]["vibex"]["max_context_size"].as_integer(),
+        config["models"]["dimo"]["max_context_size"].as_integer(),
         Some(262_144)
     );
     assert_eq!(
-        config["models"]["vibex"]["capabilities"]
+        config["models"]["dimo"]["capabilities"]
             .as_array()
             .unwrap(),
         &[
@@ -1560,7 +1560,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
         ]
     );
     assert_eq!(
-        config["models"]["vibex"]["support_efforts"]
+        config["models"]["dimo"]["support_efforts"]
             .as_array()
             .unwrap(),
         &[
@@ -1568,7 +1568,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
             toml::Value::String("high".to_string()),
         ]
     );
-    assert!(config["models"]["vibex"].get("default_effort").is_none());
+    assert!(config["models"]["dimo"].get("default_effort").is_none());
 
     provider
         .save(
@@ -1592,7 +1592,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let config = String::from_utf8(filesystem.files.lock().unwrap()[&path].clone()).unwrap();
     let config: toml::Value = toml::from_str(&config).unwrap();
     assert_eq!(
-        config["models"]["vibex"]["default_effort"].as_str(),
+        config["models"]["dimo"]["default_effort"].as_str(),
         Some("high")
     );
 }

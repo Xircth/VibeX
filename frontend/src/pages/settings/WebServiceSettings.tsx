@@ -34,7 +34,7 @@ import { useBackendTransport } from '@/lib/transport';
 
 import {
   syncCurrentHostRelayLease,
-  useVibeXAccount,
+  useDimoAccount,
 } from '@/features/model-router';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -94,7 +94,7 @@ export function WebServiceSettings({
     requestedAction === 'connect' ||
     requestedAction === 'ssh';
   const { t } = useTranslation(['settings', 'common']);
-  const { isSignedIn, overview } = useVibeXAccount();
+  const { isSignedIn, overview } = useDimoAccount();
   const hasRelayPermission = Boolean(
     isSignedIn && overview?.relayPermission !== false
   );
@@ -250,14 +250,14 @@ export function WebServiceSettings({
         }
         const updatedTunnel = await hostTunnelApi.setEnabled(useCloud);
         setTunnelEnabled(Boolean(updatedTunnel.enabled));
-        window.dispatchEvent(new CustomEvent('vibex:host-tunnel-updated'));
+        window.dispatchEvent(new CustomEvent('dimo:host-tunnel-updated'));
         if (!useCloud && !draftRef.current.allow_lan) {
           commitDraft({ ...draftRef.current, allow_lan: true });
         }
         setStatus(await webServiceApi.getStatus());
       } catch {
         setTunnelEnabled(useCloud);
-        window.dispatchEvent(new CustomEvent('vibex:host-tunnel-updated'));
+        window.dispatchEvent(new CustomEvent('dimo:host-tunnel-updated'));
       } finally {
         setStatusBusy(false);
       }
@@ -454,13 +454,13 @@ export function WebServiceSettings({
                           .then((next) => {
                             setTunnelEnabled(Boolean(next?.enabled));
                             window.dispatchEvent(
-                              new CustomEvent('vibex:host-tunnel-updated')
+                              new CustomEvent('dimo:host-tunnel-updated')
                             );
                           })
                           .catch(() => {
                             setTunnelEnabled(false);
                             window.dispatchEvent(
-                              new CustomEvent('vibex:host-tunnel-updated')
+                              new CustomEvent('dimo:host-tunnel-updated')
                             );
                           });
                         void startServer();

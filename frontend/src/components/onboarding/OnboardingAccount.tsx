@@ -2,16 +2,16 @@ import { ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
-  type useVibeXAccount,
+  type useDimoAccount,
   resolveAccountDisplayName,
-} from '@/features/model-router/useVibeXAccount';
+} from '@/features/model-router/useDimoAccount';
 import type { useAccountDeviceLogin } from '@/pages/settings/useAccountDeviceLogin';
 
 export function OnboardingAccount({
   account,
   login,
 }: {
-  account: ReturnType<typeof useVibeXAccount>;
+  account: ReturnType<typeof useDimoAccount>;
   login: ReturnType<typeof useAccountDeviceLogin>;
 }) {
   const { t } = useTranslation('dialogs');
@@ -30,7 +30,7 @@ export function OnboardingAccount({
           {t('onboarding.accountConnected', {
             name: account.user
               ? resolveAccountDisplayName(account.user)
-              : 'VibeX',
+              : 'Dimo',
           })}
         </p>
       ) : login.loginState ? (

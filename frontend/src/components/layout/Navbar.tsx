@@ -47,7 +47,7 @@ const EXTERNAL_LINKS = [
   {
     label: 'Support',
     icon: MessageCircleQuestion,
-    href: 'https://github.com/vibex/vibex/issues',
+    href: 'https://github.com/DimoADE/Dimo/issues',
   },
   {
     label: 'Discord',

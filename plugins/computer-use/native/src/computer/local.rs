@@ -1,32 +1,32 @@
-//! vibex's side of the helper: find it, launch it as its own TCC principal,
+//! dimo's side of the helper: find it, launch it as its own TCC principal,
 //! check that it is our helper, and talk to it.
 //!
 //! **Launch.** On macOS the helper is spawned with responsibility disclaimed,
-//! so it is the TCC principal and vibex is not — from a copy of its app
-//! outside vibex's bundle, since inside it macOS would charge its Screen
-//! Recording to vibex all the same (`helper_app`) — over a socketpair duplicated
+//! so it is the TCC principal and dimo is not — from a copy of its app
+//! outside dimo's bundle, since inside it macOS would charge its Screen
+//! Recording to dimo all the same (`helper_app`) — over a socketpair duplicated
 //! onto its stdin and stdout — the only rendezvous there is, with no path in
 //! the filesystem for another process to get to first. Its other descriptors
 //! are closed on exec, its environment is a fixed few variables. Elsewhere it
 //! is an ordinary child on pipes.
 //!
-//! **Check.** A release vibex launches the helper under a launch requirement
+//! **Check.** A release dimo launches the helper under a launch requirement
 //! (this build's Team ID and the helper's identifier), so the kernel runs
 //! nothing else from that path — the bundle is writable by the user, and a
 //! wrapper started in the helper's place could keep a copy of the socket. The
-//! helper then speaks first; on macOS vibex asks the kernel who is on the
+//! helper then speaks first; on macOS dimo asks the kernel who is on the
 //! other end of its socket and checks that process against the helper's
-//! designated requirement (`VIBEX_COMPUTER_HELPER_REQUIREMENT`), and every
-//! later frame against the process it verified. A development vibex checks
+//! designated requirement (`DIMO_COMPUTER_HELPER_REQUIREMENT`), and every
+//! later frame against the process it verified. A development dimo checks
 //! instead that the helper was built from its own sources (the fingerprint
-//! `build.rs` compiles into both): `pnpm tauri dev` rebuilds only vibex after
-//! an edit — and not the helper at all under `VIBEX_SKIP_SIDECAR=1` — and a
+//! `build.rs` compiles into both): `pnpm tauri dev` rebuilds only dimo after
+//! an edit — and not the helper at all under `DIMO_SKIP_SIDECAR=1` — and a
 //! helper left over would answer with the old code.
 //!
-//! **Life.** One helper per vibex, started on first use, restarted on the next
+//! **Life.** One helper per dimo, started on first use, restarted on the next
 //! call after it dies, stopped when computer use is switched off — and not
 //! started again until it is switched back on, whatever call was already on
-//! its way. It exits on its own when vibex does: its stdin closes.
+//! its way. It exits on its own when dimo does: its stdin closes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -52,30 +52,30 @@ use super::protocol::{
 use super::types::{ActDelivery, VerifyRequest};
 
 /// The helper's designated requirement, compiled into release builds.
-pub const HELPER_REQUIREMENT: Option<&str> = option_env!("VIBEX_COMPUTER_HELPER_REQUIREMENT");
+pub const HELPER_REQUIREMENT: Option<&str> = option_env!("DIMO_COMPUTER_HELPER_REQUIREMENT");
 
 /// This build's Team ID, compiled into release builds with the requirement:
 /// the helper is launched only as a Developer ID build of this team.
-pub const HELPER_TEAM_ID: Option<&str> = option_env!("VIBEX_COMPUTER_TEAM_ID");
+pub const HELPER_TEAM_ID: Option<&str> = option_env!("DIMO_COMPUTER_TEAM_ID");
 
 /// The helper's signing identifier (its designated requirement names it too):
 /// on macOS, the bundle identifier of the helper app.
-pub const HELPER_SIGNING_ID: &str = "com.vibex.computer-helper";
+pub const HELPER_SIGNING_ID: &str = "com.dimo.computer-helper";
 
-/// The helper's own app inside vibex's on macOS, in `Contents/Helpers/`. macOS
+/// The helper's own app inside dimo's on macOS, in `Contents/Helpers/`. macOS
 /// charges an executable's permissions to the app bundle it sits in, so a
-/// helper beside vibex in `Contents/MacOS/` would hold vibex's — every
+/// helper beside dimo in `Contents/MacOS/` would hold dimo's — every
 /// agent's shell's — and none of its own. In an app of its own it is a
 /// principal of its own for Accessibility; for Screen Recording only once it
-/// is out of vibex's bundle, which is why vibex runs a copy of this app
+/// is out of dimo's bundle, which is why dimo runs a copy of this app
 /// (`helper_app`).
-pub const HELPER_APP: &str = "vibex-computer-helper.app";
+pub const HELPER_APP: &str = "dimo-computer-helper.app";
 
 // A release build pins both or neither: a requirement checked after launch
 // without the launch requirement would let a wrapper run first.
 const _: () = assert!(
     HELPER_REQUIREMENT.is_some() == HELPER_TEAM_ID.is_some(),
-    "VIBEX_COMPUTER_HELPER_REQUIREMENT and VIBEX_COMPUTER_TEAM_ID are set together"
+    "DIMO_COMPUTER_HELPER_REQUIREMENT and DIMO_COMPUTER_TEAM_ID are set together"
 );
 
 /// How long one request may take to go out. A helper that stops reading is
@@ -88,15 +88,15 @@ const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// Why a helper that never said it was ready failed. On macOS a helper
 /// macOS has not seen before can be held at launch by a question of the
 /// system's own — whether it may read from a removable volume, for one, when
-/// vibex lives on another disk — until the person answers it.
+/// dimo lives on another disk — until the person answers it.
 const NOT_STARTED: &str = if cfg!(target_os = "macos") {
     "the helper did not start in time — if macOS is asking about \
-     vibex-computer-helper, answer it and try again"
+     dimo-computer-helper, answer it and try again"
 } else {
     "the helper did not start in time"
 };
 
-/// How long a helper that has been told vibex is done gets to exit on its
+/// How long a helper that has been told dimo is done gets to exit on its
 /// own: it stops its driver first — one still starting once it has started —
 /// within its own bound (`helper::SHUTDOWN_GRACE`, 60 s). Past this it is
 /// stopped by signal.
@@ -125,23 +125,23 @@ const MAX_ASK_OUTPUT: u64 = 256;
 
 pub fn helper_file_name() -> &'static str {
     if cfg!(windows) {
-        "vibex-computer-helper.exe"
+        "dimo-computer-helper.exe"
     } else {
-        "vibex-computer-helper"
+        "dimo-computer-helper"
     }
 }
 
 /// The helper that shipped with the running executable: inside
-/// [`HELPER_APP`] when vibex runs from an app bundle on macOS, next to it
+/// [`HELPER_APP`] when dimo runs from an app bundle on macOS, next to it
 /// otherwise — the install directory, or `target/<profile>/` in development
 /// (the build copies it there). Deliberately no `PATH` lookup: a helper found
 /// somewhere else is not the one that shipped. A debug build also honours
-/// `VIBEX_COMPUTER_HELPER_BIN`, for running a freshly built helper; a release
-/// build ignores it, since the variable can be set for vibex by anything that
+/// `DIMO_COMPUTER_HELPER_BIN`, for running a freshly built helper; a release
+/// build ignores it, since the variable can be set for dimo by anything that
 /// can set a launch environment.
 pub fn locate_helper_binary() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
-        if let Some(raw) = std::env::var_os("VIBEX_COMPUTER_HELPER_BIN") {
+        if let Some(raw) = std::env::var_os("DIMO_COMPUTER_HELPER_BIN") {
             let path = PathBuf::from(raw);
             if path.is_file() {
                 return Some(path);
@@ -153,7 +153,7 @@ pub fn locate_helper_binary() -> Option<PathBuf> {
     candidate.is_file().then_some(candidate)
 }
 
-/// Where the helper of a vibex running as `exe` is, on macOS (`mac`) or
+/// Where the helper of a dimo running as `exe` is, on macOS (`mac`) or
 /// elsewhere.
 fn helper_for(exe: &Path, mac: bool) -> Option<PathBuf> {
     let dir = exe.parent()?;
@@ -177,7 +177,7 @@ fn helper_for(exe: &Path, mac: bool) -> Option<PathBuf> {
 }
 
 /// The helper to start: on macOS, when the shipped helper app sits inside
-/// vibex's bundle, its copy outside it — made or brought up to date first —
+/// dimo's bundle, its copy outside it — made or brought up to date first —
 /// and the shipped helper itself otherwise.
 async fn helper_to_run() -> Result<PathBuf, BackendError> {
     let shipped = locate_helper_binary().ok_or_else(|| {
@@ -254,7 +254,7 @@ fn nested_helper_app(helper: &Path) -> Option<&Path> {
 }
 
 /// What to show in the Finder for adding the helper to System Settings by
-/// hand: the helper app vibex runs, where there is one — the executable
+/// hand: the helper app dimo runs, where there is one — the executable
 /// inside it would be listed by its path, which macOS never asks about — and
 /// the helper itself otherwise.
 pub async fn helper_to_reveal() -> Result<PathBuf, BackendError> {
@@ -336,7 +336,7 @@ impl Connection {
         self.child.stop().await;
     }
 
-    /// End the helper the way vibex quitting does: its input ends, it stops
+    /// End the helper the way dimo quitting does: its input ends, it stops
     /// its driver — one still starting included, once that has started — and
     /// exits. Stopped by signal if it has not within [`HELPER_EXIT_GRACE`].
     async fn shut_down(&self) {
@@ -482,7 +482,7 @@ impl LocalBackend {
     /// Stop the helper, if one is running, and start none until [`open`] —
     /// computer use was switched off. Taken under the same lock a start is
     /// made under, so once this returns no helper runs and none will. The
-    /// helper is let go as when vibex quits, so its driver — even one still
+    /// helper is let go as when dimo quits, so its driver — even one still
     /// starting — is gone with it.
     ///
     /// [`open`]: Self::open
@@ -599,7 +599,7 @@ impl LocalBackend {
     /// may have died after delivering it, and a second send would do it
     /// twice. Actions are sent once (see `act`).
     async fn call<T: serde::de::DeserializeOwned>(&self, op: HelperOp) -> Result<T, BackendError> {
-        // A read is held to the Stops counted as it goes out; vibex withholds
+        // A read is held to the Stops counted as it goes out; dimo withholds
         // one that a later Stop overtakes anyway.
         let stop = self.stopped.load(Ordering::Acquire);
         let connection = self.connection().await?;
@@ -706,7 +706,7 @@ impl ComputerBackend for LocalBackend {
         let stopped = || {
             BackendError::Refused(
                 ActRefusal::Stopped,
-                "The user pressed Stop in vibex's Computer use panel.".into(),
+                "The user pressed Stop in dimo's Computer use panel.".into(),
             )
         };
         // As an action: checked before a helper is started for it and again
@@ -810,11 +810,11 @@ impl ComputerBackend for LocalBackend {
         let stopped = || {
             BackendError::Refused(
                 ActRefusal::Stopped,
-                "The user pressed Stop in vibex's Computer use panel.".into(),
+                "The user pressed Stop in dimo's Computer use panel.".into(),
             )
         };
         // Before a helper is started for it, and again with the helper in
-        // hand, as late as vibex can: a Stop that came while one was being
+        // hand, as late as dimo can: a Stop that came while one was being
         // started stops this action too. The helper holds it to the same
         // count, for a Stop that overtakes it on the way there.
         if self.stopped.load(Ordering::Acquire) > stop {
@@ -865,7 +865,7 @@ impl ComputerBackend for LocalBackend {
         let stopped = || {
             BackendError::Refused(
                 ActRefusal::Stopped,
-                "The user pressed Stop in vibex's Computer use panel.".into(),
+                "The user pressed Stop in dimo's Computer use panel.".into(),
             )
         };
         // As an action on a window: checked before a helper is started for
@@ -911,7 +911,7 @@ impl ComputerBackend for LocalBackend {
         let stopped = || {
             BackendError::Refused(
                 ActRefusal::Stopped,
-                "The user pressed Stop in vibex's Computer use panel.".into(),
+                "The user pressed Stop in dimo's Computer use panel.".into(),
             )
         };
         // As an action: the person's clipboard is changed by it, once.
@@ -1002,7 +1002,7 @@ async fn launch(path: &std::path::Path) -> Result<Arc<Connection>, BackendError>
         return Err(abandon(
             child,
             &format!(
-                "the helper speaks protocol {}, this vibex {PROTOCOL_VERSION} — reinstall vibex",
+                "the helper speaks protocol {}, this dimo {PROTOCOL_VERSION} — reinstall dimo",
                 ready.protocol
             ),
         )
@@ -1066,17 +1066,17 @@ async fn launch(path: &std::path::Path) -> Result<Arc<Connection>, BackendError>
     }))
 }
 
-/// Why a development vibex will not use a helper built from other sources
+/// Why a development dimo will not use a helper built from other sources
 /// than its own — which is what `pnpm tauri dev` leaves running after an edit:
 /// it builds the helper once, as it starts (never, under
-/// `VIBEX_SKIP_SIDECAR=1`), and only vibex after that, and a stale helper
+/// `DIMO_SKIP_SIDECAR=1`), and only dimo after that, and a stale helper
 /// answers with code that is no longer there. The words name the step that
-/// rebuilds it. A release vibex ships with its own helper and does not ask.
+/// rebuilds it. A release dimo ships with its own helper and does not ask.
 fn stale_development_helper(source: Option<&str>) -> Option<&'static str> {
     (cfg!(debug_assertions) && source != Some(SOURCE_FINGERPRINT)).then_some(
         "this development build's helper was built from other sources — run \
          `pnpm tauri:prepare-sidecars` (which `pnpm tauri dev` skips under \
-         VIBEX_SKIP_SIDECAR=1), then restart `pnpm tauri dev`",
+         DIMO_SKIP_SIDECAR=1), then restart `pnpm tauri dev`",
     )
 }
 
@@ -1086,7 +1086,7 @@ async fn abandon(child: HelperChild, why: &str) -> BackendError {
     BackendError::Unavailable(why.to_string())
 }
 
-/// The socket descriptor vibex keeps, for asking the kernel who is on the
+/// The socket descriptor dimo keeps, for asking the kernel who is on the
 /// other end. `None` off macOS.
 type PeerFd = Option<i32>;
 
@@ -1289,19 +1289,19 @@ fn check_helper(peer_fd: PeerFd, peer: PeerCheck) -> Result<Option<VerifiedPeer>
         tracing::warn!("[computer] development build: not checking the helper's signature");
         return Ok(None);
     };
-    // A release vibex only ever launches a release helper, which checks
-    // vibex in turn; one that did not is not the helper that shipped.
+    // A release dimo only ever launches a release helper, which checks
+    // dimo in turn; one that did not is not the helper that shipped.
     if peer != PeerCheck::Verified {
         return Err(
-            "the helper did not check vibex's signature; it is not the release helper".into(),
+            "the helper did not check dimo's signature; it is not the release helper".into(),
         );
     }
     let fd = peer_fd.ok_or("no socket to check")?;
     let token = peer_audit_token(fd).map_err(|e| format!("no peer token for the helper: {e}"))?;
     let info = check_guest(Guest::Audit(token), requirement)
-        .map_err(|e| format!("the helper is not vibex's: {e}"))?;
+        .map_err(|e| format!("the helper is not dimo's: {e}"))?;
     info.entitlements_clean()
-        .map_err(|e| format!("the helper is not one vibex trusts: {e}"))?;
+        .map_err(|e| format!("the helper is not one dimo trusts: {e}"))?;
     Ok(Some(VerifiedPeer { fd, token }))
 }
 
@@ -1310,7 +1310,7 @@ fn check_helper(_peer_fd: PeerFd, _peer: PeerCheck) -> Result<Option<VerifiedPee
     Ok(None)
 }
 
-/// The helper's stderr (and, through it, the driver's) into vibex's log.
+/// The helper's stderr (and, through it, the driver's) into dimo's log.
 async fn forward_stderr(stderr: Box<dyn AsyncRead + Send + Unpin>) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -1322,7 +1322,7 @@ async fn forward_stderr(stderr: Box<dyn AsyncRead + Send + Unpin>) {
 mod tests {
     use super::*;
 
-    /// The whole vibex side against a real helper and the real pinned
+    /// The whole dimo side against a real helper and the real pinned
     /// driver: launch disclaimed over a socketpair, the first-frame
     /// handshake, `Configure`, and reads that do and do not need a TCC
     /// permission. Ignored by default because it needs both binaries on disk,
@@ -1330,16 +1330,16 @@ mod tests {
     /// one blocks in dyld on a "removable volume" consent prompt):
     ///
     /// ```text
-    /// VIBEX_TEST_HELPER=/tmp/vibex-computer-helper \
-    /// VIBEX_TEST_DRIVER=/tmp/cua-driver \
+    /// DIMO_TEST_HELPER=/tmp/dimo-computer-helper \
+    /// DIMO_TEST_DRIVER=/tmp/cua-driver \
     ///   cargo test --features test-utils --lib computer::local -- --ignored
     /// ```
     #[cfg(target_os = "macos")]
     #[tokio::test]
     #[ignore = "needs a built helper and the pinned cua-driver on an internal volume"]
-    async fn vibex_drives_a_real_helper_and_driver() {
-        let helper = std::env::var("VIBEX_TEST_HELPER").expect("VIBEX_TEST_HELPER");
-        let driver_file = std::env::var("VIBEX_TEST_DRIVER").expect("VIBEX_TEST_DRIVER");
+    async fn dimo_drives_a_real_helper_and_driver() {
+        let helper = std::env::var("DIMO_TEST_HELPER").expect("DIMO_TEST_HELPER");
+        let driver_file = std::env::var("DIMO_TEST_DRIVER").expect("DIMO_TEST_DRIVER");
         let home = tempfile::tempdir().unwrap();
         // Pre-seed the binary cache so `ensure_driver` finds it without a
         // download.
@@ -1366,10 +1366,10 @@ mod tests {
         temp_env::async_with_vars(
             [
                 (
-                    "VIBEX_HOME",
+                    "DIMO_HOME",
                     Some(home.path().to_string_lossy().to_string()),
                 ),
-                ("VIBEX_COMPUTER_HELPER_BIN", Some(helper.clone())),
+                ("DIMO_COMPUTER_HELPER_BIN", Some(helper.clone())),
             ],
             async {
                 let report = backend.permissions().await.expect("the helper answers");
@@ -1406,11 +1406,11 @@ mod tests {
         ));
     }
 
-    /// A development vibex (every test build is one) takes only a helper built
+    /// A development dimo (every test build is one) takes only a helper built
     /// from its own sources: not one from other sources, nor one too old to
     /// say.
     #[test]
-    fn a_development_vibex_refuses_a_stale_helper() {
+    fn a_development_dimo_refuses_a_stale_helper() {
         assert_eq!(stale_development_helper(Some(SOURCE_FINGERPRINT)), None);
         assert!(stale_development_helper(Some("0000000000000000")).is_some());
         assert!(stale_development_helper(None)
@@ -1450,7 +1450,7 @@ mod tests {
                 .unwrap_err(),
             BackendError::Refused(
                 ActRefusal::Stopped,
-                "The user pressed Stop in vibex's Computer use panel.".into()
+                "The user pressed Stop in dimo's Computer use panel.".into()
             )
         );
         // Nothing was started for the refused action.
@@ -1480,19 +1480,19 @@ mod tests {
         assert_eq!(backend.stopped.load(Ordering::Acquire), 1);
     }
 
-    /// A debug build takes the helper from `VIBEX_COMPUTER_HELPER_BIN` when
+    /// A debug build takes the helper from `DIMO_COMPUTER_HELPER_BIN` when
     /// it names a file, and otherwise looks only beside the executable.
     #[test]
-    fn the_helper_is_looked_for_beside_vibex() {
-        assert!(helper_file_name().starts_with("vibex-computer-helper"));
+    fn the_helper_is_looked_for_beside_dimo() {
+        assert!(helper_file_name().starts_with("dimo-computer-helper"));
         let dir = tempfile::tempdir().unwrap();
         let fake = dir.path().join(helper_file_name());
         std::fs::write(&fake, b"").unwrap();
-        temp_env::with_var("VIBEX_COMPUTER_HELPER_BIN", Some(&fake), || {
+        temp_env::with_var("DIMO_COMPUTER_HELPER_BIN", Some(&fake), || {
             assert_eq!(locate_helper_binary().as_deref(), Some(fake.as_path()));
         });
         temp_env::with_var(
-            "VIBEX_COMPUTER_HELPER_BIN",
+            "DIMO_COMPUTER_HELPER_BIN",
             Some(dir.path().join("absent")),
             || {
                 let found = locate_helper_binary();
@@ -1503,28 +1503,28 @@ mod tests {
         );
     }
 
-    /// On macOS a vibex in an app bundle runs the helper inside the helper
+    /// On macOS a dimo in an app bundle runs the helper inside the helper
     /// app, never one beside it in `Contents/MacOS/`; anywhere else the
-    /// helper is beside vibex.
+    /// helper is beside dimo.
     #[test]
-    fn a_bundled_vibex_on_macos_runs_the_helper_app() {
+    fn a_bundled_dimo_on_macos_runs_the_helper_app() {
         let name = helper_file_name();
-        let bundled = Path::new("/Applications/vibex.app/Contents/MacOS/vibex");
+        let bundled = Path::new("/Applications/dimo.app/Contents/MacOS/dimo");
         assert_eq!(
             helper_for(bundled, true).unwrap(),
-            Path::new("/Applications/vibex.app/Contents/Helpers")
+            Path::new("/Applications/dimo.app/Contents/Helpers")
                 .join(HELPER_APP)
                 .join("Contents/MacOS")
                 .join(name)
         );
         assert_eq!(
             helper_for(bundled, false).unwrap(),
-            Path::new("/Applications/vibex.app/Contents/MacOS").join(name)
+            Path::new("/Applications/dimo.app/Contents/MacOS").join(name)
         );
         for unbundled in [
-            "/src/vibex/src-tauri/target/debug/vibex",
-            "/tmp/MacOS/vibex",
-            "/tmp/vibex.bundle/Contents/MacOS/vibex",
+            "/src/dimo/src-tauri/target/debug/dimo",
+            "/tmp/MacOS/dimo",
+            "/tmp/dimo.bundle/Contents/MacOS/dimo",
         ] {
             let exe = Path::new(unbundled);
             assert_eq!(
@@ -1540,35 +1540,35 @@ mod tests {
     #[test]
     fn the_helper_app_is_what_is_revealed() {
         let copy =
-            Path::new("/Users/u/Library/Application Support/com.vibex.desktop/computer-helper")
+            Path::new("/Users/u/Library/Application Support/com.dimo.desktop/computer-helper")
                 .join(HELPER_APP);
         assert_eq!(
             app_of(copy.join("Contents/MacOS").join(helper_file_name())),
             copy
         );
-        let bare = Path::new("/src/vibex/src-tauri/target/debug").join(helper_file_name());
+        let bare = Path::new("/src/dimo/src-tauri/target/debug").join(helper_file_name());
         assert_eq!(app_of(bare.clone()), bare);
     }
 
-    /// The helper app shipped inside vibex's bundle is run from a copy —
-    /// inside it macOS charges Screen Recording to vibex — and a helper in no
+    /// The helper app shipped inside dimo's bundle is run from a copy —
+    /// inside it macOS charges Screen Recording to dimo — and a helper in no
     /// app, or in an app of its own, from where it is.
     #[test]
     fn only_a_helper_app_inside_another_is_copied_to_run() {
         let name = helper_file_name();
-        let shipped = Path::new("/Applications/vibex.app/Contents/Helpers").join(HELPER_APP);
+        let shipped = Path::new("/Applications/dimo.app/Contents/Helpers").join(HELPER_APP);
         assert_eq!(
             nested_helper_app(&shipped.join("Contents/MacOS").join(name)),
             Some(shipped.as_path())
         );
         for alone in [
-            Path::new("/src/vibex/src-tauri/target/debug").join(name),
-            Path::new("/Applications/vibex.app/Contents/MacOS").join(name),
-            Path::new("/Users/u/Library/Application Support/com.vibex.desktop/computer-helper")
+            Path::new("/src/dimo/src-tauri/target/debug").join(name),
+            Path::new("/Applications/dimo.app/Contents/MacOS").join(name),
+            Path::new("/Users/u/Library/Application Support/com.dimo.desktop/computer-helper")
                 .join(HELPER_APP)
                 .join("Contents/MacOS")
                 .join(name),
-            Path::new("/Applications/vibex.app/Contents/Helpers/other.app/Contents/MacOS")
+            Path::new("/Applications/dimo.app/Contents/Helpers/other.app/Contents/MacOS")
                 .join(name),
             shipped.join("Contents/Resources").join(name),
         ] {
@@ -1582,12 +1582,12 @@ mod tests {
     fn the_copy_runs_only_in_an_app_of_its_own() {
         let exe = |app: &Path| app.join("Contents/MacOS").join(helper_file_name());
         let home =
-            Path::new("/Users/u/Library/Application Support/com.vibex.desktop/computer-helper");
+            Path::new("/Users/u/Library/Application Support/com.dimo.desktop/computer-helper");
         assert!(alone_in_its_app(&exe(&home.join(HELPER_APP))));
         for wrong in [
-            exe(&Path::new("/Applications/vibex.app/Contents/Helpers").join(HELPER_APP)),
+            exe(&Path::new("/Applications/dimo.app/Contents/Helpers").join(HELPER_APP)),
             exe(Path::new(
-                "/Applications/vibex.app/Contents/Helpers/other.app",
+                "/Applications/dimo.app/Contents/Helpers/other.app",
             )),
             home.join(helper_file_name()),
         ] {
@@ -1598,13 +1598,13 @@ mod tests {
     /// The helper app is put together from files the compiler never sees —
     /// the Info.plist the sidecar step fills in, the bundle configuration
     /// that carries the app, the binary target's feature gate — and they
-    /// must agree with what vibex looks for and launches.
+    /// must agree with what dimo looks for and launches.
     #[test]
     #[cfg(feature = "tauri-runtime")]
-    fn the_helper_ships_as_vibex_looks_for_it() {
+    fn the_helper_ships_as_dimo_looks_for_it() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let plist =
-            std::fs::read_to_string(root.join("macos/vibex-computer-helper.plist")).unwrap();
+            std::fs::read_to_string(root.join("macos/dimo-computer-helper.plist")).unwrap();
         let value = |key: &str| -> Option<String> {
             let rest = plist
                 .split(&format!("<key>{key}</key>"))
@@ -1626,12 +1626,12 @@ mod tests {
         );
         assert_eq!(
             value("CFBundleExecutable").as_deref(),
-            Some("vibex-computer-helper")
+            Some("dimo-computer-helper")
         );
         // The name System Settings lists it by, as the settings page names it.
         assert_eq!(
             value("CFBundleName").as_deref(),
-            Some("vibex-computer-helper")
+            Some("dimo-computer-helper")
         );
         assert_eq!(value("CFBundlePackageType").as_deref(), Some("APPL"));
         // No Dock icon for a process that never shows a window.
@@ -1651,13 +1651,13 @@ mod tests {
         let mac = config("tauri.macos.conf.json");
         assert!(sidecars(&mac)
             .iter()
-            .all(|b| !b.contains("vibex-computer-helper")));
+            .all(|b| !b.contains("dimo-computer-helper")));
         assert_eq!(
             mac["bundle"]["macOS"]["files"][format!("Helpers/{HELPER_APP}")].as_str(),
             Some(format!("binaries/{HELPER_APP}").as_str())
         );
         let base = config("tauri.conf.json");
-        assert!(sidecars(&base).contains(&"binaries/vibex-computer-helper".to_string()));
+        assert!(sidecars(&base).contains(&"binaries/dimo-computer-helper".to_string()));
 
         // The copy `tauri build` would compile stays out of every bundle: the
         // CLI bundles a binary target only when its features are among those
@@ -1670,7 +1670,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|b| b["name"].as_str() == Some("vibex-computer-helper"))
+            .find(|b| b["name"].as_str() == Some("dimo-computer-helper"))
             .unwrap();
         assert_eq!(
             helper_bin["required-features"].as_array().unwrap(),

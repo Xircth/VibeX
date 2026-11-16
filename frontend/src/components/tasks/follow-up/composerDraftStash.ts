@@ -1,7 +1,7 @@
 import { getSessionComposerStructuredTokenSegments } from './sessionComposerStructuredTokens';
 
 export const MAX_COMPOSER_STASH_ITEMS = 10;
-export const COMPOSER_STASH_STORAGE_PREFIX = 'vibex:composer-draft-stash:';
+export const COMPOSER_STASH_STORAGE_PREFIX = 'dimo:composer-draft-stash:';
 
 export type ComposerStashedDraft = {
   id: string;

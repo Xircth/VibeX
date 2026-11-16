@@ -274,7 +274,7 @@ impl HostClientRuntime {
             .post(format!("{origin}/api/v1/call/apply_host_upgrade"))
             .bearer_auth(token)
             .header(
-                "x-vibex-protocol-version",
+                "x-dimo-protocol-version",
                 remote_protocol::PROTOCOL_VERSION,
             )
             .json(&serde_json::json!({
@@ -1004,7 +1004,7 @@ fn format_ssh_host_config(
     jump: Option<&str>,
 ) -> String {
     let mut body = format!(
-        "# VibeX Host: {name}\nHost {alias}\n  HostName {host}\n  User {user}\n  Port {port}\n"
+        "# Dimo Host: {name}\nHost {alias}\n  HostName {host}\n  User {user}\n  Port {port}\n"
     );
     if let Some(jump) = jump.map(str::trim).filter(|value| !value.is_empty()) {
         body.push_str("  ProxyJump ");
@@ -1271,7 +1271,7 @@ async fn obtain_device_credential(
 
 fn pairing_token_from_input(token: &str) -> String {
     let trimmed = token.trim();
-    let extracted = if let Some(payload) = trimmed.strip_prefix("vibex-pairing:")
+    let extracted = if let Some(payload) = trimmed.strip_prefix("dimo-pairing:")
         && let Ok(value) = serde_json::from_str::<serde_json::Value>(payload)
         && let Some(code) = value.get("pairing_token").and_then(|item| item.as_str())
     {
@@ -1291,7 +1291,7 @@ async fn redeem(
     let response = client
         .post(format!("{origin}/api/v1/auth/pairings/redeem"))
         .header(
-            "x-vibex-protocol-version",
+            "x-dimo-protocol-version",
             remote_protocol::PROTOCOL_VERSION,
         )
         .json(&RedeemPairingRequest {
@@ -1334,7 +1334,7 @@ async fn fetch_capabilities(
         .get(format!("{origin}/api/v1/capabilities"))
         .bearer_auth(token)
         .header(
-            "x-vibex-protocol-version",
+            "x-dimo-protocol-version",
             remote_protocol::PROTOCOL_VERSION,
         )
         .send()
@@ -1368,7 +1368,7 @@ async fn revoke_remote_device(
         .delete(format!("{origin}/api/v1/auth/devices/{device_id}"))
         .bearer_auth(token)
         .header(
-            "x-vibex-protocol-version",
+            "x-dimo-protocol-version",
             remote_protocol::PROTOCOL_VERSION,
         )
         .send()
@@ -1382,22 +1382,22 @@ async fn revoke_remote_device(
 
 fn local_device_name() -> String {
     utils::net::local_hostname()
-        .map(|name| format!("VibeX ({name})"))
-        .unwrap_or_else(|| "VibeX Workstation".to_string())
+        .map(|name| format!("Dimo ({name})"))
+        .unwrap_or_else(|| "Dimo Workstation".to_string())
         .chars()
         .take(128)
         .collect()
 }
 
 async fn fetch_latest_host_version(client: &reqwest::Client) -> Option<String> {
-    let repository = std::env::var("VIBEX_UPDATE_REPOSITORY")
+    let repository = std::env::var("DIMO_UPDATE_REPOSITORY")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "Xircth/VibeX".to_string());
+        .unwrap_or_else(|| "DimoADE/Dimo".to_string());
     let url = format!("https://api.github.com/repos/{repository}/releases/latest");
     let response = client
         .get(url)
-        .header(reqwest::header::USER_AGENT, "VibeX")
+        .header(reqwest::header::USER_AGENT, "Dimo")
         .send()
         .await
         .ok()?;
@@ -1486,7 +1486,7 @@ mod tests {
         assert_eq!(ssh_host_alias("Root @ Lab"), "root-lab");
         assert_eq!(
             format_ssh_host_config("Lab", "lab", "203.0.113.8", "root", 22, Some("bastion")),
-            "# VibeX Host: Lab\nHost lab\n  HostName 203.0.113.8\n  User root\n  Port 22\n  ProxyJump bastion\n"
+            "# Dimo Host: Lab\nHost lab\n  HostName 203.0.113.8\n  User root\n  Port 22\n  ProxyJump bastion\n"
         );
     }
 
@@ -1577,7 +1577,7 @@ mod tests {
     #[test]
     fn pairing_input_accepts_invitation_payloads() {
         assert_eq!(
-            pairing_token_from_input(r#"vibex-pairing:{"pairing_token":"K7M2NPQX","host_id":"h"}"#),
+            pairing_token_from_input(r#"dimo-pairing:{"pairing_token":"K7M2NPQX","host_id":"h"}"#),
             "K7M2NPQX"
         );
         assert_eq!(pairing_token_from_input(" K7M2NPQX "), "K7M2NPQX");
@@ -1887,7 +1887,7 @@ mod tests {
                             "requested_scopes": ["conversation.read"],
                             "preset": "workstation",
                             "reachability": [],
-                            "invitation": "vibex-pairing:{}",
+                            "invitation": "dimo-pairing:{}",
                             "connection_code": "K7M2NPQX"
                         })),
                     )

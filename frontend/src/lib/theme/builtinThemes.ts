@@ -1,4 +1,4 @@
-import type { ThemeDefinition, ThemeScheme } from '@vibex/plugin-sdk';
+import type { ThemeDefinition, ThemeScheme } from '@dimoai/plugin-sdk';
 
 /**
  * The stock palettes, role for role. `styles/legacy/index.css` paints these
@@ -8,7 +8,7 @@ import type { ThemeDefinition, ThemeScheme } from '@vibex/plugin-sdk';
 export const BUILTIN_THEMES: Readonly<Record<ThemeScheme, ThemeDefinition>> = {
   light: {
     id: 'light',
-    label: 'VibeX',
+    label: 'Dimo',
     scheme: 'light',
     colors: {
       background: '#ffffff',
@@ -46,7 +46,7 @@ export const BUILTIN_THEMES: Readonly<Record<ThemeScheme, ThemeDefinition>> = {
   },
   dark: {
     id: 'dark',
-    label: 'VibeX',
+    label: 'Dimo',
     scheme: 'dark',
     colors: {
       background: '#1b1b1b',

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { usePluginService, useRegistry } from '@vibex/plugin-sdk';
+import { usePluginService, useRegistry } from '@dimoai/plugin-sdk';
 
 import { agentManagementErrorMessage as errorMessage } from '@/features/agent-management';
 import {
@@ -25,7 +25,7 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
   const catalogItems = usePluginHostContributions();
   const runtimeCatalogSources = useRegistry(runtimeModelCatalogRegistry);
   const injectedCatalogService = usePluginService<ModelCatalogProviderService>(
-    'vibex.model-catalog'
+    'dimo.model-catalog'
   );
   const contributions = useMemo(
     () =>

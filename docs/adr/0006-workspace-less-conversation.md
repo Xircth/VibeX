@@ -39,7 +39,7 @@
 ## Decision B — agent 工作目录/沙箱：专用 per-conversation 临时目录（否决 $HOME）
 
 **采纳：无工作区会话的 agent 文件/终端工具根目录指向专用临时目录
-`~/.vibex/scratch/<conversation_id>/`，而非 $HOME、也非"无目录"。**
+`~/.dimo/scratch/<conversation_id>/`，而非 $HOME、也非"无目录"。**
 
 - 纯聊天的 agent **仍持有文件/终端工具**。把 `working_dir` 指向 $HOME 会把整个家目录暴露给一个
   用户只想"聊聊"而打开的 agent——这是真实的安全回退，不是观感问题，**否决**。
@@ -54,7 +54,7 @@
 
 1. 先落 schema：nullable 迁移 + 两模型 Option 化 + 受影响查询 + `.sqlx`/`generate-types`。
 2. 后端 turn 分支：`start_turn` 增加无工作区路径——跳过 `ensure_container_exists`/仓库校验，
-   `working_dir` 取 `~/.vibex/scratch/<conversation_id>/`（首用即建）；放宽/绕过 empty-repo 硬报错。
+   `working_dir` 取 `~/.dimo/scratch/<conversation_id>/`（首用即建）；放宽/绕过 empty-repo 硬报错。
 3. 列表可见性：`list_for_workspace` 等按 workspace 归属的列表对 NULL-workspace 会话不可见，需新增
    一个承载面（否则新建的纯聊天会话在任何现有列表里都看不到）。
 4. 前端最后：新增非项目路由 + 去 git 面板的布局 + 欢迎页入口 + 列表面。

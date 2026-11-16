@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VibeX public tunnel server. Stdlib only. Python 3.6+.
+# Dimo public tunnel server. Stdlib only. Python 3.6+.
 from __future__ import print_function
 
 import argparse
@@ -166,14 +166,14 @@ def recv_prefix(sock):
 def handle_client(sock, token):
     try:
         prefix = recv_prefix(sock)
-        if prefix.startswith(b"VIBEX-CTRL ") or prefix.startswith(b"VIBEX-DATA "):
+        if prefix.startswith(b"DIMO-CTRL ") or prefix.startswith(b"DIMO-DATA ") or prefix.startswith(b"VIBEX-CTRL ") or prefix.startswith(b"VIBEX-DATA "):
             line, extra = prefix.split(b"\n", 1) if b"\n" in prefix else (prefix, b"")
             text = line.decode("ascii", "replace").strip()
             parts = text.split(" ")
-            if parts[0] == "VIBEX-CTRL" and len(parts) == 2 and parts[1] == token:
+            if parts[0] in ("DIMO-CTRL", "VIBEX-CTRL") and len(parts) == 2 and parts[1] == token:
                 register_control(sock)
                 return
-            if parts[0] == "VIBEX-DATA" and len(parts) == 3 and parts[1] == token:
+            if parts[0] in ("DIMO-DATA", "VIBEX-DATA") and len(parts) == 3 and parts[1] == token:
                 attach_data(parts[2], sock, extra)
                 return
             close_quietly(sock)
@@ -193,7 +193,7 @@ def serve(bind, port, token):
         sys.exit(1)
     server.listen(128)
     write_host_status("waiting")
-    log("VibeX tunnel listening on %s:%s" % (bind, port))
+    log("Dimo tunnel listening on %s:%s" % (bind, port))
     while True:
         sock, _addr = server.accept()
         prepare_sock(sock)

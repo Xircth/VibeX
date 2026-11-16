@@ -615,14 +615,14 @@ export const skillsApi = {
 
 // --- Local skills view + skills.sh marketplace + global hosting ---
 
-/** A skill scanned across agent dirs + ~/.agents/skills + ~/.vibex/skills. */
+/** A skill scanned across agent dirs + ~/.agents/skills + ~/.dimo/skills. */
 export interface LocalSkill {
   id: string;
   name: string;
   description: string | null;
   /** Prefix group (text before the first '-'). */
   group: string;
-  /** Recorded in the global store (~/.vibex/skills). */
+  /** Recorded in the global store (~/.dimo/skills). */
   global: boolean;
   /** Agent keys (snake_case) whose dirs carry this skill. */
   apps: string[];

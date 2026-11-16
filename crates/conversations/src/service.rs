@@ -361,7 +361,7 @@ pub struct ConversationStartTurnInput {
     pub workflow_refs: Vec<ConversationWorkflowRef>,
     pub file_refs: Vec<agents::ConversationFileRef>,
     /// Implicit plugin prompt contributions injected into the Agent prompt under
-    /// `<vibex-plugin-context>` while hidden from the user-facing timeline.
+    /// `<dimo-plugin-context>` while hidden from the user-facing timeline.
     pub internal_prompt_contributions: Vec<agents::InternalPromptBlock>,
     /// Present only when this turn was claimed from the durable input queue.
     /// InputDispatched(input -> turn) is persisted before any Agent prompt send.

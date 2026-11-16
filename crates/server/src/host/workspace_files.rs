@@ -204,7 +204,7 @@ const VISIBLE_DOT_NAMES: &[&str] = &[
     ".agents",
     ".cursor",
     ".codex",
-    ".vibex-plugin",
+    ".dimo-plugin",
     ".gitignore",
     ".gitattributes",
     ".editorconfig",

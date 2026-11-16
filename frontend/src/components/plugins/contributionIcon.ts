@@ -46,7 +46,7 @@ import {
 /**
  * The only glyphs a plugin can put in Host chrome. Plugins name an icon rather
  * than shipping markup, so nothing a plugin authors reaches Host DOM.
- * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
+ * Mirrored by `@dimo/plugin-contract/catalog/icons` and the Rust
  * `CONTRIBUTION_ICONS`; a test asserts the three stay equal.
  */
 export const CONTRIBUTION_ICONS: Record<string, LucideIcon> = {

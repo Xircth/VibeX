@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-11-06
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # iOS Mobile Companion 采用原生 Swift 与 SwiftUI
@@ -15,7 +15,7 @@ Android 交付门槛不变。
 
 ## Consequences
 
-- 工程位于 git submodule `mobile/ios`（[Xircth/vibex-remote-ios](https://github.com/Xircth/vibex-remote-ios)）：
+- 工程位于 git submodule `mobile/ios`（[DimoADE/Dimo-remote-ios](https://github.com/DimoADE/Dimo-remote-ios)）：
   `CompanionCore` Swift Package 承载配对与协议客户端，可用 `swift test` 验证；App 壳层使用
   SwiftUI，依赖 `CompanionCore`。
 - 协议模型唯一来源是 `docs/protocol/v1/generated/swift/RemoteProtocolModels.swift`，

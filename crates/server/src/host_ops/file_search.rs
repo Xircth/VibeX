@@ -307,7 +307,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("vibex-host-search-{prefix}-{unique}"));
+        let path = std::env::temp_dir().join(format!("dimo-host-search-{prefix}-{unique}"));
         fs::create_dir_all(&path).unwrap();
         path
     }

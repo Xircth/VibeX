@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-09-17
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 会话建立在连接时完成，Prompt 永不创建 ACP 会话（Codeg 对等）
@@ -22,17 +22,17 @@ UI transcript 以 JSONL / vendor 文件为权威，见
 
 ## Overview
 
-VibeX 今天把 ACP 会话握手（`session/new` / `session/resume`）放进第一条用户
+Dimo 今天把 ACP 会话握手（`session/new` / `session/resume`）放进第一条用户
 消息的 `start_turn`。Codeg 把握手放在 **connect**：进程 spawn → `initialize`
 （60s）→ 无 `sessionId` 则 `session/new`，有则 **resume → load → new**；此后
-每条用户消息只发 `session/prompt`。结果是 VibeX 的首条消息与 Prepare 竞态、
+每条用户消息只发 `session/prompt`。结果是 Dimo 的首条消息与 Prepare 竞态、
 历史重开可能冷启动出新线程、发送按钮在会话未绑定时仍可点。
 
-本决定把 Codeg 的建立链搬进 VibeX 现有三层：Agent Runtime 在连接启动时绑定
+本决定把 Codeg 的建立链搬进 Dimo 现有三层：Agent Runtime 在连接启动时绑定
 ACP 会话；Conversation 控制面在 **所有写入口**（桌面、Remote、CLI、Automation、
 Workflow）于 Prompt 之前完成 connect；`start_turn` 只负责持久输入与
 `session/prompt`；前端在打开标签时自动 connect，并在 `SessionBindReady`
-之前禁用发送。VibeX 的 `initialize` 60s 超时已经存在
+之前禁用发送。Dimo 的 `initialize` 60s 超时已经存在
 （`DEFAULT_HANDSHAKE_TIMEOUT_SECS`，`crates/agents/src/manager.rs` 199 行），
 缺口是 initialize **之后**的会话绑定，不是握手超时本身。
 
@@ -40,7 +40,7 @@ Workflow）于 Prompt 之前完成 connect；`start_turn` 只负责持久输入�
 
 Codeg 的产品合同是：打开对话标签即建立 Agent 会话；输入框在会话初始化完成前
 不可发送；历史对话必须带着已持久化的 `external_id` 去 resume/load，否则会
-`session/new` 并把旧线程孤儿化。VibeX 已经禁止 Prompt 调用 `session/new`
+`session/new` 并把旧线程孤儿化。Dimo 已经禁止 Prompt 调用 `session/new`
 （`crates/agents/src/manager.rs` 在 `session_map` 未命中时失败），但握手仍
 挂在 Turn 上，因此这条禁令只把竞态从「静默分叉」变成「第一条消息失败」。
 
@@ -48,7 +48,7 @@ Codeg 的产品合同是：打开对话标签即建立 Agent 会话；输入框�
 
 ## 现状问题
 
-对照 live Codeg 与当前 VibeX（0.2.x 主线，含 ADR-0071 已落地的 Prompt 禁令）
+对照 live Codeg 与当前 Dimo（0.2.x 主线，含 ADR-0071 已落地的 Prompt 禁令）
 的缺陷如下。每条都有源码证据。
 
 ### 1. 握手发生在第一条 Turn，而不是 connect
@@ -61,7 +61,7 @@ Codeg：`acp_connect` → `ConnectionManager::spawn_agent` →
 `ConnectionCommand::Prompt`（`codeg/src-tauri/src/commands/acp.rs`
 `acp_prompt` / `ConnectionManager::send_prompt_inner`）。
 
-VibeX：`ConversationSessionService::send_turn_to_agent`
+Dimo：`ConversationSessionService::send_turn_to_agent`
 （`crates/conversations/src/service.rs` 约 3227–3538 行）在**已经
 commit 了 Turn** 之后，按是否已有真实 ACP id 调用
 `resume_session` 或 `prepare_session`，然后再 `send_prompt`。
@@ -90,7 +90,7 @@ Agent Runtime 已经拒绝未绑定的 Prompt：
                             // already owns a thread; the host binds it with
                             // PrepareSession (first turn) or ResumeSession
                             // (follow-up). Creating a thread here forks Codex
-                            // into a new session B while VibeX keeps writing A.
+                            // into a new session B while Dimo keeps writing A.
                             let acp_session_id = match runner
                                 .session_map
                                 .read()
@@ -119,7 +119,7 @@ Agent Runtime 已经拒绝未绑定的 Prompt：
 
 ### 3. 恢复链不完整：resume → load 之后没有 Codeg 的 new / `continues_from`
 
-VibeX `load_or_new_acp_session`（`crates/agents/src/manager.rs` 约 2550–2698 行）：
+Dimo `load_or_new_acp_session`（`crates/agents/src/manager.rs` 约 2550–2698 行）：
 
 - 若 `support.resume`：发 `session/resume`；成功则返回 `Resumed`。
 - resume 失败且 `support.load`：发 `session/load`；成功则返回 `Loaded`。
@@ -146,7 +146,7 @@ Codeg（`connection.rs` 5505–5971 行）是：
      **`session_busy` 对任何 Agent 都不恢复**。
    - 完整决策表见 D3。
 
-VibeX 已有 ADR-0074 合法的码位分类：`classify_session_load_error`
+Dimo 已有 ADR-0074 合法的码位分类：`classify_session_load_error`
 把 `-32000` → `AuthenticationRequired`、`-32002` → `ResourceNotFound`
 （`manager.rs` 485–496）。没有 `continues_from`（全仓库零命中）。
 load 失败发生在第一条 Turn 里，而不是连接级横幅。
@@ -166,7 +166,7 @@ Codeg：
 - `selectorsLoading = (connected|prompting) && !selectorsReady`；
   composer 在 `selectorsLoading` / `!connectionReady` 时禁用发送。
 
-VibeX：
+Dimo：
 
 - 发送走 `conversationApi.submitInput` → 控制面持久化 → `start_turn`
   内部握手（`useFollowUpSend.ts` / `useSessionComposerQueue.ts`）。
@@ -192,7 +192,7 @@ Codeg `spawn_agent`（`manager.rs` 675–791 行）：
 - `sweep_idle`：Connected、无 pending permission、无后台任务、超过
   180s 无活动则断开（`idle_sweep.rs`）；前端对打开标签 keepalive。
 
-VibeX：
+Dimo：
 
 - `ensure_session` 按 Conversation UUID 锁；ADR-0071 已禁止跨 Conversation
   复用连接。这点保持。
@@ -219,18 +219,18 @@ Codeg：
   `bind_external_id`；新对话则在**首次** `send_prompt_linked` 建行并绑定。
 - 新标签可以先 connect、后建 DB 行。
 
-VibeX：
+Dimo：
 
 - Conversation 行在第一条发送时由 `sessionsApi.create` 创建（或已有
   历史行）。
 - `acp_session_id` 写在 `send_turn_to_agent` 握手成功之后的 binding
   上，因此「打开历史但还没发送」时运行时没有绑定，下一次发送才 resume。
 - 若运行时误判「无真实 ACP id」，会 `prepare_session` → `session/new`，
-  把 Codex 线程分叉成 B，而 VibeX 继续写 Conversation A
+  把 Codex 线程分叉成 B，而 Dimo 继续写 Conversation A
   （`service.rs` 3265–3270 行注释已承认这是缺陷）。
-- 今天仍把占位 id 写进 prepare：`format!("vibex-new-session-{conversation_id}")`
+- 今天仍把占位 id 写进 prepare：`format!("dimo-new-session-{conversation_id}")`
   （`ensure_session_controls` 约 2434 行）。过滤器
-  `is_placeholder_acp_session_id`（`vibex-new-session-` / `prepared-` /
+  `is_placeholder_acp_session_id`（`dimo-new-session-` / `prepared-` /
   `pending-`，`service.rs` 4518–4521）和 `restorable_agent_binding` /
   `known_acp_session_id` 已经会丢掉占位符，但目标数据模型必须规定：
   **持久化的只能是 Agent 返回的真实 id**；占位符不得再写入 DB，也不得
@@ -240,7 +240,7 @@ VibeX：
 
 ## 目标
 
-把 VibeX 的**可观察会话行为**对齐 Codeg：建立在 connect，Prompt 永不
+把 Dimo 的**可观察会话行为**对齐 Codeg：建立在 connect，Prompt 永不
 `session/new`，发送闸在会话就绪，恢复链与错误表面与 Codeg 同类。
 
 ### Goals
@@ -267,14 +267,14 @@ VibeX：
    `acp_session_id`；下一条消息仍是 `session/prompt`。
 6. **UI transcript 权威不变。** `session/load` 回放不得进入 Conversation
    事件日志（ADR-0071 §1）。Codeg 磁盘 transcript 的职责由事件日志承担。
-7. **可对照验收。** 每一条验收标准都能指向 Codeg 函数与 VibeX 目标路径。
+7. **可对照验收。** 每一条验收标准都能指向 Codeg 函数与 Dimo 目标路径。
 8. **真实 ACP id 在 connect 持久化。** `SessionLinked` 已有写入路径
    （`runtime_events.rs` 166–177）；connect 必须发出该事件。占位符 id
    不得入库、不得 resume。
 
 ### Non-Goals
 
-- 不把 VibeX 的 crate 拓扑改成 Codeg 的 `acp/` 单模块。
+- 不把 Dimo 的 crate 拓扑改成 Codeg 的 `acp/` 单模块。
 - 不把 UI transcript 改成 Codeg 的 JSONL 磁盘文件。
 - 不削弱 ADR-0071 的取消握手（等待 prompt 响应，10s 超时后退役连接）。
 - 不在本 ADR 落地 ACP v2（ADR-0035）；V2 的 `session/resume`+`replayFrom`
@@ -289,10 +289,10 @@ VibeX：
 
 ## 与 Codeg 的对照结论
 
-| 维度 | Codeg（live） | VibeX 今天 | 目标 |
+| 维度 | Codeg（live） | Dimo 今天 | 目标 |
 |---|---|---|---|
-| **结构** | `ConnectionManager` 拥有进程；`run_connection` 拥有 initialize/会话/命令环；`SessionState` 是连接权威；DB conversation 是 prompt 侧效应。`lifecycle.rs` 把 `SessionStarted` 写到 `external_id`。 | `AgentRuntime` + `ConnectionManager` + 每连接命令环；Conversation 事件日志是 UI 权威；`ConversationSessionService` 在 Turn 内调用 prepare/resume。`crates/agents/src/lifecycle.rs` 是卸载规划，**不是** ACP 生命周期。 | 保持 VibeX 三层。把 Codeg `run_connection` 的「进入命令环之前完成 bind」搬进 Agent Runtime 连接启动。Conversation 服务只在 connect 路径调用 prepare/resume，Turn 路径只 prompt。 |
-| **状态机** | `ConnectionStatus`: Connecting / Connected / Prompting / Disconnected / Error。`initialize` 后即 `Connected`（cached selectors 可展示，prompt **缓冲**在 `cmd_rx`，`connection.rs` 5492–5495）。`selectorsReady` 稍后；send 禁用直到该事件（`selectorsLoading` + `chat-input.tsx` 197–200）。 | `AgentConnectionStatus`: Disconnected / Connecting / Recovering / Ready / Failed。initialize 成功即 Ready，随后才接受 `PrepareSession` 命令。无 `selectorsReady`。发送不看绑定。 | **Ready = initialize 完成 / 命令环已转**（保持现语义）。**Bind 完成 = 独立 `SessionBindReady`**，不得复用 `Ready`。VibeX **不**在 bind 前缓冲 Prompt（严于 Codeg）。send 与 `start_turn` 都要求该闩。`SessionLoadFailed` 升到连接级。auth 走 Failed + `auth_required` 事件，不是 Connected 上的静默 `Ok(())`。 |
+| **结构** | `ConnectionManager` 拥有进程；`run_connection` 拥有 initialize/会话/命令环；`SessionState` 是连接权威；DB conversation 是 prompt 侧效应。`lifecycle.rs` 把 `SessionStarted` 写到 `external_id`。 | `AgentRuntime` + `ConnectionManager` + 每连接命令环；Conversation 事件日志是 UI 权威；`ConversationSessionService` 在 Turn 内调用 prepare/resume。`crates/agents/src/lifecycle.rs` 是卸载规划，**不是** ACP 生命周期。 | 保持 Dimo 三层。把 Codeg `run_connection` 的「进入命令环之前完成 bind」搬进 Agent Runtime 连接启动。Conversation 服务只在 connect 路径调用 prepare/resume，Turn 路径只 prompt。 |
+| **状态机** | `ConnectionStatus`: Connecting / Connected / Prompting / Disconnected / Error。`initialize` 后即 `Connected`（cached selectors 可展示，prompt **缓冲**在 `cmd_rx`，`connection.rs` 5492–5495）。`selectorsReady` 稍后；send 禁用直到该事件（`selectorsLoading` + `chat-input.tsx` 197–200）。 | `AgentConnectionStatus`: Disconnected / Connecting / Recovering / Ready / Failed。initialize 成功即 Ready，随后才接受 `PrepareSession` 命令。无 `selectorsReady`。发送不看绑定。 | **Ready = initialize 完成 / 命令环已转**（保持现语义）。**Bind 完成 = 独立 `SessionBindReady`**，不得复用 `Ready`。Dimo **不**在 bind 前缓冲 Prompt（严于 Codeg）。send 与 `start_turn` 都要求该闩。`SessionLoadFailed` 升到连接级。auth 走 Failed + `auth_required` 事件，不是 Connected 上的静默 `Ok(())`。 |
 | **生命周期** | 新标签 auto-connect（`sessionId=undefined` → `session/new`）。历史：`detailLoading` 期间不 connect，加载后把 `externalId`（可仍 undefined）传入。Cline 写死跳过。首次 prompt 建 DB 行。follow-up 只 prompt。取消保活。刷新/idle sweep/关标签重开走 resume。 | 新会话：第一条发送才 `sessionsApi.create` 并在 `start_turn` 里 `session/new`。历史打开不 connect。follow-up 若运行时未绑定则 resume 或误 new。无 idle sweep。Automation/Remote 也走 `start_turn` 内握手。 | 新 Conversation 打开即创建（D11）并 **立即** auto-connect（null sid → `session/new`）。历史闸仅 `detailLoading`（D5）。Turn 只 prompt。`dispatch_next_queued_input` 在 persist **之后**代理 connect。idle sweep 180s + 必选 touch ~30s。 |
 | **消息/事件** | ACP：`initialize`, `session/new`, `session/resume`, `session/load`, `session/prompt`, `session/cancel`。UI：`StatusChanged`, `SessionStarted`, `SessionModes`, `SessionConfigOptions`, `SelectorsReady`, `TurnComplete`, `SessionLoadFailed`。load 回放默认 drain。 | ACP 方法同名。UI：`SessionLinked`, `SessionControls`, `PromptFinished`, `SessionLoadFailed`（挂在 Turn/恢复路径）。load 回放已按 ADR-0071 drain 内容类 update。 | 方法顺序对齐 Codeg。新增/固定 connect 完成信号。load 回放继续不进事件日志。`TurnComplete`/`PromptFinished` 仅表示 Turn，不表示会话拆除。 |
 | **持久化** | 连接 `external_id`：`SessionStarted`。DB 行：首次 prompt 创建；`bind_external_id` 在已有 `conversation_id` 的 `SessionStarted` 或首次 prompt。custom transcript header 可带 `continues_from`。 | Conversation 行先于或等于首次发送。`acp_session_id` 在 Turn 内握手成功后写 binding。 | Conversation 行仍按 ADR-0044 先于 Prompt 存在。`acp_session_id` 在 **connect 成功**时写入 binding / `Session`（`AgentBindingReady`）。取消成功不改 id。fallback `session/new` 更新为新 id，事件日志不重写历史（`continues_from` 的适配）。 |
@@ -322,7 +322,7 @@ ConversationControl.submit                 （ADR-0044：先持久化，submit_a
       否则：commit_new_turn + send_prompt（仅 session/prompt）
 ```
 
-| Codeg | VibeX 落点 |
+| Codeg | Dimo 落点 |
 |---|---|
 | `acp_connect` | `conversation_ensure_session_controls`（可保留别名 `conversation_connect`，同一 use case） |
 | `spawn_agent` + 去重锁 | `AgentRuntime::ensure_session` + 连接启动 bind；去重键仍是 Conversation UUID（ADR-0071），外加「同一 Conversation 的活连接复用」 |
@@ -365,7 +365,7 @@ stateDiagram-v2
 `AgentConnectionStatus::Ready` 保持「initialize 完成、命令环在转」。
 `SessionBindReady` 是独立事件/闩。send 与 `start_turn` 看闩，不看
 `Ready`。Codeg 在早期 Connected 缓冲 `cmd_rx` 上的 Prompt
-（`connection.rs` 5492–5495）；VibeX **拒绝**这种缓冲（Alternative D）。
+（`connection.rs` 5492–5495）；Dimo **拒绝**这种缓冲（Alternative D）。
 
 ### 新对话 connect
 
@@ -469,7 +469,7 @@ sequenceDiagram
 这是相对 Codeg 的**有意加严**：Codeg 在
 `ConnectionCommand::Cancel`（`connection.rs` 9748–9838）立即
 `TurnComplete{cancelled}`（9773–9783）并后台 drain prompt future
-（9838）。VibeX 保持 ADR-0071 握手，但对等「取消成功 ≠ 拆会话」。
+（9838）。Dimo 保持 ADR-0071 握手，但对等「取消成功 ≠ 拆会话」。
 ADR-0071「不可再复用」= 退役**活连接**；durable sid 仍在，下一进程
 resume→load→new，不是「取消触发的 resume」。
 
@@ -594,7 +594,7 @@ Conversation 服务映射同码。今天的
 1. `acp_session_id` 在 connect 成功时由现有 `SessionLinked` 写入
    （`runtime_events.rs` 166–177），不等第一条 prompt。
 2. **不变量：** DB 中的 `acp_session_id` 要么为 null，要么是 Agent 返回的
-   真实 id。`vibex-new-session-` / `prepared-` / `pending-` 占位符在本
+   真实 id。`dimo-new-session-` / `prepared-` / `pending-` 占位符在本
    ADR 之后不得入库。历史 connect / 「已有 sid 必须 resume」守卫使用
    现有 `restorable_agent_binding` / `known_acp_session_id` /
    `is_placeholder_acp_session_id`（`service.rs` 4505–4561）。对占位符
@@ -638,7 +638,7 @@ Conversation 服务映射同码。今天的
 ### D3. 恢复链严格复制 Codeg 决策表
 
 **决定：** `recovers_locally` = 用户声明/custom ACP Agent（Codeg
-`transcript_dir_for` = `custom_id()`；VibeX 映射 ADR-0036 用户声明
+`transcript_dir_for` = `custom_id()`；Dimo 映射 ADR-0036 用户声明
 Agent）。内置 profile **否**。`session_busy` 对 **任何** Agent 都不
 `recovers_locally`。
 
@@ -660,13 +660,13 @@ Open Question 2 由本表关闭：用户声明 Agent = custom。
 
 ### D4. Conversation 行仍先于 Prompt 存在；ACP id 在 connect 绑定
 
-**决定：** 不把 VibeX 改成 Codeg 的「首次 prompt 才 INSERT conversation」。
+**决定：** 不把 Dimo 改成 Codeg 的「首次 prompt 才 INSERT conversation」。
 新标签在 auto-connect 前 `conversation_create`（若尚无行）。ACP
 真实 `acp_session_id` 在 connect 成功时由 **既有** `SessionLinked`
 写入（`runtime_events.rs` 166–177），PR 1 必须发出该事件。
 
 **理由：** ADR-0044 控制面、Remote/CLI/Automation 都假设 Conversation
-UUID 先存在。Codeg 晚建行是因为它用整数 DB id + 标签草稿；VibeX 用
+UUID 先存在。Codeg 晚建行是因为它用整数 DB id + 标签草稿；Dimo 用
 UUID 事件源。对等的是 **ACP 会话时机**，不是 INSERT 时机。
 
 **否决：** 为抄 Codeg 而把 Conversation 创建推迟到第一条消息——破坏
@@ -694,7 +694,7 @@ UUID 事件源。对等的是 **ACP 会话时机**，不是 INSERT 时机。
 
 **理由：** Codeg 的 `awaitingHistoricalSessionId` 只在已持久化对话
 **加载中**挡住 connect；新草稿立即 `sessionId=undefined` →
-`session/new`。VibeX D11 打开即 INSERT，若把「已持久化但从未绑定」
+`session/new`。Dimo D11 打开即 INSERT，若把「已持久化但从未绑定」
 当成「历史 sid 仍在加载」，Goal 1 的新对话会永远等能力。未知=等待
 必须钉死在 `detailLoading` 窗口，否则 catch-22。
 
@@ -717,7 +717,7 @@ ADR-0071 §2「不可再复用」作用于活连接/进程，不是 durable sid�
 ### D7. load 回放继续不进事件日志
 
 **决定：** 维持 ADR-0071 §1。custom Agent 在 Codeg 里把 load 回放写入
-磁盘 transcript 仅当本地还没有记录；VibeX 若事件日志已有历史则 drain；
+磁盘 transcript 仅当本地还没有记录；Dimo 若事件日志已有历史则 drain；
 若 Conversation 为空且 Agent 回放了历史，**仍不**把回放当新事实写入
 （避免双份）。空 Conversation 的导入路径走既有 import，不走 load 回放。
 
@@ -726,7 +726,7 @@ ADR-0071 §2「不可再复用」作用于活连接/进程，不是 durable sid�
 
 **否决：** 把 load 回放 append 进事件日志。
 
-### D8. load 分类：保持 VibeX 码位图；不要抄 Codeg 对 `-32000` 的省略
+### D8. load 分类：保持 Dimo 码位图；不要抄 Codeg 对 `-32000` 的省略
 
 **决定：** 两个函数，禁止混用：
 
@@ -742,10 +742,10 @@ ADR-0071 §2「不可再复用」作用于活连接/进程，不是 durable sid�
    `session_unavailable`。测试锁死这些片段。不进入 Turn taxonomy。
 
 工程师「对齐 Codeg 的 `classify_session_load_failure`」时 **不得**删掉
-VibeX 已有的 `-32000` 码位分支。
+Dimo 已有的 `-32000` 码位分支。
 
 **理由：** Codeg 把 auth 放在 classifier 之外的 C 级字符串检查。若照抄
-该函数会制造 0074 回退。VibeX 用码位做 auth 更诚实。
+该函数会制造 0074 回退。Dimo 用码位做 auth 更诚实。
 
 ### D9. 一个 Conversation 一个连接，但同一 Conversation 的活连接要复用
 
@@ -765,7 +765,7 @@ VibeX 已有的 `-32000` 码位分支。
   `SessionLinked` 只 persist/投影。cache/modes **不得**置位。
 - composer：`sessionBindReady === false` 时 disable send（叠加现有
   `canSendFollowUp` / `canTypeFollowUp`）。
-- VibeX **不**在 bind 前把 Prompt 放进命令通道（严于 Codeg
+- Dimo **不**在 bind 前把 Prompt 放进命令通道（严于 Codeg
   `cmd_rx` 缓冲，见 Alternative D）。`start_turn` 同样要求该闩。
 
 **理由：** ADR-0058。把 Ready 复用成 bind 完成会弄坏「命令环已转」的
@@ -823,7 +823,7 @@ connect 进行中 submit；输入等待 dispatcher 下次认领；**不**自动
 
 ### D15. `conversation_touch` 与 idle sweep 同 PR、必选；触达 ~30s
 
-**决定：** sweep 默认 180s（`VIBEX_ACP_IDLE_TIMEOUT_SECS`，0 关闭）。
+**决定：** sweep 默认 180s（`DIMO_ACP_IDLE_TIMEOUT_SECS`，0 关闭）。
 **不** sweep：在途 Turn、ADR-0071 取消 10s 窗口、pending permission。
 前端对**活动** Conversation 每 **~30s** `conversation_touch`（对齐
 Codeg `idle_sweep.rs` 13–18 keepalive），且必须 **严格小于** idle
@@ -838,7 +838,7 @@ sweep。
 设置认证流，ADR-0012 / 0034 / 0064）。不发 `SessionLoadFailed`。
 不创建 Turn。send 保持禁用。用户完成认证后 Reload/ensure 重试。
 
-**否决：** Codeg 的 `return Ok(())` 且状态留在 Connected——VibeX 会
+**否决：** Codeg 的 `return Ok(())` 且状态留在 Connected——Dimo 会
 看起来像「已连接但不能发」的泛化故障。
 
 ---
@@ -859,7 +859,7 @@ sweep。
 行为最像。
 
 **否决：** 破坏 ADR-0044（submit 是唯一写入口）、Remote/CLI/Automation
-同路、事件日志权威。Codeg 是对照基准，不是 VibeX 的模块切分。
+同路、事件日志权威。Codeg 是对照基准，不是 Dimo 的模块切分。
 
 ### C. 保持 Turn 内握手，仅加前端 disable 与重试
 
@@ -874,7 +874,7 @@ Codeg 在 `initialize` 后立刻 `StatusChanged { Connected}`，把提前到达�
 （`connection.rs` 5492–5495）。配合 `allowOfflineCompose`，用户可以在
 selectors 未就绪时点发送。
 
-**否决：** VibeX Prompt 在 `session_map` 为空时硬失败；把 Prompt 堆在
+**否决：** Dimo Prompt 在 `session_map` 为空时硬失败；把 Prompt 堆在
 bind 前的通道上会重新打开 D2 窗口。composer 离线起草仍走 ADR-0042
 draft，不走 Prompt 队列。解锁只认 `SessionBindReady`。
 
@@ -898,7 +898,7 @@ draft，不走 Prompt 队列。解锁只认 `SessionBindReady`。
 `session/new` 孤儿化 Agent 侧线程。缓解：D5 历史闸 + 后端对「已有
 **非占位** `acp_session_id` 的 Conversation」拒绝无 sid 的 prepare
 （必须走 resume 链）。该守卫在 PR 1/2 落地，不得等到 auto-connect
-之后。这是 Codeg#500 在 VibeX 的对应。
+之后。这是 Codeg#500 在 Dimo 的对应。
 
 未安装 Agent：auto-connect 不得 spawn（ADR-0012）。`SessionLoadFailed`
 未清除时不得再 connect（Codeg `!acpLoadError`）。
@@ -996,7 +996,7 @@ draft，不走 Prompt 队列。解锁只认 `SessionBindReady`。
 15. **非 UI。** Automation 无 Dockview 标签的 turn、Remote submit、CLI
     follow-up：dispatcher 或调用方在 Prompt 前 connect；不得依赖 React
     hook。
-16. **占位符。** DB 无 `vibex-new-session-*` / `prepared-*` / `pending-*`；
+16. **占位符。** DB 无 `dimo-new-session-*` / `prepared-*` / `pending-*`；
     历史 connect 不 resume 占位符。
 17. **idle sweep。** 活动标签每 ~30s `conversation_touch`，即使 **没有
     Turn** 也必须熬过一次 180s sweep。在途 Turn / 取消窗口 / pending
@@ -1038,11 +1038,11 @@ revert PR 2，不留开关）。
 
 1. ~~空 Conversation 是否进列表？~~ **已由 D11 决定：进列表。**
 2. ~~用户声明 Agent 是否视为 custom？~~ **已由 D3 决定：是。**
-3. idle timeout v1 仅 env `VIBEX_ACP_IDLE_TIMEOUT_SECS`（0 关闭）。
+3. idle timeout v1 仅 env `DIMO_ACP_IDLE_TIMEOUT_SECS`（0 关闭）。
    是否要产品设置项？**不阻塞实施。**
 4. ~~ensure drop vs reuse？~~ **已由 D12 决定：reuse-first。**
 5. 实施冻结 Codeg 对照：本 ADR 选 **live** HEAD `9b2f0d49`。CI 对照
-   向量写进 VibeX 仓库，不在构建时拉 Codeg。
+   向量写进 Dimo 仓库，不在构建时拉 Codeg。
 
 ---
 
@@ -1063,15 +1063,15 @@ revert PR 2，不留开关）。
 - Codeg `src/hooks/use-connection-lifecycle.ts`
 - Codeg `src/components/conversations/conversation-detail-panel.tsx`
 - Codeg `src/contexts/acp-connections-context.tsx`
-- VibeX `crates/agents/src/runtime.rs`（`ensure_session`, `prepare_session`,
+- Dimo `crates/agents/src/runtime.rs`（`ensure_session`, `prepare_session`,
   `resume_session`, `has_bound_acp_session`）
-- VibeX `crates/agents/src/manager.rs`（Prompt 禁令, `load_or_new_acp_session`）
-- VibeX `crates/conversations/src/service.rs`（`send_turn_to_agent`,
+- Dimo `crates/agents/src/manager.rs`（Prompt 禁令, `load_or_new_acp_session`）
+- Dimo `crates/conversations/src/service.rs`（`send_turn_to_agent`,
   `ensure_session_controls`, `cancel_turn`）
-- VibeX `crates/conversations/src/runtime_events.rs`（`SessionLinked` persist）
-- VibeX `frontend/src/features/conversation/useConversationTimeline.ts`
-- VibeX `frontend/src/components/logs/AgentTimelineConversation.tsx`
-- VibeX `frontend/src/components/tasks/follow-up/sessionComposerSubmit.ts`
+- Dimo `crates/conversations/src/runtime_events.rs`（`SessionLinked` persist）
+- Dimo `frontend/src/features/conversation/useConversationTimeline.ts`
+- Dimo `frontend/src/components/logs/AgentTimelineConversation.tsx`
+- Dimo `frontend/src/components/tasks/follow-up/sessionComposerSubmit.ts`
 - [ADR-0001](0001-crash-recovery-semantics.md)
 - [ADR-0021](0021-acp-first-with-local-management-fallbacks.md)
 - [ADR-0035](0035-acp-v2-dual-protocol-session-items.md)

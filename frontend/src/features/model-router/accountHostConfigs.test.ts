@@ -195,7 +195,7 @@ describe('accountHostConfigs', () => {
     const windowsTarget = makeConfig({
       theme: ThemeMode.DARK,
       default_terminal_shell: 'pwsh.exe',
-      workspace_dir: 'D:\\VibeXWorktrees',
+      workspace_dir: 'D:\\DimoWorktrees',
     });
     const mergedCrossOs = mergePortableUserConfigOntoTarget({
       targetConfig: windowsTarget,
@@ -208,7 +208,7 @@ describe('accountHostConfigs', () => {
     expect(mergedCrossOs.send_message_shortcut).toBe('ModifierEnter');
     expect(mergedCrossOs.compact_context_enabled).toBe(true);
     // Preserves target Host's local workspace_dir, github credentials, and Windows shell/custom binary path
-    expect(mergedCrossOs.workspace_dir).toBe('D:\\VibeXWorktrees');
+    expect(mergedCrossOs.workspace_dir).toBe('D:\\DimoWorktrees');
     expect(mergedCrossOs.github.pat).toBe('ghp_secret_local_token');
     expect(mergedCrossOs.default_terminal_shell).toBe('pwsh.exe');
     expect(mergedCrossOs.editor.editor_type).toBe(EditorType.CUSTOM);
@@ -228,10 +228,10 @@ describe('accountHostConfigs', () => {
   });
 
   it('automatically associates current Host settings and Agent enablement on login and merges remote snapshots', async () => {
-    window.localStorage.setItem('vibex:ui-zoom', '1.15');
-    window.localStorage.setItem('vibex:accent-color', 'indigo');
+    window.localStorage.setItem('dimo:ui-zoom', '1.15');
+    window.localStorage.setItem('dimo:accent-color', 'indigo');
     window.localStorage.setItem(
-      'vibex:kanban-canvas',
+      'dimo:kanban-canvas',
       JSON.stringify({ viewport: { x: 40, y: 80 } })
     );
 
@@ -271,7 +271,7 @@ describe('accountHostConfigs', () => {
       osArch: 'aarch64',
       updatedAt: '2026-11-10T10:00:00.000Z',
       fingerprint: 'v1_macbook',
-      vibeXSettings: {
+      dimoSettings: {
         userConfig: { send_message_shortcut: 'ModifierEnter' },
         frontendPreferences: { ui_zoom: 1.25 },
       },
@@ -299,15 +299,15 @@ describe('accountHostConfigs', () => {
     expect(saveCloudSpy).toHaveBeenCalledTimes(1);
     expect(synced).toHaveLength(2);
     expect(synced[0]?.hostId).toBe('host:win-workstation-01');
-    expect(synced[0]?.vibeXSettings.userConfig.hide_model_thinking).toBe(true);
-    expect('github' in (synced[0]?.vibeXSettings.userConfig ?? {})).toBe(false);
-    expect(synced[0]?.vibeXSettings.frontendPreferences.ui_zoom).toBe(1.15);
-    expect(synced[0]?.vibeXSettings.frontendPreferences.accent_color).toBe(
+    expect(synced[0]?.dimoSettings.userConfig.hide_model_thinking).toBe(true);
+    expect('github' in (synced[0]?.dimoSettings.userConfig ?? {})).toBe(false);
+    expect(synced[0]?.dimoSettings.frontendPreferences.ui_zoom).toBe(1.15);
+    expect(synced[0]?.dimoSettings.frontendPreferences.accent_color).toBe(
       'indigo'
     );
     // Project-transient kanban_canvas is excluded
     expect(
-      'kanban_canvas' in (synced[0]?.vibeXSettings.frontendPreferences ?? {})
+      'kanban_canvas' in (synced[0]?.dimoSettings.frontendPreferences ?? {})
     ).toBe(false);
     expect(synced[0]?.agents).toEqual([
       expect.objectContaining({ agentId: 'CLAUDE_CODE', enabled: true }),
@@ -336,7 +336,7 @@ describe('accountHostConfigs', () => {
     ).toBeTruthy();
   });
 
-  it('imports VibeX settings and Agent enablement/order onto the current Host without failing fast on missing Agents', async () => {
+  it('imports Dimo settings and Agent enablement/order onto the current Host without failing fast on missing Agents', async () => {
     vi.spyOn(webServiceApi, 'getStatus').mockResolvedValue({
       running: false,
       port: 17891,
@@ -399,7 +399,7 @@ describe('accountHostConfigs', () => {
       osArch: 'aarch64',
       updatedAt: '2026-11-11T08:00:00.000Z',
       fingerprint: 'v1_studio_mac',
-      vibeXSettings: {
+      dimoSettings: {
         userConfig: {
           theme: ThemeMode.LIGHT,
           send_message_shortcut: 'ModifierEnter',
@@ -467,8 +467,8 @@ describe('accountHostConfigs', () => {
     expect(savedArg?.workspace_dir).toBe('/home/dev/workspaces');
     expect(savedArg?.default_terminal_shell).toBe('/bin/bash');
 
-    expect(window.localStorage.getItem('vibex:ui-zoom')).toBe('1.2');
-    expect(window.localStorage.getItem('vibex:mono-font')).toBe(
+    expect(window.localStorage.getItem('dimo:ui-zoom')).toBe('1.2');
+    expect(window.localStorage.getItem('dimo:mono-font')).toBe(
       'jetbrains-mono'
     );
 

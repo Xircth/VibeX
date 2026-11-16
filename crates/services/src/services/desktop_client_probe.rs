@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn chatgpt_desktop_marks_codex_without_inventing_a_cli() {
-        let root = std::env::temp_dir().join(format!("vibex-desktop-codex-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("dimo-desktop-codex-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let executable = root
             .join("Local")
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn claude_app_bundle_and_nested_windows_install_count() {
         let root =
-            std::env::temp_dir().join(format!("vibex-desktop-claude-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dimo-desktop-claude-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let bundle = root.join("Applications").join("Claude.app");
         fs::create_dir_all(&bundle).unwrap();
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn package_prefix_and_start_menu_shortcut_count() {
         let root =
-            std::env::temp_dir().join(format!("vibex-desktop-package-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dimo-desktop-package-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let package = root
             .join("Local")
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn cursor_and_antigravity_desktops_are_recognized() {
         let root =
-            std::env::temp_dir().join(format!("vibex-desktop-editors-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dimo-desktop-editors-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let cursor = root.join("applications").join("cursor.desktop");
         touch(&cursor);

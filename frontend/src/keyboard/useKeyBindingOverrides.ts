@@ -24,7 +24,7 @@ export const useKeyBindingOverridesStore = create<KeyBindingOverridesState>()(
       setOverride: (id, chord) =>
         set((state) => {
           const overrides = { ...state.overrides, [id]: chord };
-          persistFrontendPreference('vibex:key-overrides', {
+          persistFrontendPreference('dimo:key-overrides', {
             state: { overrides },
             version: 1,
           });
@@ -35,7 +35,7 @@ export const useKeyBindingOverridesStore = create<KeyBindingOverridesState>()(
           if (!(id in state.overrides)) return state;
           const next = { ...state.overrides };
           delete next[id];
-          persistFrontendPreference('vibex:key-overrides', {
+          persistFrontendPreference('dimo:key-overrides', {
             state: { overrides: next },
             version: 1,
           });
@@ -44,13 +44,13 @@ export const useKeyBindingOverridesStore = create<KeyBindingOverridesState>()(
       clearAll: () =>
         set((state) => {
           if (Object.keys(state.overrides).length === 0) return state;
-          persistFrontendPreference('vibex:key-overrides', {
+          persistFrontendPreference('dimo:key-overrides', {
             state: { overrides: {} },
             version: 1,
           });
           return { overrides: {} };
         }),
     }),
-    { name: 'vibex:key-overrides', version: 1 }
+    { name: 'dimo:key-overrides', version: 1 }
   )
 );

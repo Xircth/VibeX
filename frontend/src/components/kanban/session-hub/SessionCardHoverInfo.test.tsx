@@ -33,7 +33,7 @@ function session(
     branch: 'master',
     workspace: {
       id: 'workspace-1',
-      container_ref: 'C:\\Users\\18190\\Documents\\projects\\VibeX',
+      container_ref: 'C:\\Users\\18190\\Documents\\projects\\Dimo',
       agent_working_dir: null,
     },
     ...overrides,
@@ -46,16 +46,16 @@ describe('sessionCardHoverDetails', () => {
       sessionCardHoverDetails(
         session(),
         '分析下我的项目根目录，是否有不应该存在于根目录中的文件',
-        { name: 'VibeX', root_path: 'C:\\fallback' }
+        { name: 'Dimo', root_path: 'C:\\fallback' }
       )
     ).toEqual({
       name: '分析下我的项目根目录，是否有不应该存在于根目录中的文件',
       agentKey: 'antigravity',
       agentName: 'Google Antigravity',
       model: 'gemini-3.8-flash-high',
-      projectName: 'VibeX',
+      projectName: 'Dimo',
       workspaceLabel: 'Main',
-      path: 'C:\\Users\\18190\\Documents\\projects\\VibeX',
+      path: 'C:\\Users\\18190\\Documents\\projects\\Dimo',
     });
   });
 
@@ -71,18 +71,18 @@ describe('sessionCardHoverDetails', () => {
         }),
         '请你进行以下任务',
         {
-          name: 'VibeX',
-          root_path: 'C:\\Users\\18190\\Documents\\projects\\VibeX',
+          name: 'Dimo',
+          root_path: 'C:\\Users\\18190\\Documents\\projects\\Dimo',
         }
       ).path
-    ).toBe('C:\\Users\\18190\\Documents\\projects\\VibeX');
+    ).toBe('C:\\Users\\18190\\Documents\\projects\\Dimo');
   });
 });
 
 describe('SessionCardHoverCard', () => {
   it('mounts on a page that has no tooltip provider', () => {
     const details = sessionCardHoverDetails(session(), '请参考附图，对我', {
-      name: 'VibeX',
+      name: 'Dimo',
       root_path: 'C:\\fallback',
     });
 
@@ -107,7 +107,7 @@ describe('SessionCardHoverInfo', () => {
     const details = sessionCardHoverDetails(
       session(),
       '分析下我的项目根目录，是否有不应该存在于根目录中的文件',
-      { name: 'VibeX', root_path: 'C:\\fallback' }
+      { name: 'Dimo', root_path: 'C:\\fallback' }
     );
 
     render(<SessionCardHoverInfo {...details} />);
@@ -122,7 +122,7 @@ describe('SessionCardHoverInfo', () => {
     expect(screen.getByText('项目')).toBeInTheDocument();
     expect(
       screen.getByTestId('session-card-hover-copy-project')
-    ).toHaveTextContent('VibeX');
+    ).toHaveTextContent('Dimo');
     expect(screen.getByText('工作区')).toBeInTheDocument();
     expect(
       screen.getByTestId('session-card-hover-copy-workspace')
@@ -130,12 +130,12 @@ describe('SessionCardHoverInfo', () => {
     expect(screen.getByText('路径')).toBeInTheDocument();
     expect(
       screen.getByTestId('session-card-hover-copy-path')
-    ).toHaveTextContent('C:\\Users\\18190\\Documents\\projects\\VibeX');
+    ).toHaveTextContent('C:\\Users\\18190\\Documents\\projects\\Dimo');
   });
 
   it('copies the clicked name, project, workspace, and path', () => {
     const details = sessionCardHoverDetails(session(), '请参考附图，对我', {
-      name: 'VibeX',
+      name: 'Dimo',
       root_path: 'C:\\fallback',
     });
 
@@ -150,11 +150,11 @@ describe('SessionCardHoverInfo', () => {
       1,
       '请参考附图，对我'
     );
-    expect(writeClipboardViaBridge).toHaveBeenNthCalledWith(2, 'VibeX');
+    expect(writeClipboardViaBridge).toHaveBeenNthCalledWith(2, 'Dimo');
     expect(writeClipboardViaBridge).toHaveBeenNthCalledWith(3, 'Main');
     expect(writeClipboardViaBridge).toHaveBeenNthCalledWith(
       4,
-      'C:\\Users\\18190\\Documents\\projects\\VibeX'
+      'C:\\Users\\18190\\Documents\\projects\\Dimo'
     );
     expect(toast.success).toHaveBeenCalledWith('已复制会话名称');
     expect(toast.success).toHaveBeenCalledWith('已复制项目');

@@ -1,12 +1,12 @@
-# VibeX 插件开发文档
+# Dimo 插件开发文档
 
-对照当前 Host（`v0.4.x`）、Worker 协议 `1.1`、SDK `2.0`（向后兼容 `1.0`）与仓库内置 `vibex-plugin` CLI。开发、校验、链接、诊断统一走命令行。
+对照当前 Host（`v0.4.x`）、Worker 协议 `1.1`、SDK `2.0`（向后兼容 `1.0`）与仓库内置 `dimo-plugin` CLI。开发、校验、链接、诊断统一走命令行。
 
-查工具链路径执行 `vibex-plugin toolchain`。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `vibex plugin toolchain`。先 `vibex plugin run server --http://127.0.0.1:17891 --token <token>`，再在插件目录里 `vibex plugin run dev`。
+查工具链路径执行 `dimo-plugin toolchain`。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `dimo plugin toolchain`。先 `dimo plugin run server --http://127.0.0.1:17891 --token <token>`，再在插件目录里 `dimo plugin run dev`。
 
 ## 你在开发什么
 
-你在做一个产品包，不是再搭一套应用运行时。框架是已经打开的 VibeX。包有一个身份、一份 README、一份根配置、一份 `contents/`，以及一组写死的 integrations。
+你在做一个产品包，不是再搭一套应用运行时。框架是已经打开的 Dimo。包有一个身份、一份 README、一份根配置、一份 `contents/`，以及一组写死的 integrations。
 
 最少要有一项 Host 认得出的 integration。不再要求必须带 Skill。
 
@@ -55,7 +55,7 @@ node packages/plugin-cli/dist/cli.js init my-notes --publisher you --template fu
 
 ```text
 my-plugin/
-├─ .vibex-plugin/
+├─ .dimo-plugin/
 │  ├─ plugin.json
 │  ├─ content.index.json
 │  ├─ package.lock.json          # build 生成
@@ -81,7 +81,7 @@ my-plugin/
 
 `config.json` 是配置的唯一事实。详情页配置 Tab 写的就是它。它不计入可执行 digest，更新时默认保留用户改过的值。
 
-`.vibex-plugin/content.index.json` 由作者维护、`build` 严查、Host 再验。UI 不扫描磁盘猜内容。
+`.dimo-plugin/content.index.json` 由作者维护、`build` 严查、Host 再验。UI 不扫描磁盘猜内容。
 
 ## plugin.json
 
@@ -97,10 +97,10 @@ my-plugin/
   "version": "0.1.0",
   "name": "Notes",
   "readme": "README.md",
-  "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^2.0.0" },
+  "engines": { "dimo": ">=0.1.3 <1.0.0", "pluginSdk": "^2.0.0" },
   "content": {
     "root": "contents",
-    "index": ".vibex-plugin/content.index.json"
+    "index": ".dimo-plugin/content.index.json"
   },
   "config": {
     "schema": {
@@ -128,7 +128,7 @@ my-plugin/
 `entrypoints.worker.runtime` 取 `node`、`python` 或 `native`。作者只写 `runtime`，不要再写已经废掉的 `format=javascript-esm`。`maxFrameMiB` 可选，不写就是 32。取值是 1 到 128 的整数，单位 MiB。Host 把它作为这个 Worker 的单帧上限，并在 `initialize` 的 `limits.maxFrameBytes` 里宣布。
 
 Worker 走协议 1.1（initialize 再 activate）。App 入口（`entrypoints.app`）支持两种协议：
-- **`protocol: "2.0"`（宿主内 / 联邦模块 App）**：`{ "entry": "app/main.js", "protocol": "2.0" }`，配合 `defineVibeXPlugin((ctx) => ...)` 与命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）。
+- **`protocol: "2.0"`（宿主内 / 联邦模块 App）**：`{ "entry": "app/main.js", "protocol": "2.0" }`，配合 `defineDimoPlugin((ctx) => ...)` 与命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）。
 - **`protocol: "1.0"`（独立 HTML Surface App）**：`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`，配合 `definePluginApp(({ root, bridge, signal }) => ...)`。
 
 ### integrations
@@ -177,7 +177,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 入口（`entrypoints.ap
 
 STDIO 服务必须回答 MCP `server/discover`（`2026-07-28`：`resultType`、`supportedVersions`、`capabilities`、`_meta['io.modelcontextprotocol/serverInfo']`），以及握手期的 `initialize`（兼容 `2024-11-05` / `2025-03-26` / `2025-06-18` / `2025-11-25`）、`notifications/initialized`、`tools/list`、`tools/call`。Claude Code 2.1.292+ 会先探测 `server/discover`；方法不存在时才会退回握手。行分隔 JSON-RPC 与 `Content-Length` 帧都要能读。`tools/list` 的名字与资源里的 `tools` 一致。
 
-启用插件后，Host 把 MCP 写进兼容 Agent 的原生配置。新开会话才能调用。`vibex-plugin init --template mcp` 会写出带 `tools` 的资源和能完成握手的 `runtime/mcp.mjs`。
+启用插件后，Host 把 MCP 写进兼容 Agent 的原生配置。新开会话才能调用。`dimo-plugin init --template mcp` 会写出带 `tools` 的资源和能完成握手的 `runtime/mcp.mjs`。
 
 `depends/` 里的 Runtime 要在 manifest 的 `dependencies` 里显式引用。目录在不等于已经有执行权。锁的身份是 `id + version + target + digest`。
 
@@ -198,43 +198,43 @@ STDIO 服务必须回答 MCP `server/discover`（`2026-07-28`：`resultType`、`
 | `app.timeline.card` | `label`、`handler`、`allowedMethods` | 由 App 通过 `bridge.invoke` 自取 |
 | `app.settings.section` | `title`、`handler`、`allowedMethods` | 同上 |
 
-`icon` 只能填 `@vibex/plugin-contract/catalog/icons` 里的名字。这份清单同时被 Rust、SDK 和前端校验，填别的会在 validate 阶段被拒——插件不能往宿主界面注入自己的图形。
+`icon` 只能填 `@dimo/plugin-contract/catalog/icons` 里的名字。这份清单同时被 Rust、SDK 和前端校验，填别的会在 validate 阶段被拒——插件不能往宿主界面注入自己的图形。
 
-状态栏和工具栏是**只可添加**：你能加条目，不能改动或移除 VibeX 自己的指示器。
+状态栏和工具栏是**只可添加**：你能加条目，不能改动或移除 Dimo 自己的指示器。
 
 `provider.model.importSource` 的 handler 返回 `{ providers: [...] }` 或直接一个数组，每项要有 `name` 和 `apiUrl`，`apiKey` 缺失时 Host 会列出但禁止勾选。导入只写预设，不会替用户绑定 Agent；绑定要走 `provider.presets.bind`，那条路径每次都弹确认框。
 
-`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。官方插件是 `vibex.provider-switch`，源码仓库登记在 `vibex-plugin.json`。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
+`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。官方插件是 `dimo.provider-switch`，源码仓库登记在 `dimo-plugin.json`。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
 
 ## CLI
 
 开发、校验、链接、诊断只走命令行。先绑定正在跑的 Host，再在插件目录里跑 `run`。
 
 ```bash
-vibex plugin run server --http://127.0.0.1:17891 --token <token>
+dimo plugin run server --http://127.0.0.1:17891 --token <token>
 cd my-plugin
-vibex plugin run build
-vibex plugin run test
-vibex plugin add --dev .
-vibex plugin run dev
-vibex plugin run test --host
-vibex plugin pack
-vibex plugin pack --output dist/notes.vxp
-vibex-plugin doctor
-vibex-plugin uninstall
-vibex-plugin uninstall --delete-data
+dimo plugin run build
+dimo plugin run test
+dimo plugin add --dev .
+dimo plugin run dev
+dimo plugin run test --host
+dimo plugin pack
+dimo plugin pack --output dist/notes.vxp
+dimo-plugin doctor
+dimo-plugin uninstall
+dimo-plugin uninstall --delete-data
 ```
 
-`vibex plugin run server` 把 URL 和 token 写到 `~/.vibex/pluginrc`。之后在插件目录里 `vibex plugin run dev` 即可。`add --dev` 只把目录链到 Host 并返回；HMR 只由 `run dev` 启动。`vibex-plugin dev` 是 `run dev` 的别名。
+`dimo plugin run server` 把 URL 和 token 写到 `~/.dimo/pluginrc`。之后在插件目录里 `dimo plugin run dev` 即可。`add --dev` 只把目录链到 Host 并返回；HMR 只由 `run dev` 启动。`dimo-plugin dev` 是 `run dev` 的别名。
 
-普通用户装发布物走 `vibex plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`vibex plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`vibex plugin run test --host` 与 `vibex plugin test --host` 对着真 Host 走：安装 →
+普通用户装发布物走 `dimo plugin add --profile file.vxp`、`--web <git>#tag`、GitHub Release `.vxp`（带 SHA-256 时校验）或桌面拖入 `.vxp`。`dimo plugin list` / `update` / `remove` / `gc-runtimes` 操作同一 Host catalog。`dimo plugin run test --host` 与 `dimo plugin test --host` 对着真 Host 走：安装 →
 启用 → 该包声明的 chrome / 结构面 kind 出现在贡献目录 → 禁用后原子消失 → 再启用 →
 （若有 `SKILL.md`）改文件等 digest 更新 → 卸载且源目录仍在。chrome 槽位的
 「热更新」是激活代。结构面 remote 走 `run dev` 的 Vite HMR，不重载宿主。
 
 `run dev` 会先 build，再 link，再监视源码。digest 变了才重载 Worker。有 federation remote 时 Host `loadRemote` 指向 Vite。失败则上一完整代仍对外可见。
 
-`pack` 产出确定性 `.vxp`，并打印 `sha256:` 摘要。发布物带 README、config 初值、contents、depends、dist 和 `.vibex-plugin` 元数据。不带 `runtime/` 源码、source map、`.git`、`node_modules`、开发链接文件。
+`pack` 产出确定性 `.vxp`，并打印 `sha256:` 摘要。发布物带 README、config 初值、contents、depends、dist 和 `.dimo-plugin` 元数据。不带 `runtime/` 源码、source map、`.git`、`node_modules`、开发链接文件。
 
 `doctor` 向 Host 问安装、激活、Runtime、贡献、绑定和最近崩溃。`contributions` 列的是这个插件**全部**已发布贡献，不按 kind 过滤，新 kind 也在里面。不要指望它再吐 grants 字段。
 
@@ -246,9 +246,9 @@ vibex-plugin uninstall --delete-data
 4. 写 Worker 或 App，handler id 必须和声明一致。
 5. `build`，看 `dist/`。
 6. `validate` 和 `test`。
-7. 打开 Desktop 或 `vibex serve`，执行 `vibex plugin add --dev .`。
+7. 打开 Desktop 或 `dimo serve`，执行 `dimo plugin add --dev .`。
 8. 在「设置 → 插件」里启用，走一遍用户能看见的路径。
-9. 要分发就 `pack`，用 `vibex plugin add --profile file.vxp` 或把 `.vxp` 拖进去。
+9. 要分发就 `pack`，用 `dimo plugin add --profile file.vxp` 或把 `.vxp` 拖进去。
 
 Harness 绿了不算完。文件页、预览、Runtime、远程行为必须对着正在跑的 Host 点过。
 
@@ -279,9 +279,9 @@ setup 阶段只注册，不在外面偷偷干活。注册完成就冻结。重�
 
 ## JavaScript / TypeScript SDK
 
-包名 `@vibex/plugin-sdk`。导出
+包名 `@dimoai/plugin-sdk`。导出
 
-- `.`：v2 宿主内 / 联邦模块插件入口（`defineVibeXPlugin`、`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）与协议类型
+- `.`：v2 宿主内 / 联邦模块插件入口（`defineDimoPlugin`、`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）与协议类型
 - `/protocol`：类型和常量
 - `/worker`：定义 Worker
 - `/app`：定义独立 HTML Surface App（`definePluginApp`）
@@ -290,12 +290,12 @@ setup 阶段只注册，不在外面偷偷干活。注册完成就冻结。重�
 
 常量
 
-- `VIBEX_PLUGIN_PROTOCOL_VERSION` 为 `"1.1"`
+- `DIMO_PLUGIN_PROTOCOL_VERSION` 为 `"1.1"`
 
 ### definePluginWorker
 
 ```ts
-import { definePluginWorker } from '@vibex/plugin-sdk/worker';
+import { definePluginWorker } from '@dimoai/plugin-sdk/worker';
 
 export default definePluginWorker((registrar, environment) => {
   registrar.handle('hello', async (input, env) => {
@@ -354,15 +354,15 @@ export default definePluginWorker((registrar, environment) => {
 
 结构面（`app.tab` / `app.panel` / `app.kanban.view` / `app.settings.page`）的 Federation `mount(root, environment)` 会带上 `workspaceId` 和 `invoke(handler, input)`。`invoke` 打到本插件 Worker，再由 Worker 调 `host.call`。不要从 App 里自己 `invoke` Tauri 命令。
 
-### App 入口的两种协议（`defineVibeXPlugin` 与 `definePluginApp`）
+### App 入口的两种协议（`defineDimoPlugin` 与 `definePluginApp`）
 
 1. **`protocol: "2.0"` — 宿主内 / 联邦模块 App（`{ "entry": "app/main.js", "protocol": "2.0" }`）**：
-   使用 `defineVibeXPlugin((ctx) => ...)`，通过命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）直接在宿主 React 树内注册槽位、命令、面板、Turn Hook 与 IoC 服务。
+   使用 `defineDimoPlugin((ctx) => ...)`，通过命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）直接在宿主 React 树内注册槽位、命令、面板、Turn Hook 与 IoC 服务。
 2. **`protocol: "1.0"` — 独立 HTML Surface App（`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`）**：
    使用 `definePluginApp(({ bridge, root, signal }) => ...)`：
 
 ```ts
-import { definePluginApp } from '@vibex/plugin-sdk/app';
+import { definePluginApp } from '@dimoai/plugin-sdk/app';
 
 export default definePluginApp(({ bridge, root, signal }) => {
   const button = document.createElement('button');
@@ -401,7 +401,7 @@ export default definePluginApp(({ bridge, root, signal }) => {
 ### testing
 
 ```ts
-import { createWorkerHarness, createGenerationHarness } from '@vibex/plugin-sdk/testing';
+import { createWorkerHarness, createGenerationHarness } from '@dimoai/plugin-sdk/testing';
 
 const worker = await createWorkerHarness(definition, {
   context: { pluginId: 'you.notes', pluginVersion: '0.1.0', generation: 1 },
@@ -417,12 +417,12 @@ const next = await gen.activateCandidate(definition);
 await gen.dispose();
 ```
 
-`createGenerationHarness` 用来演候选代切换。缺 required handler 会在激活时失败。非 Worker 插件测试直接读取真实的 `.vibex-plugin/plugin.json` 校验，无需改成静态 fixture 导出。
+`createGenerationHarness` 用来演候选代切换。缺 required handler 会在激活时失败。非 Worker 插件测试直接读取真实的 `.dimo-plugin/plugin.json` 校验，无需改成静态 fixture 导出。
 
 ### stdio
 
 ```ts
-import { runStdioPluginWorker } from '@vibex/plugin-sdk/stdio';
+import { runStdioPluginWorker } from '@dimoai/plugin-sdk/stdio';
 import definition from './worker.js';
 
 await runStdioPluginWorker(definition);
@@ -432,10 +432,10 @@ await runStdioPluginWorker(definition);
 
 ## Python SDK
 
-包名 `vibex-plugin`，源码在 `sdk/python`。需要 Python 3.11+。Host 锁的 Isolated/托管解释器是 CPython 3.12.11（python-build-standalone）。
+包名 `dimo-plugin`，源码在 `sdk/python`。需要 Python 3.11+。Host 锁的 Isolated/托管解释器是 CPython 3.12.11（python-build-standalone）。
 
 ```python
-from vibex_plugin import define_plugin_worker, run_stdio_plugin_worker
+from dimo_plugin import define_plugin_worker, run_stdio_plugin_worker
 
 def setup(registrar, environment):
     def hello(input, env):
@@ -457,15 +457,15 @@ if __name__ == "__main__":
 测试
 
 ```python
-from vibex_plugin import create_worker_harness, create_generation_harness, MemoryHostClient
+from dimo_plugin import create_worker_harness, create_generation_harness, MemoryHostClient
 ```
 
 ## Rust SDK
 
-crate 名 `vibex-plugin-sdk`，路径 `crates/plugin-sdk`。MSRV 1.85。stdio 用 tokio current-thread。
+crate 名 `dimo-plugin-sdk`，路径 `crates/plugin-sdk`。MSRV 1.85。stdio 用 tokio current-thread。
 
 ```rust
-use vibex_plugin_sdk::{
+use dimo_plugin_sdk::{
     define_plugin_worker, run_stdio_plugin_worker_blocking, PluginSdkError,
 };
 use serde_json::json;
@@ -510,7 +510,7 @@ crate 当前 `publish = false`，用 path 依赖即可。
 本地
 
 ```bash
-vibex-plugin test
+dimo-plugin test
 ```
 
 模板若带 `test/plugin.test.mjs`，会用 `createWorkerHarness` 调 `hello` 一类 handler。Python / Rust 用各自测试目录。
@@ -522,7 +522,7 @@ vibex-plugin test
 3. 点开你声明的每一个槽。斜杠、预览、保存冲突、关掉插件后入口是否消失
 4. `doctor` 看崩溃环和 `mcpRebindingRequired`
 
-更新失败时，界面和 doctor 应仍指向上一完整代。不要靠杀掉 VibeX 当回滚。
+更新失败时，界面和 doctor 应仍指向上一完整代。不要靠杀掉 Dimo 当回滚。
 
 ## 更新流程
 
@@ -537,7 +537,7 @@ vibex-plugin test
 作者侧
 
 ```bash
-vibex-plugin pack --output notes.vxp
+dimo-plugin pack --output notes.vxp
 ```
 
 把 `.vxp` 发给对方。对方打开 `/plugins`，添加或拖入。装完默认禁用，对方自己开。
@@ -574,4 +574,4 @@ Full Trust 等于本机权限。README 写清联网、读盘、起进程。用�
 
 `summary` 写广告句，列表页会很难看。写它实际干的那一件事。
 
-Agent 原生插件和 VibeX 产品包可以同目录共存，执行权和信任仍分开。
+Agent 原生插件和 Dimo 产品包可以同目录共存，执行权和信任仍分开。

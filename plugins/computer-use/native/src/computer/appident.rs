@@ -54,10 +54,10 @@
 //! packaged application's window — Settings, Calculator — while the
 //! application draws what is in it, in a window of its own process set inside
 //! the frame; `msedgewebview2.exe` draws the inspector and the dialogs of
-//! every application built on WebView2, vibex among them. A window of either
+//! every application built on WebView2, dimo among them. A window of either
 //! is any of those applications', and which one cannot be told from the
 //! host's path: taken for the host, it would pass for an application no
-//! blocklist names, and for one that is not vibex. So a frame is taken for
+//! blocklist names, and for one that is not dimo. So a frame is taken for
 //! the application of the process drawing inside it, which the helper finds
 //! by the frame's handle (see `helper::hwnd`) — and for as long as that same
 //! run of it is inside; the frame host lends its windows nothing of its own.
@@ -429,7 +429,7 @@ fn windows_name(path: &str, app_user_model_id: Option<&str>) -> String {
     let (told, answer) = mpsc::channel();
     let asked = key.clone();
     let reader = std::thread::Builder::new()
-        .name("vibex-app-name".into())
+        .name("dimo-app-name".into())
         .spawn(move || {
             let (path, id) = &asked;
             let name = id
@@ -855,11 +855,11 @@ mod tests {
             )
         );
         for other in [
-            "/Users/me/vibex/src-tauri/target/debug/vibex",
+            "/Users/me/dimo/src-tauri/target/debug/dimo",
             "/Applications/Foo.app/Contents/Resources/bin/foo",
             "/Applications/Foo.app/Contents/MacOS/",
             "/Contents/MacOS/x",
-            "vibex",
+            "dimo",
         ] {
             assert_eq!(executable_bundle(other), None, "{other}");
         }
@@ -1110,7 +1110,7 @@ mod tests {
             None
         );
         assert_eq!(
-            windows_names::start_menu_name("VibeX.Nonexistent_0000000000000!App"),
+            windows_names::start_menu_name("Dimo.Nonexistent_0000000000000!App"),
             None
         );
     }

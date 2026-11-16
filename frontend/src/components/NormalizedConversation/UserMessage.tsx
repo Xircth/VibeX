@@ -252,7 +252,7 @@ const UserMessage = ({
               <ChatMessage
                 sender="user"
                 density="compact"
-                className="vibex-user-message"
+                className="dimo-user-message"
               >
                 <ChatMessageBubble
                   className="conv-user-bubble relative"

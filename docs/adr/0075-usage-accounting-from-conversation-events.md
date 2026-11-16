@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 计量以 conversation_event 为归属权威，厂商日志降级为分项 token 的补充来源
@@ -10,7 +10,7 @@ decision-makers:
 UI transcript 已改由 [ADR-0082](0082-jsonl-transcript-window.md) 规定。
 本 ADR 的归属目标不变：用量仍按会话归属，缺失保持缺失。
 
-Token 报告改从 VibeX 自己的事件日志出账，并补上按目录与按 Agent 的维度。厂商
+Token 报告改从 Dimo 自己的事件日志出账，并补上按目录与按 Agent 的维度。厂商
 日志不删，但它从「唯一事实来源」降级为「分项 token 的补充证据」，且必须按会话
 标识对齐，不再按路径字符串猜归属。
 
@@ -28,8 +28,8 @@ token 分项保持缺失，不填零、不当作事实展示。
 1. **覆盖率**。内置 Agent 有 13 个，扫描器认识 2 个。用 Kimi、Cursor、Grok、
    DeepSeek 跑的会话，在计量里完全不存在——不是显示为 0，是根本不出现。报表
    因此系统性低报，而用户无从知道低报了多少。
-2. **事实来源在产品之外**。Claude 或 Codex 改一次日志布局，VibeX 的报表就静默
-   变空或变错，而 VibeX 对此没有任何检测手段。
+2. **事实来源在产品之外**。Claude 或 Codex 改一次日志布局，Dimo 的报表就静默
+   变空或变错，而 Dimo 对此没有任何检测手段。
 3. **归属靠路径字符串**。Codex 扫描按 `cwd` 与 workspace 路径比对。worktree
    与 project-root 指向同一仓库的不同目录，符号链接、大小写不敏感文件系统、
    多根工作区都会让这个比对出错，而错的方向是静默的。
@@ -44,7 +44,7 @@ token 分项保持缺失，不填零、不当作事实展示。
 
 也就是说：**事件日志的归属是准的、覆盖是全的，但分项 token 大多缺失；厂商日志
 的分项 token 是真的，但只覆盖两家、归属靠猜。** 任何只选一边的方案都在骗人。
-端到端 usage 的 ACP RFD（`PromptResponse` 上的可选 `usage`）是长期正路，VibeX
+端到端 usage 的 ACP RFD（`PromptResponse` 上的可选 `usage`）是长期正路，Dimo
 今天不消费——`AgentPromptFinished` 只读 `stop_reason`。
 
 ## Decision drivers
@@ -135,7 +135,7 @@ token 没有可加关系。`PlanUsageDashboard` 保持独立标签页，不并�
 - **完全废弃厂商日志，只用事件**：否决。今天绝大多数 Agent 不给分项 token，
   纯事件方案会让 Claude / Codex 用户的报表从「有真数据」退化为「大片缺失」，
   是功能倒退。
-- **保留日志为主，事件为辅**：否决。归属问题在日志侧无解——日志里没有 VibeX 的
+- **保留日志为主，事件为辅**：否决。归属问题在日志侧无解——日志里没有 Dimo 的
   workspace 概念，只有路径。按目录与按 Agent 的维度在日志侧做不出可靠结果。
 - **把 `context_used` 当作 token 展示**：否决。ADR-0058 已经定过，上下文占用不是
   输入 token，这正是当时修掉的谎报。

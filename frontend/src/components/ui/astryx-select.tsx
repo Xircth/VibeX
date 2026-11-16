@@ -20,7 +20,7 @@ export { SelectorOption };
  * Dropdown selector for choosing a single value from a list of options.
  *
  * Modeled after the Astryx `Selector` component (astryx.atmeta.com/components)
- * and adapted to React 18 + the VibeX Tahoe design tokens. It renders a
+ * and adapted to React 18 + the Dimo Tahoe design tokens. It renders a
  * bordered input-style trigger, a portal-based listbox popover, keyboard
  * navigation, and an optional clear affordance, so forms no longer depend on
  * native OS-rendered `<select>` popups.

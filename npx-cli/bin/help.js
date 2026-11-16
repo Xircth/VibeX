@@ -43,7 +43,7 @@ Install the Agent Runtime and ACP into the user environment
        ${CLI} plugin test --host [dir]
 
 run     Developer scripts. Bind a Host once, then work from a plugin directory.
-  server          Save Host URL and token to ~/.vibex/pluginrc
+  server          Save Host URL and token to ~/.dimo/pluginrc
   dev             Link if needed and start remote HMR
   build           Build the package
   test            Run harness tests; --host walks the Host journey
@@ -57,8 +57,8 @@ add     Install onto the local Desktop or Server Host
   --yes, -y       Install without a prompt
 publish Submit a packed .vxp or GitHub repo to marketplace review
   --web URL       GitHub owner/repo[#tag]; GitHub owner must match marketplace user
-  --owner USER    Marketplace username (or VIBEX_MARKET_OWNER)
-  --password PASS Marketplace password (or VIBEX_MARKET_PASSWORD)
+  --owner USER    Marketplace username (or DIMO_MARKET_OWNER)
+  --password PASS Marketplace password (or DIMO_MARKET_PASSWORD)
   --show-tree     Show package structure for uploads
 list    Show installed plugins on the running Host
   --json          Print JSON
@@ -69,7 +69,7 @@ remove  Uninstall a non-built-in plugin
 gc-runtimes  Delete managed Runtimes with no plugin references
 test --host  Install, Skill-reload, and uninstall against the running Host
         Bind a Host with \`${CLI} plugin run server\` first.
-        If no Host is running, .vxp and --dev links stay in ~/.vibex/imports
+        If no Host is running, .vxp and --dev links stay in ~/.dimo/imports
         and Desktop or Server imports them on the next launch.
 `,
 
@@ -139,9 +139,9 @@ Host
   list                    List built-in and ACP Registry Agents
   install <id> [-y]       Install Runtime and ACP on this Host
   (no command)            Start the Host on loopback
-  --mcp                   Start vibex-mcp instead of vibex-server
+  --mcp                   Start dimo-mcp instead of dimo-server
 
-Control (needs a running Host, VIBEX_URL, VIBEX_TOKEN)
+Control (needs a running Host, DIMO_URL, DIMO_TOKEN)
   conversation            Create, send, wait, cancel
   workflow                Validate, publish, run, resume
   project, workspace, session

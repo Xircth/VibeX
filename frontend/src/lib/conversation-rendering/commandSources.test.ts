@@ -17,7 +17,7 @@ describe('composer command sources', () => {
         {
           name: 'summarize',
           sourceKind: 'plugin',
-          sourceId: 'vibex.science/summarize',
+          sourceId: 'dimo.science/summarize',
         },
       ])
     ).toBe(true);
@@ -123,7 +123,7 @@ describe('composer command sources', () => {
             name: 'review',
             displayLabel: 'Review workflow',
             sourceKind: 'plugin',
-            sourceId: 'dev.vibex.review/review',
+            sourceId: 'dev.dimo.review/review',
           },
         ],
         skillCommands: [
@@ -152,7 +152,7 @@ describe('composer command sources', () => {
         name: 'review',
         displayLabel: 'Review workflow',
         sourceKind: 'plugin',
-        sourceId: 'dev.vibex.review/review',
+        sourceId: 'dev.dimo.review/review',
       },
       {
         name: 'review',
@@ -168,7 +168,7 @@ describe('composer command sources', () => {
       pluginInvocationsToSlashCommands({
         plugins: [
           {
-            id: 'dev.vibex.review',
+            id: 'dev.dimo.review',
             name: 'Review',
             version: '1.0.0',
             description: null,
@@ -176,7 +176,7 @@ describe('composer command sources', () => {
             builtin: false,
             sourceKind: 'snapshot',
             sourcePath: '/plugins/review',
-            formats: ['vibex'],
+            formats: ['dimo'],
             skills: [],
             runtimes: [],
             warnings: [],
@@ -196,7 +196,7 @@ describe('composer command sources', () => {
       {
         name: 'review',
         sourceKind: 'plugin',
-        sourceId: 'dev.vibex.review/review',
+        sourceId: 'dev.dimo.review/review',
         prompt: 'Review this.',
       },
     ]);
@@ -206,7 +206,7 @@ describe('composer command sources', () => {
     expect(
       pluginComposerSlashContributions([
         {
-          pluginId: 'vibex.office',
+          pluginId: 'dimo.office',
           id: 'create-slides',
           kind: 'composer_slash',
           label: 'Create slides',
@@ -225,7 +225,7 @@ describe('composer command sources', () => {
         description: 'Start a presentation',
         kind: 'COMMAND',
         sourceKind: 'plugin',
-        sourceId: 'vibex.office/create-slides',
+        sourceId: 'dimo.office/create-slides',
         prompt: 'Create a presentation',
       },
     ]);

@@ -50,7 +50,7 @@ pub enum AgentContentBlock {
         title: Option<String>,
     },
     /// A lossless ACP content block for protocol variants that do not have a
-    /// legacy VibeX presentation shape (audio, embedded resource,
+    /// legacy Dimo presentation shape (audio, embedded resource,
     /// resource-link, or future additions). `_meta` is retained only within
     /// the configured size bound.
     Protocol {

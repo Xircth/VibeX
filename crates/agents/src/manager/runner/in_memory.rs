@@ -8,7 +8,7 @@ impl AgentConnectionRunner {
         let in_memory_steering = matches!(
             self.snapshot
                 .env
-                .get("VIBEX_IN_MEMORY_STEERING")
+                .get("DIMO_IN_MEMORY_STEERING")
                 .map(String::as_str),
             Some("1" | "rpc_unsupported")
         );
@@ -197,7 +197,7 @@ impl AgentConnectionRunner {
                     if self
                         .snapshot
                         .env
-                        .get("VIBEX_IN_MEMORY_STEERING")
+                        .get("DIMO_IN_MEMORY_STEERING")
                         .map(String::as_str)
                         == Some("1")
                     {

@@ -106,7 +106,7 @@ pub(super) async fn install() -> Result<PathBuf, ApplicationError> {
         .redirect(Policy::limited(8))
         .connect_timeout(Duration::from_secs(20))
         .timeout(Duration::from_secs(180))
-        .user_agent("VibeX GitHub CLI installer")
+        .user_agent("Dimo GitHub CLI installer")
         .build()
         .map_err(|error| {
             ApplicationError::internal(format!(

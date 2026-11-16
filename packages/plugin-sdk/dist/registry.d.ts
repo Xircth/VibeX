@@ -256,8 +256,8 @@ export declare function applyBeforeTurnPromptContributions(draftText: string, in
  */
 export declare function dispatchCapturedInternalMessage(msg: CapturedInternalMessage): void;
 /**
- * Strips `<vibex-internal-meta>`, `<!--vibex-internal:channel:nonce ...-->`, and
- * fenced `vibex-internal:channel:nonce` blocks from assistant text so internal
+ * Strips `<dimo-internal-meta>`, `<!--dimo-internal:channel:nonce ...-->`, and
+ * fenced `dimo-internal:channel:nonce` blocks from assistant text so internal
  * plugin protocol payloads never leak into the user-visible chat timeline, while
  * dispatching matching payloads to registered `InternalMessageCaptureContribution`s.
  */

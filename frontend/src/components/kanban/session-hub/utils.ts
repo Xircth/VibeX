@@ -38,7 +38,7 @@ export const UNASSIGNED_EXECUTOR = '__kanban_unassigned_executor__';
 export const SESSION_LIST_ACTION_BUTTON_CLASS =
   'session-hub-action-button h-7 w-7 p-0 shadow-none';
 export const SESSION_LIST_ACTION_ICON_CLASS = 'h-3.5 w-3.5';
-export const SESSION_LIST_WIDTH_STORAGE_KEY = 'vibex-kanban-session-list-width';
+export const SESSION_LIST_WIDTH_STORAGE_KEY = 'dimo-kanban-session-list-width';
 export const DEFAULT_SESSION_LIST_WIDTH = 280;
 export const MIN_SESSION_LIST_WIDTH = 220;
 export const MAX_SESSION_LIST_WIDTH = 560;

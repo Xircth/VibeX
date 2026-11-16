@@ -49,7 +49,7 @@ const ENV_PROXY_KEYS: [&str; 6] = [
     "all_proxy",
 ];
 
-/// Snapshot the process proxy env once, before VibeX overwrites it.
+/// Snapshot the process proxy env once, before Dimo overwrites it.
 pub fn capture_inherited_proxy() {
     let _ = INHERITED_PROXY.get_or_init(env_proxy_url);
 }

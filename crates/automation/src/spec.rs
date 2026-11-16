@@ -103,7 +103,7 @@ impl AutomationSpec {
                             std::path::Component::Normal(_) | std::path::Component::CurDir
                         )
                     })
-                    || !spec.source_path.ends_with(".vibex-workflow.json")
+                    || !spec.source_path.ends_with(".dimo-workflow.json")
                     || spec.version_digest.trim().is_empty()
                 {
                     return Err(AutomationError::InvalidPortableReference);
@@ -412,8 +412,8 @@ mod tests {
 
     fn portable_workspace() -> PortableWorkspaceRef {
         PortableWorkspaceRef {
-            project_name: "VibeX".to_string(),
-            root_folder_name: "VibeX".to_string(),
+            project_name: "Dimo".to_string(),
+            root_folder_name: "Dimo".to_string(),
             branch: Some("main".to_string()),
             isolation: IsolationSpec::WorktreePerRun,
         }
@@ -426,8 +426,8 @@ mod tests {
             "displayText": "run",
             "agent": {"agentId": "codex"},
             "workspace": {
-                "projectName": "VibeX",
-                "rootFolderName": "VibeX"
+                "projectName": "Dimo",
+                "rootFolderName": "Dimo"
             },
             "workflowRefs": [{
                 "pluginId": "office",
@@ -481,7 +481,7 @@ mod tests {
             name: "Workflow".to_string(),
             trigger: crate::ScheduleSpec::Manual,
             target: PortableAutomationTarget::Workflow(PortableWorkflowLaunchSpec {
-                source_path: "/tmp/release.vibex-workflow.json".to_string(),
+                source_path: "/tmp/release.dimo-workflow.json".to_string(),
                 version_digest: "sha256:test".to_string(),
                 input: serde_json::json!({}),
                 policy_override: None,

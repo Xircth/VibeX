@@ -110,9 +110,9 @@ describe('onboarding appearance', () => {
     fireEvent.click(
       screen.getByRole('radio', { name: 'Onboarding test theme' })
     );
-    expect(localStorage.getItem('vibex:color-theme-light')).toBe(themeKey);
+    expect(localStorage.getItem('dimo:color-theme-light')).toBe(themeKey);
     expect(
-      document.querySelector('style[data-vibex-color-theme]')?.textContent
+      document.querySelector('style[data-dimo-color-theme]')?.textContent
     ).toContain('--surface-shell: #f4f5f6;');
 
     const amberSwatch = screen.getByRole('radio', {

@@ -2,10 +2,10 @@
 status: accepted
 date: 2026-08-13
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
-# VibeX Plugin 采用全信任执行模型
+# Dimo Plugin 采用全信任执行模型
 
 > 安装信任的可见化已由 [ADR-0066](0066-plugin-marketplace-authoring-and-session-honesty.md)
 > 修订：市场、`.vxp` 与 CLI 安装必须弹出预览与 Full Trust 确认。这不是逐 capability 审批。
@@ -17,14 +17,14 @@ Broker scope、Trusted Native 二次授权、受限 App iframe 与更新时 perm
 该模型让最小完整插件同时承担多平台 OS sandbox、权限 UI、授权迁移、scope 校验和 Runtime
 授权，显著拖慢 SDK、扩展点与真实插件体验的成熟。
 
-VibeX 当前的产品目标是本地开发者主动安装的 IDE 类插件生态。其信任假设与 VS Code、bb
+Dimo 当前的产品目标是本地开发者主动安装的 IDE 类插件生态。其信任假设与 VS Code、bb
 等桌面开发工具更接近：插件作者代码是安装物的一部分，安装行为本身就是信任决定。用户已
 明确选择优先完成能力、开发体验与产品完整性，暂不建设恶意插件安全边界。
 
 ## Decision
 
-1. VibeX Plugin Package 采用单一 **Full Trust** 模型。安装或启用包即允许其 Worker、App
-   和声明 Runtime 使用与 VibeX Host 相同的本机文件、网络、环境变量与进程能力。
+1. Dimo Plugin Package 采用单一 **Full Trust** 模型。安装或启用包即允许其 Worker、App
+   和声明 Runtime 使用与 Dimo Host 相同的本机文件、网络、环境变量与进程能力。
 2. 产品界面不展示逐 capability 审批、scope、permission delta 或 Trusted Native 弹窗。
    manifest 中既有 `permissions` 只作为旧 v4 包的兼容元数据与 Host API 使用说明，不产生
    运行门禁；新包可以完全省略。
@@ -46,7 +46,7 @@ VibeX 当前的产品目标是本地开发者主动安装的 IDE 类插件生态
 - 插件作者无需设计 capability scope、授权迁移或 Trusted Native recipe，CLI `dev`、linked
   reload 与普通启用使用同一条直接路径。
 - Windows、macOS 与 Linux 共享同一种 Worker 启动模型，不再因缺少 OS sandbox 拒绝插件。
-- 插件可以读取用户文件、凭据并启动任意程序。VibeX 必须在安装来源和文档中诚实标明这是
+- 插件可以读取用户文件、凭据并启动任意程序。Dimo 必须在安装来源和文档中诚实标明这是
   全信任生态，不能声称第三方插件被隔离。
 - 未来若产品转向不受信任 Marketplace，必须通过新的 ADR 引入不同 package class 或独立
   sandbox runtime；不得在当前 full-trust API 上悄悄恢复零散权限弹窗。

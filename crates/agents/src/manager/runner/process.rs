@@ -3,14 +3,14 @@ use super::*;
 pub(in crate::manager) const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 pub(in crate::manager) const DEFAULT_SESSION_PREP_TIMEOUT_SECS: u64 = 60;
 pub(in crate::manager) const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
-pub(in crate::manager) const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
-pub(in crate::manager) const SESSION_PREP_TIMEOUT_ENV: &str = "VIBEX_ACP_SESSION_PREP_TIMEOUT_SECS";
-pub(in crate::manager) const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
+pub(in crate::manager) const HANDSHAKE_TIMEOUT_ENV: &str = "DIMO_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
+pub(in crate::manager) const SESSION_PREP_TIMEOUT_ENV: &str = "DIMO_ACP_SESSION_PREP_TIMEOUT_SECS";
+pub(in crate::manager) const FULL_GATE_FIXTURE_PROMPT: &str = "__dimo_agent_full_gate_fixture__";
 // Prompt idle watchdog. Unset uses `DEFAULT_PROMPT_IDLE_TIMEOUT_SECS` so a
 // silent in-flight turn cannot sit on "生成中" forever. `0` disables it.
 // Every inbound ACP request/notification refreshes the clock, and permission,
 // elicitation, and live-terminal waits are exempt.
-pub(in crate::manager) const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
+pub(in crate::manager) const PROMPT_IDLE_TIMEOUT_ENV: &str = "DIMO_PROMPT_IDLE_TIMEOUT_SECS";
 
 // ACP cancellation is complete when the agent answers the outstanding
 // `session/prompt` (normally with `StopReason::Cancelled`), not when the

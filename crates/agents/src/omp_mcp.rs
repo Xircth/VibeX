@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn mcp_json_path_ignores_pi_agent_dir() {
-        let home = Path::new("/tmp/vibex-home");
+        let home = Path::new("/tmp/dimo-home");
         let pi = home.join(".pi").join("agent");
         let env = BTreeMap::from([(
             "PI_CODING_AGENT_DIR".to_string(),

@@ -41,11 +41,11 @@ test('installed desktop identity stays distinct from the development instance', 
   const config = readJson('src-tauri/tauri.conf.json');
   const desktopDev = read('scripts/run-tauri-dev-desktop.js');
 
-  assert.equal(config.identifier, 'com.vibex.app');
-  assert.equal(config.productName, 'VibeX');
-  assert.deepEqual(config.plugins['deep-link'].desktop.schemes, ['vibex']);
-  assert.match(desktopDev, /com\.vibex\.app\.dev/);
-  assert.match(desktopDev, /VibeX Dev/);
+  assert.equal(config.identifier, 'com.dimo.app');
+  assert.equal(config.productName, 'Dimo');
+  assert.deepEqual(config.plugins['deep-link'].desktop.schemes, ['dimo']);
+  assert.match(desktopDev, /com\.dimo\.app\.dev/);
+  assert.match(desktopDev, /Dimo Dev/);
   assert.equal(
     fs.existsSync(path.join(repoRoot, 'scripts', 'run-tauri-dev-macos.js')),
     false
@@ -200,7 +200,7 @@ test('desktop release compiles frontend once and reuses Rust caches without CEF'
     /needs: \[prepare-release, build-frontend, probe-runners\]/
   );
   assert.match(workflow, /cancel-in-progress:\s*true/);
-  assert.match(workflow, /VIBEX_SKIP_FRONTEND_BUILD:\s*"1"/);
+  assert.match(workflow, /DIMO_SKIP_FRONTEND_BUILD:\s*"1"/);
   assert.match(workflow, /SCCACHE_GHA_ENABLED:\s*"true"/);
   assert.match(workflow, /BloopAI\/sccache-action@main/);
   assert.match(workflow, /Disable sccache on Windows/);
@@ -220,6 +220,6 @@ test('desktop release compiles frontend once and reuses Rust caches without CEF'
 
   assert.match(tauriConfig, /scripts\/tauri-before-build\.js/);
   assert.match(tauriConfig, /scripts\/tauri-before-bundle\.js/);
-  assert.doesNotMatch(desktopBuild, /vibex_cef_helper/);
+  assert.doesNotMatch(desktopBuild, /dimo_cef_helper/);
   assert.doesNotMatch(desktopBuild, /CEF_PATH/);
 });

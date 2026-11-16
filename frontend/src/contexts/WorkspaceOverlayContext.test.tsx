@@ -251,7 +251,7 @@ describe('WorkspaceOverlayProvider', () => {
         expect(root.hasAttribute(OVERLAY_PENDING_ATTR)).toBe(true)
       );
       expect(
-        document.getElementById('vibex-overlay-pending-style')?.textContent
+        document.getElementById('dimo-overlay-pending-style')?.textContent
       ).toContain('visibility:hidden');
       fireEvent.click(screen.getByRole('button', { name: 'ack host' }));
       await waitFor(() =>

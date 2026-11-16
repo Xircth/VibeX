@@ -16,7 +16,7 @@ impl AgentConnectionRunner {
             &conn,
             InitializeRequest::new(ProtocolVersion::LATEST)
                 .client_capabilities(client_capabilities.clone())
-                .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
+                .client_info(Implementation::new("dimo", env!("CARGO_PKG_VERSION"))),
         );
         let (initialize_response, raw_capabilities) =
             match tokio::time::timeout(handshake_timeout_duration, initialize).await {
@@ -241,7 +241,7 @@ impl AgentConnectionRunner {
                     // already owns a thread; the host binds it with
                     // PrepareSession (first turn) or ResumeSession
                     // (follow-up). Creating a thread here forks Codex
-                    // into a new session B while VibeX keeps writing A.
+                    // into a new session B while Dimo keeps writing A.
                     let acp_session_id = match self
                         .session_map
                         .read()

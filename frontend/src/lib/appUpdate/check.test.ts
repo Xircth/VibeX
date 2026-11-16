@@ -42,8 +42,8 @@ describe('appUpdate lifecycle state', () => {
     mocks.relaunch.mockReset();
     resetAppUpdateStateForTests();
     writeDismissedVersion(null);
-    window.localStorage.removeItem('vibex.appUpdate.lastMainRoute');
-    window.localStorage.removeItem('vibex.appUpdate.postUpdateRestore');
+    window.localStorage.removeItem('dimo.appUpdate.lastMainRoute');
+    window.localStorage.removeItem('dimo.appUpdate.postUpdateRestore');
   });
 
   afterEach(() => {

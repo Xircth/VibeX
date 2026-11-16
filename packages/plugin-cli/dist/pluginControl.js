@@ -10,8 +10,8 @@ export function resolvePluginDirectoryInput(input) {
     if (existsSync(direct)) {
         return direct;
     }
-    const userPluginsRoot = process.env.VIBEX_USER_PLUGINS_DIR?.trim() ||
-        join(homedir(), ".vibex", "plugins");
+    const userPluginsRoot = process.env.DIMO_USER_PLUGINS_DIR?.trim() ||
+        join(homedir(), ".dimo", "plugins");
     const underUserPlugins = join(userPluginsRoot, target);
     if (existsSync(underUserPlugins)) {
         return underUserPlugins;
@@ -21,7 +21,7 @@ export function resolvePluginDirectoryInput(input) {
 export async function inspectLinkedPackage(root) {
     const resolvedInput = resolvePluginDirectoryInput(root);
     const { root: sourceRoot, manifestPath, rawManifest } = await readPluginReference(resolvedInput);
-    const isRootV2Manifest = !manifestPath.endsWith(join(".vibex-plugin", "plugin.json")) &&
+    const isRootV2Manifest = !manifestPath.endsWith(join(".dimo-plugin", "plugin.json")) &&
         String(rawManifest.apiVersion) === "2.0";
     if (!isRootV2Manifest) {
         const validation = await validatePlugin(sourceRoot);
@@ -48,7 +48,7 @@ async function readPluginReference(root) {
     if (!(await stat(sourceRoot)).isDirectory()) {
         throw new Error("plugin_link_source_not_directory");
     }
-    const nestedManifestPath = join(sourceRoot, ".vibex-plugin", "plugin.json");
+    const nestedManifestPath = join(sourceRoot, ".dimo-plugin", "plugin.json");
     const rootManifestPath = join(sourceRoot, "plugin.json");
     const manifestPath = existsSync(nestedManifestPath)
         ? nestedManifestPath

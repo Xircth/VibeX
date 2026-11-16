@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
-import { type SlotContribution, useSlotContributions } from '@vibex/plugin-sdk';
+import { type SlotContribution, useSlotContributions } from '@dimoai/plugin-sdk';
 import { useTranslation } from 'react-i18next';
 import {
   readClipboardViaBridge,

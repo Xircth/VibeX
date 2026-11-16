@@ -281,7 +281,7 @@ impl EditorConfig {
 
         let vscode_dir = path.join(".vscode");
         let extensions_file = vscode_dir.join("extensions.json");
-        const EXTENSION_ID: &str = "vibex.vibex";
+        const EXTENSION_ID: &str = "dimo.dimo";
 
         let mut json: serde_json::Value = if extensions_file.exists() {
             match std::fs::read_to_string(&extensions_file) {
@@ -294,7 +294,7 @@ impl EditorConfig {
                         tracing::warn!(
                             file = ?extensions_file,
                             error = %e,
-                            "extensions.json is not valid JSON; skipping VibeX recommendation"
+                            "extensions.json is not valid JSON; skipping Dimo recommendation"
                         );
                         return;
                     }
@@ -303,7 +303,7 @@ impl EditorConfig {
                     tracing::warn!(
                         file = ?extensions_file,
                         error = %e,
-                        "failed to read extensions.json; skipping VibeX recommendation"
+                        "failed to read extensions.json; skipping Dimo recommendation"
                     );
                     return;
                 }

@@ -122,7 +122,7 @@ pub async fn list_indexed_space_collection_pointers(
         .collect()
 }
 
-/// Refresh `~/.vibex/spaces/<safe_space>/MEMORY.md` (`## Index` section) and `summary.json`
+/// Refresh `~/.dimo/spaces/<safe_space>/MEMORY.md` (`## Index` section) and `summary.json`
 /// while preserving `MEMORY.md`'s existing entries as the single source of truth.
 pub async fn sync_space_memory_files(
     pool: &SqlitePool,

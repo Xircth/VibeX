@@ -59,8 +59,8 @@ const LEAF_COMPLETION_SUFFIXES: &[&str] = &[
     "/v1/responses",
     "/responses",
 ];
-const CODEX_CATALOG_FILE: &str = "vibex-model-catalog.json";
-const CODEX_SOURCE_FILE: &str = "vibex-model-catalog.source.json";
+const CODEX_CATALOG_FILE: &str = "dimo-model-catalog.json";
+const CODEX_SOURCE_FILE: &str = "dimo-model-catalog.source.json";
 type CodexCatalogFiles = (bool, Option<Vec<u8>>, Option<Vec<u8>>);
 #[cfg(test)]
 const IMPORT_SKIP_KEYS: &[&str] = &[

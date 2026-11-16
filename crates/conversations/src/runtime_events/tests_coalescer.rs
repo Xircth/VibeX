@@ -461,7 +461,7 @@ fn tool_call_update_can_rewrite_the_title() {
     let envelope = envelope(AgentEvent::ToolCallUpdate {
         update: AgentToolCallUpdate {
             id: "tool-1".to_string(),
-            title: Some("vibex-delegation-mcp__delegate_to_agent".to_string()),
+            title: Some("dimo-delegation-mcp__delegate_to_agent".to_string()),
             status: Some("running".to_string()),
             content: None,
             input_preview: Some(r#"{"agent_type":"codex","task":"hi"}"#.to_string()),
@@ -475,7 +475,7 @@ fn tool_call_update_can_rewrite_the_title() {
         mapped,
         Some(ConversationEvent::ToolCallUpsert { tool_call })
             if tool_call.title.as_deref()
-                == Some("vibex-delegation-mcp__delegate_to_agent")
+                == Some("dimo-delegation-mcp__delegate_to_agent")
     ));
 }
 

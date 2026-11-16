@@ -416,7 +416,7 @@ async fn failed_session_override_keeps_the_user_prompt_in_the_transcript() {
         Duration::from_secs(5),
         acp::Client
             .builder()
-            .name("VibeX")
+            .name("Dimo")
             .connect_with(client_transport, async move |conn| {
                 runner.run_prompt(&conn, request, &mut cmd_rx).await
             }),

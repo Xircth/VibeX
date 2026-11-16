@@ -2137,7 +2137,7 @@ fn file_at_head_content(
 fn ssh_host_files_dir() -> Result<PathBuf, ApplicationError> {
     let home =
         dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-    Ok(home.join(".vibex").join("ssh-hosts"))
+    Ok(home.join(".dimo").join("ssh-hosts"))
 }
 
 fn sanitize_ssh_host_file_name(file_name: &str) -> Result<String, ApplicationError> {

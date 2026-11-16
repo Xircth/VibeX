@@ -49,7 +49,7 @@ describe("parseHostFlags", () => {
 
 describe("host session file", () => {
   it("saves and loads a session without echoing extras", () => {
-    const home = mkdtempSync(join(tmpdir(), "vibex-pluginrc-"));
+    const home = mkdtempSync(join(tmpdir(), "dimo-pluginrc-"));
     const file = hostSessionPath(home);
     try {
       saveHostSession(
@@ -68,7 +68,7 @@ describe("host session file", () => {
   });
 
   it("writes the session file as owner-only", () => {
-    const home = mkdtempSync(join(tmpdir(), "vibex-pluginrc-mode-"));
+    const home = mkdtempSync(join(tmpdir(), "dimo-pluginrc-mode-"));
     const file = hostSessionPath(home);
     try {
       saveHostSession(
@@ -108,6 +108,6 @@ describe("mergeHostSession", () => {
 
 describe("requireHostSession", () => {
   it("tells the user to run server when nothing is bound", () => {
-    expect(() => requireHostSession(null)).toThrow(/vibex plugin run server/);
+    expect(() => requireHostSession(null)).toThrow(/dimo plugin run server/);
   });
 });

@@ -95,7 +95,7 @@ interface SelectOption<T extends string = string> {
   disabled?: boolean;
 }
 
-const LOCAL_STORAGE_KEY = 'vibex:host-browser-prefs:v1';
+const LOCAL_STORAGE_KEY = 'dimo:host-browser-prefs:v1';
 
 const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   defaultTarget: {
@@ -524,7 +524,7 @@ function syncHostBrowserPanelsInDom(
 
   try {
     window.dispatchEvent(
-      new CustomEvent('vibex:browser-grant-changed', {
+      new CustomEvent('dimo:browser-grant-changed', {
         detail: { tabId, level, tab: updatedTab ?? null },
       })
     );
@@ -641,7 +641,7 @@ function getActiveTabFromPanelElement(
 // Integrated Docked DevTools Inspector Bridge for HostBrowserPanel
 // ============================================================================
 
-const DEVTOOLS_GLOBAL_KEY = '__vibexBrowserDevtoolsControllerV1';
+const DEVTOOLS_GLOBAL_KEY = '__dimoBrowserDevtoolsControllerV1';
 
 interface DevtoolsController {
   enabled: boolean;
@@ -664,7 +664,7 @@ function ensureBrowserDevtoolsBridge(
 
   const closeAllDocks = () => {
     document
-      .querySelectorAll('[data-vibex-browser-devtools-dock="true"]')
+      .querySelectorAll('[data-dimo-browser-devtools-dock="true"]')
       .forEach((dock) => dock.remove());
   };
 
@@ -684,7 +684,7 @@ function ensureBrowserDevtoolsBridge(
           label.includes('开发者工具') ||
           label.toLowerCase().includes('devtools')
         ) {
-          btn.setAttribute('data-vibex-devtools-trigger', 'true');
+          btn.setAttribute('data-dimo-devtools-trigger', 'true');
           if (!isEnabled) {
             btn.style.opacity = '0.35';
             btn.style.pointerEvents = 'none';
@@ -703,7 +703,7 @@ function ensureBrowserDevtoolsBridge(
   const toggleDevtoolsDock = (panelRoot: HTMLElement) => {
     if (!isEnabled) return;
     const existingDock = panelRoot.querySelector(
-      '[data-vibex-browser-devtools-dock="true"]'
+      '[data-dimo-browser-devtools-dock="true"]'
     );
     if (existingDock) {
       existingDock.remove();
@@ -711,7 +711,7 @@ function ensureBrowserDevtoolsBridge(
     }
 
     const dock = document.createElement('div');
-    dock.setAttribute('data-vibex-browser-devtools-dock', 'true');
+    dock.setAttribute('data-dimo-browser-devtools-dock', 'true');
     dock.className =
       'flex h-64 shrink-0 flex-col border-t border-border bg-background text-xs text-foreground select-text';
 
@@ -721,7 +721,7 @@ function ensureBrowserDevtoolsBridge(
     const consoleLogs: Array<{ type: 'cmd' | 'res' | 'err'; text: string }> = [
       {
         type: 'res',
-        text: 'VibeX 内置浏览器开发者工具已就绪。可在下方输入表达式或切到「元素树」检查页面结构。',
+        text: 'Dimo 内置浏览器开发者工具已就绪。可在下方输入表达式或切到「元素树」检查页面结构。',
       },
     ];
 
@@ -1793,7 +1793,7 @@ export default function BrowserSettingsRemoteView({
   const defaultProfileSelectId = useId();
 
   const queueRef = useRef<Promise<unknown>>(Promise.resolve());
-  const pluginId = environment?.pluginId || 'vibex.browser';
+  const pluginId = environment?.pluginId || 'dimo.browser';
 
   const dispatch = useCallback(
     <T = unknown,>(

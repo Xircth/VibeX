@@ -1,8 +1,8 @@
-# VibeX Plugin Product Package v4
+# Dimo Plugin Product Package v4
 
 ## 1. 用户模型
 
-VibeX Plugin 是一个可安装、可启停、可配置的产品功能单元。用户不需要理解这个功能由
+Dimo Plugin 是一个可安装、可启停、可配置的产品功能单元。用户不需要理解这个功能由
 Skill、MCP、Worker、App surface 或 Runtime 中的哪一种内部机制实现。插件列表只展示名称、
 一句话简介、发布者、版本和启用状态；点击插件后进入独立详情页，通过“内容”和“配置”
 两个 Tab 使用它。
@@ -14,7 +14,7 @@ package 就表示 Full Trust，不存在逐能力权限模型。
 
 ```text
 my-plugin/
-├─ .vibex-plugin/
+├─ .dimo-plugin/
 │  ├─ plugin.json              # 身份、兼容性、执行边界与声明
 │  ├─ content.index.json       # CLI 初始化、作者维护、build 严格校验的内容目录
 │  ├─ package.lock.json        # build 生成的不可变执行内容摘要
@@ -58,7 +58,7 @@ my-plugin/
 summary: Preview, create, and transform Word, Excel, and PowerPoint documents.
 ---
 
-# VibeX Office
+# Dimo Office
 
 这里开始才是完整 README 正文……
 ```
@@ -117,7 +117,7 @@ Host 必须在写入前按 schema 校验，并以同目录临时文件、`fsync`
 
 ## 5. 内容索引
 
-`.vibex-plugin/content.index.json` 是 CLI 初始化、作者维护、build 严格校验、签名覆盖且由 Host
+`.dimo-plugin/content.index.json` 是 CLI 初始化、作者维护、build 严格校验、签名覆盖且由 Host
 再次校验的结构化目录：
 
 ```json
@@ -150,17 +150,17 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
   "manifestVersion": 4,
   "apiVersion": "2.0",
   "id": "office",
-  "publisher": "vibex",
+  "publisher": "dimo",
   "version": "4.0.0",
-  "name": "VibeX Office",
+  "name": "Dimo Office",
   "engines": {
-    "vibex": ">=0.1.3 <1.0.0",
+    "dimo": ">=0.1.3 <1.0.0",
     "pluginSdk": "^2.0.0"
   },
   "readme": "README.md",
   "content": {
     "root": "contents",
-    "index": ".vibex-plugin/content.index.json"
+    "index": ".dimo-plugin/content.index.json"
   },
   "config": {
     "schema": {
@@ -199,7 +199,7 @@ Worker 的 `maxFrameMiB` 可选，默认单帧 `32 MiB`，可配置范围为 `1.
      "protocol": "2.0"
    }
    ```
-   配合 `@vibex/plugin-sdk` 的 `defineVibeXPlugin((ctx) => ...)`，通过命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）在宿主 React 树内直接注册 UI 槽位、命令、面板、Turn Hook 与 IoC 服务，并通过 1-hop `HostCapabilityBroker` 调用宿主能力。
+   配合 `@dimoai/plugin-sdk` 的 `defineDimoPlugin((ctx) => ...)`，通过命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）在宿主 React 树内直接注册 UI 槽位、命令、面板、Turn Hook 与 IoC 服务，并通过 1-hop `HostCapabilityBroker` 调用宿主能力。
 2. **`protocol: "1.0"`（独立 HTML Surface App）**：
    ```json
    "app": {
@@ -208,11 +208,11 @@ Worker 的 `maxFrameMiB` 可选，默认单帧 `32 MiB`，可配置范围为 `1.
      "protocol": "1.0"
    }
    ```
-   配合 `@vibex/plugin-sdk/app` 的 `definePluginApp(({ root, bridge, signal }) => ...)`，用于挂载独立 HTML Surface（如 `plugin.detail.panel` 与 `artifact.editor` 可编辑文件 Tab）。
+   配合 `@dimoai/plugin-sdk/app` 的 `definePluginApp(({ root, bridge, signal }) => ...)`，用于挂载独立 HTML Surface（如 `plugin.detail.panel` 与 `artifact.editor` 可编辑文件 Tab）。
 
 ### integrations
 
-`integrations` 是插件内容/代码与 VibeX 内核扩展点的机器映射，不是用户详情页章节：
+`integrations` 是插件内容/代码与 Dimo 内核扩展点的机器映射，不是用户详情页章节：
 
 - `content.skill`：把 `contents/skills/...` 投影给受支持的 Agent；
 - `content.mcp`：插件 MCP 的 Host 接入点。资源 JSON 声明启动方式（`hostFamilyBinary` /
@@ -242,15 +242,15 @@ Host 管理。原生可执行依赖随插件启用获得 Full Trust；digest/pro
 
 ## 7. 构建与发布
 
-`vibex-plugin build`：
+`dimo-plugin build`：
 
 1. 严格校验 README summary、config/schema、content index、integrations 和 dependencies；
 2. 将 `runtime/` 构建为 `dist/`；
 3. 校验内容索引并生成 package lock 与完整性证据；
 4. 验证所有声明引用均存在且处于允许目录。
 
-`vibex-plugin pack` 产生确定性 `.vxp`。发布包包含 README、config 初始值、contents、depends、
-dist 和 `.vibex-plugin` 元数据，不包含作者源码、source map、developer-link、绝对路径或时间戳。
+`dimo-plugin pack` 产生确定性 `.vxp`。发布包包含 README、config 初始值、contents、depends、
+dist 和 `.dimo-plugin` 元数据，不包含作者源码、source map、developer-link、绝对路径或时间戳。
 `config.json` 随包分发但不参与 executable digest。
 
 ## 8. UI 契约
@@ -266,7 +266,7 @@ dist 和 `.vibex-plugin` 元数据，不包含作者源码、source map、develo
 
 ## 9. Office reference package
 
-VibeX Office 必须只依赖公开包契约和 SDK。它的 README summary 是列表入口；Word/Excel/
+Dimo Office 必须只依赖公开包契约和 SDK。它的 README summary 是列表入口；Word/Excel/
 PowerPoint Skills 与 workflows 位于 `contents/`；OfficeCLI 描述位于 `depends/runtimes/`；
 Worker/App 入口位于 `runtime/` 并构建到 `dist/`；预览设置写入根 `config.json`。
 

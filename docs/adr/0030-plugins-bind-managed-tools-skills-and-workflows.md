@@ -2,12 +2,12 @@
 status: superseded by ADR-0043
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 插件统一绑定托管工具、Skill、提示词工作流与 Artifact Provider
 
-VibeX 将 **Plugin（插件）** 定义为用户可发现、可启用、可审计的一组外接能力，而
+Dimo 将 **Plugin（插件）** 定义为用户可发现、可启用、可审计的一组外接能力，而
 不是一段可任意执行的安装命令。一个插件可以声明：
 
 - 一个或多个外部工具依赖，例如 OfficeCLI；
@@ -17,16 +17,16 @@ VibeX 将 **Plugin（插件）** 定义为用户可发现、可启用、可审�
 - 可选的 Artifact 能力，例如生成、监听和预览 DOCX/XLSX/PPTX。
 
 内置插件与第三方插件使用同一份 manifest 与同一条安装、启用、激活和诊断管线。
-“内置”只表示由 VibeX 随应用提供、默认可发现且不可删除；它不允许绕过依赖校验、
+“内置”只表示由 Dimo 随应用提供、默认可发现且不可删除；它不允许绕过依赖校验、
 版本锁、权限或运行时状态机。Office Work 首先作为内置 Office 插件族落地，
 OfficeCLI 在用户首次启用相关插件或首次调用所需动作时自动安装；启用/调用即为本次
-安装授权，VibeX 不在应用启动时静默下载。
+安装授权，Dimo 不在应用启动时静默下载。
 
 ## 工具依赖与安装所有权
 
 插件 manifest 只能引用声明式 `ToolDependency`，不得继续把任意
 `install_command` 当作可信安装契约。每个依赖必须至少声明稳定 id、分发来源、
-精确版本、支持平台、安装策略、探测命令和完整性证据。安装产物由 VibeX 放入
+精确版本、支持平台、安装策略、探测命令和完整性证据。安装产物由 Dimo 放入
 版本化托管目录并形成 `ToolInstallationLock`；升级先安装和验证新版本，再原子切换，
 失败时保留旧版本。
 
@@ -40,7 +40,7 @@ manifest 并显示诊断，但在用户把它转换为受支持的声明式依�
 
 ## Artifact Tool Provider
 
-`ArtifactToolProvider` 是 VibeX 拥有的运行时接口，用于把已验证工具接入统一的
+`ArtifactToolProvider` 是 Dimo 拥有的运行时接口，用于把已验证工具接入统一的
 Artifact 生命周期。Provider 接收已解析的精确工具路径，不自行下载工具，也不拥有
 插件安装状态。接口至少覆盖：
 
@@ -55,11 +55,11 @@ pub trait ArtifactToolProvider: Send + Sync {
 ```
 
 首个实现为 OfficeCLI Provider，复用现有 Office watch 进程管理。文件内容仍由工作区
-文件系统持有；VibeX 的 Artifact 记录保存路径、类型、内容哈希、生成者、关联
+文件系统持有；Dimo 的 Artifact 记录保存路径、类型、内容哈希、生成者、关联
 Conversation/Turn 和修订证据，事件日志记录 Artifact 生命周期引用，不复制或冒充
 文件内容本身。
 
-第三方无代码 manifest 只能引用 VibeX 已知的 Provider 类型。允许第三方提供原生
+第三方无代码 manifest 只能引用 Dimo 已知的 Provider 类型。允许第三方提供原生
 Provider 代码、动态库或任意宿主进程属于未来的签名扩展体系，不在本决定范围内。
 
 ## 快捷工作流
@@ -69,7 +69,7 @@ Provider 代码、动态库或任意宿主进程属于未来的签名扩展体�
 但最终发送前仍由用户确认。动作在 Composer 与 Automation 编辑器中复用同一个
 `PluginAction` 定义，避免不同入口分别维护提示词。
 
-插件启用成功后，VibeX 必须让用户选择把插件内嵌 Skill 一键同步到所有 Agent，或
+插件启用成功后，Dimo 必须让用户选择把插件内嵌 Skill 一键同步到所有 Agent，或
 前往 Skill 设置按 Agent 精确分配。精确分配是收敛操作：未选中的 Agent 会移除该
 插件的 Skill，而不是只增不减。
 
@@ -86,7 +86,7 @@ Composer 不把 PluginAction 渲染成常驻快捷按钮。用户仅在普通空
 - 插件启用状态、工具安装状态、Skill 安装状态和运行时健康状态必须分离，不能再用
   一个 `install_status` 字符串代表全部状态。
 - Office Work 的首批内置动作至少覆盖创建/修改 PPTX、创建/修改 DOCX、分析/生成
-  XLSX；具体模板可参考 Codeg Office skills，但采用 VibeX 插件 manifest。
+  XLSX；具体模板可参考 Codeg Office skills，但采用 Dimo 插件 manifest。
 - 插件控制台与 Artifact preview 都必须使用租约和显式清理。未来 Web 端访问本地
   preview 时使用短期 capability token，绝不把 Web Server 主 token 交给 iframe。
 - 插件 v2 是有意的领域重建；不以保持当前 `plugins` 表和 command 签名为约束。

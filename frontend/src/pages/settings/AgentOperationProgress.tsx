@@ -165,7 +165,7 @@ export function AgentOperationProgress({
       ? operation.logs
       : operation.message?.trim()
         ? [operation.message.trim()]
-        : [`$ vibex agent ${operation.kind}`];
+        : [`$ dimo agent ${operation.kind}`];
 
   useEffect(() => {
     const element = logRef.current;

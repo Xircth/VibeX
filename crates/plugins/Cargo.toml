@@ -27,7 +27,7 @@ tool-runtime = { path = "../tool-runtime" }
 url = { workspace = true }
 utils = { path = "../utils" }
 uuid = { workspace = true }
-vibex-plugin-sdk = { path = "../plugin-sdk" }
+dimo-plugin-sdk = { path = "../plugin-sdk" }
 browser-host = { path = "../browser-host" }
 zip = { version = "4", default-features = false, features = ["deflate"] }
 

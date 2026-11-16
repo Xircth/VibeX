@@ -1,4 +1,4 @@
-import { serviceContainer } from '@vibex/plugin-sdk';
+import { serviceContainer } from '@dimoai/plugin-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CORE_FOUNDATION_PLUGIN_DESCRIPTORS } from '../coreFoundationCatalogData';
@@ -99,22 +99,22 @@ function createUndoableMonacoEditorHarness(initialText = '') {
   return editor;
 }
 
-describe('CodeEditorProviderService (vibex.code-editor / provider.editor.monaco)', () => {
+describe('CodeEditorProviderService (dimo.code-editor / provider.editor.monaco)', () => {
   beforeEach(() => {
     resetHostProviderServicesForTest();
   });
 
-  it('registers vibex.code-editor, provider.editor.monaco, and vibex.provider.code-editor in serviceContainer and vibex.core.filesystem', () => {
+  it('registers dimo.code-editor, provider.editor.monaco, and dimo.provider.code-editor in serviceContainer and dimo.core.filesystem', () => {
     const codeEditor = getCodeEditorService();
     expect(codeEditor).toBeDefined();
-    expect(serviceContainer.get('vibex.code-editor')).toBe(codeEditor);
+    expect(serviceContainer.get('dimo.code-editor')).toBe(codeEditor);
     expect(serviceContainer.get('provider.editor.monaco')).toBe(codeEditor);
-    expect(serviceContainer.get('vibex.provider.code-editor')).toBe(codeEditor);
+    expect(serviceContainer.get('dimo.provider.code-editor')).toBe(codeEditor);
 
     const filesystemEntry = CORE_FOUNDATION_PLUGIN_DESCRIPTORS.find(
-      (item) => item.id === 'vibex.core.filesystem'
+      (item) => item.id === 'dimo.core.filesystem'
     );
-    expect(filesystemEntry?.provides).toContain('vibex.code-editor');
+    expect(filesystemEntry?.provides).toContain('dimo.code-editor');
     expect(filesystemEntry?.provides).toContain('provider.editor.monaco');
   });
 
@@ -199,8 +199,8 @@ describe('CodeEditorProviderService (vibex.code-editor / provider.editor.monaco)
     }));
 
     const disposer = service.registerInlineCompletionHandler({
-      id: 'vibex.code-completion.inline',
-      pluginId: 'vibex.code-completion',
+      id: 'dimo.code-completion.inline',
+      pluginId: 'dimo.code-completion',
       languages: '*',
       provideInlineCompletions: handlerSpy,
     });
@@ -263,7 +263,7 @@ describe('CodeEditorProviderService (vibex.code-editor / provider.editor.monaco)
 
     const runSpy = vi.fn();
     const disposeAction = service.registerInlineEditAction({
-      id: 'vibex.code-completion.trigger',
+      id: 'dimo.code-completion.trigger',
       label: 'Trigger AI Inline Completion',
       keybindings: [2048 | 88],
       run: runSpy,

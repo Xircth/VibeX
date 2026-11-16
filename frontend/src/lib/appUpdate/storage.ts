@@ -1,10 +1,10 @@
 import type { AppUpdateInfo, CachedUpdateCheck } from './types';
 import { normalizeMainWindowRoute } from '@/lib/paths';
 
-export const LAST_CHECK_KEY = 'vibex.appUpdate.lastCheck';
-export const DISMISSED_VERSION_KEY = 'vibex.appUpdate.dismissedVersion';
-export const LAST_MAIN_ROUTE_KEY = 'vibex.appUpdate.lastMainRoute';
-export const POST_UPDATE_RESTORE_KEY = 'vibex.appUpdate.postUpdateRestore';
+export const LAST_CHECK_KEY = 'dimo.appUpdate.lastCheck';
+export const DISMISSED_VERSION_KEY = 'dimo.appUpdate.dismissedVersion';
+export const LAST_MAIN_ROUTE_KEY = 'dimo.appUpdate.lastMainRoute';
+export const POST_UPDATE_RESTORE_KEY = 'dimo.appUpdate.postUpdateRestore';
 export const POST_UPDATE_RESTORE_TTL_MS = 30 * 60 * 1000;
 
 function asUpdateInfo(value: unknown): AppUpdateInfo | null {

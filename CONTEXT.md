@@ -1,4 +1,4 @@
-# VibeX — Ubiquitous Language
+# Dimo — Ubiquitous Language
 
 Glossary of domain terms. Keep entries implementation-free; link decisions to ADRs in `docs/adr/`.
 
@@ -21,7 +21,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Session resume（会话恢复）** — 将会话的上下文重载进一个新拉起的 agent 进程。恢复的是**上下文**，永远不是在途 turn 的生成过程。是否可恢复取决于 agent 的能力位。
 - **Agent binding（Agent 绑定代次）** — Conversation 与某次 Agent 原生会话的持久关联。释放连接保留恢复资格；rebind 放弃该代次的恢复资格，但保留身份与历史归属。见 [ADR-0086](docs/adr/0086-conversation-binding-generations-and-history-segments.md)。
 - **Conversation history segment（会话历史片段）** — Conversation 历史中具有明确顺序与来源的一段内容；多个片段共同构成用户看见的完整历史，不随当前 Agent 改变。
-- **Session rebind（会话重绑定）** — 旧 Agent session 无法继续加载时，经用户确认后为既有 Conversation 建立新的冷启动 Agent session；VibeX 历史保持不变，Agent 侧隐藏上下文不连续，后续交接内容由用户明确控制。
+- **Session rebind（会话重绑定）** — 旧 Agent session 无法继续加载时，经用户确认后为既有 Conversation 建立新的冷启动 Agent session；Dimo 历史保持不变，Agent 侧隐藏上下文不连续，后续交接内容由用户明确控制。
 - **Recovery（启动恢复）** — 宿主启动时对上一次进程生命周期遗留状态的协调：将孤立的在途 turn 判定为 Interrupted，使会话回到可发起新 turn 的状态。
 - **Event log（事件日志）** — 会话控制面与实时 row-op 的仅追加记录。它不是用户看见的历史；那份历史见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md)。
 - **Projection（投影）** — 从 transcript 或事件日志折叠出的派生读模型。投影永远可以从它的权威重建，本身不是权威。
@@ -57,10 +57,10 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Space message（空间消息）** — 房间日志里的一条记录，带单调序号。它不是任一成员会话的历史。
 - **Delivery receipt（投递回执）** — 一条空间消息对一个 bot 会话的提交结果。存储态为 `queued` → `processing` → `{replied|passed|timed_out|cancelled}`；`failed` 由传输层 `status='failed'` 在读取时派生，`limit_reached` 由 queued + wake 推迟键派生。
 - **Composer reference（Composer 引用）** — 用户在 Composer 中用 `@` 插入的结构化引用。`@` 打开带 Tab 的引用面板，当前 Tab 为文件、项目、会话、提交与指令；`/`、`$`、`&` 仍是独立触发符。`#` 不再单独触发，原指令进入 `@` 的指令 Tab。见 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
-- **Project reference（项目引用）** — `@` 面板项目 Tab 中点名一个仍存在于 VibeX 的 Project。Token 显示为 `@` 加项目名称，Hover 展示完整绝对路径；发给 Agent 的消息展开为该路径。
+- **Project reference（项目引用）** — `@` 面板项目 Tab 中点名一个仍存在于 Dimo 的 Project。Token 显示为 `@` 加项目名称，Hover 展示完整绝对路径；发给 Agent 的消息展开为该路径。
 - **Quote reference（引用片段）** — 用户从会话消息流选中一段内容后插入 Composer 的结构化引用。序列化为 `[:quote](context)`；Token 显示为 `@` 加所选内容前四个字及省略号，Hover 展示完整内容。
-- **Conversation reference（会话引用）** — `@` 面板中点名另一段 Conversation 的引用，序列化为 `[title](vibex://conversation/<uuid>)`。Agent 通过会话增强或多智能体协同的 `get_session_info` 只读查看被点名的会话；两者是同一读法。
-- **Commit reference（提交引用）** — `@` 面板中点名当前仓库一次 git commit 的引用，序列化为 `[shortSha](vibex://commit/<repoId>@<sha>)`。
+- **Conversation reference（会话引用）** — `@` 面板中点名另一段 Conversation 的引用，序列化为 `[title](dimo://conversation/<uuid>)`。Agent 通过会话增强或多智能体协同的 `get_session_info` 只读查看被点名的会话；两者是同一读法。
+- **Commit reference（提交引用）** — `@` 面板中点名当前仓库一次 git commit 的引用，序列化为 `[shortSha](dimo://commit/<repoId>@<sha>)`。
 - **Instruction reference（指令引用）** — `@` 面板指令 Tab 中插入的标签/内置指令，沿用原 `#` token 的展开语义。
 - **Agent mention（Agent 提及）** — Composer 中用 `&` 插入的结构化引用，表示用户要求父 Agent 考虑把工作委派给该 Agent。它不是前端直接创建子会话的命令。仅当协作空间已启用，且当前 Conversation 要么尚无 Agent binding、要么该 binding 已在启用后完成投递时出现。见 ADR-0031、ADR-0057 与 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
 
@@ -76,7 +76,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 [ADR-0057](docs/adr/0057-session-enhance-and-multi-agent-plugins.md)
 与
 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)
-（协作空间现为内置组件，不再依赖 `vibex.multi-agent` 插件）。
+（协作空间现为内置组件，不再依赖 `dimo.multi-agent` 插件）。
 会话辅助能力的事实来源见
 [ADR-0058](docs/adr/0058-session-auxiliary-capability-honesty.md)。
 
@@ -87,7 +87,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Channel domain
 
-- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。它不是 Paired device，配置、入站循环与出站投递都属于当前 Host（桌面与 `vibex-server` 同一接缝）。授权发送者可用 folder/agent/task/sessions/resume/cancel/approve/deny/answer/search/today/status 完成与桌面等价的工作闭环；未绑定会话时，已选 Project 与 Agent 上的 task 会新建 Conversation。见 [ADR-0056](docs/adr/0056-chat-channel-and-remote-access-codeg-parity.md) 与 [ADR-0062](docs/adr/0062-chat-channel-host-closed-loop.md)。
+- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。它不是 Paired device，配置、入站循环与出站投递都属于当前 Host（桌面与 `dimo-server` 同一接缝）。授权发送者可用 folder/agent/task/sessions/resume/cancel/approve/deny/answer/search/today/status 完成与桌面等价的工作闭环；未绑定会话时，已选 Project 与 Agent 上的 task 会新建 Conversation。见 [ADR-0056](docs/adr/0056-chat-channel-and-remote-access-codeg-parity.md) 与 [ADR-0062](docs/adr/0062-chat-channel-host-closed-loop.md)。
 - **Telegram topic mode（Telegram 主题模式）** — 论坛超群中一题一会话；总题忽略纯文本；总题上的 task 创建新主题并绑定该会话。
 - **Weixin iLink（微信 iLink 机器人）** — 扫码接入的可收发微信机器人。企业微信群机器人只出站。二者由 `config.mode` 区分，事件发送走各自 API。
 - **Authorized sender（授权发送者）** — 某个聊天通道配置中被明确列入、允许下发入站命令的发送者身份。绑定的 chat/group 目标也视为该聊天可信。不在列表内的消息被静默丢弃；既无绑定目标也无授权列表时该通道入站整体禁用（fail-closed）。
@@ -101,7 +101,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Automation spec（自动化规格）** — 可复制、粘贴和版本化的 Automation 创作配置，使用显式格式版本与 Turn/Workflow target union；它不包含数据库身份、运行历史、引擎调度状态、凭据或机器相关路径，导入后必须先解析当前 Host 的 Workspace、Agent 与 Workflow 引用并保持禁用，直到用户确认启用。
 - **Automation target kind（自动化目标类型）** — Automation 创建时确定的 Turn 或 Workflow 目标类别；类别在其生命周期内不可切换，也不提供保持同一 Automation 身份的隐式转换。
 - **Automation run（自动化运行）** — Automation 的一次真实触发实例；它记录触发与目标运行的关联，终态由对应 Turn 或 Workflow run 的持久事实决定。
-- **Automation owner（自动化所有者）** — 对同一数据目录唯一持有 Engine lease 的 desktop 或 `vibex-server` 宿主。只有 owner 可以 reconciliation、claim due 和 tick；退出后另一宿主才可接管。
+- **Automation owner（自动化所有者）** — 对同一数据目录唯一持有 Engine lease 的 desktop 或 `dimo-server` 宿主。只有 owner 可以 reconciliation、claim due 和 tick；退出后另一宿主才可接管。
 - **Due claim（到期认领）** — 在同一事务内创建 Run 并推进 `next_run_at` 的操作；双 Engine/双 tick 不得产生双调度。
 - **Automation isolation（自动化隔离）** — 默认每个 Run 创建独立 worktree；shared-root 必须显式选择并通过 clean/branch 检查。运行绝不自动 merge、push、publish 或 deploy。
 - **Automation recovery（自动化恢复）** — 启动时把遗留的 direct-Turn Run 变为 Interrupted；已关联 Workflow run 的 Run 协调原运行并跟随其终态，两者都绝不重新触发目标。停机期间至多补一次最近错过的 schedule，其余错过触发不排队。
@@ -129,8 +129,8 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Workflow checkpoint（工作流检查点）** — 用于证明已完成步骤所依赖工作区状态的持久证据；摘要相同但检查点不一致时不能自动复用步骤结果。
 - **Needs review（需要复核）** — 系统无法证明自动继续或重试不会重复副作用时的非终态；只有明确用户决定才能推进或结束运行。
 - **Workflow authoring adapter（工作流创作适配器）** — 原生编辑页、Plugin artifact editor 或 Agent/MCP 等面向同一 Workflow source artifact 与 Workflow Core 的入口；适配器不得拥有独立的校验器、执行器、版本事实或运行状态机。
-- **Workflow MCP（工作流 MCP）** — 依赖正在运行的 VibeX Host、把 Agent 工具调用适配到同一 Workflow Application Core 的本地协议入口；它不是独立 Workflow runtime，Host 不可用时不提供发布、调试或运行能力。
-- **Plugin-scoped MCP（插件域 MCP）** — 由一个 Plugin 独立拥有身份、工具目录、版本兼容与 Agent binding 的 MCP Server；不同产品能力不因都调用 VibeX Host 就合并为平台内置的通用 MCP，Host 只统一提供生命周期、短期授权、连接上下文和公共 Application Core seam。
+- **Workflow MCP（工作流 MCP）** — 依赖正在运行的 Dimo Host、把 Agent 工具调用适配到同一 Workflow Application Core 的本地协议入口；它不是独立 Workflow runtime，Host 不可用时不提供发布、调试或运行能力。
+- **Plugin-scoped MCP（插件域 MCP）** — 由一个 Plugin 独立拥有身份、工具目录、版本兼容与 Agent binding 的 MCP Server；不同产品能力不因都调用 Dimo Host 就合并为平台内置的通用 MCP，Host 只统一提供生命周期、短期授权、连接上下文和公共 Application Core seam。
 - **Workflow debug run（工作流调试运行）** — 从草稿输入或既有运行证据创建的可审计执行实例；它可以只运行选中步骤，也可以从选中步骤继续传递下游，但两种范围共享同一运行、隔离、Conversation 与事件语义。
 - **Workflow run subscription（工作流运行订阅）** — 以持久 sequence 为权威的 snapshot、缺失事件 replay、high-water 与 live event 契约；编辑器、Inspector、Plugin 和动效都消费同一投影，不以客户端轮询状态作为运行事实。
 
@@ -139,21 +139,21 @@ Workflow 领域与 Automation 的关系见
 
 ## Plugin, Tool, and Artifact domain
 
-- **Plugin control plane（插件控制面）** — VibeX Plugin Package 的唯一安装、授权、启停、更新、诊断、回滚与卸载事实来源；它也可以读取 Agent-native plugin 的投影，但不夺取 Agent 原生存储与信任权威。详细决定见 ADR-0046。
-- **Plugin module（插件模块）** — VibeX Plugin Package 的独立产品入口：保留设置侧栏的单列目录，点击条目进入只有“内容/配置”主 Tab 的独立详情页。用户界面不把一个插件拆成平台扩展与 Agent 扩展，也不以 Skill、MCP、Runtime 或 contribution 数量解释产品。
-- **Agent plugin setting（Agent 插件设置）** — “设置 → Agent → 对应 Agent”底部默认折叠的 Agent-native plugin 管理上下文；使用列表加预览，只呈现该 Agent 拥有的 Skill、MCP、Runtime、Hook 与 Workflow。操作能力取决于该 Agent 的可靠原生适配器，不能展示或授予 VibeX App 扩展权。
-- **Plugin source package（插件源包）** — 被发现或导入的原始只读包及来源证据；它尚不是安装、授权或激活事实。一个源码目录可以同时包含 VibeX 与 Agent 原生格式，各格式的执行权仍分别建立。
-- **VibeX Plugin Package（VibeX 插件包）** — 以一个身份、版本和生命周期提供完整功能的产品包；内部可以连接 App、Agent、Host 或 Runtime 扩展点，但它们不是用户分类。公共布局、README summary、contents、depends 与 config 见 ADR-0047。
+- **Plugin control plane（插件控制面）** — Dimo Plugin Package 的唯一安装、授权、启停、更新、诊断、回滚与卸载事实来源；它也可以读取 Agent-native plugin 的投影，但不夺取 Agent 原生存储与信任权威。详细决定见 ADR-0046。
+- **Plugin module（插件模块）** — Dimo Plugin Package 的独立产品入口：保留设置侧栏的单列目录，点击条目进入只有“内容/配置”主 Tab 的独立详情页。用户界面不把一个插件拆成平台扩展与 Agent 扩展，也不以 Skill、MCP、Runtime 或 contribution 数量解释产品。
+- **Agent plugin setting（Agent 插件设置）** — “设置 → Agent → 对应 Agent”底部默认折叠的 Agent-native plugin 管理上下文；使用列表加预览，只呈现该 Agent 拥有的 Skill、MCP、Runtime、Hook 与 Workflow。操作能力取决于该 Agent 的可靠原生适配器，不能展示或授予 Dimo App 扩展权。
+- **Plugin source package（插件源包）** — 被发现或导入的原始只读包及来源证据；它尚不是安装、授权或激活事实。一个源码目录可以同时包含 Dimo 与 Agent 原生格式，各格式的执行权仍分别建立。
+- **Dimo Plugin Package（Dimo 插件包）** — 以一个身份、版本和生命周期提供完整功能的产品包；内部可以连接 App、Agent、Host 或 Runtime 扩展点，但它们不是用户分类。公共布局、README summary、contents、depends 与 config 见 ADR-0047。
 - **Plugin summary（插件一句话简介）** — 根 `README.md` frontmatter 中独立的 `summary` 标签；必须是一句话，不从 Markdown 标题或段落推断，供目录与详情标题区显示。
 - **Plugin content（插件内容）** — 根 `contents/` 下可供用户或 Agent 查看、使用的 Skill、MCP、Hook、Workflow、模板与其他资源；Host 只通过已验证的结构化 content index 暴露它们。
 - **Plugin config（插件配置）** — 根 `config.json` 的内容；它是配置页编辑的唯一事实，由 manifest schema 校验和 Host 原子写回，不计入 executable package digest。
 - **Plugin dependency（插件依赖）** — 根 `depends/` 下由 manifest 显式引用的 Runtime、CLI、package 或 service 描述；目录存在不自动授予执行权。
 - **Plugin identity（插件身份）** — 由稳定 Publisher identity 与 Plugin ID 共同组成的产品身份；显示名称、目录名和相似内容不能建立身份，同 ID 不同 Publisher 的包不能继承权限或数据。
-- **Linked development plugin（链接开发插件）** — 用户显式选择持续跟随其开发目录的 Plugin；它与普通安装的不可变快照分离，源内容变化后必须重新校验 contribution、权限和身份，VibeX 永不删除该开发目录。
+- **Linked development plugin（链接开发插件）** — 用户显式选择持续跟随其开发目录的 Plugin；它与普通安装的不可变快照分离，源内容变化后必须重新校验 contribution、权限和身份，Dimo 永不删除该开发目录。
 - **Plugin contribution（插件贡献）** — Plugin Package 向一个明确宿主扩展点提供的独立能力；每项贡献有稳定身份、类型、兼容条件与 readiness，兼容性按贡献判断而不是由包格式或是否含 Skill推断。
 - **Agent contribution（Agent 贡献）** — 向 Agent 会话或原生配置提供的 Skill、MCP、Runtime、Hook 或 Workflow；它可以与 App contribution 同包，但只有建立 Agent binding 后才向该 Agent 暴露。
-- **App contribution（App 贡献）** — 向 VibeX 用户界面提供的文件 opener、preview provider、设置、命令、状态或自定义 surface；它不因与 Agent contribution 同包而获得主应用执行权。
-- **Host contribution（Host 贡献）** — 在 VibeX Host 上提供的受控后台处理、事件响应或调度能力；客户端只观察其投影，不在本地复制执行。
+- **App contribution（App 贡献）** — 向 Dimo 用户界面提供的文件 opener、preview provider、设置、命令、状态或自定义 surface；它不因与 Agent contribution 同包而获得主应用执行权。
+- **Host contribution（Host 贡献）** — 在 Dimo Host 上提供的受控后台处理、事件响应或调度能力；客户端只观察其投影，不在本地复制执行。
 - **Contribution point（贡献点）** — 宿主声明并文档化的稳定扩展位：一个 UI slot、内容类型或 `host.call` API 面。每类新增宿主行为必须指向一个贡献点；新贡献点必须与其第一个官方插件消费者同批完成验收，否则不进稳定面。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
 - **Takeover surface table（接管面总表）** — ADR-0069 维护的插件接管面登记表：每行是一个贡献点或 Provider 缝及其状态与落点批次。它是内核最小化纪律的执行处：新增宿主行为先改表再改码。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
 - **Provider seam（Provider 缝）** — 宿主能力的可替换提供者接缝，由服务定义、提供者（内置默认与插件贡献同权）、消费者三部分构成。冲突解析必须确定且可解释：可聚合的聚合，需单选的由用户显式选择，不得按安装顺序静默覆盖。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
@@ -180,35 +180,35 @@ _Avoid_: MultiAgent协同, 多智能体协同插件
 - **Plugin activation（插件启用意图）** — 用户是否允许已安装 Plugin 发布可用 contributions 的持久意图；新安装（含内置插件）默认禁用，启用不能伪造 permission、Runtime、Agent binding 或 contribution readiness。
 - **Activation Generation（激活代）** — 一个 Plugin 的 package、permission、Runtime locks 与全部已就绪 contributions 一次原子发布的不可变运行快照；候选代在完整验证前不可见，失败更新必须保留上一完整激活代。
 - **Plugin capability request（插件能力请求）** — Package 在执行前静态声明可能需要使用的宿主能力及最大 scope；声明只形成待决请求，不构成授权。
-- **Plugin capability grant（插件能力授权）** — 已废止。安装或启用 VibeX Plugin Package 即 Full Trust；不再按 capability、scope 或 Trusted Native 二次授权。`plugin_control_grant_permissions` 仅为兼容无操作。
-- **Full-trust Plugin（全信任插件）** — 用户安装或启用 VibeX Plugin Package，即信任该包以与 VibeX Host 相同的本机权限运行 Worker、App 与声明的 Runtime；不再存在逐 capability、scope 或 Trusted Native 二次授权。独立 Worker/App frame 只提供生命周期、热更新与崩溃隔离，不是安全沙箱。`packageClass=isolated` 不改变执行模型。见 ADR-0048。
-- **Plugin Worker（插件工作进程）** — 在 VibeX Host 上隔离执行插件后端代码、且只能通过已授权宿主能力产生副作用的运行实例；它的存活不等于 Plugin 安装或激活事实。
-- **App surface（应用扩展面）** — App contribution 在 VibeX 用户界面中的一个宿主渲染或隔离渲染实例；其能力受客户端兼容性、激活代和短期 surface 授权共同约束。
+- **Plugin capability grant（插件能力授权）** — 已废止。安装或启用 Dimo Plugin Package 即 Full Trust；不再按 capability、scope 或 Trusted Native 二次授权。`plugin_control_grant_permissions` 仅为兼容无操作。
+- **Full-trust Plugin（全信任插件）** — 用户安装或启用 Dimo Plugin Package，即信任该包以与 Dimo Host 相同的本机权限运行 Worker、App 与声明的 Runtime；不再存在逐 capability、scope 或 Trusted Native 二次授权。独立 Worker/App frame 只提供生命周期、热更新与崩溃隔离，不是安全沙箱。`packageClass=isolated` 不改变执行模型。见 ADR-0048。
+- **Plugin Worker（插件工作进程）** — 在 Dimo Host 上隔离执行插件后端代码、且只能通过已授权宿主能力产生副作用的运行实例；它的存活不等于 Plugin 安装或激活事实。
+- **App surface（应用扩展面）** — App contribution 在 Dimo 用户界面中的一个宿主渲染或隔离渲染实例；其能力受客户端兼容性、激活代和短期 surface 授权共同约束。
 - **Sandboxed plugin surface（沙箱插件扩展面）** — 与主应用文档、存储、凭据和宿主运行时隔离的自定义 App surface；只通过带作用域和期限的消息桥访问声明且已授权的能力。
 - **Agent binding（Agent 绑定）** — 用户允许某个已激活 Plugin 的 Agent contributions 在特定 Agent 或 Project 中暴露的关系；绑定不改变 package、Runtime 或 Agent 原生配置的所有权。
 - **All-agents binding intent（全 Agent 绑定意图）** — Plugin 默认把兼容的 Agent contributions 投影给当前及未来所有已安装、已启用且支持相应能力的 Agent，并以显式排除项记录用户修改；插件设置与 Agent/MCP 设置只能编辑同一绑定事实。
-- **Cross-Agent plugin（跨 Agent 插件）** — 其一个或多个 Agent contributions 可被多个 Agent adapter 等价投影的 VibeX Plugin；App contribution 是否存在不影响其跨 Agent 定义。
-- **Skill projection（Skill 投影）** — VibeX 把 Plugin Skill 暴露到 Agent 原生 Skill 位置的受控只读入口；协调与卸载只能修改 VibeX 拥有的投影，不能覆盖用户同名 Skill。
-- **Plugin Workflow（插件工作流）** — VibeX Plugin Package 在 `contents/workflows/` 中提供的版本化、结构化流程资源；Composer、Automation 或 Agent binding 只能引用同一 Workflow 身份与依赖证据，不再另建 PluginAction 公共概念。
-- **Plugin Command（插件命令）** — 由 VibeX 解析并保留 Plugin/Command 身份的可移植斜杠入口；它不是某个 Agent 的原生命令。
-- **Agent Command（Agent 命令）** — 由 Codex、Claude Code 或其他 Agent Runtime 定义并执行的原生斜杠命令；VibeX 只在对应 Agent 上发现和透传，不能宣称跨 Agent 可移植。
+- **Cross-Agent plugin（跨 Agent 插件）** — 其一个或多个 Agent contributions 可被多个 Agent adapter 等价投影的 Dimo Plugin；App contribution 是否存在不影响其跨 Agent 定义。
+- **Skill projection（Skill 投影）** — Dimo 把 Plugin Skill 暴露到 Agent 原生 Skill 位置的受控只读入口；协调与卸载只能修改 Dimo 拥有的投影，不能覆盖用户同名 Skill。
+- **Plugin Workflow（插件工作流）** — Dimo Plugin Package 在 `contents/workflows/` 中提供的版本化、结构化流程资源；Composer、Automation 或 Agent binding 只能引用同一 Workflow 身份与依赖证据，不再另建 PluginAction 公共概念。
+- **Plugin Command（插件命令）** — 由 Dimo 解析并保留 Plugin/Command 身份的可移植斜杠入口；它不是某个 Agent 的原生命令。
+- **Agent Command（Agent 命令）** — 由 Codex、Claude Code 或其他 Agent Runtime 定义并执行的原生斜杠命令；Dimo 只在对应 Agent 上发现和透传，不能宣称跨 Agent 可移植。
 - **Command candidate（命令候选项）** — Composer 展示的一个带结构化来源身份的命令候选；同名 Plugin Command、Skill 与 Agent Command 可以并存，任何来源都不能按显示名称静默覆盖另一来源。
 - **Runtime requirement（运行时需求）** — Plugin 作者对一个 Runtime resource 的声明式约束；声明不是已经解析、验证、安装或就绪的事实。
 - **Runtime installation lock（运行时安装锁）** — Host 对一个 Runtime requirement 实际解析结果的持久证据，记录精确版本、目标平台、来源、完整性、入口与 probe 证据；不同版本可以并存，lock 不自动声明 Host 拥有外部安装。
 - **Runtime reference（运行时引用）** — Plugin installation、Activation Generation 或运行租约对精确 Runtime lock 的占用；只有引用归零的 Host-owned Runtime 才能进入回收候选。
 - **Runtime probe（运行时探测）** — 对 Runtime lock 的入口、内容、版本与所需能力进行有界验证；安装进程成功不能替代 probe。
 - **Runtime inventory（运行时清单）** — 当前 Host 上精确 Runtime locks、所有权、完整性、probe 与引用关系的可审计目录；它不把同名命令压缩成一个用户全局版本。
-- **Global command export（全局命令导出）** — 用户显式允许 Host 把某个 Runtime 的稳定 shim 暴露给普通终端的独立贡献；它不是 Runtime 安装默认副作用，也不能覆盖非 VibeX 所有的命令。
+- **Global command export（全局命令导出）** — 用户显式允许 Host 把某个 Runtime 的稳定 shim 暴露给普通终端的独立贡献；它不是 Runtime 安装默认副作用，也不能覆盖非 Dimo 所有的命令。
 - **Trusted native contribution（受信原生贡献）** — 需要任意 shell、原生 sidecar 或不能被普通 Capability Broker 约束的高风险贡献；入口内容变化后必须重新授权，卸载副作用另行确认。
-- **Plugin MCP binding（插件 MCP 绑定）** — Plugin 内置 MCP contribution 向 Agent 原生配置的投影关系；原生配置仍是 Agent Runtime 的权威，VibeX 不能为跳过配置步骤的用户制造隐式启用状态。
-- **Agent-native plugin（Agent 原生插件）** — 由 Codex、Claude Code 或其他 Agent 自身的包格式、存储、生命周期与信任机制持有的插件；它可与 VibeX Package 共享源码或身份引用，但不会自动获得 VibeX App/Worker 执行权。
-- **Native plugin reconciliation（原生插件协调）** — VibeX 重新读取 Agent-native plugin 权威后更新投影的过程；外部更新、禁用、删除或链接失效必须如实呈现，不能依据旧投影静默恢复原生状态。
+- **Plugin MCP binding（插件 MCP 绑定）** — Plugin 内置 MCP contribution 向 Agent 原生配置的投影关系；原生配置仍是 Agent Runtime 的权威，Dimo 不能为跳过配置步骤的用户制造隐式启用状态。
+- **Agent-native plugin（Agent 原生插件）** — 由 Codex、Claude Code 或其他 Agent 自身的包格式、存储、生命周期与信任机制持有的插件；它可与 Dimo Package 共享源码或身份引用，但不会自动获得 Dimo App/Worker 执行权。
+- **Native plugin reconciliation（原生插件协调）** — Dimo 重新读取 Agent-native plugin 权威后更新投影的过程；外部更新、禁用、删除或链接失效必须如实呈现，不能依据旧投影静默恢复原生状态。
 - **Native plugin management capability（原生插件管理能力）** — 某个 Agent adapter 已可靠实现的 discover、install、enable、update 或 uninstall 操作；没有稳定接口的操作只能降级为只读或打开原生入口。
-- **Native plugin trust（原生插件信任）** — Agent Runtime 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；VibeX capability grant 与原生信任不能互相替代或伪造。
-- **External prerequisite（外部前置条件）** — Skill 或说明使用、但 Package 未声明为 Runtime requirement 的 CLI 或服务；它不阻止导入，但 VibeX 不负责安装、probe、冲突分析或 readiness，只能标记依赖未知。
+- **Native plugin trust（原生插件信任）** — Agent Runtime 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；Dimo capability grant 与原生信任不能互相替代或伪造。
+- **External prerequisite（外部前置条件）** — Skill 或说明使用、但 Package 未声明为 Runtime requirement 的 CLI 或服务；它不阻止导入，但 Dimo 不负责安装、probe、冲突分析或 readiness，只能标记依赖未知。
 - **Plugin operation audit（插件操作审计）** — 对安装、授权、激活代切换、Runtime、原生投影与破坏性操作的持久证据；记录身份、版本/digest、操作结果与影响范围，不保存秘密或凭据。
 - **Official product MCP（官方产品 MCP）** — 随 Host 家族分发的产品 MCP。磁盘上有 Runtime 不等于已注入。会话增强与 Workflow Creator 由各自官方插件激活。协作空间由宿主设置激活，默认开启，只进入之后新开或重新绑定的会话。见 ADR-0055 与 ADR-0057。
-- **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 VibeX Host 上的 Package、contributions、Runtime、grants 与 Agent 原生投影集合；远程客户端操作该 Host 的环境，不在客户端复制执行。
+- **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 Dimo Host 上的 Package、contributions、Runtime、grants 与 Agent 原生投影集合；远程客户端操作该 Host 的环境，不在客户端复制执行。
 - **Legacy plugin evidence（旧插件证据）** — 对旧 manifest、信任、Runtime 与激活记录的完整只读保存；它只用于迁移解释，不会自动执行旧脚本、获得新授权或重新成为可运行插件。
 - **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。
 - **Artifact preview lease（产物预览租约）** — 对一个已解析 Tool lock、文件、provider 进程和短期 capability 的引用计数租约；最后一个 lease 关闭、过期或进程崩溃时可回收。
@@ -218,11 +218,11 @@ _Avoid_: MultiAgent协同, 多智能体协同插件
 - **Application Core（应用核心）** — 不依赖 Tauri 或 Axum 的用例门面；desktop command、Web route 与 Remote Desktop adapter 都只能做认证、DTO/错误转换后调用同一公共 seam。
 - **Host Command Registry（Host 命令注册表）** — Host 上唯一的产品命令集合与实现入口；WebUI、Workstation 客户端和本机桌面都通过同一注册表执行，capabilities 由注册表派生。桌面壳命令（本机控制台、CEF、系统对话框宿主）不进入该表。见 [ADR-0078](docs/adr/0078-host-command-registry-single-seam.md)。
 - **Host Event Bus（Host 事件总线）** — Host 上唯一的推送面；会话行操作、patch 流与终端输出都经此到达 WebSocket 或本机转发，客户端不得各写一套静默 no-op 的 listen。见 [ADR-0078](docs/adr/0078-host-command-registry-single-seam.md)。
-- **Server owner（服务器所有者）** — 对一个 VibeX Server 数据目录及其配对设备拥有最终管理权的单一主体；P0/P1 不把不同设备解释为不同用户，也不提供团队成员或多租户数据隔离。
-- **VibeX Host（VibeX 主机）** — 当前拥有一个 VibeX 数据目录并对客户端提供 Remote protocol 的运行实例，可以是桌面应用或 Headless Server；同一数据目录同一时刻只能有一个 Host。
+- **Server owner（服务器所有者）** — 对一个 Dimo Server 数据目录及其配对设备拥有最终管理权的单一主体；P0/P1 不把不同设备解释为不同用户，也不提供团队成员或多租户数据隔离。
+- **Dimo Host（Dimo 主机）** — 当前拥有一个 Dimo 数据目录并对客户端提供 Remote protocol 的运行实例，可以是桌面应用或 Headless Server；同一数据目录同一时刻只能有一个 Host。
 - **Host identity（Host 身份）** — 一个数据目录在配对与 capabilities 中出示的稳定身份；客户端用它合并 Server Profile，不以 URL 识别 Host。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
 - **Host console（本机控制台）** — 正在运行 Host 的那台机器上的管理面：监听、Reachability 发布、配对邀请、设备撤销、管理员 token 与升级。它不是 Paired device；远程 Workstation 不复制该面。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
-- **Server profile（服务器档案）** — 客户端上对一个 VibeX Host 的本地身份；由 Host 身份而不是某条 URL 区分。本机控制台是默认的 Local Profile；远端档案保存非秘密元数据与多条 Reachability，访问凭据独立受保护。
+- **Server profile（服务器档案）** — 客户端上对一个 Dimo Host 的本地身份；由 Host 身份而不是某条 URL 区分。本机控制台是默认的 Local Profile；远端档案保存非秘密元数据与多条 Reachability，访问凭据独立受保护。
 - **Host provision kind（Host 供给类型）** — 客户端已保存 Host 的来源标记，如 `manual`、`discovered`、`ssh`。它属于 Host 档案，不是插件身份。需要重建可达性的类型由匹配的 `provider.remote.provisioner` 贡献负责，Host 不按插件 ID 分支。卸载插件默认不删除这些档案。
 - **Remote provisioner（远程供给器）** — 插件向 Host 注册的供给贡献：声明一个 `provisionKind` 与 `ensure` handler，用于在连接已保存 Host 前恢复可达。见 [ADR-0070](docs/adr/0070-ssh-provisioned-remote-server.md)。
 - **Reachability（可达目标）** — 客户端用来找到同一 Host 的一条 origin。一个 Server Profile 可以同时有局域网、FRP、Tailscale 或 Cloudflare 多条；它不是 Paired device，也不改变设备权限。远程 origin 只有通过检查的发布才进入权威名单，检查失败或关闭发布即从名单移除；局域网地址是探测结果，不是发布物。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
@@ -231,16 +231,16 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Remote disconnect（远程断开）** — 只结束 Server-bound window 的当前网络连接，不删除 Server Profile、缓存、device credential 或 Paired device 关系；关闭窗口、退出应用和临时断网都属于这一语义。
 - **Forget server（忘记服务器）** — 用户要求客户端删除一个远端 Server Profile、其只读缓存与系统凭据的本地操作；它与 Remote disconnect 不同，并应在可达时先请求撤销本设备。
 - **Remote coding loop（远程编码闭环）** — 用户在 Server-bound window 中从选择 Project/Workspace 到运行 Agent、处理交互、编辑文件、审阅 Diff、操作 Git 与终端的完整日常任务；它是远程桌面首版的产品完成边界，不等于所有桌面专属能力的协议镜像。
-- **Mobile companion（移动伴随端）** — 连接在线 VibeX Host、观察并控制远端工作的薄客户端，不在移动设备上运行 Agent、Git worktree 或 Artifact 工具；没有 Host 在线时只能读取离线缓存。Android（[ADR-0041](docs/adr/0041-native-kotlin-compose-android-companion.md)）与 iOS（[ADR-0084](docs/adr/0084-native-swiftui-ios-companion.md)）均复用同一 Remote Protocol v1。
+- **Mobile companion（移动伴随端）** — 连接在线 Dimo Host、观察并控制远端工作的薄客户端，不在移动设备上运行 Agent、Git worktree 或 Artifact 工具；没有 Host 在线时只能读取离线缓存。Android（[ADR-0041](docs/adr/0041-native-kotlin-compose-android-companion.md)）与 iOS（[ADR-0084](docs/adr/0084-native-swiftui-ios-companion.md)）均复用同一 Remote Protocol v1。
 - **Remote protocol（远程协议）** — `remote-protocol` 的版本化稳定 ID、error envelope、capabilities、typed command 与 durable subscription DTO。v1 Schema/OpenAPI 位于 `docs/protocol/v1/`。
 - **Durable attach（持久订阅附着）** — 以 Conversation sequence 为权威的 ready → snapshot/replay → high-water → live 契约；sequence 去重，未知 event kind 必须可保留或忽略。
 - **Pairing invitation（配对邀请）** — 本机控制台出示的短时邀请，携带 Host 身份、设备权限预设、当前全部 Reachability（不含 loopback）以及仅供未配对设备使用的一次性 secret。已持有该 Host 身份凭证的设备只合并 Reachability，不重新兑换；secret 过期后仍可从新出示的邀请收下 origin。长期 device credential 不得出现在邀请或 URL 里。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
 - **Device pairing（设备配对）** — 未配对设备用邀请里的 secret 兑成长期、可撤销的 device credential；secret 到期或再次出示邀请都不会作废已经配对的设备。
 - **Paired device（已配对设备）** — 代表同一 Server owner 的一个客户端身份，持有长期、可撤销的 device credential；断开、应用重启、网络变化或 Server 管理员 token 轮换都不结束配对关系，Device 不是 User。
 - **Device permission preset（设备权限预设）** — 配对时向用户展示并审批的一组稳定用途；预设只组织细粒度 scopes，不直接参与授权判断，也不隐含 Server 管理权。当前配对预设为 Workstation Device 与 Companion Device。
-- **Workstation Device（工作站设备）** — 其它桌面 VibeX 连上 Host 后近乎全接管工作：会话、文件、Git、终端、Workflow、Automation 与已安装插件。不含监听、token、设备管理和 Host 升级。
+- **Workstation Device（工作站设备）** — 其它桌面 Dimo 连上 Host 后近乎全接管工作：会话、文件、Git、终端、Workflow、Automation 与已安装插件。不含监听、token、设备管理和 Host 升级。
 - **Companion Device（伴随设备）** — 手机薄客户端：会话、审批、只读 Artifact 与离线缓存。不含插件写入、Workflow/Automation 写入或终端。
-- **Host family（Host 家族）** — 同一产品版本打出的 Desktop、`vibex-server` 目录（含 `vibex-mcp`、`web/`、官方插件快照）与后续 Companion 安装包。
+- **Host family（Host 家族）** — 同一产品版本打出的 Desktop、`dimo-server` 目录（含 `dimo-mcp`、`web/`、官方插件快照）与后续 Companion 安装包。
 - **Device revocation（设备撤销）** — 管理员显式终止已配对设备的长期信任关系；撤销后新 HTTP 请求和已经建立的 WebSocket 都必须失效，主 token 或 device token 不得出现在 URL、事件或日志。
 - **Offline conversation cache（离线会话缓存）** — 仅包含持久 sequence 与 open events 的只读缓存；`read_only` 必须为 true，不能离线排队写操作。
 - **Terminal notification summary（终态通知摘要）** — 只包含 Conversation/Automation 稳定 ID、终态、时间与 operation id 的无 secret 投影；不包含 prompt、输出、诊断或文件路径，也不直接接入 APNs/FCM。
@@ -248,50 +248,50 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 ## Agent domain
 
 - **Agent kind（agent 身份）** — Agent 的全系统唯一、稳定身份标识（如 `claude_code` 或 `codex`），回答“这是哪个 Agent”；普通 Agent 的初始标识可以由 Registry id 派生，但此后不随 Registry 条目改名或换 id 自动改变，也不是只允许固定成员的封闭枚举。
-- **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；允许 VibeX Built-in Agent Profile、ACP 官方 Registry 与用户声明的 Registry-compatible distribution。用户声明来源不等于官方来源，且不包含任意启动命令、自定义 Registry URL 或 PATH 自动发现。
+- **Agent source（Agent 来源）** — Dimo 获取 Agent 接入契约的受控来源；允许 Dimo Built-in Agent Profile、ACP 官方 Registry 与用户声明的 Registry-compatible distribution。用户声明来源不等于官方来源，且不包含任意启动命令、自定义 Registry URL 或 PATH 自动发现。
 - **User-declared agent definition（用户声明 Agent 定义）** — 用户为官方 Registry 尚未收录的本地 ACP Agent 提供的版本化接入契约；只接受 Binary、npx 或 uvx 的 Registry-compatible distribution，保存稳定 Agent id、明确分发方式与定义 digest，并复用统一冻结安装计划、Installation lock 和 LaunchGate。
-- **Community ACP preset（社区 ACP 预设）** — VibeX 为官方 Registry 尚未收录、但已有成熟开源 ACP 适配器的 Agent 提供的 Registry-compatible 分发模板；它出现在 ACP 注册表「手动添加」页，添加后走用户声明定义同一管线，不得显示为官方 Registry 或 VibeX 已验证。已提升为内置 Agent 的预设只展示已内置状态，不能再以同一身份重复添加。
-- **Dedicated agent engine（独立 Agent 引擎适配）** — 针对目标 Agent 的官方原生 SDK、原生服务协议（如 `app-server`）及原生会话/状态机制直接构建的一等引擎适配；是 VibeX 接入与深化 Agent 能力的**首选方式**，完整保留精确用量、缓存周期、限流恢复、在途纠偏、协同回退与子代理流等原生控制面语义。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
+- **Community ACP preset（社区 ACP 预设）** — Dimo 为官方 Registry 尚未收录、但已有成熟开源 ACP 适配器的 Agent 提供的 Registry-compatible 分发模板；它出现在 ACP 注册表「手动添加」页，添加后走用户声明定义同一管线，不得显示为官方 Registry 或 Dimo 已验证。已提升为内置 Agent 的预设只展示已内置状态，不能再以同一身份重复添加。
+- **Dedicated agent engine（独立 Agent 引擎适配）** — 针对目标 Agent 的官方原生 SDK、原生服务协议（如 `app-server`）及原生会话/状态机制直接构建的一等引擎适配；是 Dimo 接入与深化 Agent 能力的**首选方式**，完整保留精确用量、缓存周期、限流恢复、在途纠偏、协同回退与子代理流等原生控制面语义。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
 _Avoid_: ACP 优先, 统一走 ACP 包装器, ACP-only
 - **ACP compatibility channel（ACP 次选兼容通道）** — 基于 Agent Client Protocol（ACP）的通用标准接入通道；作为**次选方案**服务于尚未提供独立 Agent 引擎适配的内置 Agent、ACP 官方 Registry 条目与用户声明分发。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
 - **Agent profile（Agent 档案）** — 驱动 Agent 产品模型的声明式接入契约，描述身份、引擎适配模式（独立引擎或次选 ACP 拓扑）、分发、检测和版本信息；底层走独立引擎还是 ACP 通道不改变用户侧统一的产品概念。
-- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Pi、OpenCode、Grok、Cursor、DeepSeek Harness、Google Antigravity、Cline、OpenClaw、Hermes、CodeBuddy、Kimi Code、Qoder、Kiro CLI、Auggie、TRAE CLI、Command Code、ZCode 与 OMP（共 20 个）。它们优先采用独立 Agent 引擎深度适配，尚未提供独立引擎时走次选 ACP 通道，并可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。ZCode 的账号留在官方应用内。
-- **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其独立引擎驱动或次选 ACP 适配器、本地 Runtime、检测候选、依赖环境、验证组合、原生配置与白名单管理动作。
+- **Built-in agent（内置 agent）** — 由 Dimo 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Pi、OpenCode、Grok、Cursor、DeepSeek Harness、Google Antigravity、Cline、OpenClaw、Hermes、CodeBuddy、Kimi Code、Qoder、Kiro CLI、Auggie、TRAE CLI、Command Code、ZCode 与 OMP（共 20 个）。它们优先采用独立 Agent 引擎深度适配，尚未提供独立引擎时走次选 ACP 通道，并可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。ZCode 的账号留在官方应用内。
+- **Built-in agent profile（内置 agent 档案）** — Dimo 为内置 Agent 提供的 Agent 档案，可声明其独立引擎驱动或次选 ACP 适配器、本地 Runtime、检测候选、依赖环境、验证组合、原生配置与白名单管理动作。
 - **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态、订阅入口、Provider 连接以及官方登录、注销和初始化动作。管理动作必须由 Built-in Agent Profile 完整声明，不能接受用户提供的程序、参数、URL 或任意 shell 文本。
-- **Profile management action（档案管理动作）** — Built-in Agent Profile 固定声明的登录、注销、初始化或订阅入口；VibeX 只解析当前安装锁或 PATH 中的同名官方可执行文件，并在用户点击后于可见终端中启动，或打开固定官方 URL。
+- **Profile management action（档案管理动作）** — Built-in Agent Profile 固定声明的登录、注销、初始化或订阅入口；Dimo 只解析当前安装锁或 PATH 中的同名官方可执行文件，并在用户点击后于可见终端中启动，或打开固定官方 URL。
 - **Native management priority（原生管理与状态优先）** — 同一项状态探测、配额、模型目录或会话管理能力，优先由独立 Agent 引擎适配与 Built-in Agent Profile 已验证的原生本地机制提供；通用 ACP 状态通告仅作为无独立引擎或未覆盖项的次选补充（取代旧「本地管理补缺 / ACP 优先」口径）。持久配置始终通过已适配的 Agent 原生配置文件编辑。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
 - **Subscription visibility（订阅可见性）** — 对 Agent 账户套餐、额度、用量与重置时间的呈现，并可由档案动作打开固定官方订阅页面；购买、升级、降级和取消仍由官方页面完成。
-- **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的判断：已通过账号登录、已通过 API Key 登录或暂未登录；用户可从设置页显式启动 Built-in Agent Profile 声明的官方登录或注销流程。
-- **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有。VibeX 可启动官方 Agent 的账号流程，也可编辑 Profile 明确认识的本地凭据字段或 Provider 文档，但不采集终端交互内容、不自动生成凭据，也不删除 Profile 范围外的外部环境凭据。
+- **Authentication status（认证状态）** — Dimo 对 Agent 当前认证来源的判断：已通过账号登录、已通过 API Key 登录或暂未登录；用户可从设置页显式启动 Built-in Agent Profile 声明的官方登录或注销流程。
+- **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有。Dimo 可启动官方 Agent 的账号流程，也可编辑 Profile 明确认识的本地凭据字段或 Provider 文档，但不采集终端交互内容、不自动生成凭据，也不删除 Profile 范围外的外部环境凭据。
 - **Inline device authentication（页内设备认证）** — 只为已适配且固定端点的官方设备授权流程提供页内状态机；短期设备码可以穿过 IPC，访问令牌只能由 Rust 后端交换并直接写入 Agent 官方凭据文件，不能进入前端、数据库或诊断日志。当前仅适配 Codex。
-- **Agent authentication mode（Agent 鉴权模式）** — 设置里当前生效的鉴权来源，只能是官方订阅、官方 API 或供应商之一；具体组合由 Built-in Agent Profile 声明，没有的模式不出现。展示以 Agent 原生配置文件为准；VibeX 只在用户显式登录订阅、启用 Provider 或切换 Provider 时写入这些文件。官方订阅与 Provider 互斥。预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。见 [ADR-0064](docs/adr/0064-unified-agent-authentication-modes.md)。
+- **Agent authentication mode（Agent 鉴权模式）** — 设置里当前生效的鉴权来源，只能是官方订阅、官方 API 或供应商之一；具体组合由 Built-in Agent Profile 声明，没有的模式不出现。展示以 Agent 原生配置文件为准；Dimo 只在用户显式登录订阅、启用 Provider 或切换 Provider 时写入这些文件。官方订阅与 Provider 互斥。预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。见 [ADR-0064](docs/adr/0064-unified-agent-authentication-modes.md)。
 - **Official subscription（官方订阅）** — 该 Agent 官方账号与套餐登录；购买与升降级仍在官方页面完成。能可靠读取的额度进入 Kanban 计量统计，不能把本地 Token 估算当成官方配额。
 - **Official API（官方 API）** — 该 Agent 第一方固定端点上的 API Key、官方模型列表与档案声明的模型映射；不能改官方 URL。
 - **OpenCode Provider catalog（OpenCode Provider 目录）** — `models.dev` 的结构化 Provider/模型能力目录；在线响应经 24 小时缓存，离线时使用最后有效缓存或随应用发布的完整快照，不包含用户凭据。它是 OpenCode 官方 API 面的实现载体，同时管理 SDK 包、API 适配器、端点、模型映射与 enabled/disabled 状态。第三方中转与自定义端点仍属供应商鉴权。
-- **OpenCode plugin health（OpenCode 插件健康）** — `opencode.json` 声明与 OpenCode 缓存中实际安装包的对照结果；VibeX 只安装已声明的插件并保护 OpenCode 保留包，不接受任意包名或安装命令。
+- **OpenCode plugin health（OpenCode 插件健康）** — `opencode.json` 声明与 OpenCode 缓存中实际安装包的对照结果；Dimo 只安装已声明的插件并保护 OpenCode 保留包，不接受任意包名或安装命令。
 - **DeepSeek Harness 鉴权模式** — 仅 `deepseek`（官方 API Key + `https://api.deepseek.com`）与 `custom`（名称、备注、Base URL、API Key）两种；凭据写入 `$DSH_HOME/.credentials.yaml`，自定义端点投影到 `DEEPSEEK_BASE_URL`，密钥不回显。
 - **DeepSeek Harness 会话默认配置** — 默认 Agent preset（standard / code / minimal / cordis）、沙箱权限与推理档位；写入 Agent 环境，作用于后续新建会话。
 - **DeepSeek Harness plugin（DeepSeek Harness 插件）** — profile 的 `dsh.profile.bundles` 组合包与 `$DSH_HOME/cordis.patch.yml` 中的包名行；添加与移除走官方 `dsh plugin --profile default`。`$DSH_HOME/skills` 是独立 Skill 子系统，不属于插件列表。
 - **Grok plugin（Grok 插件）** — 官方 `grok plugin` 管理的安装物，发现自 `grok plugin list` 或 `~/.grok/installed-plugins`；添加走 `grok plugin install <source> --trust`，移除走 `grok plugin uninstall`。Skill 目录不是 Grok 插件。
 - **Agent launch preference（Agent 启动偏好）** — Cursor 模型/Run Everything、Grok 权限模式与 OpenClaw Gateway/Session 等不能仅靠子进程环境生效的设置；保存后由受控投影转换成固定 CLI 参数，参数位置和名称由 Built-in Profile 代码决定，用户不能注入参数数组。
-- **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
-- **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Google Antigravity 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据。同一 Agent 同时至多绑定一个预设；界面上的「启用」就是绑定。已绑定预设不能删除。IPC 只暴露凭据是否存在，不回显密钥；复制到剪贴板的配置也不含密钥。绑定或更新已绑定预设时，后端把已适配字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。供应商预置目录模板在用户保存之前不是预设。
+- **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 Dimo 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。Dimo 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
+- **Model Provider preset（模型供应商预设）** — Dimo 为 Claude Code、Codex 与 Google Antigravity 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据。同一 Agent 同时至多绑定一个预设；界面上的「启用」就是绑定。已绑定预设不能删除。IPC 只暴露凭据是否存在，不回显密钥；复制到剪贴板的配置也不含密钥。绑定或更新已绑定预设时，后端把已适配字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。供应商预置目录模板在用户保存之前不是预设。
 _Avoid_: 统一供应商, 全量配置快照, 本地代理供应商
-- **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 VibeX 预设。列表中可复制、可测连。Codex 外部 `model_catalog_json` 属于可启用的原生通道：启用即恢复当时的 `config.toml` 与该外部 catalog 文件，不生成 sidecar、不要求官方 bundled catalog。其它 Agent 的原生项不能启用、编辑或删除；收成预设必须走外部供应商导入。
+- **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 Dimo 预设。列表中可复制、可测连。Codex 外部 `model_catalog_json` 属于可启用的原生通道：启用即恢复当时的 `config.toml` 与该外部 catalog 文件，不生成 sidecar、不要求官方 bundled catalog。其它 Agent 的原生项不能启用、编辑或删除；收成预设必须走外部供应商导入。
 - **Provider connection probe（供应商连接探测）** — 用已存凭据对该端点做一次模型目录请求，返回成功或失败与耗时；密钥不出前端。
 - **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。Codex 外部 catalog 不是导入源，不 diff 进 sidecar。无密钥的预置目录模板不是导入候选项；导入仍是收成已有连接。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
-- **ModelRouter** — 产品站点运营的模型网关。桌面端在 Provider 工具栏提供入口：用 VibeX 账号登录后选模型，写入一条名为「VibeX ModelRouter」的普通 Model Provider preset 并启用。账号令牌只在网页层，Host 不认识 VibeX 账号。见 [ADR-0085](docs/adr/0085-modelrouter-is-a-webview-side-provider-source.md)。
+- **ModelRouter** — 产品站点运营的模型网关。桌面端在 Provider 工具栏提供入口：用 Dimo 账号登录后选模型，写入一条名为「Dimo ModelRouter」的普通 Model Provider preset 并启用。账号令牌只在网页层，Host 不认识 Dimo 账号。见 [ADR-0085](docs/adr/0085-modelrouter-is-a-webview-side-provider-source.md)。
 _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **Provider catalog template（供应商预置目录模板）** — 插件向供应商鉴权模式新建表单贡献的无密钥填表模板。点选只填充该表面草稿；用户保存之前它不是 Model Provider preset，也不是外部供应商导入。它不是 OpenCode Provider catalog，也不是对已填端点的模型探测。官方目录以独立市场插件交付、默认禁用，不是能力等价插件。见 [ADR-0079](docs/adr/0079-provider-catalog-templates-are-not-import-sources.md)。
 _Avoid_: 导入源, CC Switch, 已保存连接, 能力等价插件
-- **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
+- **New-session default（新会话默认偏好）** — Dimo 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 在次选 ACP 通道中，本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — 在次选 ACP 通道中，ACP server 负责桥接、实际能力由 vendor CLI 提供的 agent。已升级为独立 Agent 引擎适配的内置 Agent 不再走此桥接拓扑。见 [ADR-0010](docs/adr/0010-agent-runtime-topology.md) 与 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
 - **User-environment agent installation（用户环境 Agent 安装）** — 本地 Runtime 与 ACP 只存在于用户环境（PATH、npm 全局前缀、uv tools、用户 bin）。平台安装也写入该环境，再按 PATH 探测接入；Installation lock 只记录这次观察，不是另一份托管产物。见 [ADR-0060](docs/adr/0060-agent-installs-use-user-environment.md)。
-- **External agent installation（外部 Agent 安装）** — 历史用语，现与用户环境安装同义：VibeX 绑定并校验用户环境中的 CLI，不再维护独立托管树。
+- **External agent installation（外部 Agent 安装）** — 历史用语，现与用户环境安装同义：Dimo 绑定并校验用户环境中的 CLI，不再维护独立托管树。
 - **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。
 - **Installation lock（安装锁）** — 一次成功探测或用户环境安装后，对 Agent Runtime、ACP 适配器路径、版本与分发方式的观察记录；它使当前绑定可以被验证和回退，但不是独立托管产物。
-- **Verified binary（已验证 Binary）** — 其内容与 VibeX 预先维护的预期 SHA-256 一致的 Binary；只有此类产物可以宣称经过 VibeX 完整性验证。
+- **Verified binary（已验证 Binary）** — 其内容与 Dimo 预先维护的预期 SHA-256 一致的 Binary；只有此类产物可以宣称经过 Dimo 完整性验证。
 - **TOFU binary（首次信任 Binary）** — 官方 Registry 未提供预期校验和时，首次取得并记录内容指纹、此后严格检查该指纹的普通 Registry Binary；它不等同于已验证 Binary。
 - **Installed agent（已安装 Agent）** — 所需本地运行组件已经存在且通过兼容性验证的 Agent；是否已经完成认证不影响其安装状态。
 - **Ready agent（就绪 Agent）** — 已安装且满足必需认证与配置条件、可以创建新会话的 Agent。
@@ -300,22 +300,22 @@ _Avoid_: 导入源, CC Switch, 已保存连接, 能力等价插件
 - **Platform-unsupported agent（平台不支持 Agent）** — 已知 Agent 在当前操作系统或 CPU 架构上没有可用分发契约的状态；它不等同于安装损坏，也不会撤销已有的 Agent 身份或纳入关系。
 - **Agent probe（Agent 探测）** — 对某个 Agent 的本地组件、ACP 能力、认证与管理状态进行的一次性观察；探测结果有时间属性，不代表持续监控。
 - **Registry entry（注册表条目）** — 某个 agent 身份的元数据（展示名、描述、分发方式、registry id）。registry id（如 claude-acp）是条目的标识，不是身份本身。
-- **Registry binding（注册表绑定）** — VibeX 明确维护的 Agent kind 与 Registry entry 对应关系；它用于合并同一 Agent 的受控信息来源，不通过名称相似性自动推断。
-- **Added agent（已添加 Agent）** — 已经被纳入 VibeX Agent 集合的 Agent；内置 Agent 默认属于此集合，其他 Agent 在用户确认添加时立即进入，是否安装完成不影响此关系。
-- **Available agent（可添加 Agent）** — 当前 Registry 中存在、但尚未被用户纳入 VibeX Agent 集合的 Agent。
+- **Registry binding（注册表绑定）** — Dimo 明确维护的 Agent kind 与 Registry entry 对应关系；它用于合并同一 Agent 的受控信息来源，不通过名称相似性自动推断。
+- **Added agent（已添加 Agent）** — 已经被纳入 Dimo Agent 集合的 Agent；内置 Agent 默认属于此集合，其他 Agent 在用户确认添加时立即进入，是否安装完成不影响此关系。
+- **Available agent（可添加 Agent）** — 当前 Registry 中存在、但尚未被用户纳入 Dimo Agent 集合的 Agent。
 - **Agent activation（Agent 启用状态）** — 用户是否允许某个已添加 Agent 接受后续执行的独立开关；禁用不改变其纳入、安装、认证、配置或历史状态。
 - **Retired agent（退役 Agent）** — 已停止提供新增、安装和新会话能力，但为保持历史可解释性而继续保留稳定身份的旧 Agent。
 - **Uninstall agent（卸载 Agent）** — 按分发方式移除该 Agent 在用户环境中的 CLI 包并清除 Installation lock，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。它不删除 Node、npm、uv、Python 或 Agent 原生配置。
-- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并先走同一套用户环境卸载，再清除 VibeX 拥有的 Agent 专属设置；它不删除历史会话。
+- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 Dimo 的已添加关系，使其离开 Agent 导航带，并先走同一套用户环境卸载，再清除 Dimo 拥有的 Agent 专属设置；它不删除历史会话。
 - **Agent bar（Agent 导航带）** — “设置 → Agent”中的统一横向 Agent 选择器；所有已添加 Agent 共用同一列表，不按支持等级或安装状态分区，末位固定为打开 Registry 的添加入口。
 - **ACP Registry view（ACP 注册表视图）** — 从 Agent bar 添加入口进入的 Agent 发现与管理界面，只展示当前 Registry 中仍存在的条目；条目从上游下架不会移除 Agent bar 中已经纳入的 Agent。
-- **Registry snapshot（注册表快照）** — VibeX 最近一次成功获取并验证的 ACP 官方 Registry 目录副本；离线时它只提供带时间标记的浏览能力，不授权新的添加或更新。
-- **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
+- **Registry snapshot（注册表快照）** — Dimo 最近一次成功获取并验证的 ACP 官方 Registry 目录副本；离线时它只提供带时间标记的浏览能力，不授权新的添加或更新。
+- **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 Dimo 会话体系的行为。
 - **Session fork（会话分叉）** — 从一条**已完成** assistant 消息所属 Turn（或会话尾部）分出一个新 Conversation：新会话是切点及之前历史的独立副本（非破坏性，原会话不受影响），此后独立演化。`tail` 是整段会话最后一个 assistant（含在途）。无 `session/fork` 或未命名的非尾部切点不创建 Conversation。合法 insert 之后 Agent 上下文无法延续时为 `history_only`。成功后面板切到 child。语义决策见 ADR-0005。
 
 ## ACP 官方参考文档（仅适用于次选 ACP 兼容通道）
 
-> **适用范围（[ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)）**：VibeX 遵循**独立 Agent 引擎适配优先，ACP 为次选**。设计或演进主力 Agent 能力时以各 Agent 官方 SDK / 原生协议为准；以下索引仅在维护**次选 ACP 兼容通道**与 ACP Registry 接入时查阅。
+> **适用范围（[ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)）**：Dimo 遵循**独立 Agent 引擎适配优先，ACP 为次选**。设计或演进主力 Agent 能力时以各 Agent 官方 SDK / 原生协议为准；以下索引仅在维护**次选 ACP 兼容通道**与 ACP Registry 接入时查阅。
 
 来源：ACP 官方文档索引（[llms.txt](https://agentclientprotocol.com/llms.txt)）。最后核对：2026-08-02。
 
@@ -352,7 +352,7 @@ v1 仍是当前稳定兼容基线，排查旧 Agent 行为时参考
 [v1 概览](https://agentclientprotocol.com/protocol/v1/overview)与
 [v1 Schema](https://agentclientprotocol.com/protocol/v1/schema)。
 
-VibeX 的双协议协商与采用决策见 [ADR-0035](docs/adr/0035-acp-v2-dual-protocol-session-items.md)。
+Dimo 的双协议协商与采用决策见 [ADR-0035](docs/adr/0035-acp-v2-dual-protocol-session-items.md)。
 
 ### 入门、生态与实现库
 

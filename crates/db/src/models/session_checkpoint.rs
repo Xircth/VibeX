@@ -167,7 +167,7 @@ mod tests {
             1,
             repo,
             "def456",
-            Some("refs/vibex/checkpoints/test/1"),
+            Some("refs/dimo/checkpoints/test/1"),
             Some("deadbeef"),
         )
         .await
@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(at_one.len(), 1);
         assert_eq!(
             at_one[0].git_ref_name.as_deref(),
-            Some("refs/vibex/checkpoints/test/1")
+            Some("refs/dimo/checkpoints/test/1")
         );
         assert_eq!(at_one[0].commit_oid.as_deref(), Some("deadbeef"));
     }

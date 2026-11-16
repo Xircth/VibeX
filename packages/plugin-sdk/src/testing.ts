@@ -1,8 +1,8 @@
 import type { JsonValue, PluginContext } from './protocol.js';
 import {
   createPluginContext,
-  type VibeXPluginContext,
-  type VibeXPluginDefinition,
+  type DimoPluginContext,
+  type DimoPluginDefinition,
 } from './context.js';
 import {
   type CommandContribution,
@@ -60,7 +60,7 @@ export async function createWorkerHarness(
   const host = options.host ?? createMemoryHostClient(hostCalls);
   const worker = await activatePluginWorker(definition, {
     context: {
-      pluginId: options.context?.pluginId ?? 'dev.vibex.test',
+      pluginId: options.context?.pluginId ?? 'dev.dimo.test',
       pluginVersion: options.context?.pluginVersion ?? '0.0.0-test',
       generation: options.context?.generation ?? 1,
       packageClass: options.context?.packageClass ?? 'full-trust',
@@ -293,7 +293,7 @@ function createMemoryHostClient(
 
 export interface PluginTestHarness {
   readonly pluginId: string;
-  readonly ctx: VibeXPluginContext;
+  readonly ctx: DimoPluginContext;
   readonly hostCalls: ReadonlyArray<{
     capability: string;
     operation: string;
@@ -314,8 +314,8 @@ export interface PluginTestHarness {
   };
   activate(
     plugin?:
-      | VibeXPluginDefinition
-      | ((ctx: VibeXPluginContext) => void | Disposer | Promise<void | Disposer>)
+      | DimoPluginDefinition
+      | ((ctx: DimoPluginContext) => void | Disposer | Promise<void | Disposer>)
   ): Promise<void>;
   getSlots(slot?: string): readonly SlotContribution[];
   getCommands(): readonly CommandContribution[];
@@ -332,8 +332,8 @@ export interface PluginTestHarness {
 }
 
 export type PluginTestTarget =
-  | VibeXPluginDefinition
-  | ((ctx: VibeXPluginContext) => void | Disposer | Promise<void | Disposer>);
+  | DimoPluginDefinition
+  | ((ctx: DimoPluginContext) => void | Disposer | Promise<void | Disposer>);
 
 export interface PluginTestHarnessConfig {
   pluginId?: string;
@@ -368,8 +368,8 @@ export function createPluginTestHarness(
   const pluginId = direct
     ? typeof optionsOrPlugin === 'object' && optionsOrPlugin.id
       ? optionsOrPlugin.id
-      : 'dev.vibex.test'
-    : (optionsOrPlugin.pluginId ?? 'dev.vibex.test');
+      : 'dev.dimo.test'
+    : (optionsOrPlugin.pluginId ?? 'dev.dimo.test');
   const generation = direct ? 1 : (optionsOrPlugin.generation ?? 1);
   const hostCalls: Array<{
     capability: string;

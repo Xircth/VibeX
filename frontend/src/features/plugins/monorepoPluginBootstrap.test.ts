@@ -12,7 +12,7 @@ import {
   slashCommandRegistry,
   slotRegistry,
   viewRegistry,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import {
   pluginRuntimeLoader,
   unloadPluginRuntime,
@@ -114,12 +114,12 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     }
 
     const disabledIds = [
-      'vibex.browser',
-      'vibex.notes',
-      'vibex.kanban-views',
-      'vibex.prompt-enhancer',
+      'dimo.browser',
+      'dimo.notes',
+      'dimo.kanban-views',
+      'dimo.prompt-enhancer',
     ];
-    const browserBundle = getMonorepoPluginBundle('vibex.browser')!;
+    const browserBundle = getMonorepoPluginBundle('dimo.browser')!;
     const browserLoadSpy = vi.spyOn(browserBundle, 'loadModule');
 
     try {
@@ -136,44 +136,44 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
         expect(getMonorepoPluginLoadCount(disabledId)).toBe(0);
       }
       expect(browserLoadSpy).not.toHaveBeenCalled();
-      expect(serviceContainer.has('vibex.browser')).toBe(false);
-      expect(serviceContainer.has('vibex.notes')).toBe(false);
-      expect(serviceContainer.has('vibex.kanban-views')).toBe(false);
-      expect(serviceContainer.has('vibex.prompt-enhancer')).toBe(false);
+      expect(serviceContainer.has('dimo.browser')).toBe(false);
+      expect(serviceContainer.has('dimo.notes')).toBe(false);
+      expect(serviceContainer.has('dimo.kanban-views')).toBe(false);
+      expect(serviceContainer.has('dimo.prompt-enhancer')).toBe(false);
 
-      // 2. Dynamically enabling vibex.browser loads only its module on demand
-      await syncMonorepoPluginRuntime('vibex.browser', true);
+      // 2. Dynamically enabling dimo.browser loads only its module on demand
+      await syncMonorepoPluginRuntime('dimo.browser', true);
       expect(browserLoadSpy).toHaveBeenCalledTimes(1);
-      expect(isMonorepoPluginModuleLoaded('vibex.browser')).toBe(true);
-      expect(serviceContainer.has('vibex.browser')).toBe(true);
+      expect(isMonorepoPluginModuleLoaded('dimo.browser')).toBe(true);
+      expect(serviceContainer.has('dimo.browser')).toBe(true);
       expect(
-        settingsPageRegistry.get('vibex.browser:browser-settings')?.component
+        settingsPageRegistry.get('dimo.browser:browser-settings')?.component
       ).toBeTypeOf('function');
-      expect(commandRegistry.has('vibex.browser.open-tab')).toBe(true);
+      expect(commandRegistry.has('dimo.browser.open-tab')).toBe(true);
 
       // Still disabled plugins remain unloaded, and 'notes' panel is not registered
-      expect(isMonorepoPluginModuleLoaded('vibex.notes')).toBe(false);
+      expect(isMonorepoPluginModuleLoaded('dimo.notes')).toBe(false);
       expect(panelRegistry.has('notes')).toBe(false);
 
-      // Dynamically enabling vibex.notes registers the 'notes' panel, and disabling removes it
-      await syncMonorepoPluginRuntime('vibex.notes', true);
+      // Dynamically enabling dimo.notes registers the 'notes' panel, and disabling removes it
+      await syncMonorepoPluginRuntime('dimo.notes', true);
       expect(panelRegistry.has('notes')).toBe(true);
-      expect(panelRegistry.get('notes')?.pluginId).toBe('vibex.notes');
-      await syncMonorepoPluginRuntime('vibex.notes', false);
+      expect(panelRegistry.get('notes')?.pluginId).toBe('dimo.notes');
+      await syncMonorepoPluginRuntime('dimo.notes', false);
       expect(panelRegistry.has('notes')).toBe(false);
 
-      // 3. Dynamically disabling vibex.browser immediately unloads all its contributions
-      await syncMonorepoPluginRuntime('vibex.browser', false);
-      expect(serviceContainer.has('vibex.browser')).toBe(false);
+      // 3. Dynamically disabling dimo.browser immediately unloads all its contributions
+      await syncMonorepoPluginRuntime('dimo.browser', false);
+      expect(serviceContainer.has('dimo.browser')).toBe(false);
       expect(
-        settingsPageRegistry.get('vibex.browser:browser-settings')
+        settingsPageRegistry.get('dimo.browser:browser-settings')
       ).toBeUndefined();
-      expect(commandRegistry.has('vibex.browser.open-tab')).toBe(false);
+      expect(commandRegistry.has('dimo.browser.open-tab')).toBe(false);
 
       // 4. Hot-reloading an official plugin cleanly re-activates it
-      await reloadMonorepoPlugin('vibex.browser', { generation: 2 });
-      expect(serviceContainer.has('vibex.browser')).toBe(true);
-      expect(commandRegistry.has('vibex.browser.open-tab')).toBe(true);
+      await reloadMonorepoPlugin('dimo.browser', { generation: 2 });
+      expect(serviceContainer.has('dimo.browser')).toBe(true);
+      expect(commandRegistry.has('dimo.browser.open-tab')).toBe(true);
     } finally {
       browserLoadSpy.mockRestore();
     }
@@ -190,18 +190,18 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
 
     // Services from all 12 official plugins
     const expectedServices = [
-      'vibex.provider-catalog',
-      'vibex.plugin-dev',
-      'vibex.session-enhance',
-      'vibex.browser',
-      'vibex.office',
-      'vibex.workflow-creator',
-      'vibex.remote-ssh',
-      'vibex.science',
-      'vibex.computer-use',
-      'vibex.kanban-views',
-      'vibex.notes',
-      'vibex.prompt-enhancer',
+      'dimo.provider-catalog',
+      'dimo.plugin-dev',
+      'dimo.session-enhance',
+      'dimo.browser',
+      'dimo.office',
+      'dimo.workflow-creator',
+      'dimo.remote-ssh',
+      'dimo.science',
+      'dimo.computer-use',
+      'dimo.kanban-views',
+      'dimo.notes',
+      'dimo.prompt-enhancer',
     ];
     for (const serviceKey of expectedServices) {
       expect(serviceContainer.has(serviceKey)).toBe(true);
@@ -209,21 +209,21 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
 
     // Views, Panels, KanbanViews, SettingsPages self-registered by plugins
     expect(
-      settingsPageRegistry.get('vibex.browser:browser-settings')?.component
+      settingsPageRegistry.get('dimo.browser:browser-settings')?.component
     ).toBeTypeOf('function');
-    expect(panelRegistry.get('vibex.browser:browser')?.component).toBeTypeOf(
+    expect(panelRegistry.get('dimo.browser:browser')?.component).toBeTypeOf(
       'function'
     );
     expect(
-      settingsPageRegistry.get('vibex-plugin-computer-use:computer-use')
+      settingsPageRegistry.get('dimo-plugin-computer-use:computer-use')
         ?.component
     ).toBeTypeOf('function');
     expect(
-      viewRegistry.get('vibex-plugin-computer-use:computer-use-status')
+      viewRegistry.get('dimo-plugin-computer-use:computer-use-status')
         ?.component
     ).toBeTypeOf('function');
     expect(
-      viewRegistry.get('vibex.remote-ssh:connect-panel')?.component
+      viewRegistry.get('dimo.remote-ssh:connect-panel')?.component
     ).toBeTypeOf('function');
     expect(
       settingsPageRegistry
@@ -232,35 +232,35 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
         .map((page) => `${page.pluginId}:${page.id}`)
         .sort()
     ).toEqual([
-      'vibex-plugin-computer-use:computer-use',
-      'vibex.browser:browser-settings',
+      'dimo-plugin-computer-use:computer-use',
+      'dimo.browser:browser-settings',
     ]);
-    expect(panelRegistry.get('vibex.notes:notes')?.component).toBeTypeOf(
+    expect(panelRegistry.get('dimo.notes:notes')?.component).toBeTypeOf(
       'function'
     );
     expect(
-      kanbanViewRegistry.get('vibex.kanban-views:triage-board')?.component
+      kanbanViewRegistry.get('dimo.kanban-views:triage-board')?.component
     ).toBeTypeOf('function');
     expect(
-      kanbanViewRegistry.get('vibex.kanban-views:velocity-timeline')?.component
+      kanbanViewRegistry.get('dimo.kanban-views:velocity-timeline')?.component
     ).toBeTypeOf('function');
 
     // Commands
     const expectedCommands = [
-      'vibex.provider-switch.open-catalog',
+      'dimo.provider-switch.open-catalog',
       'reload-plugins',
-      'vibex.session-enhance.toggle-hints',
-      'vibex.browser.open-tab',
-      'vibex.office.preview',
-      'vibex.workflow-creator.new',
-      'vibex.remote-ssh.connect',
-      'vibex.science.configure-domains',
-      'vibex.computer-use.emergency-stop',
-      'vibex.kanban.triage',
+      'dimo.session-enhance.toggle-hints',
+      'dimo.browser.open-tab',
+      'dimo.office.preview',
+      'dimo.workflow-creator.new',
+      'dimo.remote-ssh.connect',
+      'dimo.science.configure-domains',
+      'dimo.computer-use.emergency-stop',
+      'dimo.kanban.triage',
       'kanban-filter-command',
       'open-notes',
-      'vibex.notes.new',
-      'vibex.notes.export-markdown',
+      'dimo.notes.new',
+      'dimo.notes.export-markdown',
       'enhance-prompt-command',
     ];
     for (const cmdId of expectedCommands) {
@@ -350,7 +350,7 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
 
   it('executes closed-loop capabilities for prompt-enhancer, notes, and kanban-views', async () => {
     await bootstrapMonorepoOfficialPlugins({
-      onlyIds: ['vibex.prompt-enhancer', 'vibex.notes', 'vibex.kanban-views'],
+      onlyIds: ['dimo.prompt-enhancer', 'dimo.notes', 'dimo.kanban-views'],
     });
 
     // 1. Prompt Enhancer closed loop: config modes + beforeTurn waterfall hook
@@ -361,7 +361,7 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
         patch: Record<string, unknown>
       ) => Promise<Record<string, unknown>>;
       getConfig: () => Record<string, unknown>;
-    }>('vibex.prompt-enhancer')!;
+    }>('dimo.prompt-enhancer')!;
     expect(promptEnhancer).toBeDefined();
 
     const syncEnhanced = promptEnhancer.enhance('Fix race condition');
@@ -404,7 +404,7 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       subscribe: (
         fn: (items: Array<{ id: string; text: string }>) => void
       ) => () => void;
-    }>('vibex.notes')!;
+    }>('dimo.notes')!;
     expect(notesService).toBeDefined();
 
     const observedUpdates: number[] = [];
@@ -415,7 +415,7 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     await notesService.addNote('Architecture note: dynamic imports');
     const captureMenu = slotRegistry
       .getBySlot('message.context-menu')
-      .find((item) => item.id === 'vibex.notes.capture-selection');
+      .find((item) => item.id === 'dimo.notes.capture-selection');
     expect(captureMenu).toBeDefined();
     await (
       captureMenu as unknown as {
@@ -455,7 +455,7 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       }>;
       cycleFilterPreset: () => Promise<string>;
       getFoundationStatus: () => { connected: boolean; serviceKey: string };
-    }>('vibex.kanban-views')!;
+    }>('dimo.kanban-views')!;
     expect(kanbanService).toBeDefined();
     expect(kanbanService.getFoundationStatus().connected).toBe(true);
     expect(kanbanService.registeredViews).toEqual([

@@ -23,17 +23,17 @@ vi.mock('@/components/ui/toast', () => ({
 const catalog: PluginControlCatalog = {
   plugins: [
     {
-      id: 'vibex.office',
-      name: 'VibeX Office',
+      id: 'dimo.office',
+      name: 'Dimo Office',
       version: '2.0.0',
       description: 'Create and edit office artifacts.',
       enabled: true,
       builtin: true,
-      publisher: 'VibeX',
+      publisher: 'Dimo',
       packageDigest: 'sha256:office-package',
       sourceKind: 'builtin',
-      sourcePath: '/Applications/VibeX/assets/plugins/office',
-      formats: ['vibex'],
+      sourcePath: '/Applications/Dimo/assets/plugins/office',
+      formats: ['dimo'],
       skills: [
         { id: 'office-pptx', path: 'skills/office-pptx/SKILL.md' },
         { id: 'office-docx', path: 'skills/office-docx/SKILL.md' },
@@ -68,7 +68,7 @@ const catalog: PluginControlCatalog = {
       ],
     },
     {
-      id: 'dev.vibex.research',
+      id: 'dev.dimo.research',
       name: 'Research Toolkit',
       version: '1.4.0',
       description: 'Shared research workflow.',
@@ -78,7 +78,7 @@ const catalog: PluginControlCatalog = {
       packageDigest: 'sha256:research-1.4.0',
       sourceKind: 'developer_link',
       sourcePath: '/Users/me/plugins/research',
-      formats: ['vibex', 'codex', 'claude_code'],
+      formats: ['dimo', 'codex', 'claude_code'],
       skills: [
         { id: 'research', path: 'skills/research/SKILL.md' },
         { id: 'citations', path: 'skills/citations/SKILL.md' },
@@ -203,7 +203,7 @@ const catalog: PluginControlCatalog = {
       ownership: 'managed',
       installer: 'archive',
       probe: ['officecli', '--version'],
-      referencedPlugins: ['vibex.office'],
+      referencedPlugins: ['dimo.office'],
     },
     {
       id: 'officecli',
@@ -247,7 +247,7 @@ const contributionCatalog: PluginContributionCatalog = {
   generation: 7,
   items: [
     {
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       id: 'office.preview',
       kind: 'file_opener',
       label: 'Office preview',
@@ -255,7 +255,7 @@ const contributionCatalog: PluginContributionCatalog = {
       metadata: { extensions: ['docx', 'pptx', 'xlsx'] },
     },
     {
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       id: 'office-preview',
       kind: 'preview_provider',
       label: 'Office document preview',
@@ -263,7 +263,7 @@ const contributionCatalog: PluginContributionCatalog = {
       metadata: { fileOpener: 'office.preview', runtime: 'officecli' },
     },
     {
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       id: 'office-pptx',
       kind: 'skill',
       label: 'Office presentation skill',
@@ -271,7 +271,7 @@ const contributionCatalog: PluginContributionCatalog = {
       metadata: { path: 'skills/office-pptx/SKILL.md' },
     },
     {
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       id: 'office-dashboard',
       kind: 'app_surface',
       label: 'Office dashboard',
@@ -437,17 +437,17 @@ describe('PluginsSettings', () => {
     expect(within(detail).getByText('browser-runtime')).toBeVisible();
     expect(within(detail).getByText('session-start')).toBeVisible();
     expect(within(detail).getByText('browse-and-summarize')).toBeVisible();
-    expect(within(detail).queryByText('扩展 VibeX')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('扩展 Dimo')).not.toBeInTheDocument();
     expect(within(detail).queryByText('扩展 Agent')).not.toBeInTheDocument();
     expect(within(detail).queryByText('调用命令')).not.toBeInTheDocument();
     expect(within(detail).queryByText('来源')).not.toBeInTheDocument();
   });
 
-  it('scopes the product module to VibeX plugins and reads the activation registry', async () => {
+  it('scopes the product module to Dimo plugins and reads the activation registry', async () => {
     const backend = transport();
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
 
-    expect((await screen.findAllByText('VibeX Office')).length).toBeGreaterThan(
+    expect((await screen.findAllByText('Dimo Office')).length).toBeGreaterThan(
       0
     );
     expect(screen.getAllByText('Research Toolkit').length).toBeGreaterThan(0);
@@ -457,7 +457,7 @@ describe('PluginsSettings', () => {
       screen.queryByRole('tablist', { name: '插件生态' })
     ).not.toBeInTheDocument();
     expect(backend.call).toHaveBeenCalledWith('plugin_contribution_catalog');
-    expect(await screen.findByText('扩展 VibeX')).toBeVisible();
+    expect(await screen.findByText('扩展 Dimo')).toBeVisible();
     expect(screen.getByText('打开与预览文件')).toBeVisible();
     expect(screen.getByText('DOCX · PPTX · XLSX')).toBeVisible();
     expect(screen.queryByText('激活代次 7')).not.toBeInTheDocument();
@@ -470,7 +470,7 @@ describe('PluginsSettings', () => {
       ([command]) => command === 'plugin_surface_open'
     ).length;
     await userEvent.type(
-      screen.getByRole('searchbox', { name: '搜索 VibeX 插件' }),
+      screen.getByRole('searchbox', { name: '搜索 Dimo 插件' }),
       'office'
     );
     expect(
@@ -488,7 +488,7 @@ describe('PluginsSettings', () => {
     const disabledCatalog: PluginControlCatalog = {
       ...catalog,
       plugins: catalog.plugins.map((plugin) =>
-        plugin.id === 'vibex.office' ? { ...plugin, enabled: false } : plugin
+        plugin.id === 'dimo.office' ? { ...plugin, enabled: false } : plugin
       ),
     };
     const backend = transport({
@@ -496,7 +496,7 @@ describe('PluginsSettings', () => {
       plugin_contribution_catalog: { generation: 7, items: [] },
     });
 
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
 
     expect(await screen.findByText('打开与预览文件')).toBeVisible();
     expect(screen.getByText('DOCX · PPTX · XLSX')).toBeVisible();
@@ -519,7 +519,7 @@ describe('PluginsSettings', () => {
         capabilities: ['plugin.read', 'plugin.surface'],
       }),
     };
-    renderSettings(webTransport, false, 'vibex');
+    renderSettings(webTransport, false, 'dimo');
 
     expect(
       await screen.findByRole('region', { name: 'Office dashboard' })
@@ -551,20 +551,20 @@ describe('PluginsSettings', () => {
         capabilities: ['plugin.read', 'plugin.write', 'plugin.surface'],
       }),
     };
-    renderSettings(remoteTransport, false, 'vibex');
+    renderSettings(remoteTransport, false, 'dimo');
     await screen.findByText('Research Toolkit');
 
     expect(
       screen.getByRole('button', { name: '导入插件' })
     ).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByRole('switch', { name: /VibeX Office/ })).toBeEnabled()
+      expect(screen.getByRole('switch', { name: /Dimo Office/ })).toBeEnabled()
     );
   });
 
   it('does not expose a plugin-dev loopback dialog', async () => {
     const backend = transport();
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
 
     expect(await screen.findByText('Research Toolkit')).toBeVisible();
     expect(
@@ -583,7 +583,7 @@ describe('PluginsSettings', () => {
 
     expect(await screen.findByRole('heading', { name: '插件' })).toBeVisible();
     expect(
-      screen.getByText('在此管理 Codex、ClaudeCode 以及 VibeX 平台支持的插件')
+      screen.getByText('在此管理 Codex、ClaudeCode 以及 Dimo 平台支持的插件')
     ).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: '插件控制面' })
@@ -606,7 +606,7 @@ describe('PluginsSettings', () => {
     expect(screen.getAllByText('Browser Tools').length).toBeGreaterThan(0);
     const browserRow = screen.getByRole('button', { name: /Browser Tools/ });
     expect(within(browserRow).queryByText('Codex')).not.toBeInTheDocument();
-    expect(screen.queryByText('VibeX Office')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dimo Office')).not.toBeInTheDocument();
     expect(screen.queryByText('Frontend Design')).not.toBeInTheDocument();
 
     await user.type(
@@ -614,22 +614,22 @@ describe('PluginsSettings', () => {
       'office'
     );
     expect(screen.queryByText('Browser Tools')).not.toBeInTheDocument();
-    expect(screen.queryByText('VibeX Office')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dimo Office')).not.toBeInTheDocument();
 
-    await user.click(within(tabs).getByRole('tab', { name: 'VibeX' }));
-    expect((await screen.findAllByText('VibeX Office')).length).toBeGreaterThan(
+    await user.click(within(tabs).getByRole('tab', { name: 'Dimo' }));
+    expect((await screen.findAllByText('Dimo Office')).length).toBeGreaterThan(
       0
     );
     expect(screen.getByText('Research Toolkit')).toBeVisible();
-    const officeRow = screen.getByRole('button', { name: /VibeX Office/ });
-    expect(within(officeRow).queryByText('VibeX')).not.toBeInTheDocument();
+    const officeRow = screen.getByRole('button', { name: /Dimo Office/ });
+    expect(within(officeRow).queryByText('Dimo')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Research Toolkit/ }));
     const detail = screen.getByRole('region', { name: 'Research Toolkit' });
     const detailHeader = detail.querySelector('.plugin-detail-header');
     expect(detailHeader).not.toBeNull();
     expect(
-      within(detailHeader as HTMLElement).getByText('VibeX')
+      within(detailHeader as HTMLElement).getByText('Dimo')
     ).toBeVisible();
     expect(
       within(detailHeader as HTMLElement).getByText('Codex')
@@ -637,7 +637,7 @@ describe('PluginsSettings', () => {
     expect(
       within(detailHeader as HTMLElement).getByText('Claude Code')
     ).toBeVisible();
-    expect(within(detail).getByText('VibeX')).toBeVisible();
+    expect(within(detail).getByText('Dimo')).toBeVisible();
     expect(within(detail).getByText('Codex')).toBeVisible();
     expect(within(detail).getByText('Claude Code')).toBeVisible();
     expect(within(detail).getByText('2 个技能')).toBeVisible();
@@ -688,7 +688,7 @@ describe('PluginsSettings', () => {
 
     fireEvent.keyDown(separator, { key: 'ArrowLeft' });
     expect(separator).toHaveAttribute('aria-valuenow', '42');
-    expect(localStorage.getItem('vibex.pluginHub.listPanePercent')).toBe('42');
+    expect(localStorage.getItem('dimo.pluginHub.listPanePercent')).toBe('42');
   });
 
   it('orders the overview sections and shows MCP names without their configuration', async () => {
@@ -696,7 +696,7 @@ describe('PluginsSettings', () => {
     const backend = transport();
     renderSettings(backend.value);
 
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -717,7 +717,7 @@ describe('PluginsSettings', () => {
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent);
     expect(headings).toEqual([
-      '扩展 VibeX',
+      '扩展 Dimo',
       '扩展 Agent',
       'Skills',
       'Runtime',
@@ -731,7 +731,7 @@ describe('PluginsSettings', () => {
     const user = userEvent.setup();
     const backend = transport();
     renderSettings(backend.value, true);
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -742,14 +742,14 @@ describe('PluginsSettings', () => {
 
     await waitFor(() => {
       expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
-        pluginId: 'dev.vibex.research',
+        pluginId: 'dev.dimo.research',
         enabled: true,
       });
     });
     expect(backend.call).toHaveBeenCalledWith(
       'plugin_control_configure_agents',
       {
-        pluginId: 'dev.vibex.research',
+        pluginId: 'dev.dimo.research',
         allAgents: true,
         agents: [],
       }
@@ -766,7 +766,7 @@ describe('PluginsSettings', () => {
       within(dialog).getByRole('button', { name: '前往 MCP 设置' })
     );
     expect(screen.getByLabelText('Current location')).toHaveTextContent(
-      '/settings/mcp?plugin=dev.vibex.research'
+      '/settings/mcp?plugin=dev.dimo.research'
     );
   });
 
@@ -831,14 +831,14 @@ describe('PluginsSettings', () => {
     const backend = transport();
     renderSettings(backend.value);
 
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
     await user.click(screen.getByRole('button', { name: '2 个技能' }));
 
     expect(backend.call).toHaveBeenCalledWith('plugin_control_contributions', {
-      pluginId: 'dev.vibex.research',
+      pluginId: 'dev.dimo.research',
     });
     const skillView = await screen.findByRole('region', {
       name: 'Research Toolkit 技能',
@@ -862,7 +862,7 @@ describe('PluginsSettings', () => {
     const backend = transport();
     renderSettings(backend.value);
 
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -896,7 +896,7 @@ describe('PluginsSettings', () => {
         if (path.endsWith('skills/citations/SKILL.md')) {
           return '# Citations fallback';
         }
-        if (path.endsWith('.vibex-plugin/plugin.json')) {
+        if (path.endsWith('.dimo-plugin/plugin.json')) {
           return JSON.stringify({
             mcp: {
               mcpServers: {
@@ -913,7 +913,7 @@ describe('PluginsSettings', () => {
     });
     renderSettings(backend.value);
 
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -948,7 +948,7 @@ describe('PluginsSettings', () => {
     expect(
       within(dialog).getByRole('button', { name: /Claude Code/ })
     ).toBeVisible();
-    expect(within(dialog).getByRole('button', { name: /VibeX/ })).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: /Dimo/ })).toBeVisible();
 
     await user.click(within(dialog).getByRole('button', { name: 'Codex' }));
     expect(within(dialog).getByText('仅 Skills 的 ZIP')).toBeVisible();
@@ -983,18 +983,18 @@ describe('PluginsSettings', () => {
       within(dialog).getByRole('textbox', { name: 'Claude Code CLI 命令' })
     ).toBeVisible();
 
-    await user.click(within(dialog).getByRole('button', { name: /^VibeX/ }));
-    expect(within(dialog).getByText('VibeX 插件 ZIP')).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: /^Dimo/ }));
+    expect(within(dialog).getByText('Dimo 插件 ZIP')).toBeVisible();
     expect(within(dialog).queryByText(/CLI/)).not.toBeInTheDocument();
   });
 
-  it('previews a VibeX ZIP and requires an explicit same-id replacement decision', async () => {
+  it('previews a Dimo ZIP and requires an explicit same-id replacement decision', async () => {
     const user = userEvent.setup();
     vi.mocked(open).mockResolvedValue('/Users/me/new-research.zip');
     const preview = {
       plugin: catalog.plugins[1],
       conflict: {
-        pluginId: 'dev.vibex.research',
+        pluginId: 'dev.dimo.research',
         installedSource: '/Users/me/plugins/research',
         installedEnabled: true,
         incomingSource: '/Users/me/new-research',
@@ -1010,7 +1010,7 @@ describe('PluginsSettings', () => {
     const chooser = await screen.findByRole('dialog', {
       name: '选择插件格式',
     });
-    await user.click(within(chooser).getByRole('button', { name: /^VibeX/ }));
+    await user.click(within(chooser).getByRole('button', { name: /^Dimo/ }));
     await user.click(within(chooser).getByRole('button', { name: '选择 ZIP' }));
     const dialog = await screen.findByRole('dialog', {
       name: '导入 Research Toolkit',
@@ -1026,7 +1026,7 @@ describe('PluginsSettings', () => {
         path: '/Users/me/new-research.zip',
         developerLink: false,
         conflictDecision: 'replace',
-        packageKind: 'vibex',
+        packageKind: 'dimo',
         permissionIds: [],
       });
     });
@@ -1042,7 +1042,7 @@ describe('PluginsSettings', () => {
       },
     });
     renderSettings(backend.value);
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -1053,7 +1053,7 @@ describe('PluginsSettings', () => {
       expect(backend.call).toHaveBeenCalledWith(
         'plugin_control_install_runtime',
         {
-          pluginId: 'dev.vibex.research',
+          pluginId: 'dev.dimo.research',
           runtimeId: 'research-cli',
         }
       )
@@ -1062,9 +1062,9 @@ describe('PluginsSettings', () => {
 
   it('renders each Runtime identity and only marks an exact lock ready', async () => {
     const backend = transport();
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
 
-    const detail = await screen.findByRole('region', { name: 'VibeX Office' });
+    const detail = await screen.findByRole('region', { name: 'Dimo Office' });
     expect(within(detail).getByText('已就绪')).toBeVisible();
     expect(within(detail).getByText('existing')).toBeVisible();
   });
@@ -1073,7 +1073,7 @@ describe('PluginsSettings', () => {
     const user = userEvent.setup();
     const backend = transport();
     renderSettings(backend.value);
-    await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
+    await user.click(await screen.findByRole('tab', { name: 'Dimo' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -1084,7 +1084,7 @@ describe('PluginsSettings', () => {
 
     await waitFor(() => {
       expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
-        pluginId: 'dev.vibex.research',
+        pluginId: 'dev.dimo.research',
         enabled: true,
       });
     });
@@ -1122,10 +1122,10 @@ describe('PluginsSettings', () => {
       },
       plugin_control_set_enabled: { ...office, enabled: true },
     });
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
 
     await user.click(
-      await screen.findByRole('switch', { name: '启用 VibeX Office' })
+      await screen.findByRole('switch', { name: '启用 Dimo Office' })
     );
     await waitFor(() => {
       expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
@@ -1135,7 +1135,7 @@ describe('PluginsSettings', () => {
     });
     expect(
       screen.queryByRole('alertdialog', {
-        name: '允许 VibeX Office 使用这些能力？',
+        name: '允许 Dimo Office 使用这些能力？',
       })
     ).not.toBeInTheDocument();
   });
@@ -1170,10 +1170,10 @@ describe('PluginsSettings', () => {
         throw new Error('OfficeCLI probe failed');
       },
     });
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
 
     await user.click(
-      await screen.findByRole('switch', { name: '启用 VibeX Office' })
+      await screen.findByRole('switch', { name: '启用 Dimo Office' })
     );
 
     await waitFor(() => {
@@ -1189,7 +1189,7 @@ describe('PluginsSettings', () => {
       expect(installCall).toBeDefined();
       expect(enableCall).toBeDefined();
       expect(installCall).toBeLessThan(enableCall as number);
-      expect(toast.error).toHaveBeenCalledWith('无法启用 VibeX Office', {
+      expect(toast.error).toHaveBeenCalledWith('无法启用 Dimo Office', {
         description: 'OfficeCLI probe failed',
       });
     });
@@ -1216,7 +1216,7 @@ describe('PluginsSettings', () => {
         return preview;
       },
     });
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -1228,7 +1228,7 @@ describe('PluginsSettings', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('digest-1.5.0')).toBeVisible();
     expect(backend.call).not.toHaveBeenCalledWith('plugin_control_update', {
-      pluginId: 'dev.vibex.research',
+      pluginId: 'dev.dimo.research',
       confirmationId: 'confirmed-digest',
     });
     await user.click(
@@ -1238,7 +1238,7 @@ describe('PluginsSettings', () => {
     );
     await waitFor(() =>
       expect(backend.call).toHaveBeenCalledWith('plugin_control_update', {
-        pluginId: 'dev.vibex.research',
+        pluginId: 'dev.dimo.research',
         confirmationId: 'confirmed-digest',
       })
     );
@@ -1247,7 +1247,7 @@ describe('PluginsSettings', () => {
   it('restores the previous verified package through the rollback command', async () => {
     const user = userEvent.setup();
     const backend = transport();
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
@@ -1260,7 +1260,7 @@ describe('PluginsSettings', () => {
 
     await waitFor(() => {
       expect(backend.call).toHaveBeenCalledWith('plugin_control_rollback', {
-        pluginId: 'dev.vibex.research',
+        pluginId: 'dev.dimo.research',
         permissionIds: [],
       });
     });

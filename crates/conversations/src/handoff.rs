@@ -408,7 +408,7 @@ fn pack_candidates(
     }
 }
 
-/// Render the portable `<vibex-engine-handoff>` context block with an explicit MCP
+/// Render the portable `<dimo-engine-handoff>` context block with an explicit MCP
 /// `thread_read_history` hint whenever historical items were omitted.
 pub fn format_handoff_prompt_text(
     conversation_id: Uuid,
@@ -420,7 +420,7 @@ pub fn format_handoff_prompt_text(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "<vibex-engine-handoff conversation_id=\"{conversation_id}\" source_engine=\"{source_engine}\" target_engine=\"{target_engine}\">\n"
+        "<dimo-engine-handoff conversation_id=\"{conversation_id}\" source_engine=\"{source_engine}\" target_engine=\"{target_engine}\">\n"
     ));
     for item in packed_messages {
         out.push_str(&format!(
@@ -446,7 +446,7 @@ pub fn format_handoff_prompt_text(
             more_suffix
         ));
     }
-    out.push_str("</vibex-engine-handoff>");
+    out.push_str("</dimo-engine-handoff>");
     out
 }
 
@@ -1484,7 +1484,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let workspace_id = Uuid::new_v4();
         let conversation_id = Uuid::new_v4();
-        let missing_dir = std::env::temp_dir().join(format!("vibex-missing-ws-{}", Uuid::new_v4()));
+        let missing_dir = std::env::temp_dir().join(format!("dimo-missing-ws-{}", Uuid::new_v4()));
 
         sqlx::query("INSERT INTO projects (id, name, root_path, created_at, updated_at) VALUES (?, 'P', '/tmp/p', datetime('now'), datetime('now'))")
             .bind(project_id)

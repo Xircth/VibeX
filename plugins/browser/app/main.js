@@ -36,7 +36,7 @@ function createBrowserSurfaceComponent(ctx, defaultSurfaceId, defaultSlot) {
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.browser',
+  id: 'dimo.browser',
   activate(ctx) {
     const BrowserSettingsComponent = createBrowserSurfaceComponent(
       ctx,
@@ -98,7 +98,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.browser.open-tab',
+      id: 'dimo.browser.open-tab',
       title: 'Open Built-in Browser Tab',
       category: 'Browser',
       icon: 'globe',
@@ -107,7 +107,7 @@ export default {
       },
     });
 
-    ctx.services.provide('vibex.browser', {
+    ctx.services.provide('dimo.browser', {
       openUrl(url) {
         const targetUrl = String(url || 'about:blank').trim() || 'about:blank';
         ctx.events.emit('browser:open-tab', { url: targetUrl });

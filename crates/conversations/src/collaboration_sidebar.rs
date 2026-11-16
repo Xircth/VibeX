@@ -211,7 +211,7 @@ const DM_USER_EVENT_KINDS: &str = "'user_turn_created', 'conversation_input'";
 
 /// Hidden first user turn after creating a bot. Session tab keeps it; the
 /// collaboration message area and sidebar preview skip it so the bot greets first.
-pub const PRIVATE_BOOTSTRAP_PREFIX: &str = "<vibex-private-bootstrap>";
+pub const PRIVATE_BOOTSTRAP_PREFIX: &str = "<dimo-private-bootstrap>";
 
 fn is_private_bootstrap_prompt(text: &str) -> bool {
     text.contains(PRIVATE_BOOTSTRAP_PREFIX)

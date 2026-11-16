@@ -58,14 +58,14 @@ const CURATED_TEMPLATES = [
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.provider-switch',
+  id: 'dimo.provider-switch',
   activate(ctx) {
     for (const provider of DEFAULT_PROVIDERS) {
       ctx.registerProvider(provider);
     }
 
     ctx.ui.registerCommand({
-      id: 'vibex.provider-switch.open-catalog',
+      id: 'dimo.provider-switch.open-catalog',
       title: 'Browse Model Provider Catalog',
       category: 'Providers',
       icon: 'layers',
@@ -76,7 +76,7 @@ export default {
       },
     });
 
-    ctx.provideService('vibex.provider-catalog', {
+    ctx.provideService('dimo.provider-catalog', {
       listProviders: () => DEFAULT_PROVIDERS,
       getProvider: (id) =>
         DEFAULT_PROVIDERS.find((p) => p.id === id) ?? undefined,
@@ -86,14 +86,14 @@ export default {
           : CURATED_TEMPLATES,
     });
 
-    const hostCatalog = ctx.services.get('vibex.model-catalog');
+    const hostCatalog = ctx.services.get('dimo.model-catalog');
     if (
       hostCatalog &&
       typeof hostCatalog.registerCatalogSource === 'function'
     ) {
       const disposeSource = hostCatalog.registerCatalogSource({
         id: 'provider-catalog',
-        pluginId: 'vibex.provider-switch',
+        pluginId: 'dimo.provider-switch',
         pluginLabel: 'ProviderSwitch',
         label: 'Official Provider Catalog',
         agents: ['opencode', 'claude-code', 'codex'],

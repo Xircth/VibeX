@@ -16,7 +16,7 @@ const plugin = {
   builtin: false,
   sourceKind: 'snapshot',
   sourcePath: '/plugins/acme.dashboard',
-  formats: ['vibex'],
+  formats: ['dimo'],
   skills: [],
   runtimes: [],
   warnings: [],

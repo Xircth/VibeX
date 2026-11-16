@@ -1,5 +1,5 @@
-import { createPluginContext, isVibeXPluginDefinition, } from './context.js';
-export { createPluginContext, definePlugin, defineVibeXPlugin, isVibeXPluginDefinition, setDefaultHostCallTransport, setDefaultWorkerInvokeTransport, } from './context.js';
+import { createPluginContext, isDimoPluginDefinition, } from './context.js';
+export { createPluginContext, definePlugin, defineDimoPlugin, isDimoPluginDefinition, setDefaultHostCallTransport, setDefaultWorkerInvokeTransport, } from './context.js';
 function isPluginAppSurfaceContext(value) {
     if (!value || typeof value !== 'object') {
         return false;
@@ -124,7 +124,7 @@ export function definePluginApp(input) {
     if (typeof input === 'function') {
         return wrapSurfaceSetup(input);
     }
-    if (isVibeXPluginDefinition(input)) {
+    if (isDimoPluginDefinition(input)) {
         return wrapPluginDefinition(input);
     }
     if (typeof input.activate === 'function') {
@@ -133,5 +133,5 @@ export function definePluginApp(input) {
     if (isPluginContextLike(input)) {
         return wrapPluginContext(input);
     }
-    throw new TypeError('definePluginApp requires a surface setup, VibeXPluginDefinition, or VibeXPluginContext');
+    throw new TypeError('definePluginApp requires a surface setup, DimoPluginDefinition, or DimoPluginContext');
 }

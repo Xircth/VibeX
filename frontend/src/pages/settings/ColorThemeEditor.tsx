@@ -7,7 +7,7 @@ import {
   type ThemeColors,
   type ThemeDefinition,
   type ThemeScheme,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import {
   SegmentedControl,
   SegmentedControlItem,

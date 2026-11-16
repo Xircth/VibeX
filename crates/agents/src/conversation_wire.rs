@@ -401,7 +401,7 @@ fn cap_tool_preview_fields(block: &mut ContentBlock) {
     crate::timeline_images::spill_content_block(block);
 }
 
-/// Validates and formats `internal_prompt_contributions` into an `<vibex-plugin-context>`
+/// Validates and formats `internal_prompt_contributions` into an `<dimo-plugin-context>`
 /// block to append to the Agent prompt.
 ///
 /// Returns `Err(total_bytes)` if the total UTF-8 byte length of all contribution
@@ -453,7 +453,7 @@ pub fn format_internal_prompt_contributions(
     }
 
     Ok(Some(format!(
-        "<vibex-plugin-context>\n{}\n</vibex-plugin-context>",
+        "<dimo-plugin-context>\n{}\n</dimo-plugin-context>",
         sections.join("\n\n")
     )))
 }
@@ -489,11 +489,11 @@ pub struct InternalMessageExtraction {
     pub has_pending_tail: bool,
 }
 
-const COMMENT_OPEN: &str = "<!--vibex-internal:";
-const COMMENT_SPACED_OPEN: &str = "<!-- vibex-internal:";
-const FENCE_OPEN: &str = "```vibex-internal:";
-const META_OPEN: &str = "<vibex-internal-meta";
-const META_CLOSE: &str = "</vibex-internal-meta>";
+const COMMENT_OPEN: &str = "<!--dimo-internal:";
+const COMMENT_SPACED_OPEN: &str = "<!-- dimo-internal:";
+const FENCE_OPEN: &str = "```dimo-internal:";
+const META_OPEN: &str = "<dimo-internal-meta";
+const META_CLOSE: &str = "</dimo-internal-meta>";
 
 fn parse_internal_header(header: &str) -> (String, String, String) {
     let trimmed = header.trim();
@@ -555,13 +555,13 @@ fn trailing_partial_marker_start(tail: &str) -> Option<usize> {
     None
 }
 
-/// Scans `raw_text` and strips all `<!--vibex-internal:...-->`,
-/// ```` ```vibex-internal:...\n...\n``` ````, and `<vibex-internal-meta ...>...</vibex-internal-meta>`
+/// Scans `raw_text` and strips all `<!--dimo-internal:...-->`,
+/// ```` ```dimo-internal:...\n...\n``` ````, and `<dimo-internal-meta ...>...</dimo-internal-meta>`
 /// frames while capturing their structured payloads.
 ///
 /// When `is_streaming` is `true`, any incomplete frame or partial opening marker at the
 /// end of `raw_text` is held back from `visible_text` so streaming deltas never flash
-/// raw `<!--vibex-internal` tags in the chat UI.
+/// raw `<!--dimo-internal` tags in the chat UI.
 pub fn extract_and_strip_internal_messages(
     raw_text: &str,
     conversation_id: Option<Uuid>,

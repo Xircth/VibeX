@@ -337,7 +337,7 @@ fn write_json_object(path: &Path, value: &Value) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| format!("serialize trust.json: {error}"))?;
     let temporary = path.with_file_name(format!(
-        ".{}.vibex-{}",
+        ".{}.dimo-{}",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("trust.json"),

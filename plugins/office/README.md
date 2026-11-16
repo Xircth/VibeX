@@ -1,10 +1,10 @@
 ---
-summary: 在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。
+summary: 在 Dimo 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。
 ---
 
-# VibeX Office
+# Dimo Office
 
-把 Word、Excel、PowerPoint 的创建、修改、分析和预览留在 VibeX 工作区里完成，不必另开一套办公套件。
+把 Word、Excel、PowerPoint 的创建、修改、分析和预览留在 Dimo 工作区里完成，不必另开一套办公套件。
 
 启用后有三件事会同时可用：
 

@@ -6,7 +6,7 @@ import { normalizeAgentGroupKey } from '@/lib/providerInstancesApi';
 import type { WorkspaceWithSession } from '@/types/attempt';
 
 export const WORKSPACE_SESSIONS_CHANGED_EVENT = 'workspace-sessions-changed';
-export const SESSION_AGENT_SWITCHED_EVENT = 'vibex:session-agent-switched';
+export const SESSION_AGENT_SWITCHED_EVENT = 'dimo:session-agent-switched';
 
 export type WorkspaceSessionsChangedPayload = {
   workspace_id: string;

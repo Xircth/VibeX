@@ -46,7 +46,7 @@ describe('DevicePairingPanel', () => {
     const user = userEvent.setup();
     qrPayloads.length = 0;
     const invitation =
-      'vibex-pairing:{"host_id":"host-1","preset":"companion","pairing_token":"pair-once-secret","reachability":[{"origin":"http://192.168.1.20:17891","kind":"lan"}]}';
+      'dimo-pairing:{"host_id":"host-1","preset":"companion","pairing_token":"pair-once-secret","reachability":[{"origin":"http://192.168.1.20:17891","kind":"lan"}]}';
     const createDevicePairing = vi.fn(async () => ({
       pairing_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
       pairing_token: 'K7M2NPQX',
@@ -170,7 +170,7 @@ describe('DevicePairingPanel', () => {
       connection_code: 'K7M2NPQX',
       expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       requested_scopes: ['conversation.read'],
-      invitation: 'vibex-pairing:{"pairing_token":"K7M2NPQX"}',
+      invitation: 'dimo-pairing:{"pairing_token":"K7M2NPQX"}',
       reachability: [
         { origin: 'http://192.168.1.20:17891', kind: 'lan' },
         { origin: 'https://host.example.ts.net', kind: 'tailscale' },
@@ -235,7 +235,7 @@ describe('DevicePairingPanel', () => {
       connection_code: 'K7M2NPQX',
       expires_at: new Date(Date.now() + 900_000).toISOString(),
       requested_scopes: ['conversation.read'],
-      invitation: 'vibex-pairing:{"pairing_token":"K7M2NPQX"}',
+      invitation: 'dimo-pairing:{"pairing_token":"K7M2NPQX"}',
       reachability: [{ origin: 'http://192.168.1.20:17891', kind: 'lan' }],
     }));
 
@@ -268,7 +268,7 @@ describe('DevicePairingPanel', () => {
       connection_code: 'K7M2NPQX',
       expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       requested_scopes: ['conversation.read'],
-      invitation: 'vibex-pairing:{"pairing_token":"K7M2NPQX"}',
+      invitation: 'dimo-pairing:{"pairing_token":"K7M2NPQX"}',
       reachability: [{ origin: 'http://192.168.1.20:17891', kind: 'lan' }],
     }));
 

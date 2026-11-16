@@ -1,8 +1,8 @@
-//! Locate Host-family sidecar binaries (`vibex-mcp`, `vibex-workflow-mcp`).
+//! Locate Host-family sidecar binaries (`dimo-mcp`, `dimo-workflow-mcp`).
 //!
 //! Binaries resolved out of a Cargo build tree (`target/debug`, `target/release`,
 //! `CARGO_TARGET_DIR`, or `src-tauri/binaries`) are staged into a stable
-//! user-owned runtime directory (`~/.local/share/vibex/host-bin`) before being
+//! user-owned runtime directory (`~/.local/share/dimo/host-bin`) before being
 //! handed to ACP session injection or native CLI projections. This keeps running
 //! MCP child processes from locking Cargo's `target/` outputs on Windows and
 //! keeps projected CLI configs valid across `cargo clean` and worktree removal.
@@ -18,9 +18,9 @@ static NEXT_STAGE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// Resolve a Host-family sidecar, skipping empty Tauri stubs.
 ///
-/// Order: `VIBEX_MCP_BIN` / `VIBEX_WORKFLOW_MCP_BIN` → current-exe directory
+/// Order: `DIMO_MCP_BIN` / `DIMO_WORKFLOW_MCP_BIN` → current-exe directory
 /// and ancestors (including `debug`/`release`/`binaries`) → `CARGO_TARGET_DIR`
-/// → `PATH` → previously staged `~/.local/share/vibex/host-bin` copy (for known
+/// → `PATH` → previously staged `~/.local/share/dimo/host-bin` copy (for known
 /// Host-family sidecars when the build tree was cleaned). Empty files are never
 /// returned.
 ///
@@ -60,7 +60,7 @@ pub fn locate_runnable_host_family_binary(base: &str) -> Option<PathBuf> {
 
     // If Cargo's `target/` tree was cleaned before rebuilding sidecars, reuse
     // the last staged copy unless the caller explicitly pinned a custom
-    // non-build-tree path via `VIBEX_*_BIN`.
+    // non-build-tree path via `DIMO_*_BIN`.
     if is_known_host_family_binary(base)
         && explicit_override
             .as_deref()
@@ -75,7 +75,7 @@ pub fn locate_runnable_host_family_binary(base: &str) -> Option<PathBuf> {
 }
 
 fn is_known_host_family_binary(base: &str) -> bool {
-    matches!(base, "vibex-mcp" | "vibex-workflow-mcp")
+    matches!(base, "dimo-mcp" | "dimo-workflow-mcp")
 }
 
 fn locate_raw_host_family_binary(
@@ -245,8 +245,8 @@ fn sweep_retired_binaries(stage_dir: &Path, file_name: &str) {
 
 fn env_override(base: &str) -> Option<PathBuf> {
     let key = match base {
-        "vibex-mcp" => "VIBEX_MCP_BIN",
-        "vibex-workflow-mcp" => "VIBEX_WORKFLOW_MCP_BIN",
+        "dimo-mcp" => "DIMO_MCP_BIN",
+        "dimo-workflow-mcp" => "DIMO_WORKFLOW_MCP_BIN",
         _ => return None,
     };
     std::env::var_os(key).map(PathBuf::from)
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn empty_stub_is_not_runnable() {
         let dir = tempfile::tempdir().unwrap();
-        let stub = dir.path().join("vibex-mcp");
+        let stub = dir.path().join("dimo-mcp");
         fs::write(&stub, []).unwrap();
         assert!(!is_runnable(&stub));
         fs::write(&stub, b"mcp").unwrap();
@@ -323,26 +323,26 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let macos = root
             .path()
-            .join("bundle/macos/app/vibex.app/Contents/MacOS");
+            .join("bundle/macos/app/dimo.app/Contents/MacOS");
         fs::create_dir_all(&macos).unwrap();
-        fs::write(macos.join("vibex"), b"app").unwrap();
-        fs::write(macos.join("vibex-mcp"), []).unwrap();
+        fs::write(macos.join("dimo"), b"app").unwrap();
+        fs::write(macos.join("dimo-mcp"), []).unwrap();
         let debug = root.path().join("debug");
         fs::create_dir_all(&debug).unwrap();
-        let real = debug.join("vibex-mcp");
+        let real = debug.join("dimo-mcp");
         fs::write(&real, b"real-mcp").unwrap();
 
-        let found = search_from(&macos.join("vibex"), "vibex-mcp", "vibex-mcp").unwrap();
+        let found = search_from(&macos.join("dimo"), "dimo-mcp", "dimo-mcp").unwrap();
         assert_eq!(found, real);
     }
 
     #[test]
     fn runnable_locator_does_not_return_a_path_basename() {
-        assert!(locate_runnable_host_family_binary("vibex-mcp-missing-binary").is_none());
-        let fallback = locate_host_family_binary("vibex-mcp-missing-binary");
+        assert!(locate_runnable_host_family_binary("dimo-mcp-missing-binary").is_none());
+        let fallback = locate_host_family_binary("dimo-mcp-missing-binary");
         assert_eq!(
             fallback.file_name().and_then(|name| name.to_str()),
-            Some(binary_file_name("vibex-mcp-missing-binary").as_str())
+            Some(binary_file_name("dimo-mcp-missing-binary").as_str())
         );
         assert!(!fallback.is_absolute() || !is_runnable(&fallback));
     }
@@ -350,37 +350,37 @@ mod tests {
     #[test]
     fn search_accepts_target_triple_sidecar_name() {
         let dir = tempfile::tempdir().unwrap();
-        let sidecar = dir.path().join("vibex-mcp-aarch64-apple-darwin");
+        let sidecar = dir.path().join("dimo-mcp-aarch64-apple-darwin");
         fs::write(&sidecar, b"sidecar").unwrap();
-        let found = first_runnable_in(dir.path(), "vibex-mcp", "vibex-mcp").unwrap();
+        let found = first_runnable_in(dir.path(), "dimo-mcp", "dimo-mcp").unwrap();
         assert_eq!(found, sidecar);
     }
 
     #[test]
     fn build_tree_detection_distinguishes_cargo_outputs_from_installs() {
         assert!(is_build_tree_binary(Path::new(
-            "/repo/target/debug/vibex-mcp"
+            "/repo/target/debug/dimo-mcp"
         )));
         assert!(is_build_tree_binary(Path::new(
-            "/repo/target/release/vibex-mcp.exe"
+            "/repo/target/release/dimo-mcp.exe"
         )));
         assert!(is_build_tree_binary(Path::new(
-            "/repo/target/x86_64-pc-windows-msvc/debug/vibex-mcp.exe"
+            "/repo/target/x86_64-pc-windows-msvc/debug/dimo-mcp.exe"
         )));
         assert!(is_build_tree_binary(Path::new(
-            "/repo/src-tauri/binaries/vibex-mcp-x86_64-pc-windows-msvc.exe"
+            "/repo/src-tauri/binaries/dimo-mcp-x86_64-pc-windows-msvc.exe"
         )));
         assert!(is_build_tree_binary(Path::new(
-            "/custom-cargo-target/debug/vibex-mcp.exe"
+            "/custom-cargo-target/debug/dimo-mcp.exe"
         )));
 
         assert!(!is_build_tree_binary(Path::new(
-            "/Applications/VibeX.app/Contents/MacOS/vibex-mcp"
+            "/Applications/Dimo.app/Contents/MacOS/dimo-mcp"
         )));
         assert!(!is_build_tree_binary(Path::new(
-            r"C:\Users\alice\AppData\Local\VibeX\vibex-mcp.exe"
+            r"C:\Users\alice\AppData\Local\Dimo\dimo-mcp.exe"
         )));
-        assert!(!is_build_tree_binary(Path::new("/usr/local/bin/vibex-mcp")));
+        assert!(!is_build_tree_binary(Path::new("/usr/local/bin/dimo-mcp")));
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
         fs::create_dir_all(&build_dir).unwrap();
         fs::create_dir_all(&stage_dir).unwrap();
 
-        let file_name = binary_file_name("vibex-mcp");
+        let file_name = binary_file_name("dimo-mcp");
         let source = build_dir.join(&file_name);
         let stale_old = stage_dir.join(format!("{file_name}.old-123-1"));
         fs::write(&stale_old, b"retired").unwrap();

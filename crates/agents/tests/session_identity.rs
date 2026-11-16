@@ -20,14 +20,14 @@ async fn session_eligibility_uses_open_agent_id() {
             agent_id: agent_id.clone(),
             launch_lock: SessionLaunchLock {
                 agent_id: agent_id.clone(),
-                absolute_acp_program: std::env::temp_dir().join("vibex-fixture-acp"),
+                absolute_acp_program: std::env::temp_dir().join("dimo-fixture-acp"),
                 args: Vec::new(),
                 env: BTreeMap::new(),
                 runtime_version: "fixture-runtime".to_string(),
                 acp_version: "fixture-acp".to_string(),
             },
             workspace_id: Uuid::new_v4(),
-            working_dir: PathBuf::from("/tmp/vibex-open-agent-session"),
+            working_dir: PathBuf::from("/tmp/dimo-open-agent-session"),
             additional_directories: Vec::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
@@ -54,7 +54,7 @@ async fn session_eligibility_uses_open_agent_id() {
 
     let binding = serde_json::to_value(ConversationEvent::AgentBindingStarted {
         agent_id,
-        working_dir: "/tmp/vibex-open-agent-session".to_string(),
+        working_dir: "/tmp/dimo-open-agent-session".to_string(),
     })
     .unwrap();
     assert_eq!(binding["agent_id"], "vendor.agent-v2");

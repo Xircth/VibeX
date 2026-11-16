@@ -12,15 +12,15 @@ use crate::{error::AppError, state::AppState};
 
 const REDLINE_DEPENDENCY: &str = "tauri-plugin-redline = \"=0.1.0\"";
 const COMPANION_DEPENDENCY: &str =
-    "tauri-plugin-vibex-inspector = { path = \"../.vibex/tauri-plugin-vibex-inspector\" }";
-const BUILDER_MARKER: &str = "tauri_plugin_vibex_inspector::init()";
+    "tauri-plugin-dimo-inspector = { path = \"../.dimo/tauri-plugin-dimo-inspector\" }";
+const BUILDER_MARKER: &str = "tauri_plugin_dimo_inspector::init()";
 
 const COMPANION_CARGO_TOML: &str = r#"[package]
-name = "tauri-plugin-vibex-inspector"
+name = "tauri-plugin-dimo-inspector"
 version = "0.1.0"
 edition = "2021"
 publish = false
-links = "tauri-plugin-vibex-inspector"
+links = "tauri-plugin-dimo-inspector"
 
 [lib]
 crate-type = ["rlib"]
@@ -39,7 +39,7 @@ const COMPANION_BUILD_RS: &str = r#"fn main() {
 "#;
 
 const COMPANION_PERMISSION: &str = r#"[default]
-description = "Allow the VibeX development inspector bridge"
+description = "Allow the Dimo development inspector bridge"
 permissions = ["allow-submit-capture", "allow-take-control"]
 "#;
 
@@ -57,7 +57,7 @@ fn project_root() -> Result<PathBuf, String> {
         .parent()
         .and_then(|path| path.parent())
         .map(PathBuf::from)
-        .ok_or_else(|| "VibeX inspector project root is unavailable".to_string())
+        .ok_or_else(|| "Dimo inspector project root is unavailable".to_string())
 }
 
 #[command]
@@ -67,7 +67,7 @@ fn submit_capture(json: String) -> Result<(), String> {
     }
     serde_json::from_str::<serde_json::Value>(&json)
         .map_err(|error| format!("Invalid Redline capture: {error}"))?;
-    let inbox = project_root()?.join(".vibex/inspector/inbox");
+    let inbox = project_root()?.join(".dimo/inspector/inbox");
     fs::create_dir_all(&inbox).map_err(|error| error.to_string())?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -78,7 +78,7 @@ fn submit_capture(json: String) -> Result<(), String> {
 
 #[command]
 fn take_control() -> Result<Option<String>, String> {
-    let path = project_root()?.join(".vibex/inspector/control");
+    let path = project_root()?.join(".dimo/inspector/control");
     if !path.is_file() {
         return Ok(None);
     }
@@ -89,8 +89,8 @@ fn take_control() -> Result<Option<String>, String> {
 
 const BRIDGE_SCRIPT: &str = r#"
 (function () {
-  if (window.__vibexInspectorBridge) return;
-  window.__vibexInspectorBridge = true;
+  if (window.__dimoInspectorBridge) return;
+  window.__dimoInspectorBridge = true;
   var invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
   if (!invoke) return;
 
@@ -127,7 +127,7 @@ const BRIDGE_SCRIPT: &str = r#"
         try {
           var value = JSON.parse(text);
           if (Array.isArray(value.annotations)) {
-            invoke('plugin:vibex-inspector|submit_capture', { json: text });
+            invoke('plugin:dimo-inspector|submit_capture', { json: text });
           }
         } catch (_) {}
       });
@@ -136,7 +136,7 @@ const BRIDGE_SCRIPT: &str = r#"
   };
 
   window.setInterval(function () {
-    invoke('plugin:vibex-inspector|take_control').then(function (command) {
+    invoke('plugin:dimo-inspector|take_control').then(function (command) {
       if (command === 'activate' && window.__redline_activate) {
         window.__redline_activate();
       } else if (command === 'deactivate' && window.__redline_deactivate) {
@@ -148,7 +148,7 @@ const BRIDGE_SCRIPT: &str = r#"
 "#;
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    Builder::<R>::new("vibex-inspector")
+    Builder::<R>::new("dimo-inspector")
         .js_init_script(BRIDGE_SCRIPT.to_string())
         .invoke_handler(tauri::generate_handler![submit_capture, take_control])
         .build()
@@ -223,10 +223,10 @@ fn inspect_project_root(project_root: &Path) -> Result<TauriInspectorStatus, App
         .and_then(|path| fs::read_to_string(path).ok())
         .is_some_and(|source| source.contains(BUILDER_MARKER));
     let installed = cargo.contains("tauri-plugin-redline")
-        && cargo.contains("tauri-plugin-vibex-inspector")
+        && cargo.contains("tauri-plugin-dimo-inspector")
         && builder_installed
         && project_root
-            .join(".vibex/tauri-plugin-vibex-inspector/Cargo.toml")
+            .join(".dimo/tauri-plugin-dimo-inspector/Cargo.toml")
             .is_file();
 
     Ok(TauriInspectorStatus {
@@ -235,7 +235,7 @@ fn inspect_project_root(project_root: &Path) -> Result<TauriInspectorStatus, App
         project_root: Some(project_root.to_string_lossy().to_string()),
         tauri_dir: Some("src-tauri".to_string()),
         message: if installed {
-            "VibeX Tauri inspector is installed".to_string()
+            "Dimo Tauri inspector is installed".to_string()
         } else if is_tauri {
             "Tauri v2 project detected; inspector setup is available".to_string()
         } else {
@@ -246,7 +246,7 @@ fn inspect_project_root(project_root: &Path) -> Result<TauriInspectorStatus, App
 
 fn patch_cargo_manifest(source: &str) -> Result<String, AppError> {
     let has_redline = source.contains("tauri-plugin-redline");
-    let has_companion = source.contains("tauri-plugin-vibex-inspector");
+    let has_companion = source.contains("tauri-plugin-dimo-inspector");
     if has_redline && has_companion {
         return Ok(source.to_string());
     }
@@ -287,7 +287,7 @@ fn patch_builder_source(source: &str) -> Result<String, AppError> {
         if cfg!(debug_assertions) {
             builder = builder
                 .plugin(tauri_plugin_redline::init())
-                .plugin(tauri_plugin_vibex_inspector::init());
+                .plugin(tauri_plugin_dimo_inspector::init());
         }
         builder
     }"#;
@@ -304,7 +304,7 @@ fn patch_capability(path: &Path) -> Result<(), AppError> {
         .ok_or_else(|| {
             AppError::BadRequest(format!("{} has no JSON permissions array", path.display()))
         })?;
-    for permission in ["redline:default", "vibex-inspector:default"] {
+    for permission in ["redline:default", "dimo-inspector:default"] {
         if !permissions
             .iter()
             .any(|value| value.as_str() == Some(permission))
@@ -317,8 +317,8 @@ fn patch_capability(path: &Path) -> Result<(), AppError> {
 }
 
 fn install_companion(project_root: &Path) -> Result<(), AppError> {
-    reject_symlink(&project_root.join(".vibex"))?;
-    let plugin_root = project_root.join(".vibex/tauri-plugin-vibex-inspector");
+    reject_symlink(&project_root.join(".dimo"))?;
+    let plugin_root = project_root.join(".dimo/tauri-plugin-dimo-inspector");
     for (relative, contents) in [
         ("Cargo.toml", COMPANION_CARGO_TOML),
         ("build.rs", COMPANION_BUILD_RS),
@@ -332,7 +332,7 @@ fn install_companion(project_root: &Path) -> Result<(), AppError> {
         }
         fs::write(&path, contents).map_err(|error| io_error(&path, error))?;
     }
-    let runtime_ignore = project_root.join(".vibex/.gitignore");
+    let runtime_ignore = project_root.join(".dimo/.gitignore");
     if !runtime_ignore.exists() {
         fs::write(&runtime_ignore, "inspector/\n")
             .map_err(|error| io_error(&runtime_ignore, error))?;
@@ -379,7 +379,7 @@ fn install_project_root(project_root: &Path) -> Result<TauriInspectorStatus, App
     capability_paths.sort();
     let capability = capability_paths.first().ok_or_else(|| {
         AppError::BadRequest(
-            "No JSON capability file found; add redline:default and vibex-inspector:default manually"
+            "No JSON capability file found; add redline:default and dimo-inspector:default manually"
                 .into(),
         )
     })?;
@@ -489,8 +489,8 @@ pub async fn control_tauri_inspector(
             "Install the Tauri inspector before activating it".into(),
         ));
     }
-    let inspector_dir = root.join(".vibex/inspector");
-    reject_symlink(&root.join(".vibex"))?;
+    let inspector_dir = root.join(".dimo/inspector");
+    reject_symlink(&root.join(".dimo"))?;
     reject_symlink(&inspector_dir)?;
     fs::create_dir_all(&inspector_dir).map_err(|error| io_error(&inspector_dir, error))?;
     let canonical_root = fs::canonicalize(&root).map_err(|error| io_error(&root, error))?;
@@ -514,7 +514,7 @@ pub async fn take_tauri_inspector_capture(
     if !status.installed {
         return Ok(None);
     }
-    let inbox = root.join(".vibex/inspector/inbox");
+    let inbox = root.join(".dimo/inspector/inbox");
     if !inbox.is_dir() {
         return Ok(None);
     }
@@ -610,7 +610,7 @@ mod tests {
         let twice = patch_cargo_manifest(&once).unwrap();
 
         assert!(once.contains("tauri-plugin-redline = \"=0.1.0\""));
-        assert!(once.contains("tauri-plugin-vibex-inspector"));
+        assert!(once.contains("tauri-plugin-dimo-inspector"));
         assert_eq!(once, twice);
     }
 
@@ -622,7 +622,7 @@ mod tests {
 
         assert!(once.contains("if cfg!(debug_assertions)"));
         assert!(once.contains("tauri_plugin_redline::init()"));
-        assert!(once.contains("tauri_plugin_vibex_inspector::init()"));
+        assert!(once.contains("tauri_plugin_dimo_inspector::init()"));
         assert_eq!(once, twice);
     }
 
@@ -638,13 +638,13 @@ mod tests {
         assert!(status.installed);
         assert!(
             temp.path()
-                .join(".vibex/tauri-plugin-vibex-inspector/src/lib.rs")
+                .join(".dimo/tauri-plugin-dimo-inspector/src/lib.rs")
                 .is_file()
         );
         assert!(capability.contains("redline:default"));
-        assert!(capability.contains("vibex-inspector:default"));
+        assert!(capability.contains("dimo-inspector:default"));
         assert_eq!(
-            fs::read_to_string(temp.path().join(".vibex/.gitignore")).unwrap(),
+            fs::read_to_string(temp.path().join(".dimo/.gitignore")).unwrap(),
             "inspector/\n"
         );
     }

@@ -40,8 +40,8 @@ export function supportsModelRouter(agentId: string) {
 }
 
 /** One preset per agent: provisioning again updates it instead of piling up copies. */
-export const ROUTER_PROVIDER_NAME = 'VibeX ModelRouter';
-export const ROUTER_OPENCODE_PROVIDER_ID = 'vibex-modelrouter';
+export const ROUTER_PROVIDER_NAME = 'Dimo ModelRouter';
+export const ROUTER_OPENCODE_PROVIDER_ID = 'dimo-modelrouter';
 
 /** The chosen model first, then the rest the key can reach. */
 function orderedModels(provision: RouterProvision) {

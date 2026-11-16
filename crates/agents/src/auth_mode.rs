@@ -298,7 +298,7 @@ pub fn resolve_built_in_auth_mode(
 ) -> String {
     let uses_model_provider =
         policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint);
-    // Agent native config is the source of truth. A stale VibeX mode overlay
+    // Agent native config is the source of truth. A stale Dimo mode overlay
     // must not hide a Provider the runtime is already using; switching away
     // from Provider routing writes the native files first, then this overlay.
     if uses_model_provider {
@@ -720,7 +720,7 @@ pub fn apply_built_in_launch_policy(
                 "true".to_string(),
             );
             // pi-acp 0.0.33 hardcodes includeExtensionCommands=false. Newer
-            // adapters honor this env; VibeX also merges discovered extension
+            // adapters honor this env; Dimo also merges discovered extension
             // commands into the ACP catalog so `/` can list them either way.
             env.insert(
                 "PI_ACP_ENABLE_EXTENSION_COMMANDS".to_string(),
@@ -748,7 +748,7 @@ pub fn apply_built_in_launch_policy(
                 .or_insert_with(|| "1".into());
         }
         // OMP reads PI_CODING_AGENT_DIR. The parent process often has that
-        // variable for Pi. Pin this child to the OMP directory VibeX writes,
+        // variable for Pi. Pin this child to the OMP directory Dimo writes,
         // and do not inherit Pi's ACP switches. MCP stays on session/new.
         "omp" => apply_omp_native_launch_env(env),
         _ => {}
@@ -1030,7 +1030,7 @@ pub(crate) fn codex_initial_agent_mode_from_toml(raw_toml: &str) -> Option<Strin
     )
 }
 
-/// Point `pi` at the same native files VibeX projected, and export the bound
+/// Point `pi` at the same native files Dimo projected, and export the bound
 /// provider key as `PI_API_KEY` so `models.json` `$PI_API_KEY` and ACP
 /// `get_available_models` see a configured provider.
 pub fn apply_pi_native_launch_env(home: &Path, env: &mut HashMap<String, String>) {
@@ -1655,7 +1655,7 @@ mod tests {
         std::fs::write(
             &shim,
             format!(
-                "#!/bin/sh\n# VibeX Agent CLI: pi\nexec '{}' \"$@\"\n",
+                "#!/bin/sh\n# Dimo Agent CLI: pi\nexec '{}' \"$@\"\n",
                 target.display()
             ),
         )
@@ -1679,7 +1679,7 @@ mod tests {
         std::fs::write(
             &shim,
             format!(
-                "#!/bin/sh\n# VibeX Agent CLI: pi\nexec '{}' \"$@\"\n",
+                "#!/bin/sh\n# Dimo Agent CLI: pi\nexec '{}' \"$@\"\n",
                 target.display()
             ),
         )
@@ -2029,10 +2029,10 @@ mod tests {
         ));
     }
 
-    /// A stale VibeX overlay cannot hide the Provider the Agent config is
+    /// A stale Dimo overlay cannot hide the Provider the Agent config is
     /// already using. Switching to subscription writes the native files first.
     #[test]
-    fn a_bound_provider_outranks_a_stale_vibex_mode() {
+    fn a_bound_provider_outranks_a_stale_dimo_mode() {
         let claude = AgentId::parse("claude_code").unwrap();
         let grok = AgentId::parse("grok").unwrap();
         let claude_policy = built_in_auth_mode_policy(&claude).unwrap();

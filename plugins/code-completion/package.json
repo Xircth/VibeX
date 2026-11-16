@@ -1,9 +1,9 @@
 {
-  "name": "@vibex/plugin-code-completion",
+  "name": "@dimo/plugin-code-completion",
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Low-latency AI ghost-text inline code completion plugin for VibeX.",
+  "description": "Low-latency AI ghost-text inline code completion plugin for Dimo.",
   "scripts": {
     "build": "node ../../packages/plugin-cli/dist/cli.js build",
     "validate": "node ../../packages/plugin-cli/dist/cli.js validate",
@@ -11,6 +11,6 @@
     "pack:plugin": "node ../../packages/plugin-cli/dist/cli.js pack"
   },
   "dependencies": {
-    "@vibex/plugin-sdk": "^2.0.0"
+    "@dimoai/plugin-sdk": "^2.0.0"
   }
 }

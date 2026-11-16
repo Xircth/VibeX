@@ -17,9 +17,9 @@ use uuid::Uuid;
 
 use crate::{CapabilityBroker, WorkerHostError};
 
-pub const HOST_CALL_URL_ENV: &str = "VIBEX_HOST_CALL_URL";
-pub const HOST_CALL_TOKEN_ENV: &str = "VIBEX_HOST_CALL_TOKEN";
-pub const HOST_CALL_PLUGIN_ID_ENV: &str = "VIBEX_PLUGIN_ID";
+pub const HOST_CALL_URL_ENV: &str = "DIMO_HOST_CALL_URL";
+pub const HOST_CALL_TOKEN_ENV: &str = "DIMO_HOST_CALL_TOKEN";
+pub const HOST_CALL_PLUGIN_ID_ENV: &str = "DIMO_PLUGIN_ID";
 
 static PROCESS: OnceLock<Arc<PluginHostCall>> = OnceLock::new();
 
@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(spec["env"][HOST_CALL_PLUGIN_ID_ENV], "example.tools");
         assert_eq!(spec["cwd"], "/plugins/example.tools");
         let encoded = spec.to_string();
-        assert!(!encoded.contains("vibex.browser"));
+        assert!(!encoded.contains("dimo.browser"));
     }
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
             "type": "stdio",
             "command": "node",
             "args": ["runtime/mcp-server.mjs"],
-            "name": "vibex-browser",
+            "name": "dimo-browser",
             "transport": "stdio",
             "tools": [{ "name": "browser_list_tabs", "group": "browser" }],
             "managedRuntime": { "entrypoint": "runtime/mcp-server.mjs" }
@@ -541,7 +541,7 @@ mod tests {
             .await
             .expect("listen");
         let issued = gateway
-            .issue("vibex-plugin-computer-use", 1)
+            .issue("dimo-plugin-computer-use", 1)
             .expect("issue");
         let (status, body) = post_host_call(
             &issued.url,
@@ -551,9 +551,9 @@ mod tests {
         .await;
         assert_eq!(status, 200);
         assert_eq!(body["ok"], true);
-        assert_eq!(body["pluginId"], "vibex-plugin-computer-use");
+        assert_eq!(body["pluginId"], "dimo-plugin-computer-use");
 
-        gateway.revoke_plugin("vibex-plugin-computer-use");
+        gateway.revoke_plugin("dimo-plugin-computer-use");
         let (revoked_status, _) = post_host_call(
             &issued.url,
             &issued.token,

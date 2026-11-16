@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn normalizes_stored_gitdir_path_back_to_worktree_root() {
-        let root = std::env::temp_dir().join(format!("vibex-db-repo-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("dimo-db-repo-{}", Uuid::new_v4()));
         let gitdir = root.join("repo_git_meta");
         std::fs::create_dir_all(&gitdir).unwrap();
         std::fs::write(root.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();

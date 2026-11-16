@@ -4,7 +4,7 @@
 //! (`role`, `content`, `model`, `usage`). Content is either a plain string or an
 //! array of typed blocks (`text` / `thinking` / `tool_use` / `tool_result` /
 //! `image`). Tool results arrive on a `user`-role record and are folded into the
-//! assistant turn by [`super::group_into_turns`]. VibeX-authored.
+//! assistant turn by [`super::group_into_turns`]. Dimo-authored.
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;

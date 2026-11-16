@@ -55,23 +55,23 @@ async fn installing_the_host_does_not_auto_register_official_plugins() {
 fn write_official_package(root: &std::path::Path) {
     let skill = root.join("contents/skills/remote/SKILL.md");
     std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::create_dir_all(root.join("dist")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"2.0",
-          "id":"vibex.remote-ssh","publisher":"vibex","name":"Remote SSH","version":"2.0.0",
+          "id":"dimo.remote-ssh","publisher":"dimo","name":"Remote SSH","version":"2.0.0",
           "readme":"README.md",
-          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
           "config":{"schema":{"type":"object","properties":{},"additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3","pluginSdk":"^2.0.0"},
+          "engines":{"dimo":">=0.1.3","pluginSdk":"^2.0.0"},
           "integrations":[{"id":"remote","kind":"content.skill","resource":"contents/skills/remote"}]
         }"#,
     )
     .unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/content.index.json"),
+        root.join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[{"path":"contents/skills/remote/SKILL.md","kind":"skill","title":"Remote"}]}"#,
     )
     .unwrap();
@@ -127,7 +127,7 @@ async fn installed_official_plugin_picks_up_a_newer_package_on_disk() {
         .import(package, ConflictDecision::Reject)
         .await
         .unwrap();
-    let before = plane.plugin("vibex.remote-ssh").await.unwrap().unwrap();
+    let before = plane.plugin("dimo.remote-ssh").await.unwrap().unwrap();
     let worker = remote.join("dist/worker.mjs");
     let mut source = std::fs::read_to_string(&worker).unwrap();
     source.push_str("\n// host-package-refresh\n");
@@ -137,7 +137,7 @@ async fn installed_official_plugin_picks_up_a_newer_package_on_disk() {
         .refresh_installed_bundled_plugins(std::slice::from_ref(&remote), None)
         .await
         .unwrap();
-    let after = plane.plugin("vibex.remote-ssh").await.unwrap().unwrap();
+    let after = plane.plugin("dimo.remote-ssh").await.unwrap().unwrap();
     assert_ne!(before.package_digest, after.package_digest);
     assert!(
         std::fs::read_to_string(after.source.path.join("dist/worker.mjs"))
@@ -165,7 +165,7 @@ async fn bundled_refresh_does_not_replace_a_developer_link() {
         .refresh_installed_bundled_plugins(std::slice::from_ref(&remote), None)
         .await
         .unwrap();
-    let kept = plane.plugin("vibex.remote-ssh").await.unwrap().unwrap();
+    let kept = plane.plugin("dimo.remote-ssh").await.unwrap().unwrap();
     assert_eq!(kept.source.kind, PluginSourceKind::DeveloperLink);
     assert_eq!(kept.source.path, linked_root.path().canonicalize().unwrap());
 }

@@ -2,10 +2,10 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const HOST_SIDECAR_PACKAGES = ['vibex-mcp', 'vibex-workflow-mcp'];
+const HOST_SIDECAR_PACKAGES = ['dimo-mcp', 'dimo-workflow-mcp'];
 const HOST_SIDECAR_WATCH_DIRS = [
-  'crates/vibex-mcp',
-  'crates/vibex-workflow-mcp',
+  'crates/dimo-mcp',
+  'crates/dimo-workflow-mcp',
   'crates/delegation-proto',
 ];
 
@@ -23,15 +23,15 @@ function sidecarDebugBinary(
 
 function applySidecarDevEnv(env = {}, { repo, platform = process.platform } = {}) {
   const next = { ...env };
-  if (!next.VIBEX_MCP_BIN) {
-    next.VIBEX_MCP_BIN = sidecarDebugBinary('vibex-mcp', {
+  if (!next.DIMO_MCP_BIN) {
+    next.DIMO_MCP_BIN = sidecarDebugBinary('dimo-mcp', {
       repo,
       env: next,
       platform,
     });
   }
-  if (!next.VIBEX_WORKFLOW_MCP_BIN) {
-    next.VIBEX_WORKFLOW_MCP_BIN = sidecarDebugBinary('vibex-workflow-mcp', {
+  if (!next.DIMO_WORKFLOW_MCP_BIN) {
+    next.DIMO_WORKFLOW_MCP_BIN = sidecarDebugBinary('dimo-workflow-mcp', {
       repo,
       env: next,
       platform,
@@ -150,7 +150,7 @@ function rebuildHostSidecars({
   console.log('Rebuilding official product MCP sidecars...');
   const result = spawnSyncFn(
     cargo,
-    ['build', '-p', 'vibex-mcp', '-p', 'vibex-workflow-mcp'],
+    ['build', '-p', 'dimo-mcp', '-p', 'dimo-workflow-mcp'],
     {
       cwd: repo,
       env: cargoEnv,
@@ -159,7 +159,7 @@ function rebuildHostSidecars({
     }
   );
   if (result.status !== 0) {
-    console.warn('Warning: cargo build -p vibex-mcp returned non-zero status.');
+    console.warn('Warning: cargo build -p dimo-mcp returned non-zero status.');
     return false;
   }
   if (stageFn) {

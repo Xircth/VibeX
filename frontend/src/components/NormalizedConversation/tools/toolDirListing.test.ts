@@ -26,7 +26,7 @@ describe('parseDirectoryListing', () => {
 
   it('reads the directory path from list_dir arguments', () => {
     expect(
-      listDirPath({ target_directory: '/Users/mac/Projects/VibeX/frontend' })
-    ).toBe('/Users/mac/Projects/VibeX/frontend');
+      listDirPath({ target_directory: '/Users/mac/Projects/Dimo/frontend' })
+    ).toBe('/Users/mac/Projects/Dimo/frontend');
   });
 });

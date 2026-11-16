@@ -14,7 +14,7 @@
 
 ## Context
 
-VibeX currently obtains session configuration choices through four competing
+Dimo currently obtains session configuration choices through four competing
 paths: a prior Conversation event, an on-demand ACP discovery probe, static
 executor profiles, and a browser-local cache. Opening the create-session form
 can therefore spawn an ACP process and wait for `session/new`; the reported
@@ -25,7 +25,7 @@ The problem is visible for Codex models, permissions, reasoning effort, and
 Fast mode, and is not specific to Codex. Model identifiers and labels are
 agent-owned values: changing their casing or substituting a project-maintained
 list can make a choice invalid for the current account. A session control is
-only useful if VibeX can apply the exact advertised value to the agent.
+only useful if Dimo can apply the exact advertised value to the agent.
 
 The product needs immediate, complete configuration controls in both the
 create-session form and an existing Conversation composer, without presenting
@@ -34,13 +34,13 @@ be obtained before a user opens either surface and stored locally.
 
 ## Functional Requirements
 
-- FR-1: VibeX MUST persist one `CapabilityCatalog` snapshot for the active
+- FR-1: Dimo MUST persist one `CapabilityCatalog` snapshot for the active
   configuration of each Agent kind. That snapshot is the only source from
   which create-session and composer configuration selectors read choices.
 - FR-2: A catalog snapshot MUST contain the agent-provided raw option ID,
   raw choice value, agent-provided label/description, category, current value,
   retrieval time, and a configuration fingerprint.
-- FR-3: VibeX MUST refresh a catalog in the background after app startup,
+- FR-3: Dimo MUST refresh a catalog in the background after app startup,
   successful agent installation, relevant agent authentication/configuration
   changes, and an explicit user refresh. It MUST NOT run an ACP subprocess in
   response to a selector or create-session-form read.
@@ -48,14 +48,14 @@ be obtained before a user opens either surface and stored locally.
   session-control update MUST atomically replace the matching catalog snapshot.
   A failed refresh MUST retain the most recent valid snapshot unchanged.
 - FR-5: A catalog whose fingerprint does not match the active agent
-  configuration MUST be treated as unavailable for choice selection; VibeX
+  configuration MUST be treated as unavailable for choice selection; Dimo
   MUST NOT reuse it merely because it is non-empty.
 - FR-6: If no matching catalog is available, both UI surfaces MUST render
   the currently selected executor/default value as non-selectable context and
   a synchronization status; they MUST NOT synthesize model, permission, mode,
   effort, or Fast choices from executor profiles, conversation events, or
   browser storage.
-- FR-7: VibeX MUST preserve raw agent model IDs and raw choice values for
+- FR-7: Dimo MUST preserve raw agent model IDs and raw choice values for
   writes. It MAY format a display label only when the agent supplied no label;
   formatting MUST NOT alter the raw value sent to the agent.
 - FR-8: A selector choice MUST be applied using its cataloged transport and
@@ -63,8 +63,8 @@ be obtained before a user opens either surface and stored locally.
   MUST NOT be selectable.
 - FR-9: Fast MUST be represented as a capability, not a hard-coded Codex
   boolean. When the active Codex catalog advertises a writable Fast/service-tier
-  control, VibeX MUST expose it in the same session-control UI and apply its
-  advertised value. When it does not advertise such a control, VibeX MUST NOT
+  control, Dimo MUST expose it in the same session-control UI and apply its
+  advertised value. When it does not advertise such a control, Dimo MUST NOT
   render a session-level Fast switch; the existing global Codex configuration
   remains the only Fast-default control and MUST be labelled as global.
 - FR-10: The existing event-log lookup, static-profile synthesis, and
@@ -135,7 +135,7 @@ And no profile, event-log, or browser-storage choices are displayed.
 
 Given a Codex catalog advertising a writable Fast/service-tier choice
 When the user selects its enabled Fast value
-Then VibeX writes that exact advertised option/value pair.
+Then Dimo writes that exact advertised option/value pair.
 
 Given a Codex catalog without a writable Fast/service-tier choice
 When the user opens either session-control surface
@@ -258,7 +258,7 @@ selector read path.
 
 ## Out of Scope
 
-- OS-1: Maintaining a VibeX-owned global model list. Account eligibility
+- OS-1: Maintaining a Dimo-owned global model list. Account eligibility
   and agent capability advertisements are external and must not be guessed.
 - OS-2: Changing Codex account entitlements, agent model availability, or
   ACP protocol behavior upstream.

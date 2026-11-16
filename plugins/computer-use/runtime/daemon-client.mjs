@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 export function resolvePluginRoot() {
   const candidates = [
-    process.env.VIBEX_PLUGIN_ROOT,
+    process.env.DIMO_PLUGIN_ROOT,
     path.dirname(fileURLToPath(import.meta.url)),
     process.cwd(),
   ].filter(Boolean);
@@ -15,7 +15,7 @@ export function resolvePluginRoot() {
   for (const start of candidates) {
     let dir = path.resolve(start);
     for (let i = 0; i < 6; i += 1) {
-      if (fs.existsSync(path.join(dir, '.vibex-plugin', 'plugin.json'))) {
+      if (fs.existsSync(path.join(dir, '.dimo-plugin', 'plugin.json'))) {
         return dir;
       }
       const parent = path.dirname(dir);
@@ -33,7 +33,7 @@ function defaultUserDataDir() {
       : process.platform === 'darwin'
         ? path.join(os.homedir(), 'Library', 'Application Support')
         : process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
-  return path.join(base, 'vibex-plugin-computer-use');
+  return path.join(base, 'dimo-plugin-computer-use');
 }
 
 export function resolveDataDir(envOrCtx) {
@@ -45,8 +45,8 @@ export function resolveDataDir(envOrCtx) {
   ) {
     return envOrCtx.pluginDataDir;
   }
-  if (process.env.VIBEX_PLUGIN_DATA_DIR) {
-    return process.env.VIBEX_PLUGIN_DATA_DIR;
+  if (process.env.DIMO_PLUGIN_DATA_DIR) {
+    return process.env.DIMO_PLUGIN_DATA_DIR;
   }
   return defaultUserDataDir();
 }
@@ -54,8 +54,8 @@ export function resolveDataDir(envOrCtx) {
 export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
   const exeName =
     process.platform === 'win32'
-      ? 'vibex-computer-helper.exe'
-      : 'vibex-computer-helper';
+      ? 'dimo-computer-helper.exe'
+      : 'dimo-computer-helper';
   const repoRootFromSnapshot = path.resolve(pluginRoot, '..', '..', '..', '..', '..');
   const candidates = [
     path.join(pluginRoot, 'bin', exeName),
@@ -75,7 +75,7 @@ export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
       'runtimes',
       'plugins',
       'snapshots',
-      'vibex-plugin-computer-use',
+      'dimo-plugin-computer-use',
       'bin',
       exeName
     ),
@@ -111,7 +111,7 @@ export async function isDaemonHealthy(url) {
 function readDaemonUrl(dataDir, pluginRoot) {
   const files = [
     path.join(dataDir, 'daemon.json'),
-    path.join(pluginRoot, '.vibex-plugin', 'daemon.json'),
+    path.join(pluginRoot, '.dimo-plugin', 'daemon.json'),
   ];
   for (const file of files) {
     try {

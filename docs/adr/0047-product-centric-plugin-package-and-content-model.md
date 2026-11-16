@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-13
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 产品中心的 Plugin Package、内容与配置模型
@@ -19,7 +19,7 @@ Office 重新看起来像旧 Agent Plugin 工具包，也掩盖它对文件预�
 
 ## Decision
 
-1. VibeX Plugin 在产品界面中是一个不可再拆分的功能产品，不使用“平台扩展/Agent 扩展”分类。
+1. Dimo Plugin 在产品界面中是一个不可再拆分的功能产品，不使用“平台扩展/Agent 扩展”分类。
 2. 每个包必须有根 `README.md`。frontmatter 的 `summary` 是独立的一句话元数据；README 正文
    是用户说明入口。
 3. 可供用户或 Agent 阅读/使用的资源统一进入根 `contents/`，build 生成并签名结构化内容索引。
@@ -30,8 +30,8 @@ Office 重新看起来像旧 Agent Plugin 工具包，也掩盖它对文件预�
    IR，但不得把该 IR 当作公共包格式或用户信息架构。
 7. 插件目录采用单列列表；点击后进入独立详情页，只有“内容”和“配置”两个主要 Tab。
 8. generation、contribution、handler、runtime lock 属于诊断模型，不出现在普通详情页。
-9. Agent-native plugin 不复用 VibeX 产品详情。它在对应 Agent 设置底部以列表加预览呈现，
-   预览只包含 Skill、MCP、Runtime、Hook 与 Workflow，不展示 App extension、VibeX capability、
+9. Agent-native plugin 不复用 Dimo 产品详情。它在对应 Agent 设置底部以列表加预览呈现，
+   预览只包含 Skill、MCP、Runtime、Hook 与 Workflow，不展示 App extension、Dimo capability、
    activation generation 或产品包诊断。
 10. `PluginAction` 不再是公共产品或 SDK 概念。可复用的结构化操作统一建模为
     `contents/workflows/` 中的 Plugin Workflow；迁移期遗留字段只能作为兼容输入，不能重新投影为
@@ -48,6 +48,6 @@ Office 重新看起来像旧 Agent Plugin 工具包，也掩盖它对文件预�
   面向作者的 manifest。
 - 更新安装物时要保留并重新验证用户 `config.json`，而不是用包内默认值静默覆盖。
 - UI 不再从源码路径读取 README/contents；Host 返回已验证的 Product Detail DTO。
-- Agent-native plugin 仍在各 Agent 设置内管理，但不会影响 VibeX Product Plugin 的统一展示。
-- Agent-native 资源投影与 VibeX Product Detail 使用不同 DTO/视图边界，避免任何一侧的术语或
+- Agent-native plugin 仍在各 Agent 设置内管理，但不会影响 Dimo Product Plugin 的统一展示。
+- Agent-native 资源投影与 Dimo Product Detail 使用不同 DTO/视图边界，避免任何一侧的术语或
   权限语义泄漏到另一侧。

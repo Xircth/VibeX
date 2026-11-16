@@ -18,7 +18,7 @@ const { archiveName, platformFromNode } = require('../npx-cli/bin/release-assets
 
 const ROOT = path.join(__dirname, '..');
 const VERSION = '0.0.0-smoke';
-const PLATFORM = process.env.VIBEX_PLATFORM || platformFromNode(process.platform, process.arch);
+const PLATFORM = process.env.DIMO_PLATFORM || platformFromNode(process.platform, process.arch);
 if (!PLATFORM) {
   console.error(`unsupported platform: ${process.platform}-${process.arch}`);
   process.exit(2);
@@ -30,18 +30,18 @@ function sha256(file) {
 
 function writeFamily(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  const server = path.join(dir, process.platform === 'win32' ? 'vibex-server.exe' : 'vibex-server');
+  const server = path.join(dir, process.platform === 'win32' ? 'dimo-server.exe' : 'dimo-server');
   const script =
     process.platform === 'win32'
-      ? '@echo off\necho vibex-server-smoke\n'
-      : '#!/bin/sh\necho vibex-server-smoke\n';
+      ? '@echo off\necho dimo-server-smoke\n'
+      : '#!/bin/sh\necho dimo-server-smoke\n';
   fs.writeFileSync(server, script);
   fs.chmodSync(server, 0o755);
   fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'web', 'index.html'), '<html>ok</html>\n');
   const lines = [];
   for (const relative of [
-    process.platform === 'win32' ? 'vibex-server.exe' : 'vibex-server',
+    process.platform === 'win32' ? 'dimo-server.exe' : 'dimo-server',
     'web/index.html',
   ]) {
     lines.push(`${sha256(path.join(dir, ...relative.split('/')))}  ${relative}`);
@@ -102,7 +102,7 @@ function runInstall(env) {
 }
 
 async function main() {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-install-smoke-'));
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'dimo-install-smoke-'));
   const family = path.join(work, 'family');
   const dist = path.join(work, 'dist');
   const home = path.join(work, 'home');
@@ -115,15 +115,15 @@ async function main() {
 
   const sharedEnv = {
     HOME: home,
-    VIBEX_VERSION: VERSION,
-    VIBEX_PLATFORM: PLATFORM,
-    VIBEX_HOST_FAMILY_BASE: origin,
-    VIBEX_INSTALL_DIR: bin,
-    VIBEX_PRINT_PLAN: '',
+    DIMO_VERSION: VERSION,
+    DIMO_PLATFORM: PLATFORM,
+    DIMO_HOST_FAMILY_BASE: origin,
+    DIMO_INSTALL_DIR: bin,
+    DIMO_PRINT_PLAN: '',
   };
 
   try {
-    const plan = await runInstall({ ...sharedEnv, VIBEX_PRINT_PLAN: '1' });
+    const plan = await runInstall({ ...sharedEnv, DIMO_PRINT_PLAN: '1' });
     if (plan.status !== 0) {
       throw new Error(
         `plan failed (status=${plan.status} error=${plan.error}):\n${plan.stdout}\n${plan.stderr}`
@@ -137,13 +137,13 @@ async function main() {
     if (install.status !== 0) {
       throw new Error(`install failed:\n${install.stdout}\n${install.stderr}`);
     }
-    const installed = path.join(home, '.vibex', 'host-family', `v${VERSION}`, PLATFORM, 'family');
+    const installed = path.join(home, '.dimo', 'host-family', `v${VERSION}`, PLATFORM, 'family');
     if (!fs.existsSync(path.join(installed, 'SHA256SUMS'))) {
       throw new Error(`install did not land at ${installed}`);
     }
 
     fs.writeFileSync(path.join(dist, `${archive}.sha256`), `${'0'.repeat(64)}  ${archive}\n`);
-    fs.rmSync(path.join(home, '.vibex'), { recursive: true, force: true });
+    fs.rmSync(path.join(home, '.dimo'), { recursive: true, force: true });
     const tampered = await runInstall(sharedEnv);
     if (tampered.status === 0) {
       throw new Error('install accepted a tampered checksum');

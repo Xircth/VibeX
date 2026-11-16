@@ -5,7 +5,7 @@
 //! frontend renderer never has to branch on whether a turn is live. A turn is
 //! the atomic, role-homogeneous unit; its ordered `blocks` carry the content.
 //!
-//! The Rust types in this module are VibeX-authored for the event-sourced
+//! The Rust types in this module are Dimo-authored for the event-sourced
 //! conversation architecture.
 
 use api_types::AgentKind;
@@ -118,7 +118,7 @@ pub struct CollaborationSpaceOrigin {
 }
 
 /// Implicit context block contributed by a plugin (`beforeTurn` hook or prompt context
-/// contributor). Injected into the Agent prompt under `<vibex-plugin-context>` while kept
+/// contributor). Injected into the Agent prompt under `<dimo-plugin-context>` while kept
 /// completely invisible in the user-facing `UserTurnCreated` timeline blocks.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1264,7 +1264,7 @@ pub enum ConversationEvent {
     AvailableCommandsUpdated {
         commands: Vec<AgentAvailableCommand>,
     },
-    /// Agent-owned ACP session metadata. This must not mutate the VibeX
+    /// Agent-owned ACP session metadata. This must not mutate the Dimo
     /// conversation id or imply that the two identity domains are equivalent.
     AgentSessionInfoUpdated {
         patch: serde_json::Value,

@@ -53,7 +53,7 @@ export function buildDeterministicHandoffPreviewText(
   );
 
   const sections: string[] = [
-    `[VibeX Context Handoff]\nYou are continuing a conversation that was started with ${preview.sourceEngine}.`,
+    `[Dimo Context Handoff]\nYou are continuing a conversation that was started with ${preview.sourceEngine}.`,
   ];
 
   for (const row of sorted) {

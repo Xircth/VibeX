@@ -11,7 +11,7 @@ import appCss from '../../runtime/app.css?inline';
 import { retainStyle } from '../styles/retainStyles';
 
 // ============================================================================
-// Types matching vibex-computer-helper daemon RPC responses (service.rs)
+// Types matching dimo-computer-helper daemon RPC responses (service.rs)
 // ============================================================================
 
 export type GrantLevel = 'none' | 'read' | 'control';
@@ -66,7 +66,7 @@ export interface PermissionReport {
   screenRecording: boolean;
 }
 
-export interface VibexTccStatus {
+export interface DimoTccStatus {
   accessibility: boolean;
   screenRecording: boolean;
   selfResponsible: boolean;
@@ -89,8 +89,8 @@ export interface ComputerStatus {
   helperBundlePath?: string | null;
   backend?: BackendStatusInfo | null;
   permissions?: PermissionGrant[] | PermissionReport | null;
-  vibexTcc?: VibexTccStatus | null;
-  vibex?: VibexTccStatus | null;
+  dimoTcc?: DimoTccStatus | null;
+  dimo?: DimoTccStatus | null;
   shared?: SharedWindow[];
   sharedCount?: number;
   screenOffered?: boolean;
@@ -118,7 +118,7 @@ export interface ShareableWindow {
   hidden: boolean;
   wholeApp?: boolean;
   wholeScreen?: boolean;
-  notGrantable?: 'vibex' | 'blocklist' | 'unidentified' | string | null;
+  notGrantable?: 'dimo' | 'blocklist' | 'unidentified' | string | null;
   grantable?: boolean;
   unshareableReason?: string | null;
   level: GrantLevel;
@@ -1562,7 +1562,7 @@ function isWindowGrantable(win: ShareableWindow): boolean {
 
 function getUnshareableReason(win: ShareableWindow): string | null {
   if (win.unshareableReason) return win.unshareableReason;
-  if (win.notGrantable === 'vibex') return '宿主自身窗口受保护';
+  if (win.notGrantable === 'dimo') return '宿主自身窗口受保护';
   if (win.notGrantable === 'blocklist') return '位于永不共享名单中';
   if (win.notGrantable) return String(win.notGrantable);
   return null;
@@ -2455,7 +2455,7 @@ function LocalAppPickerModal({
 // Main Computer Use Settings View (Tahoe Settings Design System)
 // ============================================================================
 
-const DAEMON_URL_STORAGE_KEY = 'vibex.computerUse.daemonUrl';
+const DAEMON_URL_STORAGE_KEY = 'dimo.computerUse.daemonUrl';
 
 function readCachedDaemonUrl(): string | null {
   try {
@@ -2580,7 +2580,7 @@ export default function ComputerUseSettingsView({
   const selectDeliveryId = useId();
   const customBlockInputId = useId();
 
-  useEffect(() => retainStyle('vibex-plugin-computer-use', appCss), [appCss]);
+  useEffect(() => retainStyle('dimo-plugin-computer-use', appCss), [appCss]);
 
   const invokeQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const sharedStateEpochRef = useRef(0);
@@ -2621,7 +2621,7 @@ export default function ComputerUseSettingsView({
         if (typeof tauriInternals?.invoke !== 'function') {
           throw new Error('Tauri internals unavailable');
         }
-        const pluginId = environment?.pluginId || 'vibex-plugin-computer-use';
+        const pluginId = environment?.pluginId || 'dimo-plugin-computer-use';
         let surfaceId = environment?.surfaceId || 'computer-use';
 
         const callAppCmd = async (
@@ -3519,7 +3519,7 @@ export default function ComputerUseSettingsView({
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            排除永不共享名单与 VibeX 自身窗口后的全部桌面区域
+                            排除永不共享名单与 Dimo 自身窗口后的全部桌面区域
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
@@ -3784,7 +3784,7 @@ export default function ComputerUseSettingsView({
                       <div className="text-sm font-medium">{label}</div>
                       <p className="settings-row__description">
                         {perm.granted
-                          ? '已向 vibex-computer-helper 授予权限'
+                          ? '已向 dimo-computer-helper 授予权限'
                           : '需要向辅助进程授予此系统权限以正常工作'}
                       </p>
                     </div>

@@ -9,8 +9,8 @@ import {
   settingsPageRegistry,
   slashCommandRegistry,
   themeRegistry,
-  type VibeXPluginContext,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+} from '@dimoai/plugin-sdk';
 
 import { registerBuiltinPanels } from '@/components/layout/panels/PanelRegistry';
 import { clearPluginCrashState } from '@/components/plugins/PluginBoundary';
@@ -115,7 +115,7 @@ export interface CoreFoundationPluginDescriptor {
   readonly injects: readonly string[];
   readonly settingsPath?: string;
   readonly parts: readonly CorePluginPartDescriptor[];
-  readonly onActivate: (ctx: VibeXPluginContext) => void;
+  readonly onActivate: (ctx: DimoPluginContext) => void;
 }
 
 export interface CorePluginPlaneMetadata {
@@ -150,7 +150,7 @@ function dispatchHostCustomEvent(
 }
 
 function bindCoreDomainServices<T extends Record<string, unknown>>(
-  ctx: VibeXPluginContext,
+  ctx: DimoPluginContext,
   descriptor: {
     readonly id: string;
     readonly packageName: string;
@@ -204,7 +204,7 @@ function bindCoreDomainServices<T extends Record<string, unknown>>(
       (resolved: Record<string, unknown>) => {
         resolvedDeps = { ...resolved };
         depsReady = true;
-        ctx.services.provide(`vibex.dep-graph:${descriptor.id}`, {
+        ctx.services.provide(`dimo.dep-graph:${descriptor.id}`, {
           pluginId: descriptor.id,
           dependencies: descriptor.injects,
           ready: true,
@@ -281,8 +281,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
     // 1. Kernel & Boot Plane (`boot`)
     // ---------------------------------------------------------------------------
     {
-      id: 'vibex.core.plugin-manager',
-      packageName: '@vibex/core-plugin-manager',
+      id: 'dimo.core.plugin-manager',
+      packageName: '@dimo/core-plugin-manager',
       plane: 'boot',
       version: '2.0.0',
       bundle: 'system',
@@ -294,7 +294,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '负责 V2 插件包生命周期调度、依赖图解析、离线内置插件目录与插件市场发现。',
       summaryEn:
         'Coordinates V2 plugin lifecycles, dependency graph resolution, monorepo bundles, and marketplace discovery.',
-      provides: ['vibex.plugin-manager', 'vibex.plugin-market'],
+      provides: ['dimo.plugin-manager', 'dimo.plugin-market'],
       injects: [],
       settingsPath: '/plugins',
       onActivate: (ctx) => {
@@ -303,11 +303,11 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.plugin-manager',
-            packageName: '@vibex/core-plugin-manager',
+            id: 'dimo.core.plugin-manager',
+            packageName: '@dimo/core-plugin-manager',
             plane: 'boot',
             version: '2.0.0',
-            provides: ['vibex.plugin-manager', 'vibex.plugin-market'],
+            provides: ['dimo.plugin-manager', 'dimo.plugin-market'],
             injects: [],
           },
           {
@@ -318,7 +318,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             isLocked: (pluginId: string) => isPluginLocked(pluginId),
             isActive: (pluginId: string) => isPluginRuntimeActive(pluginId),
             openPluginManager: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'plugins',
               }),
           }
@@ -359,8 +359,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.hmr',
-      packageName: '@vibex/core-hmr',
+      id: 'dimo.core.hmr',
+      packageName: '@dimo/core-hmr',
       plane: 'boot',
       version: '2.0.0',
       bundle: 'system',
@@ -372,8 +372,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '基于 EffectScope 追踪每个插件纤维的全部注册项与 DOM 样式，支持毫秒级热替换与异常熔断隔离。',
       summaryEn:
         'Tracks all disposers and CSS layers per plugin fiber via EffectScope for sub-frame HMR and crash quarantine.',
-      provides: ['vibex.hmr', 'vibex.boundary'],
-      injects: ['vibex.plugin-manager'],
+      provides: ['dimo.hmr', 'dimo.boundary'],
+      injects: ['dimo.plugin-manager'],
       settingsPath: '/settings/logs',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({ ctx, paths: ['/settings/logs'] });
@@ -381,12 +381,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.hmr',
-            packageName: '@vibex/core-hmr',
+            id: 'dimo.core.hmr',
+            packageName: '@dimo/core-hmr',
             plane: 'boot',
             version: '2.0.0',
-            provides: ['vibex.hmr', 'vibex.boundary'],
-            injects: ['vibex.plugin-manager'],
+            provides: ['dimo.hmr', 'dimo.boundary'],
+            injects: ['dimo.plugin-manager'],
           },
           {
             clearCrashState: (pluginId?: string) =>
@@ -397,7 +397,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
               pluginRuntimeLoader.deactivate(pluginId),
           },
           [],
-          ['vibex.core.plugin-manager']
+          ['dimo.core.plugin-manager']
         );
       },
       parts: [
@@ -425,8 +425,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.settings',
-      packageName: '@vibex/core-settings',
+      id: 'dimo.core.settings',
+      packageName: '@dimo/core-settings',
       plane: 'boot',
       version: '2.0.0',
       bundle: 'system',
@@ -438,7 +438,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '统一托管系统设置导航路由，并为声明式插件提供零 UI JSON Schema 配置表单自动生成。',
       summaryEn:
         'Manages host settings navigation and auto-generates zero-UI JSON Schema configuration forms.',
-      provides: ['vibex.settings', 'vibex.config-schema'],
+      provides: ['dimo.settings', 'dimo.config-schema'],
       injects: [],
       settingsPath: '/settings/general',
       onActivate: (ctx) => {
@@ -450,11 +450,11 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.settings',
-            packageName: '@vibex/core-settings',
+            id: 'dimo.core.settings',
+            packageName: '@dimo/core-settings',
             plane: 'boot',
             version: '2.0.0',
-            provides: ['vibex.settings', 'vibex.config-schema'],
+            provides: ['dimo.settings', 'dimo.config-schema'],
             injects: [],
           },
           {
@@ -462,7 +462,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             getSettingsPage: (id: string) => settingsPageRegistry.get(id),
             openSettings: (section?: string) =>
               dispatchHostCustomEvent(
-                'vibex:open-settings',
+                'dimo:open-settings',
                 section ? { section } : undefined
               ),
           }
@@ -494,8 +494,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.credentials',
-      packageName: '@vibex/core-credentials',
+      id: 'dimo.core.credentials',
+      packageName: '@dimo/core-credentials',
       plane: 'boot',
       version: '2.0.0',
       bundle: 'system',
@@ -507,8 +507,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '管理本地 API 密钥、OAuth 登录态，并通过可插拔探针实时采集各 Agent 订阅额度与用量。',
       summaryEn:
         'Manages local credentials and probes real-time subscription quotas across agents.',
-      provides: ['vibex.credentials', 'vibex.usage', 'provider.usage'],
-      injects: ['vibex.settings'],
+      provides: ['dimo.credentials', 'dimo.usage', 'provider.usage'],
+      injects: ['dimo.settings'],
       settingsPath: '/settings/agents',
       onActivate: (ctx) => {
         registerBuiltinHostProviderServices({ ctx });
@@ -531,12 +531,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.credentials',
-            packageName: '@vibex/core-credentials',
+            id: 'dimo.core.credentials',
+            packageName: '@dimo/core-credentials',
             plane: 'boot',
             version: '2.0.0',
-            provides: ['vibex.credentials', 'vibex.usage', 'provider.usage'],
-            injects: ['vibex.settings'],
+            provides: ['dimo.credentials', 'dimo.usage', 'provider.usage'],
+            injects: ['dimo.settings'],
           },
           {
             probeAgentUsage: defaultUsageProviderService.probeAgentUsage.bind(
@@ -550,8 +550,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
               defaultUsageProviderService
             ),
           },
-          ['vibex.provider.usage'],
-          ['vibex.core.settings']
+          ['dimo.provider.usage'],
+          ['dimo.core.settings']
         );
       },
       parts: [
@@ -584,8 +584,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
     // 2. Agent & Session Runtime Plane (`agent`)
     // ---------------------------------------------------------------------------
     {
-      id: 'vibex.core.agent-runtime',
-      packageName: '@vibex/core-agent-runtime',
+      id: 'dimo.core.agent-runtime',
+      packageName: '@dimo/core-agent-runtime',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -597,8 +597,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '驱动 ACP v1/v2 对话轮次状态机、beforeTurn/afterTurn 洋葱拦截器链以及流式内部元数据侧信道。',
       summaryEn:
         'Drives the ACP v1/v2 conversation turn loop, beforeTurn/afterTurn waterfall hooks, and side-channel capture.',
-      provides: ['vibex.agent-runtime', 'vibex.agent-loop', 'vibex.turn-hooks'],
-      injects: ['vibex.session', 'vibex.llm-providers'],
+      provides: ['dimo.agent-runtime', 'dimo.agent-loop', 'dimo.turn-hooks'],
+      injects: ['dimo.session', 'dimo.llm-providers'],
       settingsPath: '/settings/agents',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({ ctx, paths: ['/settings/agents'] });
@@ -606,16 +606,16 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.agent-runtime',
-            packageName: '@vibex/core-agent-runtime',
+            id: 'dimo.core.agent-runtime',
+            packageName: '@dimo/core-agent-runtime',
             plane: 'agent',
             version: '2.0.0',
             provides: [
-              'vibex.agent-runtime',
-              'vibex.agent-loop',
-              'vibex.turn-hooks',
+              'dimo.agent-runtime',
+              'dimo.agent-loop',
+              'dimo.turn-hooks',
             ],
-            injects: ['vibex.session', 'vibex.llm-providers'],
+            injects: ['dimo.session', 'dimo.llm-providers'],
           },
           {
             runBeforeTurnHooks: async <T>(payload: T) =>
@@ -635,7 +635,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
               serviceContainer.hasInterceptors('conversation.afterTurn'),
           },
           [],
-          ['vibex.core.session', 'vibex.core.llm-providers']
+          ['dimo.core.session', 'dimo.core.llm-providers']
         );
       },
       parts: [
@@ -667,15 +667,15 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           titleZh: '流式内部元数据侧信道解析器',
           titleEn: 'Streaming Internal Side-Channel Parser',
           summaryZh:
-            '跨流式分片实时剥离 <vibex-internal-meta> 标签并路由至插件处理器。',
+            '跨流式分片实时剥离 <dimo-internal-meta> 标签并路由至插件处理器。',
           summaryEn:
             'Strips internal metadata frames across streaming chunks and dispatches validated payloads.',
         },
       ],
     },
     {
-      id: 'vibex.core.session',
-      packageName: '@vibex/core-session',
+      id: 'dimo.core.session',
+      packageName: '@dimo/core-session',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -688,9 +688,9 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryEn:
         'Provides durable JSONL transcript persistence, SQLite indexing, and paginated timeline projection.',
       provides: [
-        'vibex.session',
-        'vibex.session-projection',
-        'vibex.session-persistence',
+        'dimo.session',
+        'dimo.session-projection',
+        'dimo.session-persistence',
       ],
       injects: [],
       settingsPath: '/settings/web-service',
@@ -707,14 +707,14 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.session',
-            packageName: '@vibex/core-session',
+            id: 'dimo.core.session',
+            packageName: '@dimo/core-session',
             plane: 'agent',
             version: '2.0.0',
             provides: [
-              'vibex.session',
-              'vibex.session-projection',
-              'vibex.session-persistence',
+              'dimo.session',
+              'dimo.session-projection',
+              'dimo.session-persistence',
             ],
             injects: [],
           },
@@ -753,8 +753,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.llm-providers',
-      packageName: '@vibex/core-llm-providers',
+      id: 'dimo.core.llm-providers',
+      packageName: '@dimo/core-llm-providers',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -767,11 +767,11 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryEn:
         'Aggregates built-in and plugin-contributed model provider templates with endpoint probing.',
       provides: [
-        'vibex.llm-providers',
-        'vibex.model-catalog',
+        'dimo.llm-providers',
+        'dimo.model-catalog',
         'provider.model.catalog',
       ],
-      injects: ['vibex.credentials'],
+      injects: ['dimo.credentials'],
       settingsPath: '/settings/models',
       onActivate: (ctx) => {
         registerBuiltinHostProviderServices({ ctx });
@@ -794,16 +794,16 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.llm-providers',
-            packageName: '@vibex/core-llm-providers',
+            id: 'dimo.core.llm-providers',
+            packageName: '@dimo/core-llm-providers',
             plane: 'agent',
             version: '2.0.0',
             provides: [
-              'vibex.llm-providers',
-              'vibex.model-catalog',
+              'dimo.llm-providers',
+              'dimo.model-catalog',
               'provider.model.catalog',
             ],
-            injects: ['vibex.credentials'],
+            injects: ['dimo.credentials'],
           },
           {
             listCatalog: defaultModelCatalogProviderService.listCatalog.bind(
@@ -822,8 +822,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
                 defaultModelCatalogProviderService
               ),
           },
-          ['vibex.provider.model-catalog'],
-          ['vibex.core.credentials']
+          ['dimo.provider.model-catalog'],
+          ['dimo.core.credentials']
         );
       },
       parts: [
@@ -850,8 +850,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.skills',
-      packageName: '@vibex/core-skills',
+      id: 'dimo.core.skills',
+      packageName: '@dimo/core-skills',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -863,19 +863,19 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '自动扫描工作区、全局与插件内置的 SKILL.md 技能包，向全量 Agent 同步投影并注入 / 技能命令。',
       summaryEn:
         'Discovers workspace, global, and plugin SKILL.md packages, projecting them across agents and `/` commands.',
-      provides: ['vibex.skills', 'vibex.skill-filesystem', 'vibex.tool-skill'],
-      injects: ['vibex.filesystem'],
+      provides: ['dimo.skills', 'dimo.skill-filesystem', 'dimo.tool-skill'],
+      injects: ['dimo.filesystem'],
       settingsPath: '/settings/skills',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({ ctx, paths: ['/settings/skills'] });
         registerBuiltinCommands({ ctx });
         ctx.ui.registerSlashCommand({
-          id: 'vibex.core.skills:skills',
+          id: 'dimo.core.skills:skills',
           name: 'skills',
           title: 'Manage Agent Skills',
           description: 'Inspect and manage active SKILL.md packages',
           execute: () => {
-            dispatchHostCustomEvent('vibex:open-settings', {
+            dispatchHostCustomEvent('dimo:open-settings', {
               section: 'skills',
             });
           },
@@ -883,27 +883,27 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.skills',
-            packageName: '@vibex/core-skills',
+            id: 'dimo.core.skills',
+            packageName: '@dimo/core-skills',
             plane: 'agent',
             version: '2.0.0',
             provides: [
-              'vibex.skills',
-              'vibex.skill-filesystem',
-              'vibex.tool-skill',
+              'dimo.skills',
+              'dimo.skill-filesystem',
+              'dimo.tool-skill',
             ],
-            injects: ['vibex.filesystem'],
+            injects: ['dimo.filesystem'],
           },
           {
             getSettingsPath: () => '/settings/skills',
             listSlashSkills: () => slashCommandRegistry.getAll(),
             openSkillsSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'skills',
               }),
           },
           [],
-          ['vibex.core.filesystem']
+          ['dimo.core.filesystem']
         );
       },
       parts: [
@@ -942,8 +942,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.mcp',
-      packageName: '@vibex/core-mcp',
+      id: 'dimo.core.mcp',
+      packageName: '@dimo/core-mcp',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -955,8 +955,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '管理 Stdio、SSE 与 Worker HTTP 模式的 MCP 服务器进程池、工具清单缓存与多 Agent 绑定。',
       summaryEn:
         'Supervises Stdio, SSE, and Worker-HTTP MCP servers, tool schema caching, and multi-agent bindings.',
-      provides: ['vibex.mcp', 'vibex.mcp-lifecycle'],
-      injects: ['vibex.settings'],
+      provides: ['dimo.mcp', 'dimo.mcp-lifecycle'],
+      injects: ['dimo.settings'],
       settingsPath: '/settings/mcp',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({ ctx, paths: ['/settings/mcp'] });
@@ -964,24 +964,24 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.mcp',
-            packageName: '@vibex/core-mcp',
+            id: 'dimo.core.mcp',
+            packageName: '@dimo/core-mcp',
             plane: 'agent',
             version: '2.0.0',
-            provides: ['vibex.mcp', 'vibex.mcp-lifecycle'],
-            injects: ['vibex.settings'],
+            provides: ['dimo.mcp', 'dimo.mcp-lifecycle'],
+            injects: ['dimo.settings'],
           },
           {
             getSettingsPath: () => '/settings/mcp',
             getSupportedTransports: () =>
               ['stdio', 'sse', 'worker-http'] as const,
             openMcpSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'mcp',
               }),
           },
           [],
-          ['vibex.core.settings']
+          ['dimo.core.settings']
         );
       },
       parts: [
@@ -1008,8 +1008,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.delegation',
-      packageName: '@vibex/core-delegation',
+      id: 'dimo.core.delegation',
+      packageName: '@dimo/core-delegation',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -1022,11 +1022,11 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryEn:
         'Built-in multi-agent collaboration spaces, role definitions, team orchestration, and `&` subagent delegation.',
       provides: [
-        'vibex.delegation',
-        'vibex.subagent',
-        'vibex.collaboration-space',
+        'dimo.delegation',
+        'dimo.subagent',
+        'dimo.collaboration-space',
       ],
-      injects: ['vibex.agent-runtime', 'vibex.session'],
+      injects: ['dimo.agent-runtime', 'dimo.session'],
       settingsPath: '/settings/subagents',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({
@@ -1053,7 +1053,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           component: CollaborationSpaceSurface,
         });
         ctx.ui.registerSlashCommand({
-          id: 'vibex.core.delegation:delegate',
+          id: 'dimo.core.delegation:delegate',
           name: 'delegate',
           title: 'Delegate to Subagent',
           description: 'Delegate a task to a specialized subagent (`&`)',
@@ -1064,27 +1064,27 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.delegation',
-            packageName: '@vibex/core-delegation',
+            id: 'dimo.core.delegation',
+            packageName: '@dimo/core-delegation',
             plane: 'agent',
             version: '2.0.0',
             provides: [
-              'vibex.delegation',
-              'vibex.subagent',
-              'vibex.collaboration-space',
+              'dimo.delegation',
+              'dimo.subagent',
+              'dimo.collaboration-space',
             ],
-            injects: ['vibex.agent-runtime', 'vibex.session'],
+            injects: ['dimo.agent-runtime', 'dimo.session'],
           },
           {
             getSettingsPath: () => '/settings/subagents',
             getTriggerPrefix: () => '&' as const,
             openSubagentsSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'subagents',
               }),
           },
           [],
-          ['vibex.core.agent-runtime', 'vibex.core.session']
+          ['dimo.core.agent-runtime', 'dimo.core.session']
         );
       },
       parts: [
@@ -1111,8 +1111,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.compaction',
-      packageName: '@vibex/core-compaction',
+      id: 'dimo.core.compaction',
+      packageName: '@dimo/core-compaction',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -1124,8 +1124,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '监测 Token 窗口水位，支持 /compact 摘要压缩与大体积工具输出自动裁剪。',
       summaryEn:
         'Monitors token window utilization, providing `/compact` summarization and large tool output pruning.',
-      provides: ['vibex.compaction', 'vibex.tool-result-pruner'],
-      injects: ['vibex.session'],
+      provides: ['dimo.compaction', 'dimo.tool-result-pruner'],
+      injects: ['dimo.session'],
       settingsPath: '/settings/compaction',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({
@@ -1145,36 +1145,36 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         });
         registerBuiltinCommands({ ctx });
         ctx.ui.registerSlashCommand({
-          id: 'vibex.core.compaction:compact',
+          id: 'dimo.core.compaction:compact',
           name: 'compact',
           title: 'Compact Context',
           description:
             'Summarize and compact the current conversation context window',
           execute: () => {
-            dispatchHostCustomEvent('vibex:compact-session');
+            dispatchHostCustomEvent('dimo:compact-session');
           },
         });
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.compaction',
-            packageName: '@vibex/core-compaction',
+            id: 'dimo.core.compaction',
+            packageName: '@dimo/core-compaction',
             plane: 'agent',
             version: '2.0.0',
-            provides: ['vibex.compaction', 'vibex.tool-result-pruner'],
-            injects: ['vibex.session'],
+            provides: ['dimo.compaction', 'dimo.tool-result-pruner'],
+            injects: ['dimo.session'],
           },
           {
             getMaxPromptContributionBytes: () =>
               MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES,
             requestCompaction: (conversationId?: string) =>
               dispatchHostCustomEvent(
-                'vibex:compact-session',
+                'dimo:compact-session',
                 conversationId ? { conversationId } : undefined
               ),
           },
           [],
-          ['vibex.core.session']
+          ['dimo.core.session']
         );
       },
       parts: [
@@ -1191,8 +1191,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.approval',
-      packageName: '@vibex/core-approval',
+      id: 'dimo.core.approval',
+      packageName: '@dimo/core-approval',
       plane: 'agent',
       version: '2.0.0',
       bundle: 'system',
@@ -1204,8 +1204,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '拦截高风险命令与文件修改请求进行交互式审批，并渲染多选澄清问题卡片。',
       summaryEn:
         'Gates sensitive tool executions behind interactive approvals and renders structured user question cards.',
-      provides: ['vibex.approval', 'vibex.ask-user'],
-      injects: ['vibex.agent-runtime'],
+      provides: ['dimo.approval', 'dimo.ask-user'],
+      injects: ['dimo.agent-runtime'],
       settingsPath: '/settings/approval',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({
@@ -1233,23 +1233,23 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.approval',
-            packageName: '@vibex/core-approval',
+            id: 'dimo.core.approval',
+            packageName: '@dimo/core-approval',
             plane: 'agent',
             version: '2.0.0',
-            provides: ['vibex.approval', 'vibex.ask-user'],
-            injects: ['vibex.agent-runtime'],
+            provides: ['dimo.approval', 'dimo.ask-user'],
+            injects: ['dimo.agent-runtime'],
           },
           {
             getApprovalPolicies: () =>
               ['interactive', 'auto-read', 'strict'] as const,
             openApprovalSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'approval',
               }),
           },
           [],
-          ['vibex.core.agent-runtime']
+          ['dimo.core.agent-runtime']
         );
       },
       parts: [
@@ -1281,8 +1281,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
     // 3. Environment & Execution Plane (`execution`)
     // ---------------------------------------------------------------------------
     {
-      id: 'vibex.core.shell',
-      packageName: '@vibex/core-shell',
+      id: 'dimo.core.shell',
+      packageName: '@dimo/core-shell',
       plane: 'execution',
       version: '2.0.0',
       bundle: 'system',
@@ -1294,8 +1294,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '提供跨平台持久化 PTY 终端池、PowerShell / Bash 命令执行器以及 Agent 后台长任务终端复用。',
       summaryEn:
         'Provides persistent cross-platform PTY terminals, Bash/PowerShell execution, and background process multiplexing.',
-      provides: ['vibex.shell', 'vibex.terminal', 'vibex.subprocess'],
-      injects: ['vibex.workspace-git'],
+      provides: ['dimo.shell', 'dimo.terminal', 'dimo.subprocess'],
+      injects: ['dimo.workspace-git'],
       onActivate: (ctx) => {
         registerBuiltinPanels({
           ctx,
@@ -1305,18 +1305,18 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.shell',
-            packageName: '@vibex/core-shell',
+            id: 'dimo.core.shell',
+            packageName: '@dimo/core-shell',
             plane: 'execution',
             version: '2.0.0',
-            provides: ['vibex.shell', 'vibex.terminal', 'vibex.subprocess'],
-            injects: ['vibex.workspace-git'],
+            provides: ['dimo.shell', 'dimo.terminal', 'dimo.subprocess'],
+            injects: ['dimo.workspace-git'],
           },
           {
             getTerminalPanelId: () => PANEL_IDS.TERMINAL,
             getProcessesPanelId: () => PANEL_IDS.PROCESSES,
             openNewTerminal: () =>
-              dispatchHostCustomEvent('vibex:new-terminal'),
+              dispatchHostCustomEvent('dimo:new-terminal'),
             exec: async (input: {
               program: string;
               args?: readonly string[];
@@ -1324,7 +1324,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             }) => await ctx.host.exec.run(input),
           },
           [],
-          ['vibex.core.workspace-git']
+          ['dimo.core.workspace-git']
         );
       },
       parts: [
@@ -1352,8 +1352,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.workspace-git',
-      packageName: '@vibex/core-workspace-git',
+      id: 'dimo.core.workspace-git',
+      packageName: '@dimo/core-workspace-git',
       plane: 'execution',
       version: '2.0.0',
       bundle: 'system',
@@ -1365,8 +1365,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '管理项目根目录、Git Worktree 并行分支隔离、实时文件变更集监控与统一 Diff 对比视图。',
       summaryEn:
         'Manages project workspaces, isolated Git worktrees, live change tracking, and side-by-side diff previews.',
-      provides: ['vibex.workspace-git', 'vibex.worktree', 'vibex.diff-engine'],
-      injects: ['vibex.filesystem'],
+      provides: ['dimo.workspace-git', 'dimo.worktree', 'dimo.diff-engine'],
+      injects: ['dimo.filesystem'],
       settingsPath: '/settings/version-control',
       onActivate: (ctx) => {
         registerBuiltinPanels({
@@ -1381,33 +1381,33 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.workspace-git',
-            packageName: '@vibex/core-workspace-git',
+            id: 'dimo.core.workspace-git',
+            packageName: '@dimo/core-workspace-git',
             plane: 'execution',
             version: '2.0.0',
             provides: [
-              'vibex.workspace-git',
-              'vibex.worktree',
-              'vibex.diff-engine',
+              'dimo.workspace-git',
+              'dimo.worktree',
+              'dimo.diff-engine',
             ],
-            injects: ['vibex.filesystem'],
+            injects: ['dimo.filesystem'],
           },
           {
             getGitPanelId: () => PANEL_IDS.GIT,
             getDiffsPanelId: () => PANEL_IDS.DIFFS,
             getMergePanelId: () => PANEL_IDS.MERGE,
             openGitPanel: () =>
-              dispatchHostCustomEvent('vibex:focus-panel', {
+              dispatchHostCustomEvent('dimo:focus-panel', {
                 panelId: PANEL_IDS.GIT,
               }),
             openDiffPreview: () =>
-              dispatchHostCustomEvent('vibex:focus-panel', {
+              dispatchHostCustomEvent('dimo:focus-panel', {
                 panelId: PANEL_IDS.DIFFS,
               }),
             getWorktreeSettingsPath: () => '/settings/worktrees',
           },
           [],
-          ['vibex.core.filesystem']
+          ['dimo.core.filesystem']
         );
       },
       parts: [
@@ -1435,8 +1435,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.filesystem',
-      packageName: '@vibex/core-filesystem',
+      id: 'dimo.core.filesystem',
+      packageName: '@dimo/core-filesystem',
       plane: 'execution',
       version: '2.0.0',
       bundle: 'system',
@@ -1449,10 +1449,10 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryEn:
         'Provides workspace file tree watching, `@` file reference indexing, artifact preview leases, and external IDE openers.',
       provides: [
-        'vibex.filesystem',
-        'vibex.editor',
+        'dimo.filesystem',
+        'dimo.editor',
         'provider.editor.opener',
-        'vibex.code-editor',
+        'dimo.code-editor',
         'provider.editor.monaco',
       ],
       injects: [],
@@ -1471,13 +1471,13 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.filesystem',
-            packageName: '@vibex/core-filesystem',
+            id: 'dimo.core.filesystem',
+            packageName: '@dimo/core-filesystem',
             plane: 'execution',
             version: '2.0.0',
             provides: [
-              'vibex.filesystem',
-              'vibex.editor',
+              'dimo.filesystem',
+              'dimo.editor',
               'provider.editor.opener',
             ],
             injects: [],
@@ -1507,14 +1507,14 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
                 defaultEditorOpenerProviderService
               ),
           },
-          ['vibex.provider.editor-opener']
+          ['dimo.provider.editor-opener']
         );
         registerBuiltinHostProviderServices({
           ctx,
           serviceKeys: [
-            'vibex.code-editor',
+            'dimo.code-editor',
             'provider.editor.monaco',
-            'vibex.provider.code-editor',
+            'dimo.provider.code-editor',
           ],
         });
       },
@@ -1543,8 +1543,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.automation',
-      packageName: '@vibex/core-automation',
+      id: 'dimo.core.automation',
+      packageName: '@dimo/core-automation',
       plane: 'execution',
       version: '2.0.0',
       bundle: 'system',
@@ -1557,11 +1557,11 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryEn:
         'Executes Cron-scheduled agent turns, recurring background jobs, and versioned multi-step DAG workflows.',
       provides: [
-        'vibex.automation',
-        'vibex.scheduler',
-        'vibex.workflow-runner',
+        'dimo.automation',
+        'dimo.scheduler',
+        'dimo.workflow-runner',
       ],
-      injects: ['vibex.agent-runtime'],
+      injects: ['dimo.agent-runtime'],
       settingsPath: '/settings/automations',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({
@@ -1570,12 +1570,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         });
         registerBuiltinCommands({ ctx });
         ctx.ui.registerSlashCommand({
-          id: 'vibex.core.automation:schedule',
+          id: 'dimo.core.automation:schedule',
           name: 'schedule',
           title: 'Schedule Automation',
           description: 'Create or manage a recurring scheduled automation',
           execute: () => {
-            dispatchHostCustomEvent('vibex:open-settings', {
+            dispatchHostCustomEvent('dimo:open-settings', {
               section: 'automations',
             });
           },
@@ -1583,27 +1583,27 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.automation',
-            packageName: '@vibex/core-automation',
+            id: 'dimo.core.automation',
+            packageName: '@dimo/core-automation',
             plane: 'execution',
             version: '2.0.0',
             provides: [
-              'vibex.automation',
-              'vibex.scheduler',
-              'vibex.workflow-runner',
+              'dimo.automation',
+              'dimo.scheduler',
+              'dimo.workflow-runner',
             ],
-            injects: ['vibex.agent-runtime'],
+            injects: ['dimo.agent-runtime'],
           },
           {
             getSettingsPath: () => '/settings/automations',
             getSupportedTriggers: () => ['cron', 'interval', 'manual'] as const,
             openAutomationSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'automations',
               }),
           },
           [],
-          ['vibex.core.agent-runtime']
+          ['dimo.core.agent-runtime']
         );
       },
       parts: [
@@ -1631,8 +1631,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.core.channels',
-      packageName: '@vibex/core-channels',
+      id: 'dimo.core.channels',
+      packageName: '@dimo/core-channels',
       plane: 'execution',
       version: '2.0.0',
       bundle: 'system',
@@ -1644,8 +1644,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '将 Telegram Topic、微信 iLink 机器人与企业微信长连接双向桥接至本地 Agent 会话。',
       summaryEn:
         'Bridges Telegram Topics, WeChat iLink bots, and WeCom WebSocket channels bidirectionally to local agent sessions.',
-      provides: ['vibex.channels', 'vibex.channel-router'],
-      injects: ['vibex.agent-runtime', 'vibex.session'],
+      provides: ['dimo.channels', 'dimo.channel-router'],
+      injects: ['dimo.agent-runtime', 'dimo.session'],
       settingsPath: '/settings/chat-channels',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({
@@ -1656,24 +1656,24 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.core.channels',
-            packageName: '@vibex/core-channels',
+            id: 'dimo.core.channels',
+            packageName: '@dimo/core-channels',
             plane: 'execution',
             version: '2.0.0',
-            provides: ['vibex.channels', 'vibex.channel-router'],
-            injects: ['vibex.agent-runtime', 'vibex.session'],
+            provides: ['dimo.channels', 'dimo.channel-router'],
+            injects: ['dimo.agent-runtime', 'dimo.session'],
           },
           {
             getSettingsPath: () => '/settings/chat-channels',
             getSupportedAdapters: () =>
               ['telegram-topic', 'wechat-ilink', 'wecom-bot'] as const,
             openChannelsSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
+              dispatchHostCustomEvent('dimo:open-settings', {
                 section: 'chat-channels',
               }),
           },
           [],
-          ['vibex.core.agent-runtime', 'vibex.core.session']
+          ['dimo.core.agent-runtime', 'dimo.core.session']
         );
       },
       parts: [
@@ -1704,8 +1704,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
     // 4. Client WebUI Plane (`webui`)
     // ---------------------------------------------------------------------------
     {
-      id: 'vibex.webui.layout',
-      packageName: '@vibex/webui-layout',
+      id: 'dimo.webui.layout',
+      packageName: '@dimo/webui-layout',
       plane: 'webui',
       version: '2.0.0',
       bundle: 'system',
@@ -1717,8 +1717,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '托管主窗口三栏布局、Dockview 多面板停靠容器、左右侧边栏、状态栏槽位与多窗口协调。',
       summaryEn:
         'Hosts the tri-pane workbench shell, Dockview panel container, left/right sidebars, status bar slots, and multi-window sync.',
-      provides: ['vibex.webui.layout', 'vibex.webui.panels'],
-      injects: ['vibex.settings'],
+      provides: ['dimo.webui.layout', 'dimo.webui.panels'],
+      injects: ['dimo.settings'],
       onActivate: (ctx) => {
         registerBuiltinPanels({
           ctx,
@@ -1728,12 +1728,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.webui.layout',
-            packageName: '@vibex/webui-layout',
+            id: 'dimo.webui.layout',
+            packageName: '@dimo/webui-layout',
             plane: 'webui',
             version: '2.0.0',
-            provides: ['vibex.webui.layout', 'vibex.webui.panels'],
-            injects: ['vibex.settings'],
+            provides: ['dimo.webui.layout', 'dimo.webui.panels'],
+            injects: ['dimo.settings'],
           },
           {
             listPanels: () => panelRegistry.getAll(),
@@ -1741,7 +1741,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             hasPanel: (panelId: string) => panelRegistry.has(panelId),
           },
           [],
-          ['vibex.core.settings']
+          ['dimo.core.settings']
         );
       },
       parts: [
@@ -1769,8 +1769,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.webui.conversation',
-      packageName: '@vibex/webui-conversation',
+      id: 'dimo.webui.conversation',
+      packageName: '@dimo/webui-conversation',
       plane: 'webui',
       version: '2.0.0',
       bundle: 'system',
@@ -1783,11 +1783,11 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryEn:
         'Renders the virtualized conversation timeline, Streamdown/Shiki/Mermaid markdown pipeline, and `@`/`/`/`$`/`&` trigger composer.',
       provides: [
-        'vibex.webui.conversation',
-        'vibex.webui.composer',
-        'vibex.webui.markdown',
+        'dimo.webui.conversation',
+        'dimo.webui.composer',
+        'dimo.webui.markdown',
       ],
-      injects: ['vibex.agent-runtime', 'vibex.session'],
+      injects: ['dimo.agent-runtime', 'dimo.session'],
       settingsPath: '/settings/instructions',
       onActivate: (ctx) => {
         registerBuiltinPanels({
@@ -1800,27 +1800,27 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         });
         registerBuiltinCommands({ ctx });
         ctx.ui.registerSlashCommand({
-          id: 'vibex.webui.conversation:clear',
+          id: 'dimo.webui.conversation:clear',
           name: 'clear',
           title: 'Clear Conversation',
           description: 'Start a fresh conversation context',
           execute: () => {
-            dispatchHostCustomEvent('vibex:clear-conversation');
+            dispatchHostCustomEvent('dimo:clear-conversation');
           },
         });
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.webui.conversation',
-            packageName: '@vibex/webui-conversation',
+            id: 'dimo.webui.conversation',
+            packageName: '@dimo/webui-conversation',
             plane: 'webui',
             version: '2.0.0',
             provides: [
-              'vibex.webui.conversation',
-              'vibex.webui.composer',
-              'vibex.webui.markdown',
+              'dimo.webui.conversation',
+              'dimo.webui.composer',
+              'dimo.webui.markdown',
             ],
-            injects: ['vibex.agent-runtime', 'vibex.session'],
+            injects: ['dimo.agent-runtime', 'dimo.session'],
           },
           {
             getChatPanelId: () => PANEL_IDS.AI_CHAT,
@@ -1828,7 +1828,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             listSlashCommands: () => slashCommandRegistry.getAll(),
           },
           [],
-          ['vibex.core.agent-runtime', 'vibex.core.session']
+          ['dimo.core.agent-runtime', 'dimo.core.session']
         );
       },
       parts: [
@@ -1856,8 +1856,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.webui.kanban',
-      packageName: '@vibex/webui-kanban',
+      id: 'dimo.webui.kanban',
+      packageName: '@dimo/webui-kanban',
       plane: 'webui',
       version: '2.0.0',
       bundle: 'system',
@@ -1869,8 +1869,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '将多列任务看板、多会话并行矩阵、无限节点画布与用量仪表盘作为插件化视图注册到工作台。',
       summaryEn:
         'Registers multi-column Kanban boards, parallel session matrices, infinite canvas, and usage dashboards into the workbench.',
-      provides: ['vibex.webui.kanban'],
-      injects: ['vibex.webui.layout'],
+      provides: ['dimo.webui.kanban'],
+      injects: ['dimo.webui.layout'],
       onActivate: (ctx) => {
         registerBuiltinPanels({
           ctx,
@@ -1881,12 +1881,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.webui.kanban',
-            packageName: '@vibex/webui-kanban',
+            id: 'dimo.webui.kanban',
+            packageName: '@dimo/webui-kanban',
             plane: 'webui',
             version: '2.0.0',
-            provides: ['vibex.webui.kanban'],
-            injects: ['vibex.webui.layout'],
+            provides: ['dimo.webui.kanban'],
+            injects: ['dimo.webui.layout'],
           },
           {
             getKanbanPanelId: () => PANEL_IDS.KANBAN,
@@ -1909,8 +1909,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.webui.commands',
-      packageName: '@vibex/webui-commands',
+      id: 'dimo.webui.commands',
+      packageName: '@dimo/webui-commands',
       plane: 'webui',
       version: '2.0.0',
       bundle: 'system',
@@ -1922,8 +1922,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '提供 ⌘K 全局命令与文件搜索面板、多键序列追踪器以及插件命令统一分发。',
       summaryEn:
         'Provides the `⌘K` global command and file search palette, key sequence tracker, and plugin command dispatch.',
-      provides: ['vibex.webui.commands', 'vibex.webui.shortcuts'],
-      injects: ['vibex.webui.layout'],
+      provides: ['dimo.webui.commands', 'dimo.webui.shortcuts'],
+      injects: ['dimo.webui.layout'],
       settingsPath: '/settings/shortcuts',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({ ctx, paths: ['/settings/shortcuts'] });
@@ -1931,12 +1931,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.webui.commands',
-            packageName: '@vibex/webui-commands',
+            id: 'dimo.webui.commands',
+            packageName: '@dimo/webui-commands',
             plane: 'webui',
             version: '2.0.0',
-            provides: ['vibex.webui.commands', 'vibex.webui.shortcuts'],
-            injects: ['vibex.webui.layout'],
+            provides: ['dimo.webui.commands', 'dimo.webui.shortcuts'],
+            injects: ['dimo.webui.layout'],
           },
           {
             listCommands: () => commandRegistry.getAll(),
@@ -1970,8 +1970,8 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       ],
     },
     {
-      id: 'vibex.webui.theme',
-      packageName: '@vibex/webui-theme',
+      id: 'dimo.webui.theme',
+      packageName: '@dimo/webui-theme',
       plane: 'webui',
       version: '2.0.0',
       bundle: 'system',
@@ -1982,9 +1982,9 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       summaryZh:
         '管理 macOS Tahoe 双模式语义色彩令牌、动态强调色、UI 缩放与插件 CSS @layer 样式隔离。',
       summaryEn:
-        'Manages macOS Tahoe dual-mode semantic color tokens, accent colors, UI zoom, and `@layer vibex-plugins` CSS isolation.',
-      provides: ['vibex.webui.theme'],
-      injects: ['vibex.settings'],
+        'Manages macOS Tahoe dual-mode semantic color tokens, accent colors, UI zoom, and `@layer dimo-plugins` CSS isolation.',
+      provides: ['dimo.webui.theme'],
+      injects: ['dimo.settings'],
       settingsPath: '/settings/appearance',
       onActivate: (ctx) => {
         registerBuiltinSettingsPages({ ctx, paths: ['/settings/appearance'] });
@@ -1992,20 +1992,20 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         bindCoreDomainServices(
           ctx,
           {
-            id: 'vibex.webui.theme',
-            packageName: '@vibex/webui-theme',
+            id: 'dimo.webui.theme',
+            packageName: '@dimo/webui-theme',
             plane: 'webui',
             version: '2.0.0',
-            provides: ['vibex.webui.theme'],
-            injects: ['vibex.settings'],
+            provides: ['dimo.webui.theme'],
+            injects: ['dimo.settings'],
           },
           {
             listThemes: () => themeRegistry.getAll(),
-            toggleTheme: () => dispatchHostCustomEvent('vibex:toggle-theme'),
+            toggleTheme: () => dispatchHostCustomEvent('dimo:toggle-theme'),
             getAppearanceSettingsPath: () => '/settings/appearance',
           },
           [],
-          ['vibex.core.settings']
+          ['dimo.core.settings']
         );
       },
       parts: [

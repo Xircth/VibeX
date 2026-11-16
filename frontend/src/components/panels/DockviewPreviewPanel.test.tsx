@@ -578,7 +578,7 @@ describe('DockviewPreviewPanel', () => {
 
   it('mounts an App-backed file opener as the editable file tab', async () => {
     api.resolveFileOpener.mockResolvedValue({
-      pluginId: 'vibex.drawio',
+      pluginId: 'dimo.drawio',
       contributionId: 'drawio-files',
       label: 'Drawio editor',
       handler: 'drawio-editor',

@@ -23,7 +23,7 @@ impl AgentConnectionRunner {
         // session/new is only for PrepareSession (a conversation that does not
         // yet own a thread) and for fork, which creates a new Conversation.
         // Prompt must never reach here: that would stuff a new Codex thread
-        // into an existing VibeX Conversation.
+        // into an existing Dimo Conversation.
         let acp_session_id = self
             .new_acp_session(conn, working_dir, session_id, companion_capabilities, None)
             .await?;

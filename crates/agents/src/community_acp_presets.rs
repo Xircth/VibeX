@@ -1,4 +1,4 @@
-//! VibeX-curated community ACP adapters that are not yet in the official
+//! Dimo-curated community ACP adapters that are not yet in the official
 //! Registry. These are form templates for the user-declared install path.
 //! They are not official Registry entries and must not be labeled as verified.
 

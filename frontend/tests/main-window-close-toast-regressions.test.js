@@ -56,7 +56,7 @@ test('local dependency update notification is Chinese, grouped, and minimum-vers
   assert.match(appSource, /当前版本：/);
   assert.match(appSource, /最低支持：/);
   assert.match(appSource, /正在更新本地 Agent 依赖/);
-  assert.match(appSource, /VibeX \$\{status\.app\.latest_version\} 可更新/);
+  assert.match(appSource, /Dimo \$\{status\.app\.latest_version\} 可更新/);
   assert.match(appSource, /打开发布页/);
   assert.doesNotMatch(appSource, /Updating local dependency/);
   assert.doesNotMatch(appSource, /local dependency needs an update/);

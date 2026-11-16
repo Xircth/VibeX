@@ -332,7 +332,7 @@ impl BuiltInProfile {
     }
 
     /// Resolve the active runtime topology under the requested engine preference
-    /// and `VIBEX_ENGINE_MODE` grayscale environment override (`native` vs `acp`).
+    /// and `DIMO_ENGINE_MODE` grayscale environment override (`native` vs `acp`).
     pub fn effective_topology(
         &self,
         preference: crate::engine::EngineRuntimePreference,

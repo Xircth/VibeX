@@ -15,9 +15,9 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn files(version: &str) -> Vec<(&'static str, String)> {
     vec![
-        (".vibex-plugin/plugin.json", json!({"manifestVersion":4,"apiVersion":"2.0","id":"acme.notes","publisher":"acme","name":"Notes","version":version,"readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},"config":{"schema":{"type":"object","properties":{"preview":{"type":"boolean"}},"additionalProperties":false}},"engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},"integrations":[]}).to_string()),
+        (".dimo-plugin/plugin.json", json!({"manifestVersion":4,"apiVersion":"2.0","id":"acme.notes","publisher":"acme","name":"Notes","version":version,"readme":"README.md","content":{"root":"contents","index":".dimo-plugin/content.index.json"},"config":{"schema":{"type":"object","properties":{"preview":{"type":"boolean"}},"additionalProperties":false}},"engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},"integrations":[]}).to_string()),
         ("README.md", "---\nsummary: Work with notes.\n---\n# Notes\n".into()),
-        (".vibex-plugin/content.index.json", "{\"schemaVersion\":1,\"items\":[]}".into()),
+        (".dimo-plugin/content.index.json", "{\"schemaVersion\":1,\"items\":[]}".into()),
         ("config.json", "{\"preview\":true}".into()),
     ]
 }
@@ -213,7 +213,7 @@ fn invalid_identity_or_config_never_changes_installed_files() {
     write_package(new_root.path(), "2.0.0");
     let old = PluginPackage::inspect(old_root.path(), PluginSourceKind::Snapshot).unwrap();
     old.write_config(json!({"preview":false})).unwrap();
-    let manifest = new_root.path().join(".vibex-plugin/plugin.json");
+    let manifest = new_root.path().join(".dimo-plugin/plugin.json");
     let original: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     let mut wrong_publisher = original.clone();

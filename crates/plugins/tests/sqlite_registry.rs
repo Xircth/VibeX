@@ -54,7 +54,7 @@ fn worker_package(root: &std::path::Path, version: &str) -> PluginPackage {
     .unwrap();
     write_package_version(root, version);
     let mut package = PluginPackage::for_test(
-        "dev.vibex.drain",
+        "dev.dimo.drain",
         "Drain",
         version,
         PluginSourceKind::DeveloperLink,
@@ -76,14 +76,14 @@ fn worker_package(root: &std::path::Path, version: &str) -> PluginPackage {
 }
 
 fn linked_worker_package(root: &std::path::Path) -> PluginPackage {
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
-          "id":"dev.vibex.drain","publisher":"dev.vibex",
+          "id":"dev.dimo.drain","publisher":"dev.dimo",
           "name":"Drain","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[
@@ -135,13 +135,13 @@ async fn replaced_generation_retires_only_after_old_leases_drain() {
     control
         .activate_and_enable(
             &node,
-            "dev.vibex.drain",
+            "dev.dimo.drain",
             &[],
             Arc::new(plugins::DenyCapabilityBroker),
         )
         .await
         .unwrap();
-    let old_lease = control.activation_lease("dev.vibex.drain").await.unwrap();
+    let old_lease = control.activation_lease("dev.dimo.drain").await.unwrap();
     control
         .update_and_activate(
             &node,
@@ -155,7 +155,7 @@ async fn replaced_generation_retires_only_after_old_leases_drain() {
     let state: String = sqlx::query_scalar(
         "SELECT state FROM plugin_generations_v4 WHERE plugin_id = ? ORDER BY generation_id LIMIT 1",
     )
-    .bind("dev.vibex.drain")
+    .bind("dev.dimo.drain")
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -165,7 +165,7 @@ async fn replaced_generation_retires_only_after_old_leases_drain() {
         let state: String = sqlx::query_scalar(
             "SELECT state FROM plugin_generations_v4 WHERE plugin_id = ? ORDER BY generation_id LIMIT 1",
         )
-        .bind("dev.vibex.drain")
+        .bind("dev.dimo.drain")
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -198,7 +198,7 @@ async fn update_publishes_the_exact_runtime_lock_for_the_candidate_digest() {
         .unwrap();
     control
         .record_runtime(
-            "dev.vibex.drain",
+            "dev.dimo.drain",
             RuntimeInstallation {
                 id: "fixture-cli".to_owned(),
                 version: "1.0.0".to_owned(),
@@ -216,7 +216,7 @@ async fn update_publishes_the_exact_runtime_lock_for_the_candidate_digest() {
     control
         .activate_and_enable(
             &node,
-            "dev.vibex.drain",
+            "dev.dimo.drain",
             &[],
             Arc::new(plugins::DenyCapabilityBroker),
         )
@@ -231,7 +231,7 @@ async fn update_publishes_the_exact_runtime_lock_for_the_candidate_digest() {
         .unwrap();
 
     let lock = control
-        .runtime_for_plugin("dev.vibex.drain", "fixture-cli")
+        .runtime_for_plugin("dev.dimo.drain", "fixture-cli")
         .await
         .unwrap()
         .expect("candidate digest must own an exact Runtime lock");
@@ -241,7 +241,7 @@ async fn update_publishes_the_exact_runtime_lock_for_the_candidate_digest() {
         "SELECT package_digest FROM plugin_runtime_locks_v4
          WHERE plugin_id = ? AND runtime_id = ? AND package_digest = ?",
     )
-    .bind("dev.vibex.drain")
+    .bind("dev.dimo.drain")
     .bind("fixture-cli")
     .bind(&updated.package_digest)
     .fetch_one(&pool)
@@ -272,7 +272,7 @@ async fn enabled_worker_is_restored_after_host_restart() {
     first
         .activate_and_enable(
             &node,
-            "dev.vibex.drain",
+            "dev.dimo.drain",
             &[],
             Arc::new(plugins::DenyCapabilityBroker),
         )
@@ -281,7 +281,7 @@ async fn enabled_worker_is_restored_after_host_restart() {
     let published_generation: i64 = sqlx::query_scalar(
         "SELECT generation_id FROM plugin_generations_v4 WHERE plugin_id = ? AND state = 'active'",
     )
-    .bind("dev.vibex.drain")
+    .bind("dev.dimo.drain")
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -298,13 +298,13 @@ async fn enabled_worker_is_restored_after_host_restart() {
         .await
         .unwrap();
     assert!(failures.is_empty());
-    assert!(!restored.is_worker_running("dev.vibex.drain").await);
-    assert!(restored.activation_lease("dev.vibex.drain").await.is_some());
-    assert!(restored.is_worker_running("dev.vibex.drain").await);
+    assert!(!restored.is_worker_running("dev.dimo.drain").await);
+    assert!(restored.activation_lease("dev.dimo.drain").await.is_some());
+    assert!(restored.is_worker_running("dev.dimo.drain").await);
     let generations: Vec<(i64, String)> = sqlx::query_as(
         "SELECT generation_id, state FROM plugin_generations_v4 WHERE plugin_id = ? ORDER BY generation_id",
     )
-    .bind("dev.vibex.drain")
+    .bind("dev.dimo.drain")
     .fetch_all(&pool)
     .await
     .unwrap();
@@ -314,7 +314,7 @@ async fn enabled_worker_is_restored_after_host_restart() {
     );
     assert_eq!(
         restored
-            .activation_lease("dev.vibex.drain")
+            .activation_lease("dev.dimo.drain")
             .await
             .unwrap()
             .activation()
@@ -325,14 +325,14 @@ async fn enabled_worker_is_restored_after_host_restart() {
         .recycle_idle_workers(std::time::Duration::ZERO)
         .await;
     assert!(
-        !restored.is_worker_running("dev.vibex.drain").await,
+        !restored.is_worker_running("dev.dimo.drain").await,
         "idle recycle stops a worker with no host.service"
     );
     assert!(
-        restored.activation_lease("dev.vibex.drain").await.is_some(),
+        restored.activation_lease("dev.dimo.drain").await.is_some(),
         "recycle keeps the plugin enabled"
     );
-    assert!(restored.is_worker_running("dev.vibex.drain").await);
+    assert!(restored.is_worker_running("dev.dimo.drain").await);
 }
 
 #[tokio::test]
@@ -361,7 +361,7 @@ async fn linked_worker_refreezes_source_when_its_candidate_snapshot_is_lost() {
     first
         .activate_and_enable(
             &node,
-            "dev.vibex.drain",
+            "dev.dimo.drain",
             &[],
             Arc::new(plugins::DenyCapabilityBroker),
         )
@@ -391,8 +391,8 @@ async fn linked_worker_refreezes_source_when_its_candidate_snapshot_is_lost() {
         .unwrap();
 
     assert!(failures.is_empty());
-    assert!(restored.activation_lease("dev.vibex.drain").await.is_some());
-    let installed = restored.plugin("dev.vibex.drain").await.unwrap().unwrap();
+    assert!(restored.activation_lease("dev.dimo.drain").await.is_some());
+    let installed = restored.plugin("dev.dimo.drain").await.unwrap().unwrap();
     assert!(installed.package.content_root().is_dir());
     assert_eq!(
         installed.package.source.path,
@@ -406,7 +406,7 @@ async fn runtime_artifacts_are_content_addressed_and_locks_are_package_scoped() 
     let root = tempfile::tempdir().unwrap();
     write_package_version(root.path(), "1.0.0");
     let control = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
-    for id in ["dev.vibex.one", "dev.vibex.two"] {
+    for id in ["dev.dimo.one", "dev.dimo.two"] {
         control
             .import(
                 PluginPackage::for_test(id, id, "1.0.0", PluginSourceKind::Snapshot, root.path()),
@@ -416,8 +416,8 @@ async fn runtime_artifacts_are_content_addressed_and_locks_are_package_scoped() 
             .unwrap();
     }
     for (plugin_id, version, digest, path) in [
-        ("dev.vibex.one", "1.0.0", "sha256:one", "/runtime/one/tool"),
-        ("dev.vibex.two", "2.0.0", "sha256:two", "/runtime/two/tool"),
+        ("dev.dimo.one", "1.0.0", "sha256:one", "/runtime/one/tool"),
+        ("dev.dimo.two", "2.0.0", "sha256:two", "/runtime/two/tool"),
     ] {
         control
             .record_runtime(
@@ -440,10 +440,10 @@ async fn runtime_artifacts_are_content_addressed_and_locks_are_package_scoped() 
 
     let inventory = control.runtime_inventory().await.unwrap();
     assert_eq!(inventory.len(), 2);
-    assert_eq!(inventory[0].referenced_plugins, vec!["dev.vibex.one"]);
-    assert_eq!(inventory[1].referenced_plugins, vec!["dev.vibex.two"]);
+    assert_eq!(inventory[0].referenced_plugins, vec!["dev.dimo.one"]);
+    assert_eq!(inventory[1].referenced_plugins, vec!["dev.dimo.two"]);
 
-    control.uninstall("dev.vibex.one").await.unwrap();
+    control.uninstall("dev.dimo.one").await.unwrap();
     let inventory = control.runtime_inventory().await.unwrap();
     assert!(
         inventory
@@ -451,7 +451,7 @@ async fn runtime_artifacts_are_content_addressed_and_locks_are_package_scoped() 
             .any(|runtime| { runtime.version == "1.0.0" && runtime.referenced_plugins.is_empty() })
     );
     assert!(inventory.iter().any(|runtime| {
-        runtime.version == "2.0.0" && runtime.referenced_plugins == ["dev.vibex.two".to_owned()]
+        runtime.version == "2.0.0" && runtime.referenced_plugins == ["dev.dimo.two".to_owned()]
     }));
 }
 
@@ -464,7 +464,7 @@ async fn rollback_republishes_the_retained_package_as_a_new_generation() {
     write_package_version(second_root.path(), "2.0.0");
     let control = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
     let first = PluginPackage::for_test(
-        "dev.vibex.rollback",
+        "dev.dimo.rollback",
         "Rollback",
         "1.0.0",
         PluginSourceKind::Snapshot,
@@ -475,11 +475,11 @@ async fn rollback_republishes_the_retained_package_as_a_new_generation() {
         .await
         .unwrap();
     control
-        .set_enabled("dev.vibex.rollback", true)
+        .set_enabled("dev.dimo.rollback", true)
         .await
         .unwrap();
     let second = PluginPackage::for_test(
-        "dev.vibex.rollback",
+        "dev.dimo.rollback",
         "Rollback",
         "2.0.0",
         PluginSourceKind::Snapshot,
@@ -497,14 +497,14 @@ async fn rollback_republishes_the_retained_package_as_a_new_generation() {
 
     assert!(
         control
-            .rollback_available("dev.vibex.rollback")
+            .rollback_available("dev.dimo.rollback")
             .await
             .unwrap()
     );
     let restored = control
         .rollback_and_activate(
             std::path::Path::new("unused-without-worker"),
-            "dev.vibex.rollback",
+            "dev.dimo.rollback",
             &[],
             Arc::new(plugins::DenyCapabilityBroker),
         )
@@ -515,7 +515,7 @@ async fn rollback_republishes_the_retained_package_as_a_new_generation() {
     let states: Vec<String> = sqlx::query_scalar(
         "SELECT state FROM plugin_generations_v4 WHERE plugin_id = ? ORDER BY generation_id",
     )
-    .bind("dev.vibex.rollback")
+    .bind("dev.dimo.rollback")
     .fetch_all(&pool)
     .await
     .unwrap();
@@ -536,7 +536,7 @@ async fn failed_update_candidate_preserves_published_package_and_generation() {
     write_package_version(root.path(), "1.0.0");
     let control = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
     let original = PluginPackage::for_test(
-        "dev.vibex.atomic-update",
+        "dev.dimo.atomic-update",
         "Atomic update",
         "1.0.0",
         PluginSourceKind::DeveloperLink,
@@ -547,13 +547,13 @@ async fn failed_update_candidate_preserves_published_package_and_generation() {
         .await
         .unwrap();
     control
-        .set_enabled("dev.vibex.atomic-update", true)
+        .set_enabled("dev.dimo.atomic-update", true)
         .await
         .unwrap();
 
     write_package_version(root.path(), "2.0.0");
     let mut broken = PluginPackage::for_test(
-        "dev.vibex.atomic-update",
+        "dev.dimo.atomic-update",
         "Atomic update",
         "2.0.0",
         PluginSourceKind::DeveloperLink,
@@ -567,7 +567,7 @@ async fn failed_update_candidate_preserves_published_package_and_generation() {
     assert_eq!(error.code(), "worker_entrypoint_missing");
 
     let current = control
-        .plugin("dev.vibex.atomic-update")
+        .plugin("dev.dimo.atomic-update")
         .await
         .unwrap()
         .unwrap();
@@ -580,7 +580,7 @@ async fn failed_update_candidate_preserves_published_package_and_generation() {
             AND p.package_digest = g.package_digest
          WHERE g.plugin_id = ? ORDER BY generation_id",
     )
-    .bind("dev.vibex.atomic-update")
+    .bind("dev.dimo.atomic-update")
     .fetch_all(&pool)
     .await
     .unwrap();
@@ -600,7 +600,7 @@ async fn package_update_invalidates_digest_scoped_grants_and_retains_rollback() 
     write_package_version(root.path(), "1.0.0");
     let control = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
     let mut first_package = PluginPackage::for_test(
-        "dev.vibex.scoped",
+        "dev.dimo.scoped",
         "Scoped",
         "1.0.0",
         PluginSourceKind::Snapshot,
@@ -619,12 +619,12 @@ async fn package_update_invalidates_digest_scoped_grants_and_retains_rollback() 
         .await
         .unwrap();
     control
-        .grant_declared_permissions("dev.vibex.scoped")
+        .grant_declared_permissions("dev.dimo.scoped")
         .await
         .unwrap();
     assert!(
         control
-            .capability_grants("dev.vibex.scoped")
+            .capability_grants("dev.dimo.scoped")
             .await
             .unwrap()
             .is_empty()
@@ -634,7 +634,7 @@ async fn package_update_invalidates_digest_scoped_grants_and_retains_rollback() 
     control
         .import(
             PluginPackage::for_test(
-                "dev.vibex.scoped",
+                "dev.dimo.scoped",
                 "Scoped",
                 "2.0.0",
                 PluginSourceKind::Snapshot,
@@ -647,7 +647,7 @@ async fn package_update_invalidates_digest_scoped_grants_and_retains_rollback() 
 
     assert!(
         control
-            .capability_grants("dev.vibex.scoped")
+            .capability_grants("dev.dimo.scoped")
             .await
             .unwrap()
             .is_empty()
@@ -655,7 +655,7 @@ async fn package_update_invalidates_digest_scoped_grants_and_retains_rollback() 
     let rollback: Option<String> = sqlx::query_scalar(
         "SELECT rollback_package_digest FROM plugin_installations_v4 WHERE plugin_id = ?",
     )
-    .bind("dev.vibex.scoped")
+    .bind("dev.dimo.scoped")
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -687,7 +687,7 @@ async fn v4_migration_backfills_an_existing_control_plane_installation() {
     .unwrap();
     let root = tempfile::tempdir().unwrap();
     let package = PluginPackage::for_test(
-        "dev.vibex.legacy",
+        "dev.dimo.legacy",
         "Legacy",
         "1.0.0",
         PluginSourceKind::Snapshot,
@@ -724,7 +724,7 @@ async fn v4_migration_backfills_an_existing_control_plane_installation() {
     .unwrap();
 
     let restored = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())))
-        .plugin("dev.vibex.legacy")
+        .plugin("dev.dimo.legacy")
         .await
         .unwrap()
         .unwrap();
@@ -732,7 +732,7 @@ async fn v4_migration_backfills_an_existing_control_plane_installation() {
     let audit: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM plugin_audit_v4 WHERE plugin_id = ? AND event = 'legacy_shell_trust_observed'",
     )
-    .bind("dev.vibex.legacy")
+    .bind("dev.dimo.legacy")
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -747,7 +747,7 @@ async fn catalog_and_activation_survive_control_plane_restart() {
     first
         .import(
             PluginPackage::for_test(
-                "dev.vibex.persisted",
+                "dev.dimo.persisted",
                 "Persisted",
                 "1.0.0",
                 PluginSourceKind::Snapshot,
@@ -758,7 +758,7 @@ async fn catalog_and_activation_survive_control_plane_restart() {
         .await
         .expect("import plugin");
     first
-        .set_enabled("dev.vibex.persisted", true)
+        .set_enabled("dev.dimo.persisted", true)
         .await
         .expect("enable plugin");
     drop(first);
@@ -767,20 +767,20 @@ async fn catalog_and_activation_survive_control_plane_restart() {
     let catalog = restarted.catalog().await.expect("restored catalog");
 
     assert_eq!(catalog.len(), 1);
-    assert_eq!(catalog[0].id(), "dev.vibex.persisted");
+    assert_eq!(catalog[0].id(), "dev.dimo.persisted");
     assert_eq!(catalog[0].activation, plugins::PluginActivation::Enabled);
     let generation: (String, i64) = sqlx::query_as(
         "SELECT state, COUNT(*) FROM plugin_generations_v4
          WHERE plugin_id = ? GROUP BY state",
     )
-    .bind("dev.vibex.persisted")
+    .bind("dev.dimo.persisted")
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(generation, ("active".to_owned(), 1));
     let contributions: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM plugin_contributions_v4 WHERE plugin_id = ?")
-            .bind("dev.vibex.persisted")
+            .bind("dev.dimo.persisted")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -795,7 +795,7 @@ async fn quarantine_state_persists_across_restart_and_clears_on_reenable() {
     plane
         .import(
             PluginPackage::for_test(
-                "dev.vibex.crashy",
+                "dev.dimo.crashy",
                 "Crashy",
                 "1.0.0",
                 PluginSourceKind::Snapshot,
@@ -806,28 +806,28 @@ async fn quarantine_state_persists_across_restart_and_clears_on_reenable() {
         .await
         .expect("import plugin");
     plane
-        .set_enabled("dev.vibex.crashy", true)
+        .set_enabled("dev.dimo.crashy", true)
         .await
         .expect("enable plugin");
 
     assert_eq!(
-        plane.quarantine_reason("dev.vibex.crashy").await.unwrap(),
+        plane.quarantine_reason("dev.dimo.crashy").await.unwrap(),
         None
     );
 
     plane
-        .quarantine_plugin("dev.vibex.crashy", "Crashed 3 times in 60s")
+        .quarantine_plugin("dev.dimo.crashy", "Crashed 3 times in 60s")
         .await
         .expect("quarantine plugin");
 
     drop(plane);
 
     let restarted = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
-    let plugin = restarted.plugin("dev.vibex.crashy").await.unwrap().unwrap();
+    let plugin = restarted.plugin("dev.dimo.crashy").await.unwrap().unwrap();
     assert_eq!(plugin.activation, plugins::PluginActivation::Disabled);
     assert_eq!(
         restarted
-            .quarantine_reason("dev.vibex.crashy")
+            .quarantine_reason("dev.dimo.crashy")
             .await
             .unwrap()
             .as_deref(),
@@ -835,12 +835,12 @@ async fn quarantine_state_persists_across_restart_and_clears_on_reenable() {
     );
 
     restarted
-        .set_enabled("dev.vibex.crashy", true)
+        .set_enabled("dev.dimo.crashy", true)
         .await
         .expect("re-enable plugin");
     assert_eq!(
         restarted
-            .quarantine_reason("dev.vibex.crashy")
+            .quarantine_reason("dev.dimo.crashy")
             .await
             .unwrap(),
         None

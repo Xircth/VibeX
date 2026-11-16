@@ -5,7 +5,7 @@ import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
 
 export default defineConfig({
   envDir: path.resolve(__dirname, '..'),
-  envPrefix: ['VITE_', 'VIBEX_'],
+  envPrefix: ['VITE_', 'DIMO_'],
   plugins: [
     astryxRichtextCoreAlias(),
     react({
@@ -33,7 +33,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       shared: path.resolve(__dirname, '../shared'),
-      '@vibex/plugin-sdk': path.resolve(
+      '@dimoai/plugin-sdk': path.resolve(
         __dirname,
         '../packages/plugin-sdk/src/index.ts'
       ),

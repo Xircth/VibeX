@@ -1,6 +1,6 @@
 ---
 name: maiden-skill
-description: Project-wide engineering principles and anti-bloat gate governance for VibeX. Use this skill at the start of every task, before analysis, design, implementation, testing, or release, to keep solutions complete, root-cause-driven, clean, deployment-consistent, non-fail-fast, and free of governance bloat or redundant UI copy.
+description: Project-wide engineering principles and anti-bloat gate governance for Dimo. Use this skill at the start of every task, before analysis, design, implementation, testing, or release, to keep solutions complete, root-cause-driven, clean, deployment-consistent, non-fail-fast, and free of governance bloat or redundant UI copy.
 ---
 
 # Maiden Principles

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { defineVibeXPlugin } from './app.js';
+import { defineDimoPlugin } from './app.js';
 import {
   createGenerationHarness,
   createPluginTestHarness,
@@ -29,7 +29,7 @@ describe('plugin testing harnesses', () => {
   });
 
   it('activates a v2 plugin definition and cleans up its registrations on dispose', async () => {
-    const plugin = defineVibeXPlugin({
+    const plugin = defineDimoPlugin({
       id: 'acme.harness-test',
       async activate(ctx) {
         ctx.ui.registerCommand({

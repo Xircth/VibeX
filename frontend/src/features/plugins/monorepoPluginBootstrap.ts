@@ -1,4 +1,4 @@
-import type { VibeXPluginContext, VibexPluginModule } from '@vibex/plugin-sdk';
+import type { DimoPluginContext, DimoPluginModule } from '@dimoai/plugin-sdk';
 import {
   pluginRuntimeLoader,
   unloadPluginRuntime,
@@ -7,7 +7,7 @@ import {
 import { ensureCoreFoundationPluginsBootstrapped } from './coreFoundationPlugins';
 import { ensureHostProviderServicesRegistered } from './providers/hostProviderServices';
 
-type RawPluginModuleExport = VibexPluginModule | { default: VibexPluginModule };
+type RawPluginModuleExport = DimoPluginModule | { default: DimoPluginModule };
 
 export type MonorepoPluginModuleLoader = () => Promise<RawPluginModuleExport>;
 
@@ -21,8 +21,8 @@ interface MonorepoPluginDescriptor {
 
 function resolveMonorepoPluginId(dirName: string): string {
   return dirName === 'computer-use'
-    ? ['vibex-plugin', dirName].join('-')
-    : `vibex.${dirName}`;
+    ? ['dimo-plugin', dirName].join('-')
+    : `dimo.${dirName}`;
 }
 
 const MONOREPO_PLUGIN_DESCRIPTORS: readonly MonorepoPluginDescriptor[] = [
@@ -114,7 +114,7 @@ const MONOREPO_PLUGIN_DESCRIPTORS: readonly MonorepoPluginDescriptor[] = [
   },
 ];
 
-function unwrapPluginModule(raw: RawPluginModuleExport): VibexPluginModule {
+function unwrapPluginModule(raw: RawPluginModuleExport): DimoPluginModule {
   if (
     raw &&
     typeof raw === 'object' &&
@@ -124,18 +124,18 @@ function unwrapPluginModule(raw: RawPluginModuleExport): VibexPluginModule {
   ) {
     return raw.default;
   }
-  return raw as VibexPluginModule;
+  return raw as DimoPluginModule;
 }
 
-const loadedModulesById = new Map<string, VibexPluginModule>();
+const loadedModulesById = new Map<string, DimoPluginModule>();
 const moduleLoadCountById = new Map<string, number>();
 
 export interface MonorepoPluginBundle {
   id: string;
   dirName: string;
   spec: DeclarativePluginSpec;
-  loadModule: () => Promise<VibexPluginModule>;
-  module: VibexPluginModule;
+  loadModule: () => Promise<DimoPluginModule>;
+  module: DimoPluginModule;
 }
 
 function createMonorepoPluginBundle(
@@ -154,7 +154,7 @@ function createMonorepoPluginBundle(
     id: pluginId,
     dirName: descriptor.dirName,
     spec,
-    async loadModule(): Promise<VibexPluginModule> {
+    async loadModule(): Promise<DimoPluginModule> {
       const prevCount = moduleLoadCountById.get(pluginId) ?? 0;
       moduleLoadCountById.set(pluginId, prevCount + 1);
       const raw = await descriptor.loader();
@@ -165,7 +165,7 @@ function createMonorepoPluginBundle(
     module: {
       apiVersion: '2.0',
       id: pluginId,
-      async activate(ctx: VibeXPluginContext) {
+      async activate(ctx: DimoPluginContext) {
         const resolved = await bundle.loadModule();
         return await resolved.activate(ctx);
       },
@@ -208,7 +208,7 @@ export function resetMonorepoPluginLoaderStateForTest(): void {
 
 export async function loadMonorepoPluginModule(
   pluginId: string
-): Promise<VibexPluginModule | undefined> {
+): Promise<DimoPluginModule | undefined> {
   const bundle = MONOREPO_BUNDLE_BY_ID.get(pluginId);
   if (!bundle) return undefined;
   return await bundle.loadModule();

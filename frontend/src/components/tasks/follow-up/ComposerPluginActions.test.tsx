@@ -34,14 +34,14 @@ describe('composer plugin action invocation', () => {
       if (command === 'plugin_action_catalog') {
         return {
           plugin: {
-            id: 'vibex.office',
-            name: 'VibeX Office',
+            id: 'dimo.office',
+            name: 'Dimo Office',
             version: '2.0.0',
             membership: 'builtin',
           },
           actions: [
             {
-              pluginId: 'vibex.office',
+              pluginId: 'dimo.office',
               actionId: 'create-presentation',
               label: '创建 PPT',
               requiredSkills: ['office-pptx'],
@@ -133,7 +133,7 @@ describe('composer plugin action invocation', () => {
 
     const command = formatSessionComposerCommand({
       type: '!',
-      key: 'vibex.office/create-presentation|创建 PPT',
+      key: 'dimo.office/create-presentation|创建 PPT',
       value: '',
     });
     expect(screen.getByTestId('composer-value')).toHaveTextContent(
@@ -150,7 +150,7 @@ describe('composer plugin action invocation', () => {
       )
     ).toEqual([
       {
-        pluginId: 'vibex.office',
+        pluginId: 'dimo.office',
         actionId: 'create-presentation',
       },
     ]);

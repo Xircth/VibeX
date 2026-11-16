@@ -397,16 +397,16 @@ mod tests {
     #[test]
     fn managed_worktree_agent_cwd_joins_the_repo_folder_to_the_container() {
         let mut workspace = sample_workspace(true);
-        workspace.agent_working_dir = Some("VibeX".to_string());
-        let repo = sample_repo("VibeX", None);
+        workspace.agent_working_dir = Some("Dimo".to_string());
+        let repo = sample_repo("Dimo", None);
 
         assert_eq!(
             resolve_workspace_default_open_path(
                 &workspace,
-                "/Users/mac/.vibex-workspaces/workflow-debug",
+                "/Users/mac/.dimo-workspaces/workflow-debug",
                 std::slice::from_ref(&repo),
             ),
-            PathBuf::from("/Users/mac/.vibex-workspaces/workflow-debug/VibeX")
+            PathBuf::from("/Users/mac/.dimo-workspaces/workflow-debug/Dimo")
         );
     }
 

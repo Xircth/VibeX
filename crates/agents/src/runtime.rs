@@ -154,7 +154,7 @@ impl RuntimeEventSink for BoundedRuntimeEventSink {
 /// fast Agent cannot grow Host RAM without bound; overflow events are queued into
 /// a single-consumer FIFO drain worker rather than spawning blocking OS threads.
 /// Live observers continue to use the bounded broadcast channel.
-const CONVERSATION_ID_ENV: &str = "VIBEX_CONVERSATION_ID";
+const CONVERSATION_ID_ENV: &str = "DIMO_CONVERSATION_ID";
 
 fn env_with_conversation_id(
     mut env: HashMap<String, String>,
@@ -1614,7 +1614,7 @@ impl AgentRuntime {
             .await
     }
 
-    /// Delete only the Agent-owned ACP session. VibeX conversation rows and
+    /// Delete only the Agent-owned ACP session. Dimo conversation rows and
     /// durable event logs are intentionally outside this protocol operation.
     pub async fn delete_agent_session(
         &self,
@@ -2695,7 +2695,7 @@ fn is_connection_loss_during_session_preparation(error: &AgentError) -> bool {
 pub fn is_placeholder_acp_session_id(acp_session_id: &str) -> bool {
     let id = acp_session_id.trim();
     id.is_empty()
-        || id.starts_with("vibex-new-session-")
+        || id.starts_with("dimo-new-session-")
         || id.starts_with("prepared-")
         || id.starts_with("pending-")
         || id.starts_with("claude-native-")
@@ -2921,7 +2921,7 @@ mod tests {
     fn test_launch_lock() -> SessionLaunchLock {
         SessionLaunchLock {
             agent_id: AgentId::parse("codex").unwrap(),
-            absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+            absolute_acp_program: PathBuf::from("/tmp/dimo-test-acp"),
             args: Vec::new(),
             env: BTreeMap::new(),
             runtime_version: "test-runtime".to_string(),
@@ -3100,7 +3100,7 @@ mod tests {
                 agent_id: AgentId::parse("claude_code").unwrap(),
                 launch_lock: SessionLaunchLock {
                     agent_id: AgentId::parse("claude_code").unwrap(),
-                    absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+                    absolute_acp_program: PathBuf::from("/tmp/dimo-test-acp"),
                     args: Vec::new(),
                     env: BTreeMap::new(),
                     runtime_version: "test-runtime".to_string(),
@@ -3577,7 +3577,7 @@ mod tests {
 
     #[test]
     fn placeholder_acp_session_ids_skip_resume_during_recovery() {
-        assert!(is_placeholder_acp_session_id("vibex-new-session-abc"));
+        assert!(is_placeholder_acp_session_id("dimo-new-session-abc"));
         assert!(is_placeholder_acp_session_id("prepared-xyz"));
         assert!(is_placeholder_acp_session_id("pending-abc"));
         assert!(is_placeholder_acp_session_id(""));

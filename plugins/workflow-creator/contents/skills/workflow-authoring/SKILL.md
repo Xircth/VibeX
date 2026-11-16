@@ -1,6 +1,6 @@
 ---
 name: workflow-authoring
-description: Design, validate, and debug VibeX DAG workflows (.vibex-workflow.json).
+description: Design, validate, and debug Dimo DAG workflows (.dimo-workflow.json).
 ---
 # Workflow Authoring Skill
 

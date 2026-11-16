@@ -41,7 +41,7 @@ impl SpawnerError {
 #[async_trait]
 pub trait ConnectionSpawner: Send + Sync {
     /// Bind the child conversation's ACP session (initialize + session/new).
-    /// Returns the child's VibeX connection id (used later for cancel/disconnect)
+    /// Returns the child's Dimo connection id (used later for cancel/disconnect)
     /// — NOT the ACP session id.
     async fn spawn(
         &self,

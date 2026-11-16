@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -19,6 +20,7 @@ import {
   ArrowLeft,
   Bot,
   BookOpenText,
+  ChevronDown,
   Clock,
   FileText,
   GitBranch,
@@ -59,8 +61,8 @@ import {
   type SettingsPageContribution,
   settingsPageRegistry,
   useSettingsPages,
-  type VibeXPluginContext,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+} from '@dimoai/plugin-sdk';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -187,7 +189,7 @@ export const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
 ];
 
 export interface RegisterBuiltinSettingsPagesOptions {
-  readonly ctx?: VibeXPluginContext;
+  readonly ctx?: DimoPluginContext;
   readonly paths?: readonly string[];
   readonly extraPages?: ReadonlyArray<
     Omit<SettingsPageContribution, 'pluginId'>
@@ -296,13 +298,15 @@ export function SettingsLayout() {
   const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
   const isTauri = useTauriClient();
-  const isVibeXSignedIn = Boolean(useAccountToken());
+  const isDimoSignedIn = Boolean(useAccountToken());
   const returnToMainPage = usePreviousPath();
   const settingsNavFloat = useSettingsNavFloat();
   const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
   const sdkPages = useSettingsPages();
   const [searchQuery, setSearchQuery] = useState('');
+  const [navOverflow, setNavOverflow] = useState(false);
+  const navScrollRef = useRef<HTMLDivElement>(null);
   const highlightId = searchParams.get('highlight');
   const searching = searchQuery.trim().length > 0;
 
@@ -370,6 +374,22 @@ export function SettingsLayout() {
     },
     [navigate]
   );
+
+  // Detect whether the nav list overflows its container so we can show a
+  // scroll indicator. Re-check whenever the nav content changes.
+  useEffect(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    const check = () => setNavOverflow(el.scrollHeight > el.clientHeight + 1);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    el.addEventListener('scroll', check, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener('scroll', check);
+    };
+  }, [navGroups]);
 
   useEffect(() => {
     void syncSettingsWindowTitle(t('windowTitle'));
@@ -440,52 +460,63 @@ export function SettingsLayout() {
             query={searchQuery}
             onQueryChange={setSearchQuery}
             supports={supports}
-            isSignedIn={isVibeXSignedIn}
+            isSignedIn={isDimoSignedIn}
             onSelect={jumpToSetting}
           />
           {searching ? null : (
-            <nav
-              className="settings-nav-groups min-h-0 flex-1 overflow-y-auto"
-              aria-busy={capabilities === null}
-            >
-              {navGroups.map((group) => (
-                <SettingsNavSection key={group.title} title={group.title}>
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    const active =
-                      location.pathname === item.path ||
-                      location.pathname.startsWith(`${item.path}/`);
+            <div className="relative min-h-0 flex-1">
+              <nav
+                ref={navScrollRef}
+                className="settings-nav-groups min-h-0 h-full overflow-y-auto"
+                aria-busy={capabilities === null}
+              >
+                {navGroups.map((group) => (
+                  <SettingsNavSection key={group.title} title={group.title}>
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const active =
+                        location.pathname === item.path ||
+                        location.pathname.startsWith(`${item.path}/`);
 
-                    return (
-                      <Button
-                        key={item.path}
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                          'settings-nav-button h-8 w-full justify-start text-sm',
-                          active && 'is-active'
-                        )}
-                        type="button"
-                        onClick={() => navigateTo(item.path)}
-                        onMouseEnter={() => preloadSettingsPath(item.path)}
-                        onFocus={() => preloadSettingsPath(item.path)}
-                        aria-current={active ? 'page' : undefined}
-                        data-basic-guide={
-                          item.path === '/settings/agents'
-                            ? 'settings-nav-agents'
-                            : undefined
-                        }
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <Icon className="h-4 w-4" />
-                          {item.label ?? t(`nav.${item.labelKey}`)}
-                        </span>
-                      </Button>
-                    );
-                  })}
-                </SettingsNavSection>
-              ))}
-            </nav>
+                      return (
+                        <Button
+                          key={item.path}
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            'settings-nav-button h-8 w-full justify-start text-sm',
+                            active && 'is-active'
+                          )}
+                          type="button"
+                          onClick={() => navigateTo(item.path)}
+                          onMouseEnter={() => preloadSettingsPath(item.path)}
+                          onFocus={() => preloadSettingsPath(item.path)}
+                          aria-current={active ? 'page' : undefined}
+                          data-basic-guide={
+                            item.path === '/settings/agents'
+                              ? 'settings-nav-agents'
+                              : undefined
+                          }
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <Icon className="h-4 w-4" />
+                            {item.label ?? t(`nav.${item.labelKey}`)}
+                          </span>
+                        </Button>
+                      );
+                    })}
+                  </SettingsNavSection>
+                ))}
+              </nav>
+              {navOverflow && (
+                <div
+                  className="pointer-events-none absolute bottom-0 left-0 right-0 flex justify-center pb-0.5"
+                  aria-hidden="true"
+                >
+                  <ChevronDown className="h-3 w-3 text-muted-foreground/50" />
+                </div>
+              )}
+            </div>
           )}
           <div className="mt-auto flex shrink-0 items-center pt-2">
             <AccountStatusMenu />

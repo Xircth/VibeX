@@ -35,7 +35,7 @@ vi.mock('@/hooks/usePluginHostContributions', () => ({
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
     projects: [
-      { id: 'p1', name: 'VibeX' },
+      { id: 'p1', name: 'Dimo' },
       { id: 'p2', name: 'Projects' },
     ],
   }),
@@ -383,7 +383,7 @@ describe('SettingsLayout chrome', () => {
     logoLeadsWindowChrome.mockReturnValue(true);
   });
 
-  it('centers the settings title and shows the VibeX logo', () => {
+  it('centers the settings title and shows the Dimo logo', () => {
     render(
       <BackendTransportProvider transport={desktopTransport}>
         <MemoryRouter initialEntries={['/settings/general']}>
@@ -409,11 +409,11 @@ describe('SettingsLayout chrome', () => {
       screen.getByRole('button', { name: '应用菜单与最近项目' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('img', { name: /VibeX logo/i })
+      screen.getByRole('img', { name: /Dimo logo/i })
     ).toBeInTheDocument();
   });
 
-  it('places the VibeX logo on the leading edge on Windows and Linux', () => {
+  it('places the Dimo logo on the leading edge on Windows and Linux', () => {
     logoLeadsWindowChrome.mockReturnValue(true);
     render(
       <BackendTransportProvider transport={desktopTransport}>
@@ -428,7 +428,7 @@ describe('SettingsLayout chrome', () => {
     );
 
     const bar = document.querySelector('.settings-titlebar');
-    const logo = screen.getByRole('img', { name: /VibeX logo/i });
+    const logo = screen.getByRole('img', { name: /Dimo logo/i });
     const left = bar?.querySelector('.flex-1');
     const right = bar?.querySelector('.ml-auto');
     expect(left).toContainElement(logo);
@@ -459,10 +459,10 @@ describe('SettingsLayout chrome', () => {
       screen.getByRole('menuitem', { name: '切换项目…' })
     ).toBeInTheDocument();
     expect(screen.getByText('已导入项目')).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'VibeX' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Dimo' })).toBeInTheDocument();
   });
 
-  it('places the VibeX logo on the trailing edge on macOS', () => {
+  it('places the Dimo logo on the trailing edge on macOS', () => {
     logoLeadsWindowChrome.mockReturnValue(false);
     render(
       <BackendTransportProvider transport={desktopTransport}>
@@ -477,7 +477,7 @@ describe('SettingsLayout chrome', () => {
     );
 
     const bar = document.querySelector('.settings-titlebar');
-    const logo = screen.getByRole('img', { name: /VibeX logo/i });
+    const logo = screen.getByRole('img', { name: /Dimo logo/i });
     const left = bar?.querySelector('.flex-1');
     const right = bar?.querySelector('.ml-auto');
     expect(right).toContainElement(logo);
@@ -509,7 +509,7 @@ describe('SettingsLayout chrome', () => {
     unmount();
 
     window.localStorage.setItem(
-      'vibex.appUpdate.lastMainRoute',
+      'dimo.appUpdate.lastMainRoute',
       '/local-projects'
     );
     render(
@@ -595,7 +595,7 @@ describe('SettingsLayout window title', () => {
   it('groups sidebar navigation into For Human, For SI, For System, and For Plugin', async () => {
     usePluginHostContributions.mockReturnValue([
       {
-        pluginId: 'vibex.computer-use',
+        pluginId: 'dimo.computer-use',
         id: 'computer-use',
         label: '电脑控制',
       },
@@ -683,16 +683,16 @@ describe('SettingsLayout window title', () => {
 
   it('does not render registerSettingsSection entries as standalone pages under For Plugin', async () => {
     const { settingRegistry, settingsPageRegistry } = await import(
-      '@vibex/plugin-sdk'
+      '@dimoai/plugin-sdk'
     );
     const disposeSection = settingRegistry.register({
-      id: 'vibex.office:office-settings',
-      pluginId: 'vibex.office',
-      title: 'VibeX Office Section',
+      id: 'dimo.office:office-settings',
+      pluginId: 'dimo.office',
+      title: 'Dimo Office Section',
     });
     const disposePage = settingsPageRegistry.register({
-      id: 'vibex.browser:browser-settings',
-      pluginId: 'vibex.browser',
+      id: 'dimo.browser:browser-settings',
+      pluginId: 'dimo.browser',
       title: 'Browser Automation',
     });
     const transport: BackendTransport = {
@@ -720,7 +720,7 @@ describe('SettingsLayout window title', () => {
         (b) => b.textContent?.trim()
       );
       expect(labels).toEqual(['Browser Automation']);
-      expect(labels).not.toContain('VibeX Office Section');
+      expect(labels).not.toContain('Dimo Office Section');
     } finally {
       disposeSection();
       disposePage();
@@ -787,6 +787,6 @@ describe('SettingsLayout menu float', () => {
     expect(sidebar).toHaveClass('flex', 'flex-col', 'overflow-hidden');
     expect(sidebar).not.toHaveClass('overflow-y-auto');
     expect(search).toHaveClass('shrink-0');
-    expect(nav).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
+    expect(nav).toHaveClass('min-h-0', 'h-full', 'overflow-y-auto');
   });
 });

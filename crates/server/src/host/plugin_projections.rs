@@ -538,8 +538,8 @@ async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, ena
             .await;
         return;
     }
-    let Some(command) = utils::host_bin::locate_runnable_host_family_binary("vibex-mcp") else {
-        tracing::warn!("skipping host delegation native MCP sync; vibex-mcp sidecar is missing");
+    let Some(command) = utils::host_bin::locate_runnable_host_family_binary("dimo-mcp") else {
+        tracing::warn!("skipping host delegation native MCP sync; dimo-mcp sidecar is missing");
         return;
     };
     let Some(token) = gate
@@ -671,7 +671,7 @@ pub(crate) fn spec_plugin_id(spec: &Value) -> Option<String> {
     {
         return Some(plugin_id.to_owned());
     }
-    let raw_token = env.get("VIBEX_PLUGIN_MCP_TOKEN")?.as_str()?;
+    let raw_token = env.get("DIMO_PLUGIN_MCP_TOKEN")?.as_str()?;
     let parsed: Value = serde_json::from_str(raw_token).ok()?;
     parsed
         .get("plugin_id")
@@ -683,8 +683,8 @@ pub(crate) fn spec_plugin_id(spec: &Value) -> Option<String> {
 
 /// Remove native Agent MCP and Skill projections for any plugin that is
 /// currently disabled or uninstalled, including official monorepo plugins and
-/// any leftover local MCP entry carrying `VIBEX_PLUGIN_ID` /
-/// `VIBEX_PLUGIN_MCP_TOKEN`.
+/// any leftover local MCP entry carrying `DIMO_PLUGIN_ID` /
+/// `DIMO_PLUGIN_MCP_TOKEN`.
 pub async fn reconcile_disabled_and_uninstalled_plugin_projections(
     plane: &plugins::PluginControlPlane,
 ) {
@@ -1109,7 +1109,7 @@ async fn materialize_plugin_mcp_spec(
         .unwrap_or("2026-07-28")
         .to_owned();
     let token = json!({
-        "typ": "vibex.plugin-mcp",
+        "typ": "dimo.plugin-mcp",
         "plugin_id": plugin.id(),
         "mcp_id": server_id,
         "scopes": scopes,
@@ -1120,8 +1120,8 @@ async fn materialize_plugin_mcp_spec(
         "command": plugins::spawnable_fs_path(&node),
         "args": [plugins::spawnable_fs_path(&entrypoint)],
         "env": {
-            "VIBEX_PLUGIN_MCP_TOKEN": token,
-            "VIBEX_MCP_PROTOCOL_REVISION": protocol_revision
+            "DIMO_PLUGIN_MCP_TOKEN": token,
+            "DIMO_MCP_PROTOCOL_REVISION": protocol_revision
         }
     });
     inject_plugin_host_call(control_plane, host_call, plugin, materialized).await
@@ -1322,12 +1322,12 @@ mod tests {
     #[test]
     fn configure_agents_args_accept_the_frontend_enable_payload() {
         let args: PluginConfigureAgentsArgs = application::decode_command_args(json!({
-            "pluginId": "vibex.plugin-development",
+            "pluginId": "dimo.plugin-development",
             "allAgents": true,
             "agents": []
         }))
         .expect("frontend enable payload");
-        assert_eq!(args.plugin_id, "vibex.plugin-development");
+        assert_eq!(args.plugin_id, "dimo.plugin-development");
         assert!(args.all_agents);
         assert!(args.agents.is_empty());
     }
@@ -1372,18 +1372,18 @@ mod tests {
             "http://127.0.0.1:9/host-call"
         );
         assert_eq!(spec["cwd"], "/tmp/example.tools");
-        assert!(!spec.to_string().contains("vibex.browser"));
+        assert!(!spec.to_string().contains("dimo.browser"));
     }
 
     #[test]
     fn configure_mcp_args_accept_the_frontend_enable_payload() {
         let args: PluginConfigureMcpArgs = application::decode_command_args(json!({
-            "pluginId": "vibex.session-enhance",
+            "pluginId": "dimo.session-enhance",
             "allAgents": true,
             "agents": []
         }))
         .expect("frontend enable payload");
-        assert_eq!(args.plugin_id, "vibex.session-enhance");
+        assert_eq!(args.plugin_id, "dimo.session-enhance");
         assert!(args.all_agents);
         assert!(args.agents.is_empty());
     }
@@ -1417,24 +1417,24 @@ mod tests {
             "type": "stdio",
             "command": "node",
             "env": {
-                "VIBEX_PLUGIN_ID": "vibex-plugin-computer-use"
+                "DIMO_PLUGIN_ID": "dimo-plugin-computer-use"
             }
         });
         assert_eq!(
             spec_plugin_id(&with_host_call).as_deref(),
-            Some("vibex-plugin-computer-use")
+            Some("dimo-plugin-computer-use")
         );
 
         let with_mcp_token = json!({
             "type": "stdio",
             "command": "node",
             "env": {
-                "VIBEX_PLUGIN_MCP_TOKEN": r#"{"typ":"vibex.plugin-mcp","plugin_id":"vibex.browser","mcp_id":"browser-tools"}"#
+                "DIMO_PLUGIN_MCP_TOKEN": r#"{"typ":"dimo.plugin-mcp","plugin_id":"dimo.browser","mcp_id":"browser-tools"}"#
             }
         });
         assert_eq!(
             spec_plugin_id(&with_mcp_token).as_deref(),
-            Some("vibex.browser")
+            Some("dimo.browser")
         );
 
         let external = json!({

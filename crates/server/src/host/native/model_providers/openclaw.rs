@@ -18,7 +18,7 @@ pub(super) async fn native_openclaw_drafts(
     };
     Ok(providers
         .iter()
-        .filter(|(id, _)| *id != "vibex")
+        .filter(|(id, _)| *id != "dimo")
         .filter_map(|(id, provider)| {
             let object = provider.as_object()?;
             let api_url = object
@@ -74,13 +74,13 @@ pub(super) async fn apply_openclaw(
     let model = object_entry(defaults, "model")?;
     model.insert(
         "primary".to_string(),
-        Value::String(format!("vibex/{}", model_default(&provider.model))),
+        Value::String(format!("dimo/{}", model_default(&provider.model))),
     );
     let models = object_entry(root, "models")?;
     models.insert("mode".to_string(), Value::String("merge".to_string()));
     let providers = object_entry(models, "providers")?;
     providers.insert(
-        "vibex".to_string(),
+        "dimo".to_string(),
         serde_json::json!({
             "baseUrl": provider.api_url,
             "apiKey": provider.api_key,

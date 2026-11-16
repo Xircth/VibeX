@@ -99,7 +99,7 @@ describe("Volatile<T> and reactive plugin configuration", () => {
     await activated.dispose();
   });
 
-  it("propagates host config updates to VibeXPluginContext.config and settings.volatile()", async () => {
+  it("propagates host config updates to DimoPluginContext.config and settings.volatile()", async () => {
     const pluginId = "demo-ui-plugin";
     clearPluginVolatileConfig(pluginId);
 

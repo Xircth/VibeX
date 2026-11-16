@@ -27,7 +27,7 @@ impl ReachabilityOrigin {
     }
 }
 
-/// Payload inside a `vibex-pairing:` invitation. Long-lived credentials must
+/// Payload inside a `dimo-pairing:` invitation. Long-lived credentials must
 /// never appear here.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PairingInvitationPayload {
@@ -65,7 +65,7 @@ impl PairingInvitationPayload {
 
     pub fn encode(&self) -> String {
         format!(
-            "vibex-pairing:{}",
+            "dimo-pairing:{}",
             serde_json::to_string(self).expect("pairing invitation serializes")
         )
     }

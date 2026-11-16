@@ -11,7 +11,7 @@ vi.mock('@/contexts/ProjectContext', () => ({
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
-    projects: [{ id: 'project-1', name: 'VibeX' }],
+    projects: [{ id: 'project-1', name: 'Dimo' }],
   }),
 }));
 
@@ -116,7 +116,7 @@ describe('KanbanUsageDashboard', () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       total_sessions: 0,
       total_tokens: {
         protocol: null,
@@ -198,7 +198,7 @@ describe('KanbanUsageDashboard', () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       total_sessions: 2,
       total_tokens: {
         protocol: {
@@ -534,7 +534,7 @@ describe('KanbanUsageDashboard', () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       total_sessions: 1,
       total_tokens: {
         protocol: grokProtocolCounts,
@@ -546,7 +546,7 @@ describe('KanbanUsageDashboard', () => {
         {
           session_id: 'grok-session-1',
           workspace_id: 'ws-grok',
-          folder: 'C:\\projects\\VibeX',
+          folder: 'C:\\projects\\Dimo',
           agent_id: 'grok',
           timestamp: new Date(2026, 8, 18, 10).getTime(),
           model: 'grok-4.6',
@@ -592,7 +592,7 @@ describe('KanbanUsageDashboard', () => {
       by_folder: [
         {
           workspace_id: 'ws-grok',
-          folder: 'C:\\projects\\VibeX',
+          folder: 'C:\\projects\\Dimo',
           session_count: 1,
           tokens: {
             protocol: grokProtocolCounts,
@@ -647,7 +647,7 @@ describe('KanbanUsageDashboard', () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       total_sessions: 1,
       total_tokens: {
         protocol: null,
@@ -718,7 +718,7 @@ describe('KanbanUsageDashboard', () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       total_sessions: 1,
       total_tokens: {
         protocol: {
@@ -825,7 +825,7 @@ describe('KanbanUsageDashboard', () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
-      project_name: 'VibeX',
+      project_name: 'Dimo',
       total_sessions: 1,
       total_tokens: sourced(250),
       estimated_cost: 0.25,

@@ -191,7 +191,7 @@ async fn load_or_create_host_id() -> Result<String, AppError> {
 }
 
 fn resolve_static_root(app: Option<&tauri::AppHandle>) -> Option<PathBuf> {
-    if let Ok(root) = std::env::var("VIBEX_STATIC_ROOT") {
+    if let Ok(root) = std::env::var("DIMO_STATIC_ROOT") {
         let path = PathBuf::from(root);
         if path.join("index.html").is_file() {
             return Some(path);
@@ -560,7 +560,7 @@ async fn start_web_server_with_bound_listeners(
                 let _ = tcp_stream.set_nodelay(true);
             });
             if let Err(error) = axum::serve(listener, router).await {
-                tracing::warn!("VibeX web service stopped with error: {}", error);
+                tracing::warn!("Dimo web service stopped with error: {}", error);
             }
         }));
     }

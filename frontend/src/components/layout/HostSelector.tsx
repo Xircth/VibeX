@@ -44,7 +44,7 @@ import {
   reconcileRemoteHostAccount,
   resolveProfileBoundAccount,
   subscribeHostBoundAccounts,
-  useVibeXAccount,
+  useDimoAccount,
 } from '@/features/model-router';
 import {
   hostClientApi,
@@ -152,7 +152,7 @@ function ConnectHostDialog({
   onConnected: () => Promise<void>;
 }) {
   const { t } = useTranslation(['panels', 'settings', 'common']);
-  const { isSignedIn, overview } = useVibeXAccount();
+  const { isSignedIn, overview } = useDimoAccount();
   const [origin, setOrigin] = useState(seed.origin);
   const [code, setCode] = useState('');
   const [useCloudRelay, setUseCloudRelay] = useState(() =>
@@ -503,7 +503,7 @@ function NewSshHostDialog({
 
 export function HostSelector() {
   const { t } = useTranslation(['panels', 'settings', 'common']);
-  const { user } = useVibeXAccount();
+  const { user } = useDimoAccount();
   const boundAccounts = useSyncExternalStore(
     subscribeHostBoundAccounts,
     readHostBoundAccounts,

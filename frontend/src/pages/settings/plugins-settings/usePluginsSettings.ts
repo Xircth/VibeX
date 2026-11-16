@@ -50,7 +50,7 @@ export function usePluginsSettings({
   const [queries, setQueries] = useState<Record<PluginEcosystem, string>>({
     codex: '',
     claude_code: '',
-    vibex: '',
+    dimo: '',
   });
   const [isLoading, setIsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -110,7 +110,7 @@ export function usePluginsSettings({
     try {
       const [next, nextContributions] = await Promise.all([
         api.catalog(),
-        ecosystem === 'vibex'
+        ecosystem === 'dimo'
           ? api.contributionCatalog().catch(() => null)
           : Promise.resolve(null),
       ]);
@@ -156,7 +156,7 @@ export function usePluginsSettings({
     null;
   const selectedRegistryContributions = useMemo(
     () =>
-      ecosystem === 'vibex' && contributionCatalog && selected
+      ecosystem === 'dimo' && contributionCatalog && selected
         ? contributionCatalog.items.filter(
             (item) => item.pluginId === selected.id
           )
@@ -220,7 +220,7 @@ export function usePluginsSettings({
   };
 
   const runCliImport = async () => {
-    if (!canUseCliImport || importEcosystem === 'vibex' || !cliCommand.trim()) {
+    if (!canUseCliImport || importEcosystem === 'dimo' || !cliCommand.trim()) {
       return;
     }
     setCliImportStatus('running');
@@ -345,7 +345,7 @@ export function usePluginsSettings({
 
   const updatePlugin = async (plugin: PluginControlItem) => {
     if (!canWrite) return;
-    if (pluginEcosystem(plugin) === 'vibex') {
+    if (pluginEcosystem(plugin) === 'dimo') {
       await updateConfirmation.prepare(plugin.id);
     } else {
       await performUpdate(plugin);

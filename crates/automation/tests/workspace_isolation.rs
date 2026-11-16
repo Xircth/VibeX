@@ -67,7 +67,7 @@ async fn dirty_shared_root_is_rejected_before_execution() {
         run_id: Uuid::new_v4(),
         target: WorkspaceTarget {
             project_id: Uuid::new_v4(),
-            root_folder: "/repo/vibex".to_string(),
+            root_folder: "/repo/dimo".to_string(),
             branch: Some("main".to_string()),
             isolation: IsolationSpec::SharedInRoot,
         },
@@ -93,7 +93,7 @@ async fn shared_root_on_the_wrong_branch_is_rejected() {
         run_id: Uuid::new_v4(),
         target: WorkspaceTarget {
             project_id: Uuid::new_v4(),
-            root_folder: "/repo/vibex".to_string(),
+            root_folder: "/repo/dimo".to_string(),
             branch: Some("main".to_string()),
             isolation: IsolationSpec::SharedInRoot,
         },
@@ -125,7 +125,7 @@ async fn default_isolation_creates_the_versioned_run_worktree() {
         run_id,
         target: WorkspaceTarget {
             project_id: Uuid::new_v4(),
-            root_folder: "/repo/vibex".to_string(),
+            root_folder: "/repo/dimo".to_string(),
             branch: Some("main".to_string()),
             isolation: IsolationSpec::WorktreePerRun,
         },
@@ -138,7 +138,7 @@ async fn default_isolation_creates_the_versioned_run_worktree() {
     assert_eq!(
         git.worktrees.lock().unwrap().as_slice(),
         &[(
-            "/repo/vibex".to_string(),
+            "/repo/dimo".to_string(),
             Some("main".to_string()),
             expected_branch
         )]

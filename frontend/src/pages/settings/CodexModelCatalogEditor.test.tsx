@@ -47,15 +47,15 @@ describe('CodexModelCatalogEditor', () => {
       customs: [],
       excluded_officials: [],
       default_model: 'gpt-official',
-      catalog_path: '/Users/example/.codex/vibex-model-catalog.json',
-      source_path: '/Users/example/.codex/vibex-model-catalog.source.json',
+      catalog_path: '/Users/example/.codex/dimo-model-catalog.json',
+      source_path: '/Users/example/.codex/dimo-model-catalog.source.json',
       active: false,
     });
     vi.mocked(agentManagementApi.applyCodexModelCatalog).mockImplementation(
       async (request) => ({
         ...request,
-        catalog_path: '/Users/example/.codex/vibex-model-catalog.json',
-        source_path: '/Users/example/.codex/vibex-model-catalog.source.json',
+        catalog_path: '/Users/example/.codex/dimo-model-catalog.json',
+        source_path: '/Users/example/.codex/dimo-model-catalog.source.json',
         active: true,
       })
     );

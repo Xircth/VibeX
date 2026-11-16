@@ -1,6 +1,6 @@
 // Generated from docs/protocol/v1/schema.json. Do not edit.
 
-package dev.vibex.remote.v1
+package dev.dimo.remote.v1
 
 sealed interface JsonValue {
     data object Null : JsonValue

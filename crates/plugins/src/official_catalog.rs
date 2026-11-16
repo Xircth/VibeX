@@ -1,6 +1,6 @@
-//! Host-side official plugin catalog (`vibex-plugin.json`) and monorepo plugin discovery.
+//! Host-side official plugin catalog (`dimo-plugin.json`) and monorepo plugin discovery.
 //!
-//! This is the identity of which plugins VibeX treats as official and where
+//! This is the identity of which plugins Dimo treats as official and where
 //! their source packages live (both in the monorepo `plugins/` workspace and
 //! on the marketplace).
 
@@ -16,26 +16,26 @@ use crate::catalog::{
     prepare_marketplace_page,
 };
 
-const CATALOG_JSON: &str = include_str!("../../../vibex-plugin.json");
+const CATALOG_JSON: &str = include_str!("../../../dimo-plugin.json");
 
 /// Canonical `(directory_name, plugin_id)` pairs for all official and built-in
 /// capability plugins managed in the monorepo `plugins/<directory_name>` workspace.
 pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
-    ("provider-switch", "vibex.provider-switch"),
-    ("plugin-development", "vibex.plugin-development"),
-    ("session-enhance", "vibex.session-enhance"),
-    ("browser", "vibex.browser"),
-    ("office", "vibex.office"),
-    ("workflow-creator", "vibex.workflow-creator"),
-    ("remote-ssh", "vibex.remote-ssh"),
-    ("science", "vibex.science"),
-    ("computer-use", "vibex-plugin-computer-use"),
-    ("kanban-views", "vibex.kanban-views"),
-    ("notes", "vibex.notes"),
-    ("prompt-enhancer", "vibex.prompt-enhancer"),
-    ("code-completion", "vibex.code-completion"),
-    ("voice-input", "vibex.voice-input"),
-    ("ayu-theme", "vibex.ayu-theme"),
+    ("provider-switch", "dimo.provider-switch"),
+    ("plugin-development", "dimo.plugin-development"),
+    ("session-enhance", "dimo.session-enhance"),
+    ("browser", "dimo.browser"),
+    ("office", "dimo.office"),
+    ("workflow-creator", "dimo.workflow-creator"),
+    ("remote-ssh", "dimo.remote-ssh"),
+    ("science", "dimo.science"),
+    ("computer-use", "dimo-plugin-computer-use"),
+    ("kanban-views", "dimo.kanban-views"),
+    ("notes", "dimo.notes"),
+    ("prompt-enhancer", "dimo.prompt-enhancer"),
+    ("code-completion", "dimo.code-completion"),
+    ("voice-input", "dimo.voice-input"),
+    ("ayu-theme", "dimo.ayu-theme"),
 ];
 
 #[derive(Clone, Debug, Deserialize)]
@@ -70,7 +70,7 @@ pub struct OfficialPluginRecord {
 fn catalog() -> &'static OfficialPluginCatalog {
     static CATALOG: OnceLock<OfficialPluginCatalog> = OnceLock::new();
     CATALOG
-        .get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("vibex-plugin.json must parse"))
+        .get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("dimo-plugin.json must parse"))
 }
 
 pub fn official_plugin_catalog() -> &'static OfficialPluginCatalog {
@@ -97,15 +97,15 @@ pub fn official_plugin_record(plugin_id: &str) -> Option<&'static OfficialPlugin
     catalog().official.iter().find(|plugin| {
         plugin_ids_match(plugin_id, &plugin.id)
             || plugin_ids_match(&plugin.id, plugin_id)
-            || marketplace_plugin_slug(plugin.publisher_or_vibex(), &plugin.id)
+            || marketplace_plugin_slug(plugin.publisher_or_dimo(), &plugin.id)
                 .eq_ignore_ascii_case(plugin_id.trim())
     })
 }
 
 impl OfficialPluginRecord {
-    fn publisher_or_vibex(&self) -> &str {
+    fn publisher_or_dimo(&self) -> &str {
         if self.publisher.trim().is_empty() {
-            "vibex"
+            "dimo"
         } else {
             self.publisher.trim()
         }
@@ -162,7 +162,7 @@ pub fn listings_from_host_official_catalog() -> Vec<CatalogListing> {
 }
 
 fn listing_from_official_record(plugin: &OfficialPluginRecord) -> CatalogListing {
-    let owner = plugin.publisher_or_vibex().to_owned();
+    let owner = plugin.publisher_or_dimo().to_owned();
     let plugin_name = marketplace_plugin_slug(&owner, &plugin.id);
     let download_url = github_archive_urls_for_repository(&plugin.repository)
         .into_iter()
@@ -236,7 +236,9 @@ pub fn discover_monorepo_plugin_roots() -> Vec<PathBuf> {
     let mut roots = Vec::with_capacity(MONOREPO_OFFICIAL_PLUGIN_DIRS.len());
     for (dir_name, _) in MONOREPO_OFFICIAL_PLUGIN_DIRS {
         let dir = plugins_root.join(dir_name);
-        if dir.join(".vibex-plugin/plugin.json").is_file() || dir.join("plugin.json").is_file() {
+        if crate::manifest::existing_manifest_path(&dir).is_some()
+            || dir.join("plugin.json").is_file()
+        {
             roots.push(dir);
         }
     }
@@ -257,10 +259,11 @@ pub fn monorepo_official_plugin_root(plugin_id: &str) -> Option<PathBuf> {
         if plugin_ids_match(trimmed, canonical_id)
             || plugin_ids_match(canonical_id, trimmed)
             || dir_name.eq_ignore_ascii_case(trimmed)
-            || marketplace_plugin_slug("vibex", canonical_id).eq_ignore_ascii_case(trimmed)
+            || marketplace_plugin_slug("dimo", canonical_id).eq_ignore_ascii_case(trimmed)
         {
             let dir = plugins_root.join(dir_name);
-            if dir.join(".vibex-plugin/plugin.json").is_file() || dir.join("plugin.json").is_file()
+            if crate::manifest::existing_manifest_path(&dir).is_some()
+                || dir.join("plugin.json").is_file()
             {
                 return Some(dir);
             }
@@ -281,37 +284,37 @@ mod tests {
             catalog
                 .official
                 .iter()
-                .any(|plugin| plugin.id == "vibex.browser"
-                    && plugin.repository.contains("vibex-plugin-browser"))
+                .any(|plugin| plugin.id == "dimo.browser"
+                    && plugin.repository.contains("Dimo-plugin-browser"))
         );
         assert!(
             !catalog
                 .official
                 .iter()
-                .any(|plugin| plugin.id == "vibex.open-connector")
+                .any(|plugin| plugin.id == "dimo.open-connector")
         );
         assert!(official_plugin_record("browser").is_some());
         assert_eq!(
-            official_plugin_category("vibex.session-enhance"),
+            official_plugin_category("dimo.session-enhance"),
             Some("ai-enhancement")
         );
-        assert!(official_plugin_category("vibex.multi-agent").is_none());
-        assert!(official_plugin_record("vibex.kanban-views").is_none());
-        assert!(official_plugin_record("vibex.notes").is_none());
-        assert!(official_plugin_record("vibex.prompt-enhancer").is_none());
-        assert!(monorepo_official_plugin_root("vibex.kanban-views").is_none());
-        assert!(monorepo_official_plugin_root("vibex.notes").is_none());
-        assert!(monorepo_official_plugin_root("vibex.prompt-enhancer").is_none());
+        assert!(official_plugin_category("dimo.multi-agent").is_none());
+        assert!(official_plugin_record("dimo.kanban-views").is_none());
+        assert!(official_plugin_record("dimo.notes").is_none());
+        assert!(official_plugin_record("dimo.prompt-enhancer").is_none());
+        assert!(monorepo_official_plugin_root("dimo.kanban-views").is_none());
+        assert!(monorepo_official_plugin_root("dimo.notes").is_none());
+        assert!(monorepo_official_plugin_root("dimo.prompt-enhancer").is_none());
     }
 
     #[test]
     fn repository_becomes_codeload_tarball_urls() {
         let urls = github_archive_urls_for_repository(
-            "https://github.com/Xircth/vibex-plugin-session-enhance.git",
+            "https://github.com/DimoADE/Dimo-plugin-session-enhance.git",
         );
         assert!(
             urls.iter()
-                .any(|url| url.contains("Xircth/vibex-plugin-session-enhance"))
+                .any(|url| url.contains("DimoADE/Dimo-plugin-session-enhance"))
         );
     }
 

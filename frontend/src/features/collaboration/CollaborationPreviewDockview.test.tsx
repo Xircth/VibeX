@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { panelRegistry } from '@vibex/plugin-sdk';
+import { panelRegistry } from '@dimoai/plugin-sdk';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { panelComponents } from '@/components/layout/panels/PanelRegistry';
 import { COLLABORATION_PREVIEW_COMPONENTS } from './CollaborationPreviewDockview';

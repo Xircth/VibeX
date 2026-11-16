@@ -1,6 +1,6 @@
 name: Server Release
 
-# Builds the unsigned Server directory (vibex-server + web + bundled plugins).
+# Builds the unsigned Server directory (dimo-server + web + bundled plugins).
 # Apple Developer ID and Windows Authenticode are intentionally not required.
 
 on:
@@ -81,7 +81,7 @@ jobs:
         run: node frontend/scripts/check-bundle-budget.mjs
 
       - name: Build Host binaries
-        run: cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp -p vibex-workflow-mcp --bin vibex-server --bin vibex-mcp --bin vibex-workflow-mcp
+        run: cargo build --release --target ${{ matrix.target }} -p server -p dimo-mcp -p dimo-workflow-mcp --bin dimo-server --bin dimo-mcp --bin dimo-workflow-mcp
 
       - name: Package Server
         shell: bash
@@ -94,9 +94,9 @@ jobs:
           ARCHIVE="$(node npx-cli/bin/release-assets.js archive "${VERSION}" "${{ matrix.release_name }}")"
           echo "SERVER_ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           node scripts/package-host-family.js \
-            --server "target/${{ matrix.target }}/release/vibex-server${ext}" \
-            --mcp "target/${{ matrix.target }}/release/vibex-mcp${ext}" \
-            --workflow-mcp "target/${{ matrix.target }}/release/vibex-workflow-mcp${ext}" \
+            --server "target/${{ matrix.target }}/release/dimo-server${ext}" \
+            --mcp "target/${{ matrix.target }}/release/dimo-mcp${ext}" \
+            --workflow-mcp "target/${{ matrix.target }}/release/dimo-workflow-mcp${ext}" \
             --web frontend/dist \
             --plugins assets/plugins \
             --output "dist/server/${{ matrix.release_name }}"
@@ -128,17 +128,17 @@ jobs:
           HOME="$(mktemp -d)"
           INSTALL_DIR="$(mktemp -d)"
           HOME="$HOME" \
-          VIBEX_VERSION="$(node -p "require('./package.json').version")" \
-          VIBEX_PLATFORM="${{ matrix.release_name }}" \
-          VIBEX_HOST_FAMILY_BASE="http://127.0.0.1:8765" \
-          VIBEX_INSTALL_DIR="$INSTALL_DIR" \
+          DIMO_VERSION="$(node -p "require('./package.json').version")" \
+          DIMO_PLATFORM="${{ matrix.release_name }}" \
+          DIMO_HOST_FAMILY_BASE="http://127.0.0.1:8765" \
+          DIMO_INSTALL_DIR="$INSTALL_DIR" \
           sh install.sh
-          test -x "$INSTALL_DIR/vibex" || test -f "$INSTALL_DIR/vibex.cmd"
+          test -x "$INSTALL_DIR/dimo" || test -f "$INSTALL_DIR/dimo.cmd"
 
       - name: Upload Server archive
         uses: actions/upload-artifact@v4
         with:
-          name: VibeX-server-${{ matrix.release_name }}
+          name: Dimo-server-${{ matrix.release_name }}
           path: |
             dist/${{ env.SERVER_ARCHIVE }}
             dist/${{ env.SERVER_ARCHIVE }}.sha256

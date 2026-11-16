@@ -1,5 +1,5 @@
 /**
- * The one place VibeX Host family release asset names are defined.
+ * The one place Dimo Host family release asset names are defined.
  *
  * `.github/workflows/host-family-release.yml` produces these names, and every
  * client that downloads them — `npx-cli`, `install.sh`, `install.ps1` — has to
@@ -76,7 +76,7 @@ function versionFromTag(tag) {
 }
 
 function archiveName(version, platform) {
-  return `VibeX-${versionFromTag(version)}-${platform}-server.tar.gz`;
+  return `Dimo-${versionFromTag(version)}-${platform}-server.tar.gz`;
 }
 
 function checksumName(version, platform) {

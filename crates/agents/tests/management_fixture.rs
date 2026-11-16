@@ -18,7 +18,7 @@ mod support;
 
 async fn fixture_auth_observation(mode: &str) -> Option<agents::AuthenticationObservation> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_management_fixture_acp"))
-        .env("VIBEX_FIXTURE_AUTH_STATUS", mode)
+        .env("DIMO_FIXTURE_AUTH_STATUS", mode)
         .kill_on_drop(true)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -75,7 +75,7 @@ async fn management_fixture_acp_reports_initialize_and_version() {
     let info = response
         .agent_info
         .expect("fixture implementation metadata");
-    assert_eq!(info.name, "vibex-management-fixture");
+    assert_eq!(info.name, "dimo-management-fixture");
     assert_eq!(info.version, "1.0.0-test");
 }
 
@@ -135,7 +135,7 @@ async fn session_authentication_required_is_a_semantic_runtime_error() {
                 absolute_acp_program: PathBuf::from(env!("CARGO_BIN_EXE_management_fixture_acp")),
                 args: Vec::new(),
                 env: BTreeMap::from([(
-                    "VIBEX_FIXTURE_SESSION_AUTH_REQUIRED".to_string(),
+                    "DIMO_FIXTURE_SESSION_AUTH_REQUIRED".to_string(),
                     "1".to_string(),
                 )]),
                 runtime_version: "fixture".to_string(),
@@ -170,7 +170,7 @@ async fn fixture_session_manager(
     let mut env = BTreeMap::new();
     if discovery {
         env.insert(
-            "VIBEX_FIXTURE_SESSION_DISCOVERY".to_string(),
+            "DIMO_FIXTURE_SESSION_DISCOVERY".to_string(),
             "1".to_string(),
         );
     }
@@ -215,7 +215,7 @@ async fn fixture_additional_directories_manager(
                 absolute_acp_program: PathBuf::from(env!("CARGO_BIN_EXE_management_fixture_acp")),
                 args: Vec::new(),
                 env: BTreeMap::from([(
-                    "VIBEX_FIXTURE_ADDITIONAL_DIRECTORIES".to_string(),
+                    "DIMO_FIXTURE_ADDITIONAL_DIRECTORIES".to_string(),
                     mode.to_string(),
                 )]),
                 runtime_version: "fixture".to_string(),
@@ -272,7 +272,7 @@ async fn http_mcp_follows_advertised_capability() {
                         "CARGO_BIN_EXE_management_fixture_acp"
                     )),
                     args: Vec::new(),
-                    env: BTreeMap::from([("VIBEX_FIXTURE_MCP_HTTP".to_string(), mode.to_string())]),
+                    env: BTreeMap::from([("DIMO_FIXTURE_MCP_HTTP".to_string(), mode.to_string())]),
                     runtime_version: "fixture".to_string(),
                     acp_version: "fixture".to_string(),
                 },
@@ -417,7 +417,7 @@ async fn silent_process_death_never_replays_a_prompt_with_unobserved_side_effect
                 absolute_acp_program: PathBuf::from(env!("CARGO_BIN_EXE_management_fixture_acp")),
                 args: Vec::new(),
                 env: BTreeMap::from([(
-                    "VIBEX_FIXTURE_PROMPT_SIDE_EFFECT".into(),
+                    "DIMO_FIXTURE_PROMPT_SIDE_EFFECT".into(),
                     marker.display().to_string(),
                 )]),
                 runtime_version: "fixture".into(),

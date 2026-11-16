@@ -4,12 +4,12 @@ import {
   dispatchCapturedInternalMessage,
   serviceContainer,
   useThemes,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
-(globalThis as Record<string, unknown>).__VIBEX_REACT__ = React;
+(globalThis as Record<string, unknown>).__DIMO_REACT__ = React;
 bindExternalStoreHook(useSyncExternalStore);
 
 import { toast } from '@/components/ui/toast';

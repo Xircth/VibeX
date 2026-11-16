@@ -183,7 +183,7 @@ async fn runtime_records_three_turns_with_display_blocks_and_reloads_cleanly() {
     let session_id = agents::AgentSessionId::from(conversation_id);
     let launch_lock = SessionLaunchLock {
         agent_id: AgentId::parse("codex").unwrap(),
-        absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+        absolute_acp_program: PathBuf::from("/tmp/dimo-test-acp"),
         args: Vec::new(),
         env: BTreeMap::new(),
         runtime_version: "test-runtime".to_string(),
@@ -206,7 +206,7 @@ async fn runtime_records_three_turns_with_display_blocks_and_reloads_cleanly() {
         .expect("prepare in-memory session");
     let connection_id = prepared.session.connection_id;
     let acp_sid = prepared.session.acp_session_id;
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     agents::transcript_target::bind(
         connection_id,
         agents::transcript_target::TranscriptTarget {
@@ -886,7 +886,7 @@ async fn inflight_first_turn_load_does_not_duplicate_user_prompt_when_acp_sessio
         .expect("load inflight turns");
     assert_eq!(inflight_turns.len(), 1);
 
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let simple_sid = conversation_id.simple().to_string();
     assert!(
         !acp_transcript::has_entries_in(&root, "codex", &simple_sid),
@@ -1006,7 +1006,7 @@ async fn fts_reindex_on_legacy_backfill_indexes_external_session_id_jsonl_assist
         .await
         .expect("mark session unmigrated");
 
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let header = TranscriptHeader::new("codex", &external_sid, "/workspace", 1_700_000_000_000);
     let _ = acp_transcript::record_header_in(&root, "codex", &header).await;
     let _ = acp_transcript::record_entry_in(

@@ -1,5 +1,5 @@
 //! Read the AIR tool-call contract that claude-agent-acp 0.82+ and
-//! codex-acp 2.0+ put on the wire, back into the shapes the rest of VibeX
+//! codex-acp 2.0+ put on the wire, back into the shapes the rest of Dimo
 //! already reads.
 //!
 //! Advertising `_meta.jetbrains.air` makes the host an AIR client. From those
@@ -216,7 +216,7 @@ fn merge_state(agent_kind: AgentKind, state: &mut Map<String, Value>, frame: &Ma
     }
 }
 
-/// Re-derive the legacy `_meta` keys VibeX reads from the AIR spellings.
+/// Re-derive the legacy `_meta` keys Dimo reads from the AIR spellings.
 /// Never overwrites a key that is already there.
 pub(crate) fn translate_air_meta(agent_kind: AgentKind, meta: &mut Map<String, Value>) {
     let Some(air) = meta

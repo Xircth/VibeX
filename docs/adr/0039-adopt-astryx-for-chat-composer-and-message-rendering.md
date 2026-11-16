@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-07
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 采用 Astryx 组件库重构会话输入体系并移除 Lexical WYSIWYG
@@ -23,7 +23,7 @@ user_feedback、tool 结果、plan、评论查看；编辑输入 4 处：diff �
 主要前端依赖之一。
 
 Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook/astryx`，当前 0.3.0 Beta）
-提供 150+ 组件与完整 Chat 组件族。经评估，其"纯文本 + 结构化 token"模型与 VibeX
+提供 150+ 组件与完整 Chat 组件族。经评估，其"纯文本 + 结构化 token"模型与 Dimo
 "发送内容即 markdown 字符串 + 序列化 token"的数据模型天然对齐，替换后草稿持久化、
 发送格式与后端协议均无需变更。
 
@@ -87,7 +87,7 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
    展开状态按成员保存，阶段结束或分组重组后仍能查看用户已经展开的内容。
 7. **用户消息气泡**：消息流中的用户消息统一由 `ChatMessage(sender="user")` +
    `ChatMessageBubble` 提供语义、对齐和气泡结构；正文使用基于 Astryx `Markdown`
-   的受限语法渲染器，并以内联插件承接结构化 token。VibeX 仅在主题层覆盖亮色
+   的受限语法渲染器，并以内联插件承接结构化 token。Dimo 仅在主题层覆盖亮色
    `#F3F3F4` / 黑色前景、暗色 `#242424` / 白色前景、固定 Body 字号与紧凑列表
    缩进，不再维护平行的手写消息气泡结构。
 
@@ -127,7 +127,7 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
   由单条聚合、混合分类摘要与重组后详情展开回归测试约束。
   升级 Astryx 时必须先核对并移除已上游化的部分。
 - **集成方式**：Astryx 为预编译 ESM + 预编译 CSS（`@astryxdesign/core/astryx.css`），
-  无需 PostCSS/Babel 构建插件，`className` 可覆盖样式，不影响 VibeX 现有
+  无需 PostCSS/Babel 构建插件，`className` 可覆盖样式，不影响 Dimo 现有
   Tailwind / design tokens 体系。
 
 ## 分阶段实施路径
@@ -150,7 +150,7 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
    移除 `react-markdown`/`remark-*`/`rehype-*`）与 `ChatToolCalls`（落地为
    `ToolCardShell` 内部引擎替换，`PendingApprovalEntry` 包装器保留）。
 5. **阶段 4**：残留清理 —— `cmdk` 残留直接删除；Radix 封装**保留不替换**（用户决策
-   2026-08-08：11 个 shadcn 封装工作正常且已用 VibeX tokens，替换仅带来视觉变化
+   2026-08-08：11 个 shadcn 封装工作正常且已用 Dimo tokens，替换仅带来视觉变化
    与适配成本，`ScrollArea`/`Slot` 亦无 Astryx 对应物）。
 
 ## 其他可替换/新增组件（后续阶段候选）

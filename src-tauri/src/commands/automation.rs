@@ -765,7 +765,7 @@ impl TurnLauncherPort for TauriTurnLauncher {
                 },
             },
             acp_adapter: ComponentVersionEvidence {
-                id: "vibex-acp".to_string(),
+                id: "dimo-acp".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
             plugins,
@@ -898,7 +898,7 @@ mod tests {
     async fn engine_status_ignores_a_lease_registered_on_a_foreign_data_dir() {
         let _guard = OWNERSHIP_TEST_LOCK.lock().await;
         let _marker =
-            EngineOwnershipMarker::register("/tmp/com.vibex.app-app-data-dir".to_string());
+            EngineOwnershipMarker::register("/tmp/com.dimo.app-app-data-dir".to_string());
         assert!(!this_host_owns_automation_engine());
     }
 

@@ -2,12 +2,12 @@
 status: accepted
 date: 2026-11-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Agent 接入与能力治理采用独立引擎适配优先、ACP 次选
 
-VibeX 将 Agent 接入、会话控制与状态管理规范由「ACP 优先 / 全量统一走 ACP」调整为**「独立 Agent 引擎适配优先，ACP 为次选」**。通用 ACP 包装器（如 `claude-agent-acp`、`codex-acp`）会折损主力 Agent 原生 SDK 与官方服务协议提供的一手控制面信号（精确 Token 与 Prompt Cache 过期时间、限流恢复时间、原生在途纠偏、会话与代码协同回退、原生子代理流及细粒度权限钩子），迫使宿主不断维护脆弱的外围补丁；而为所有长尾 CLI 逐一编写专属驱动同样不可持续。因此采用明确的主次双层策略：
+Dimo 将 Agent 接入、会话控制与状态管理规范由「ACP 优先 / 全量统一走 ACP」调整为**「独立 Agent 引擎适配优先，ACP 为次选」**。通用 ACP 包装器（如 `claude-agent-acp`、`codex-acp`）会折损主力 Agent 原生 SDK 与官方服务协议提供的一手控制面信号（精确 Token 与 Prompt Cache 过期时间、限流恢复时间、原生在途纠偏、会话与代码协同回退、原生子代理流及细粒度权限钩子），迫使宿主不断维护脆弱的外围补丁；而为所有长尾 CLI 逐一编写专属驱动同样不可持续。因此采用明确的主次双层策略：
 
 1. **独立 Agent 引擎适配优先（首选）**：对核心或需深度发挥能力的 Coding Agent，优先在 `crates/agents` 内直接对接其官方 SDK、原生服务协议（如 `app-server` JSON-RPC）与原生配置/会话机制，构建独立 Agent 引擎驱动。已具备独立引擎适配的 Agent 直接走原生驱动，不再经由 ACP 包装进程中转。
 2. **ACP 兼容接入为次选（兜底）**：Agent Client Protocol（ACP v1/v2）作为标准兼容层与生态扩展通道，用于尚未提供独立引擎适配的内置 Agent、ACP 官方 Registry 条目与用户声明分发。

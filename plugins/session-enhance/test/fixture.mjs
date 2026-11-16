@@ -2,8 +2,8 @@ export const ROUNDTRIP = {
   manifest: {
     manifestVersion: 4,
     apiVersion: '2.0',
-    id: 'vibex.session-enhance',
-    publisher: 'vibex',
+    id: 'dimo.session-enhance',
+    publisher: 'dimo',
     version: '2.0.0',
     name: '会话增强',
   },
@@ -16,7 +16,7 @@ export const ROUNDTRIP = {
   mcp: {
     managedRuntime: {
       kind: 'hostFamilyBinary',
-      binaryId: 'vibex-mcp',
+      binaryId: 'dimo-mcp',
       product: 'session',
       protocolRevision: '2026-07-28',
       defaultBinding: 'all-compatible-agents',

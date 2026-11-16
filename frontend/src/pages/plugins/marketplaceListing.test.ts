@@ -32,9 +32,9 @@ function listing(
 
 describe('marketplace listing categories', () => {
   it('exposes the 8 DSH category tabs and classifies official & community listings into categories', () => {
-    const session = listing('vibex', 'vibex.session-enhance', 'ai-enhancement');
+    const session = listing('dimo', 'dimo.session-enhance', 'ai-enhancement');
     const notes = listing('acme', 'notes', 'community');
-    const drawio = listing('vibex', 'drawio', 'design');
+    const drawio = listing('dimo', 'drawio', 'design');
     const listings = flattenMarketplaceListings([session], [notes, drawio]);
 
     expect(listingTopicCategory('official')).toBeNull();
@@ -55,7 +55,7 @@ describe('marketplace listing categories', () => {
       listingsInMarketplaceTab(listings, 'ai-enhancement').map(
         (item) => item.pluginName
       )
-    ).toEqual(['vibex.session-enhance']);
+    ).toEqual(['dimo.session-enhance']);
     expect(
       listingsInMarketplaceTab(listings, 'design').map(
         (item) => item.pluginName
@@ -66,51 +66,51 @@ describe('marketplace listing categories', () => {
     ).toEqual(['notes']);
     expect(
       listingsInMarketplaceTab(listings, 'all').map((item) => item.pluginName)
-    ).toEqual(['vibex.session-enhance', 'notes', 'drawio']);
+    ).toEqual(['dimo.session-enhance', 'notes', 'drawio']);
   });
 });
 
 describe('marketplace search', () => {
   it('matches the visible localized name, not only the package display name', () => {
-    const office = listing('vibex', 'vibex.office', 'productivity');
-    office.displayName = 'VibeX Office';
+    const office = listing('dimo', 'dimo.office', 'productivity');
+    office.displayName = 'Dimo Office';
     office.summary = 'Office files';
     expect(
       listingMatchesSearch(
         office,
         '办公套件',
         '办公套件',
-        '在 VibeX 中预览文档'
+        '在 Dimo 中预览文档'
       )
     ).toBe(true);
     expect(
-      listingMatchesSearch(office, 'office', '办公套件', '在 VibeX 中预览文档')
+      listingMatchesSearch(office, 'office', '办公套件', '在 Dimo 中预览文档')
     ).toBe(true);
     expect(
-      listingMatchesSearch(office, 'notes', '办公套件', '在 VibeX 中预览文档')
+      listingMatchesSearch(office, 'notes', '办公套件', '在 Dimo 中预览文档')
     ).toBe(false);
   });
 });
 
 describe('marketplace installed matching', () => {
   it('treats publisher-prefixed and bare plugin ids as the same product', () => {
-    expect(pluginIdentitiesMatch('office', 'vibex.office')).toBe(true);
-    expect(pluginIdentitiesMatch('vibex.office', 'office')).toBe(true);
-    expect(pluginIdentitiesMatch('vibex.office', 'vibex.office')).toBe(true);
-    expect(pluginIdentitiesMatch('notes', 'vibex.office')).toBe(false);
+    expect(pluginIdentitiesMatch('office', 'dimo.office')).toBe(true);
+    expect(pluginIdentitiesMatch('dimo.office', 'office')).toBe(true);
+    expect(pluginIdentitiesMatch('dimo.office', 'dimo.office')).toBe(true);
+    expect(pluginIdentitiesMatch('notes', 'dimo.office')).toBe(false);
   });
 
   it('matches an installed catalog plugin to its marketplace listing', () => {
     expect(
       listingMatchesPlugin(
-        { owner: 'vibex', pluginName: 'vibex.office' },
-        { id: 'office', publisher: 'vibex' }
+        { owner: 'dimo', pluginName: 'dimo.office' },
+        { id: 'office', publisher: 'dimo' }
       )
     ).toBe(true);
     expect(
       listingMatchesPlugin(
-        { owner: 'vibex', pluginName: 'vibex.office' },
-        { id: 'vibex.office' }
+        { owner: 'dimo', pluginName: 'dimo.office' },
+        { id: 'dimo.office' }
       )
     ).toBe(true);
     expect(
@@ -135,17 +135,17 @@ describe('marketplace installed matching', () => {
     expect(
       listingMatchesPlugin(
         { owner: 'acme', pluginName: 'notes' },
-        { id: 'office', publisher: 'vibex' }
+        { id: 'office', publisher: 'dimo' }
       )
     ).toBe(false);
   });
 
   it('finds the installed plugin for a listing', () => {
-    const office = { id: 'office', publisher: 'vibex' };
+    const office = { id: 'office', publisher: 'dimo' };
     const notes = { id: 'notes', publisher: 'acme' };
     expect(
       findInstalledPluginForListing(
-        { owner: 'vibex', pluginName: 'vibex.office' },
+        { owner: 'dimo', pluginName: 'dimo.office' },
         [office, notes]
       )
     ).toBe(office);

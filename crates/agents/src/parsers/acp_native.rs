@@ -1,4 +1,4 @@
-//! History parser for agents whose transcript is VibeX ACP JSONL.
+//! History parser for agents whose transcript is Dimo ACP JSONL.
 //!
 //! Ported from Codeg `parsers/acp_native.rs` at `2e657fac`. The projection
 //! (`project_turns`) is the only reader of [`crate::acp_transcript`].
@@ -18,7 +18,7 @@ use crate::{
         extract_tool_call_images, json_value_to_text, serialize_tool_call_content,
         synthesize_edit_input_from_diffs,
     },
-    acp_transcript::{self, EntryKind, Transcript, TranscriptEntry, vibex_acp_transcripts_root},
+    acp_transcript::{self, EntryKind, Transcript, TranscriptEntry, dimo_acp_transcripts_root},
     conversation::{
         ContentBlock, ConversationDetail, ConversationSummary, ImageData, MessageTurn,
         SessionStats, TurnRole, TurnUsage,
@@ -36,7 +36,7 @@ pub struct AcpNativeParser {
 
 impl AcpNativeParser {
     pub fn new(agent_type: AgentKind, registry_id: impl Into<String>) -> Self {
-        Self::new_in(agent_type, registry_id, vibex_acp_transcripts_root())
+        Self::new_in(agent_type, registry_id, dimo_acp_transcripts_root())
     }
 
     pub fn new_in(agent_type: AgentKind, registry_id: impl Into<String>, root: PathBuf) -> Self {
@@ -1194,7 +1194,7 @@ fn observe_tool_clock(
 ///
 /// Uses the same input/output/image projection as the live path so a tool call
 /// looks identical whether it is streaming or reloaded from disk. Images live
-/// on VibeX `ToolUse` (the rendered card), not on `ToolResult`.
+/// on Dimo `ToolUse` (the rendered card), not on `ToolResult`.
 #[allow(clippy::too_many_arguments)]
 fn upsert_tool_call(
     cards: ToolCards<'_>,

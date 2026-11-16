@@ -4,8 +4,8 @@ import { agentManagementApi } from './api';
 import { agentHasAcpUpdate, isAgentAcpUpdateCheckable } from './agentVersion';
 
 export const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
-const STORAGE_KEY = 'vibex:agent-acp-updates';
-const EVENT = 'vibex:agent-acp-updates';
+const STORAGE_KEY = 'dimo:agent-acp-updates';
+const EVENT = 'dimo:agent-acp-updates';
 const CHECK_CONCURRENCY = 2;
 
 type CacheEntry = {

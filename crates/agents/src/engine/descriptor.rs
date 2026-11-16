@@ -2,7 +2,7 @@
 //!
 //! Claude Code and Codex connect through dedicated native drivers (`ClaudeNative`,
 //! `CodexNative`) when `EngineRuntimePreference::NativeFirst` is active, while all
-//! 18+ long-tail agents remain on ACP without regression. `VIBEX_ENGINE_MODE`
+//! 18+ long-tail agents remain on ACP without regression. `DIMO_ENGINE_MODE`
 //! (`acp` vs `native`) provides an environment-level grayscale override.
 
 use api_types::AgentKind;
@@ -96,16 +96,16 @@ impl NativeEngineDescriptor {
 }
 
 /// Resolves whether `agent_kind_or_id` should run on a native engine driver,
-/// honoring `VIBEX_ENGINE_MODE=acp|native` grayscale overrides.
+/// honoring `DIMO_ENGINE_MODE=acp|native` grayscale overrides.
 pub fn resolve_native_engine_kind(
     agent_kind_or_id: &str,
     preference: EngineRuntimePreference,
 ) -> Option<NativeEngineKind> {
-    let env_mode = std::env::var("VIBEX_ENGINE_MODE").ok();
+    let env_mode = std::env::var("DIMO_ENGINE_MODE").ok();
     resolve_native_engine_kind_with_env(agent_kind_or_id, preference, env_mode.as_deref())
 }
 
-/// Resolves the effective runtime preference after applying `VIBEX_ENGINE_MODE`.
+/// Resolves the effective runtime preference after applying `DIMO_ENGINE_MODE`.
 pub(crate) fn effective_runtime_preference(
     preference: EngineRuntimePreference,
     env_mode: Option<&str>,
@@ -124,7 +124,7 @@ pub(crate) fn effective_runtime_preference(
     }
 }
 
-/// Pure resolution helper accepting an explicit `VIBEX_ENGINE_MODE` value so unit
+/// Pure resolution helper accepting an explicit `DIMO_ENGINE_MODE` value so unit
 /// tests can verify grayscale routing deterministically without mutating process env.
 pub fn resolve_native_engine_kind_with_env(
     agent_kind_or_id: &str,
@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn honors_acp_only_preference_and_vibex_engine_mode_grayscale_override() {
+    fn honors_acp_only_preference_and_dimo_engine_mode_grayscale_override() {
         assert_eq!(
             resolve_native_engine_kind_with_env(
                 "claude_code",

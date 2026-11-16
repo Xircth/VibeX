@@ -17,9 +17,9 @@ const WORKSPACE_ROOT = path.join(__dirname, '..');
 const SQLX_OFFLINE_DIR = path.join(WORKSPACE_ROOT, 'crates', 'db', '.sqlx');
 const LOCAL_ENV_FILE = path.join(WORKSPACE_ROOT, '.env.local');
 const DESKTOP_DEV_IDENTITY = {
-  deepLinkScheme: 'vibex-dev',
-  identifier: 'com.vibex.app.dev',
-  productName: 'VibeX Dev',
+  deepLinkScheme: 'dimo-dev',
+  identifier: 'com.dimo.app.dev',
+  productName: 'Dimo Dev',
 };
 
 function applyDesktopDevIdentity(config) {
@@ -27,12 +27,12 @@ function applyDesktopDevIdentity(config) {
   next.identifier = DESKTOP_DEV_IDENTITY.identifier;
   next.productName = DESKTOP_DEV_IDENTITY.productName;
   for (const window of next.app?.windows ?? []) {
-    if (window.title === 'VibeX') {
+    if (window.title === 'Dimo') {
       window.title = DESKTOP_DEV_IDENTITY.productName;
     }
   }
   // Skip config-created `main`. Tauri would give it
-  // `%LOCALAPPDATA%\com.vibex.app.dev`, which stays busy across cargo-watch
+  // `%LOCALAPPDATA%\com.dimo.app.dev`, which stays busy across cargo-watch
   // restarts (HRESULT 0x800700AA). Rust setup creates main under
   // `dev_assets/webview-profiles`.
   if (Array.isArray(next.app?.windows)) {
@@ -179,17 +179,17 @@ function clearRelocatedCargoBuildCache() {
 
 function windowsStaleDesktopCleanupScript() {
   // One line: multiline -Command scripts are truncated or ignored by
-  // CreateProcess, which left a running debug exe locking vibex.exe.
-  // WebView2 children are listed as Microsoft Edge WebView2, not VibeX, and
-  // they keep %LOCALAPPDATA%\com.vibex.app.dev busy (HRESULT 0x800700AA).
+  // CreateProcess, which left a running debug exe locking dimo.exe.
+  // WebView2 children are listed as Microsoft Edge WebView2, not Dimo, and
+  // they keep %LOCALAPPDATA%\com.dimo.app.dev busy (HRESULT 0x800700AA).
   return (
-    "$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH); " +
-    "Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | " +
+    "$target = [System.IO.Path]::GetFullPath($env:DIMO_STALE_EXE_PATH); " +
+    "Get-CimInstance Win32_Process -Filter \"Name = 'dimo.exe'\" | " +
     'Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) } | ' +
     'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
     'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
     "Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | " +
-    "Where-Object { $_.CommandLine -and $_.CommandLine -like '*com.vibex.app.dev*' } | " +
+    "Where-Object { $_.CommandLine -and $_.CommandLine -like '*com.dimo.app.dev*' } | " +
     'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
     'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
     'Start-Sleep -Milliseconds 400'
@@ -269,7 +269,7 @@ function terminateStaleDesktopProcess() {
     process.cwd(),
     'target',
     'debug',
-    'vibex.exe'
+    'dimo.exe'
   );
 
   const powershellScript = windowsStaleDesktopCleanupScript();
@@ -280,7 +280,7 @@ function terminateStaleDesktopProcess() {
     {
       env: {
         ...process.env,
-        VIBEX_STALE_EXE_PATH: executablePath,
+        DIMO_STALE_EXE_PATH: executablePath,
       },
       stdio: 'inherit',
       timeout: 15000,
@@ -330,7 +330,7 @@ function waitUntilDebugExeWritable(executablePath) {
   }
 
   console.error(
-    `Debug executable is still locked: ${executablePath}. Close the running VibeX Dev window and retry.`
+    `Debug executable is still locked: ${executablePath}. Close the running Dimo Dev window and retry.`
   );
   process.exit(1);
 }

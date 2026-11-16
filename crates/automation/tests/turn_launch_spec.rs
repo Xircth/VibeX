@@ -18,7 +18,7 @@ fn fixture() -> serde_json::Value {
             { "key": "model", "value": "gpt-5" }
         ],
         "pluginActions": [{
-            "pluginId": "vibex.office",
+            "pluginId": "dimo.office",
             "action": {
                 "id": "create-presentation",
                 "label": "Create PPT",
@@ -38,7 +38,7 @@ fn fixture() -> serde_json::Value {
         "skills": ["slides"],
         "workspace": {
             "projectId": "16ef4a10-7a38-4ac0-b439-ddd9747560e1",
-            "rootFolder": "/workspace/vibex",
+            "rootFolder": "/workspace/dimo",
             "branch": "main",
             "isolation": "worktree_per_run"
         },

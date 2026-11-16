@@ -186,7 +186,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     expect(html).toContain('https://example.com/theme.css');
     expect(html).toContain('https://example.com/app.js');
     expect(html).toContain('https://example.com');
-    expect(html).toContain('vibexSurface');
+    expect(html).toContain('dimoSurface');
     expect(html).not.toContain('Content-Security-Policy');
   });
 
@@ -223,7 +223,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     expect(bootstrapMessenger).toHaveBeenCalledWith(
       iframe,
       expect.objectContaining({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'bootstrap',
         token: authorityToken,
         pluginId: descriptor.pluginId,
@@ -282,7 +282,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 1,
@@ -298,7 +298,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     );
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 2,
@@ -309,7 +309,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     );
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 3,
@@ -336,7 +336,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await act(async () => {
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: 'wrong-token',
         sequence: 1,
@@ -366,7 +366,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 1,
@@ -391,7 +391,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 1,
@@ -422,7 +422,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 1,
@@ -448,7 +448,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
     const request = {
-      protocol: 'vibex.app-surface/1',
+      protocol: 'dimo.app-surface/1',
       type: 'request',
       token: authorityToken,
       sequence: 1,
@@ -549,7 +549,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 1,
@@ -579,7 +579,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await act(async () =>
       pluginPort.postMessage({
-        protocol: 'vibex.app-surface/1',
+        protocol: 'dimo.app-surface/1',
         type: 'request',
         token: authorityToken,
         sequence: 1,

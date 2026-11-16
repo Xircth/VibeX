@@ -12,8 +12,8 @@ const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 
-test("vibex plugin pack creates a validated VXP package", () => {
-  const root = mkdtempSync(join(tmpdir(), "vibex-cli-plugin-"));
+test("dimo plugin pack creates a validated VXP package", () => {
+  const root = mkdtempSync(join(tmpdir(), "dimo-cli-plugin-"));
   const output = join(root, "test.vxp");
   try {
     writeFixture(root);
@@ -22,7 +22,7 @@ test("vibex plugin pack creates a validated VXP package", () => {
       [join(__dirname, "cli.js"), "plugin", "pack", root, "--output", output],
       {
         encoding: "utf8",
-        env: { ...process.env, VIBEX_LOCAL: "1" },
+        env: { ...process.env, DIMO_LOCAL: "1" },
       },
     );
 
@@ -44,7 +44,7 @@ test("plugin staging writes under a probed host scratch directory", () => {
     writeFileSync(probe, "ok");
     assert.equal(readFileSync(probe, "utf8"), "ok");
     const local = process.env.LOCALAPPDATA
-      ? join(process.env.LOCALAPPDATA, "VibeX", "tmp")
+      ? join(process.env.LOCALAPPDATA, "Dimo", "tmp")
       : null;
     assert.ok(
       (local && staging.startsWith(local)) || staging.startsWith(tmpdir()),
@@ -57,8 +57,8 @@ test("plugin staging writes under a probed host scratch directory", () => {
 
 test("plugin add extracts a vxp whose entries have no unix mode bits", () => {
   const { extractArchive, pickRoot, findPluginRoots } = require("./plugin");
-  const root = mkdtempSync(join(tmpdir(), "vibex-plugin-lock-"));
-  const dest = mkdtempSync(join(tmpdir(), "vibex-plugin-out-"));
+  const root = mkdtempSync(join(tmpdir(), "dimo-plugin-lock-"));
+  const dest = mkdtempSync(join(tmpdir(), "dimo-plugin-out-"));
   try {
     writeFixture(root);
     const archive = join(root, "locked.vxp");
@@ -98,27 +98,27 @@ test("plugin add extracts a vxp whose entries have no unix mode bits", () => {
   }
 });
 
-test("plugin add discovers a local Host token without VIBEX_TOKEN", () => {
+test("plugin add discovers a local Host token without DIMO_TOKEN", () => {
   const { discoverHost } = require("./plugin");
-  const dir = mkdtempSync(join(tmpdir(), "vibex-host-"));
-  const prevDir = process.env.VIBEX_DATA_DIR;
-  const prevToken = process.env.VIBEX_TOKEN;
-  const prevUrl = process.env.VIBEX_URL;
+  const dir = mkdtempSync(join(tmpdir(), "dimo-host-"));
+  const prevDir = process.env.DIMO_DATA_DIR;
+  const prevToken = process.env.DIMO_TOKEN;
+  const prevUrl = process.env.DIMO_URL;
   try {
-    delete process.env.VIBEX_TOKEN;
-    delete process.env.VIBEX_URL;
-    process.env.VIBEX_DATA_DIR = dir;
+    delete process.env.DIMO_TOKEN;
+    delete process.env.DIMO_URL;
+    process.env.DIMO_DATA_DIR = dir;
     writeFileSync(join(dir, "host.token"), "vbx_local_host_token_value_for_tests\n");
     const host = discoverHost();
     assert.equal(host.token, "vbx_local_host_token_value_for_tests");
     assert.match(host.url, /127\.0\.0\.1:17891/);
   } finally {
-    if (prevDir === undefined) delete process.env.VIBEX_DATA_DIR;
-    else process.env.VIBEX_DATA_DIR = prevDir;
-    if (prevToken === undefined) delete process.env.VIBEX_TOKEN;
-    else process.env.VIBEX_TOKEN = prevToken;
-    if (prevUrl === undefined) delete process.env.VIBEX_URL;
-    else process.env.VIBEX_URL = prevUrl;
+    if (prevDir === undefined) delete process.env.DIMO_DATA_DIR;
+    else process.env.DIMO_DATA_DIR = prevDir;
+    if (prevToken === undefined) delete process.env.DIMO_TOKEN;
+    else process.env.DIMO_TOKEN = prevToken;
+    if (prevUrl === undefined) delete process.env.DIMO_URL;
+    else process.env.DIMO_URL = prevUrl;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -129,7 +129,7 @@ test("plugin add resolves marketplace and GitHub sources", async () => {
   assert.match(github.url, /codeload\.github\.com\/acme\/office/);
   const shorthand = await resolveSource("acme/office");
   assert.match(shorthand.url, /codeload\.github\.com\/acme\/office/);
-  const root = mkdtempSync(join(tmpdir(), "vibex-plugin-find-"));
+  const root = mkdtempSync(join(tmpdir(), "dimo-plugin-find-"));
   try {
     writeFixture(root);
     const found = findPluginRoots(root);
@@ -176,29 +176,29 @@ test("plugin add parses --web, --profile, and --dev", () => {
     () => parseAddArgs([]),
     new RegExp(`Usage: ${require("../package.json").name} plugin add --web`),
   );
-  const git = parseGitSource("https://github.com/Xircth/vibex-plugin-office");
-  assert.equal(git.url, "https://github.com/Xircth/vibex-plugin-office.git");
+  const git = parseGitSource("https://github.com/DimoADE/Dimo-plugin-office");
+  assert.equal(git.url, "https://github.com/DimoADE/Dimo-plugin-office.git");
   assert.equal(git.ref, undefined);
   const branch = parseGitSource(
-    "https://github.com/Xircth/vibex-plugin-office/tree/main",
+    "https://github.com/DimoADE/Dimo-plugin-office/tree/main",
   );
   assert.equal(branch.ref, "main");
   const tagged = parseGitSource(
-    "https://github.com/Xircth/vibex-plugin-office#v1.2.0",
+    "https://github.com/DimoADE/Dimo-plugin-office#v1.2.0",
   );
   assert.equal(tagged.ref, "v1.2.0");
-  const spec = parseGitSource("github:Xircth/vibex-plugin-office#v1.2.0");
-  assert.equal(spec.url, "https://github.com/Xircth/vibex-plugin-office.git");
+  const spec = parseGitSource("github:DimoADE/Dimo-plugin-office#v1.2.0");
+  assert.equal(spec.url, "https://github.com/DimoADE/Dimo-plugin-office.git");
   assert.equal(spec.ref, "v1.2.0");
-  const shorthandTag = parseGitSource("Xircth/vibex-plugin-office#v1.2.0");
+  const shorthandTag = parseGitSource("DimoADE/Dimo-plugin-office#v1.2.0");
   assert.equal(shorthandTag.ref, "v1.2.0");
   const commit = parseGitSource(
-    "https://github.com/Xircth/vibex-plugin-office/commit/abcdef1",
+    "https://github.com/DimoADE/Dimo-plugin-office/commit/abcdef1",
   );
   assert.equal(commit.ref, "abcdef1");
   const archive = parseGitSource("https://example.com/search.vxp");
   assert.equal(archive, null);
-  const root = mkdtempSync(join(tmpdir(), "vibex-plugin-infer-"));
+  const root = mkdtempSync(join(tmpdir(), "dimo-plugin-infer-"));
   try {
     writeFixture(root);
     assert.equal(inferAddMode(root), "dev");
@@ -224,7 +224,7 @@ test("plugin list formats catalog rows", () => {
   );
   const table = formatPluginList([
     {
-      id: "vibex.office",
+      id: "dimo.office",
       version: "3.0.0",
       sourceKind: "builtin",
       builtin: true,
@@ -240,7 +240,7 @@ test("plugin list formats catalog rows", () => {
     },
   ]);
   assert.match(table, /ID\s+VERSION\s+SOURCE\s+ENABLED\s+LOCK/);
-  assert.match(table, /vibex\.office\s+3\.0\.0\s+builtin\s+off/);
+  assert.match(table, /dimo\.office\s+3\.0\.0\s+builtin\s+off/);
   assert.match(table, /acme\.search\s+1\.2\.0\s+installed\s+on\s+v1\.2\.0/);
 });
 
@@ -287,28 +287,28 @@ test("plugin publish parses credentials and marketplace origin", () => {
     "https://example.test",
   );
 
-  const prevSiteUrl = process.env.VIBEX_SITE_URL;
-  const prevMarketUrl = process.env.VIBEX_MARKETPLACE_URL;
+  const prevSiteUrl = process.env.DIMO_SITE_URL;
+  const prevMarketUrl = process.env.DIMO_MARKETPLACE_URL;
   try {
-    delete process.env.VIBEX_MARKETPLACE_URL;
-    process.env.VIBEX_SITE_URL = "https://site.example.com/";
+    delete process.env.DIMO_MARKETPLACE_URL;
+    process.env.DIMO_SITE_URL = "https://site.example.com/";
     assert.equal(marketplaceOrigin(), "https://site.example.com");
 
-    process.env.VIBEX_MARKETPLACE_URL = "https://market.example.com/";
+    process.env.DIMO_MARKETPLACE_URL = "https://market.example.com/";
     assert.equal(marketplaceOrigin(), "https://market.example.com");
   } finally {
-    if (prevSiteUrl === undefined) delete process.env.VIBEX_SITE_URL;
-    else process.env.VIBEX_SITE_URL = prevSiteUrl;
-    if (prevMarketUrl === undefined) delete process.env.VIBEX_MARKETPLACE_URL;
-    else process.env.VIBEX_MARKETPLACE_URL = prevMarketUrl;
+    if (prevSiteUrl === undefined) delete process.env.DIMO_SITE_URL;
+    else process.env.DIMO_SITE_URL = prevSiteUrl;
+    if (prevMarketUrl === undefined) delete process.env.DIMO_MARKETPLACE_URL;
+    else process.env.DIMO_MARKETPLACE_URL = prevMarketUrl;
   }
 });
 
 function writeFixture(root) {
-  mkdirSync(join(root, ".vibex-plugin"), { recursive: true });
+  mkdirSync(join(root, ".dimo-plugin"), { recursive: true });
   mkdirSync(join(root, "contents", "skills", "test"), { recursive: true });
   writeFileSync(
-    join(root, ".vibex-plugin", "plugin.json"),
+    join(root, ".dimo-plugin", "plugin.json"),
     JSON.stringify({
       manifestVersion: 4,
       apiVersion: "1.0",
@@ -317,10 +317,10 @@ function writeFixture(root) {
       version: "1.0.0",
       name: "Test",
       readme: "README.md",
-      engines: { vibex: ">=0.1.3", pluginSdk: "^1.0.0" },
+      engines: { dimo: ">=0.1.3", pluginSdk: "^1.0.0" },
       content: {
         root: "contents",
-        index: ".vibex-plugin/content.index.json",
+        index: ".dimo-plugin/content.index.json",
       },
       config: {
         schema: {
@@ -340,7 +340,7 @@ function writeFixture(root) {
     }),
   );
   writeFileSync(
-    join(root, ".vibex-plugin", "content.index.json"),
+    join(root, ".dimo-plugin", "content.index.json"),
     JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -354,7 +354,7 @@ function writeFixture(root) {
   );
   writeFileSync(
     join(root, "README.md"),
-    "---\nsummary: Test the VibeX plugin pack command.\n---\n# Test\n",
+    "---\nsummary: Test the Dimo plugin pack command.\n---\n# Test\n",
   );
   writeFileSync(join(root, "config.json"), "{}\n");
   writeFileSync(
@@ -367,11 +367,11 @@ function writeFixture(root) {
 test("plugin update uses one Host preview and confirms its exact package", async () => {
   const { run } = require("./plugin");
   const previousFetch = global.fetch;
-  const previousToken = process.env.VIBEX_TOKEN;
-  const previousUrl = process.env.VIBEX_URL;
+  const previousToken = process.env.DIMO_TOKEN;
+  const previousUrl = process.env.DIMO_URL;
   const calls = [];
-  process.env.VIBEX_TOKEN = "test-only-host-token";
-  process.env.VIBEX_URL = "http://host.test";
+  process.env.DIMO_TOKEN = "test-only-host-token";
+  process.env.DIMO_URL = "http://host.test";
   const plugin = { id: "acme.notes", publisher: "acme", sourceKind: "snapshot", sourceOrigin: "https://github.com/acme/notes", sourceRef: "v1.0.0" };
   global.fetch = async (url, options) => {
     const command = url.split("/").pop();
@@ -399,9 +399,9 @@ test("plugin update uses one Host preview and confirms its exact package", async
     }
   } finally {
     global.fetch = previousFetch;
-    if (previousToken === undefined) delete process.env.VIBEX_TOKEN;
-    else process.env.VIBEX_TOKEN = previousToken;
-    if (previousUrl === undefined) delete process.env.VIBEX_URL;
-    else process.env.VIBEX_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.DIMO_TOKEN;
+    else process.env.DIMO_TOKEN = previousToken;
+    if (previousUrl === undefined) delete process.env.DIMO_URL;
+    else process.env.DIMO_URL = previousUrl;
   }
 });

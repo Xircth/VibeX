@@ -93,9 +93,9 @@ function createWorkspaceNotesPanel(notesService) {
     return createElement(
       'div',
       {
-        className: 'vibex-notes-panel h-full w-full p-3 flex flex-col gap-3',
+        className: 'dimo-notes-panel h-full w-full p-3 flex flex-col gap-3',
         'data-panel': 'notes',
-        'data-testid': 'vibex-notes-panel',
+        'data-testid': 'dimo-notes-panel',
       },
       createElement(
         'div',
@@ -181,7 +181,7 @@ function createWorkspaceNotesPanel(notesService) {
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.notes',
+  id: 'dimo.notes',
   activate(ctx) {
     const listeners = new Set();
     let cachedNotes = null;
@@ -333,7 +333,7 @@ export default {
     });
 
     ctx.ui.registerContextMenu({
-      id: 'vibex.notes.capture-selection',
+      id: 'dimo.notes.capture-selection',
       label: 'Save Selection to Notes',
       group: 'notes',
       when: (menuCtx) => Boolean(menuCtx.selectionText?.trim()),
@@ -355,7 +355,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.notes.new',
+      id: 'dimo.notes.new',
       title: 'Create Quick Note',
       category: 'Notes',
       icon: 'plus',
@@ -369,7 +369,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.notes.export-markdown',
+      id: 'dimo.notes.export-markdown',
       title: 'Export Workspace Notes as Markdown',
       category: 'Notes',
       icon: 'download',
@@ -378,6 +378,6 @@ export default {
       },
     });
 
-    ctx.services.provide('vibex.notes', notesService);
+    ctx.services.provide('dimo.notes', notesService);
   },
 };

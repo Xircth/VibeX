@@ -20,12 +20,12 @@ fn pending_flows() -> &'static Mutex<HashMap<String, PendingAccountFlow>> {
 }
 
 pub fn account_flow_result_path(agent_id: &AgentId) -> PathBuf {
-    utils::path::get_vibex_temp_dir().join(format!("vibex-account-flow-{}.exit", agent_id.as_str()))
+    utils::path::get_dimo_temp_dir().join(format!("dimo-account-flow-{}.exit", agent_id.as_str()))
 }
 
 pub fn launcher_script_path(agent_id: &AgentId, action_id: &str) -> PathBuf {
-    utils::path::get_vibex_temp_dir().join(format!(
-        "vibex-management-{}-{action_id}.cmd",
+    utils::path::get_dimo_temp_dir().join(format!(
+        "dimo-management-{}-{action_id}.cmd",
         agent_id.as_str()
     ))
 }
@@ -181,7 +181,7 @@ mod tests {
             &agent,
             "login",
             ProfileManagementActionKind::Login,
-            PathBuf::from("/tmp/vibex-account-flow-grok.exit"),
+            PathBuf::from("/tmp/dimo-account-flow-grok.exit"),
         );
         assert!(peek_account_flow(&agent).is_some());
 
@@ -193,7 +193,7 @@ mod tests {
     #[cfg(not(windows))]
     #[tokio::test]
     async fn launch_prefixes_environment_and_captures_the_exit_code() {
-        let result_path = PathBuf::from("/tmp/vibex-account-flow-grok.exit");
+        let result_path = PathBuf::from("/tmp/dimo-account-flow-grok.exit");
         let launch = prepare_management_launch(
             &agent(),
             "login",
@@ -207,7 +207,7 @@ mod tests {
         assert!(launch.starts_with("GROK_HOME='/a b' "));
         assert!(launch.contains("grok login"));
         assert!(launch.contains("printf '%s\\n' \"$?\""));
-        assert!(launch.contains("/tmp/vibex-account-flow-grok.exit"));
+        assert!(launch.contains("/tmp/dimo-account-flow-grok.exit"));
     }
 
     #[cfg(not(windows))]
@@ -225,7 +225,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn launch_writes_a_script_that_records_the_exit_code() {
-        let result_path = PathBuf::from(r"C:\Temp\vibex-account-flow-grok.exit");
+        let result_path = PathBuf::from(r"C:\Temp\dimo-account-flow-grok.exit");
         let launch = prepare_management_launch(
             &agent(),
             "login",
@@ -249,7 +249,7 @@ mod tests {
         assert!(script.contains("set \"GROK_HOME=C:\\a b\\grok home\"\r\n"));
         assert!(script.contains("cmd /c \"C:\\Program Files\\grok\\grok.cmd\" login\r\n"));
         // The separating space is required; `echo 0>"file"` writes to handle 0.
-        assert!(script.contains("echo %ERRORLEVEL% >\"C:\\Temp\\vibex-account-flow-grok.exit\""));
+        assert!(script.contains("echo %ERRORLEVEL% >\"C:\\Temp\\dimo-account-flow-grok.exit\""));
     }
 
     #[cfg(windows)]

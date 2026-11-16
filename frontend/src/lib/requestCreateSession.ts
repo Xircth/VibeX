@@ -17,17 +17,17 @@ type SearchParamsSetter = (
 ) => void;
 
 export const DISMISS_CREATE_SESSION_OVERLAY_EVENT =
-  'vibex:dismiss-create-session-overlay';
+  'dimo:dismiss-create-session-overlay';
 
 export const DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT =
-  'vibex:dismiss-collaboration-create-overlay';
+  'dimo:dismiss-collaboration-create-overlay';
 
 export interface DismissCollaborationCreateOverlayDetail {
   exceptSource?: unknown;
 }
 
 export const REQUEST_CREATE_SESSION_OVERLAY_EVENT =
-  'vibex:request-create-session-overlay';
+  'dimo:request-create-session-overlay';
 
 export interface RequestCreateSessionOverlayEventDetail {
   targetGroupId?: string | null;
@@ -110,7 +110,7 @@ export function requestCreateSessionInExecutionArea(
 }
 
 export const CREATE_AGENT_SESSION_EVENT =
-  'vibex:create-agent-session-in-execution-area';
+  'dimo:create-agent-session-in-execution-area';
 
 export interface CreateAgentSessionEventDetail {
   agentId: string;

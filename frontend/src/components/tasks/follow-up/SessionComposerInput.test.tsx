@@ -634,7 +634,7 @@ describe('SessionComposerInput (Astryx)', () => {
                 builtin: false,
                 sourceKind: 'snapshot',
                 sourcePath: '/plugins/worktree',
-                formats: ['vibex'],
+                formats: ['dimo'],
                 skills: [],
                 runtimes: [],
                 warnings: [],
@@ -1660,7 +1660,7 @@ describe('SessionComposerInput (Astryx)', () => {
     });
     fireEvent(
       zone,
-      new CustomEvent('vibex-annotated-image-drop', { detail: marked })
+      new CustomEvent('dimo-annotated-image-drop', { detail: marked })
     );
     expect(onAttachImages).toHaveBeenCalledWith([
       expect.objectContaining({ name: 'shot-marked.png', type: 'image/png' }),
@@ -1871,7 +1871,7 @@ describe('SessionComposerInput (Astryx)', () => {
       .mockRejectedValue(new Error('disk full'));
 
     const initialDraft =
-      'Connect to [@:prod](.vibex/ssh-hosts/prod-12345678.sshconfig)';
+      'Connect to [@:prod](.dimo/ssh-hosts/prod-12345678.sshconfig)';
 
     function ControlledComposer() {
       const [value, setValue] = useState(initialDraft);
@@ -2080,14 +2080,14 @@ describe('SessionComposerInput (Astryx)', () => {
     const attachments = [
       ...Array.from({ length: 8 }, (_, index) => ({
         id: `img-${index + 1}`,
-        path: `.vibex-images/shot-${index + 1}.png`,
+        path: `.dimo-images/shot-${index + 1}.png`,
         name: `shot-${index + 1}.png`,
         previewUrl: `blob:shot-${index + 1}`,
         attachmentKind: 'image' as const,
       })),
       ...Array.from({ length: 6 }, (_, index) => ({
         id: `file-${index + 1}`,
-        path: `.vibex-images/spec-${index + 1}.pdf`,
+        path: `.dimo-images/spec-${index + 1}.pdf`,
         name: `spec-${index + 1}.pdf`,
         attachmentKind: 'file' as const,
       })),

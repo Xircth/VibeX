@@ -138,8 +138,8 @@ fn collect_digest_files(
             || matches!(
                 relative.as_str(),
                 "config.json"
-                    | ".vibex-plugin/package.lock.json"
-                    | ".vibex-plugin/developer-link.json"
+                    | ".dimo-plugin/package.lock.json"
+                    | ".dimo-plugin/developer-link.json"
             )
         {
             continue;

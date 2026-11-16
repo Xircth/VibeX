@@ -30,14 +30,14 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginRoot = join(__dirname, '..');
 
-describe('vibex.voice-input plugin', () => {
+describe('dimo.voice-input plugin', () => {
   it('validates v4 manifest and integrations', () => {
     const manifest = JSON.parse(
-      readFileSync(join(pluginRoot, '.vibex-plugin', 'plugin.json'), 'utf8'),
+      readFileSync(join(pluginRoot, '.dimo-plugin', 'plugin.json'), 'utf8'),
     );
     assert.equal(manifest.manifestVersion, 4);
     assert.equal(manifest.apiVersion, '2.0');
-    assert.equal(manifest.id, 'vibex.voice-input');
+    assert.equal(manifest.id, 'dimo.voice-input');
     assert.equal(manifest.entrypoints.worker.path, 'dist/worker.mjs');
     assert.equal(manifest.entrypoints.app.entry, 'app/main.js');
 
@@ -50,11 +50,11 @@ describe('vibex.voice-input plugin', () => {
   });
 
   it('parses custom vocabulary and builds Whisper prompts', () => {
-    const terms = parseVocabularyList('VibeX, Tauri，Monaco\nWorktree');
-    assert.deepEqual(terms, ['VibeX', 'Tauri', 'Monaco', 'Worktree']);
+    const terms = parseVocabularyList('Dimo, Tauri，Monaco\nWorktree');
+    assert.deepEqual(terms, ['Dimo', 'Tauri', 'Monaco', 'Worktree']);
 
     const zhPrompt = buildWhisperPrompt(terms, 'zh');
-    assert.match(zhPrompt, /VibeX, Tauri, Monaco, Worktree/);
+    assert.match(zhPrompt, /Dimo, Tauri, Monaco, Worktree/);
 
     const enPrompt = buildWhisperPrompt(terms, 'en');
     assert.match(enPrompt, /Technical glossary/);
@@ -65,12 +65,12 @@ describe('vibex.voice-input plugin', () => {
       '嗯，那个就是说，我我想要在 vibe x 里面用 type script 修改一下 淘瑞 窗口的 monaco 编辑器';
     const cleaned = cleanTranscriptText(raw, {
       cleanupMode: 'auto-clean',
-      vocabulary: 'VibeX, Tauri, Monaco, TypeScript',
+      vocabulary: 'Dimo, Tauri, Monaco, TypeScript',
     });
     assert.ok(!cleaned.startsWith('嗯'));
     assert.ok(!cleaned.includes('那个就是说'));
     assert.ok(!cleaned.includes('我我'));
-    assert.match(cleaned, /VibeX/);
+    assert.match(cleaned, /Dimo/);
     assert.match(cleaned, /TypeScript/);
     assert.match(cleaned, /Tauri/);
     assert.match(cleaned, /Monaco/);
@@ -80,9 +80,9 @@ describe('vibex.voice-input plugin', () => {
     const raw = 'um we use vibe x and rust';
     const cleaned = cleanTranscriptText(raw, {
       cleanupMode: 'off',
-      vocabulary: 'VibeX, Rust',
+      vocabulary: 'Dimo, Rust',
     });
-    assert.equal(cleaned, 'um we use VibeX and Rust');
+    assert.equal(cleaned, 'um we use Dimo and Rust');
   });
 
   it('builds OpenAI Whisper and Groq multipart audio requests', () => {
@@ -95,7 +95,7 @@ describe('vibex.voice-input plugin', () => {
       audioBase64: sampleAudio,
       mimeType: 'audio/wav',
       language: 'zh',
-      vocabulary: 'VibeX, Tauri',
+      vocabulary: 'Dimo, Tauri',
     });
     assert.equal(openaiReq.url, 'https://api.openai.com/v1/audio/transcriptions');
     assert.equal(openaiReq.headers.Authorization, 'Bearer sk-test-123');
@@ -127,7 +127,7 @@ describe('vibex.voice-input plugin', () => {
       model: 'gpt-4o-audio-preview',
       audioBase64: `data:audio/wav;base64,${sampleAudio}`,
       mimeType: 'audio/wav',
-      vocabulary: 'VibeX',
+      vocabulary: 'Dimo',
     });
     assert.equal(
       chatAudioReq.url,
@@ -145,11 +145,11 @@ describe('vibex.voice-input plugin', () => {
       apiKey: 'sk-clean',
       model: 'gpt-4o-mini',
       rawText: '嗯 帮我看看 vibe x',
-      vocabulary: 'VibeX',
+      vocabulary: 'Dimo',
     });
     const parsedCleanup = JSON.parse(cleanupReq.body);
     assert.equal(parsedCleanup.messages[0].role, 'system');
-    assert.match(parsedCleanup.messages[0].content, /VibeX/);
+    assert.match(parsedCleanup.messages[0].content, /Dimo/);
   });
 
   it('transcribes via cloud Whisper and applies post-transcription cleanup in VoiceInputEngine', async () => {
@@ -184,7 +184,7 @@ describe('vibex.voice-input plugin', () => {
       res.rawText,
       '嗯，那个就是说，请帮我检查 vibe x 的 monaco 插件状态',
     );
-    assert.match(res.cleanedText, /请帮我检查 VibeX 的 Monaco 插件状态/);
+    assert.match(res.cleanedText, /请帮我检查 Dimo 的 Monaco 插件状态/);
     assert.equal(res.text, res.cleanedText);
   });
 
@@ -238,7 +238,7 @@ describe('vibex.voice-input plugin', () => {
     );
   });
 
-  it('records, transcribes, and inserts into VibeX session composer or Monaco editor via VoiceSessionController', async () => {
+  it('records, transcribes, and inserts into Dimo session composer or Monaco editor via VoiceSessionController', async () => {
     let insertedText = null;
     let fakeRecognition = null;
 
@@ -301,7 +301,7 @@ describe('vibex.voice-input plugin', () => {
     assert.equal(stopRes.stopped, true);
     assert.equal(stopRes.inserted, true);
     assert.equal(stopRes.target, 'session-composer');
-    assert.match(insertedText, /请在 VibeX 中打开 Tauri 设置/);
+    assert.match(insertedText, /请在 Dimo 中打开 Tauri 设置/);
   });
 
   it('inserts with Undo Stop Barrier when a Monaco editor has focus', async () => {
@@ -366,7 +366,7 @@ describe('vibex.voice-input plugin', () => {
     const transcribeRes = await handlers.get('voice.transcribe')({
       liveTranscript: '嗯 帮我运行 vibe x 单元测试',
     });
-    assert.match(transcribeRes.text, /帮我运行 VibeX 单元测试/);
+    assert.match(transcribeRes.text, /帮我运行 Dimo 单元测试/);
     assert.equal(draftCalls.length, 1);
     assert.equal(draftCalls[0].op, 'draft.insert');
 
@@ -375,7 +375,7 @@ describe('vibex.voice-input plugin', () => {
 
   it('declares x-visible-when on cloud-only config fields so browser-speech hides API URL/Key/Model', () => {
     const manifest = JSON.parse(
-      readFileSync(join(pluginRoot, '.vibex-plugin', 'plugin.json'), 'utf8'),
+      readFileSync(join(pluginRoot, '.dimo-plugin', 'plugin.json'), 'utf8'),
     );
     const props = manifest.config.schema.properties;
     for (const cloudKey of ['baseUrl', 'apiKey', 'model', 'cleanupModel']) {
@@ -411,7 +411,7 @@ describe('vibex.voice-input plugin', () => {
 
     assert.ok(osCalledWithWav);
     assert.equal(res.provider, 'os-speech');
-    assert.match(res.text, /请帮我打开 VibeX 的语音设置/);
+    assert.match(res.text, /请帮我打开 Dimo 的语音设置/);
   });
 
   it('cancels recording cleanly via cancelRecording without inserting text', async () => {
@@ -586,7 +586,7 @@ describe('vibex.voice-input plugin', () => {
       }
       assert.equal(hudRoot.style.left, '320px');
       assert.equal(hudRoot.style.top, '240px');
-      const savedPos = JSON.parse(storageMap.get('vibex.voice-input.hud-position'));
+      const savedPos = JSON.parse(storageMap.get('dimo.voice-input.hud-position'));
       assert.deepEqual(savedPos, { left: 320, top: 240 });
 
       // 4. Clicking cancelBtn stops recording immediately

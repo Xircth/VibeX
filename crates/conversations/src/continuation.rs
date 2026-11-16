@@ -157,7 +157,7 @@ pub fn select_history(turns: &[MessageTurn], budget: usize) -> HistorySelection 
 
 fn history_prompt(items: &[HistoryItem], omitted: usize) -> String {
     format!(
-        "{HANDOFF_MARKER} Hidden reasoning, permissions and running tools are not transferred. {} earlier items omitted; attachments may be omitted. Additional history is available in VibeX, but no Agent reading tool is assumed.\n{}\n{HANDOFF_END}",
+        "{HANDOFF_MARKER} Hidden reasoning, permissions and running tools are not transferred. {} earlier items omitted; attachments may be omitted. Additional history is available in Dimo, but no Agent reading tool is assumed.\n{}\n{HANDOFF_END}",
         omitted,
         serde_json::to_string(items).expect("history items serialize")
     )

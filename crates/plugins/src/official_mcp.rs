@@ -23,7 +23,7 @@ pub const SESSION_FEAT_ALL: u8 =
     SESSION_FEAT_FEEDBACK | SESSION_FEAT_ASK | SESSION_FEAT_SESSIONS | SESSION_FEAT_SESSION_CONTROL;
 
 /// Host-injected / native-projected MCP identity for multi-agent delegation.
-pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
+pub const DELEGATION_MCP_NAME: &str = "dimo-delegation-mcp";
 
 /// `--features` for the host delegation companion. Ordinary sessions omit `space`.
 pub const DELEGATION_MCP_FEATURES: &str = "delegation,sessions,collaboration";
@@ -64,13 +64,13 @@ impl Default for HostDelegationLimits {
 }
 
 /// Host-injected / native-projected MCP identity for session enhancement.
-pub const SESSION_MCP_NAME: &str = "vibex-session-mcp";
+pub const SESSION_MCP_NAME: &str = "dimo-session-mcp";
 
 /// Host-injected MCP identity for plugin development link requests.
-pub const PLUGIN_DEV_MCP_NAME: &str = "vibex-plugin-dev-mcp";
+pub const PLUGIN_DEV_MCP_NAME: &str = "dimo-plugin-dev-mcp";
 
 /// Host-injected / native-projected MCP identity for Workflow Creator.
-pub const WORKFLOW_MCP_NAME: &str = "vibex-workflow-mcp";
+pub const WORKFLOW_MCP_NAME: &str = "dimo-workflow-mcp";
 
 /// Grok `session/new` waits for every native `config.toml` MCP server using
 /// `startup_timeout_sec` (default 30). Official product MCPs are also injected
@@ -126,7 +126,7 @@ impl OfficialMcpRuntime {
 
     pub fn allow_workflow_mcp(&self) -> bool {
         self.bindings().iter().any(|binding| {
-            binding.binary_id == "vibex-workflow-mcp" || binding.product == "workflow"
+            binding.binary_id == "dimo-workflow-mcp" || binding.product == "workflow"
         })
     }
 
@@ -286,7 +286,7 @@ impl OfficialMcpRuntime {
         let token = token_slot.clone().unwrap_or_default();
         bindings.push(OfficialMcpBinding {
             plugin_id: HOST_MULTI_AGENT_ID.to_owned(),
-            binary_id: "vibex-mcp".to_owned(),
+            binary_id: "dimo-mcp".to_owned(),
             product: "delegation".to_owned(),
             features: 0,
             token,
@@ -358,7 +358,7 @@ pub fn host_family_product(spec: &Value) -> Option<&'static str> {
     match (managed.get("product").and_then(Value::as_str), binary_id) {
         (Some("session"), _) => Some("session"),
         (Some("delegation"), _) => Some("delegation"),
-        (Some("workflow"), _) | (_, "vibex-workflow-mcp") => Some("workflow"),
+        (Some("workflow"), _) | (_, "dimo-workflow-mcp") => Some("workflow"),
         _ => None,
     }
 }
@@ -411,7 +411,7 @@ fn sanitize_mcp_server_id(id: &str) -> String {
     out
 }
 
-/// `--features` value consumed by `vibex-mcp`.
+/// `--features` value consumed by `dimo-mcp`.
 pub fn session_feature_arg(bits: u8) -> String {
     [
         (bits & SESSION_FEAT_FEEDBACK != 0, "feedback"),
@@ -427,7 +427,7 @@ pub fn session_feature_arg(bits: u8) -> String {
 
 /// Static stdio spec projected into Agent native MCP files at plugin enable.
 /// Session identity is not baked in; the Agent process inherits
-/// `VIBEX_CONVERSATION_ID`, and ACP agents still get per-session `session/new`.
+/// `DIMO_CONVERSATION_ID`, and ACP agents still get per-session `session/new`.
 pub fn host_family_stdio_spec(
     command: &str,
     product: &str,
@@ -659,7 +659,7 @@ pub fn host_collaboration_mcp_row(
 ) -> PluginMcpPluginStatus {
     let connection = if !enabled {
         "disabled"
-    } else if !binary_runnable("vibex-mcp") {
+    } else if !binary_runnable("dimo-mcp") {
         "unavailable"
     } else {
         "running"
@@ -738,7 +738,7 @@ fn plugin_mcp_row(
                 .get("managedRuntime")
                 .and_then(|value| value.get("binaryId"))
                 .and_then(Value::as_str)
-                .unwrap_or("vibex-mcp");
+                .unwrap_or("dimo-mcp");
             needs_binary = Some(binary_id.to_owned());
         }
         servers.push(PluginMcpServerStatus {
@@ -839,7 +839,7 @@ mod tests {
 
         runtime.publish_binding(OfficialMcpBinding {
             plugin_id: "any.publisher.delegation".to_owned(),
-            binary_id: "vibex-mcp".to_owned(),
+            binary_id: "dimo-mcp".to_owned(),
             product: "delegation".to_owned(),
             features: 0,
             token: "t".to_owned(),
@@ -853,7 +853,7 @@ mod tests {
 
         runtime.publish_binding(OfficialMcpBinding {
             plugin_id: "any.publisher.session".to_owned(),
-            binary_id: "vibex-mcp".to_owned(),
+            binary_id: "dimo-mcp".to_owned(),
             product: "session".to_owned(),
             features: SESSION_FEAT_ASK,
             token: "t".to_owned(),
@@ -881,7 +881,7 @@ mod tests {
                 "session": {
                     "managedRuntime": {
                         "kind": "hostFamilyBinary",
-                        "binaryId": "vibex-mcp",
+                        "binaryId": "dimo-mcp",
                         "product": "session"
                     }
                 }
@@ -899,13 +899,13 @@ mod tests {
         let spec = json!({
             "managedRuntime": {
                 "kind": "hostFamilyBinary",
-                "binaryId": "vibex-mcp",
+                "binaryId": "dimo-mcp",
                 "product": "delegation"
             }
         });
         assert_eq!(host_family_product(&spec), Some("delegation"));
         assert_eq!(
-            projected_mcp_server_id("vibex.multi-agent", "vibex-delegation-mcp", &spec),
+            projected_mcp_server_id("dimo.multi-agent", "dimo-delegation-mcp", &spec),
             DELEGATION_MCP_NAME
         );
         assert_eq!(
@@ -935,14 +935,14 @@ mod tests {
     #[test]
     fn host_family_stdio_spec_is_plugin_lifetime_not_session_scoped() {
         let spec = host_family_stdio_spec(
-            "/opt/vibex-mcp",
+            "/opt/dimo-mcp",
             "delegation",
             "delegation",
             Some("http://127.0.0.1:9"),
             Some("plugin-token"),
         );
         assert_eq!(spec["type"], "stdio");
-        assert_eq!(spec["command"], "/opt/vibex-mcp");
+        assert_eq!(spec["command"], "/opt/dimo-mcp");
         let args = spec["args"]
             .as_array()
             .expect("args")
@@ -962,7 +962,7 @@ mod tests {
             json!(HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC)
         );
         let workflow =
-            host_family_stdio_spec("/opt/vibex-workflow-mcp", "workflow", "", None, None);
+            host_family_stdio_spec("/opt/dimo-workflow-mcp", "workflow", "", None, None);
         assert_eq!(workflow["args"], json!([]));
         assert_eq!(
             workflow["startup_timeout_sec"],
@@ -974,12 +974,12 @@ mod tests {
     fn host_delegation_survives_plugin_sync_and_ignores_packages() {
         let runtime = OfficialMcpRuntime::default();
         let package = plugin(
-            "vibex.multi-agent",
+            "dimo.multi-agent",
             json!({
-                "vibex-delegation-mcp": {
+                "dimo-delegation-mcp": {
                     "managedRuntime": {
                         "kind": "hostFamilyBinary",
-                        "binaryId": "vibex-mcp",
+                        "binaryId": "dimo-mcp",
                         "product": "delegation"
                     }
                 }
@@ -1021,10 +1021,10 @@ mod tests {
         let enabled = plugin(
             "acme.delegation",
             json!({
-                "vibex-delegation-mcp": {
+                "dimo-delegation-mcp": {
                     "managedRuntime": {
                         "kind": "hostFamilyBinary",
-                        "binaryId": "vibex-mcp",
+                        "binaryId": "dimo-mcp",
                         "product": "delegation"
                     }
                 }
@@ -1037,7 +1037,7 @@ mod tests {
                 "session": {
                     "managedRuntime": {
                         "kind": "hostFamilyBinary",
-                        "binaryId": "vibex-mcp",
+                        "binaryId": "dimo-mcp",
                         "product": "session"
                     }
                 }
@@ -1046,7 +1046,7 @@ mod tests {
         );
         disabled.activation = PluginActivation::Disabled;
 
-        let report = plugin_mcp_status_report(&[enabled, disabled], |binary| binary != "vibex-mcp");
+        let report = plugin_mcp_status_report(&[enabled, disabled], |binary| binary != "dimo-mcp");
         assert_eq!(report.state, PluginMcpHeadline::Unavailable);
         assert_eq!(report.plugins.len(), 2);
         assert_eq!(report.plugins[0].plugin_id, "acme.delegation");
@@ -1106,10 +1106,10 @@ mod tests {
             std::slice::from_ref(&plugin(
                 "acme.delegation",
                 json!({
-                    "vibex-delegation-mcp": {
+                    "dimo-delegation-mcp": {
                         "managedRuntime": {
                             "kind": "hostFamilyBinary",
-                            "binaryId": "vibex-mcp",
+                            "binaryId": "dimo-mcp",
                             "product": "delegation"
                         }
                     }

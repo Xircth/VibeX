@@ -12,7 +12,7 @@ use std::{
 
 use agents::{
     AgentKind,
-    acp_transcript::vibex_acp_transcripts_root,
+    acp_transcript::dimo_acp_transcripts_root,
     conversation::{
         ContentBlock, ConversationEvent, ConversationInputBlock, ConversationPlanEntry,
         ConversationSteeringEvent, ConversationToolCallPatch, ConversationUsage, MessageTurn,
@@ -152,7 +152,7 @@ async fn load_legacy_turns_outside_tx(
 ) -> Option<Vec<MessageTurn>> {
     if let Ok(Some(segment_turns)) = crate::transcript_segments::read_in(
         read_pool,
-        &vibex_acp_transcripts_root(),
+        &dimo_acp_transcripts_root(),
         conversation_id,
     )
     .await
@@ -809,7 +809,7 @@ fn append_assistant_turn_events(
 mod tests {
     use agents::{
         AgentId,
-        acp_transcript::{self, EntryKind, TranscriptHeader, vibex_acp_transcripts_root},
+        acp_transcript::{self, EntryKind, TranscriptHeader, dimo_acp_transcripts_root},
         conversation::ConversationTimelineRow,
     };
     use db::models::conversation::CreateConversationRecord;
@@ -874,7 +874,7 @@ mod tests {
 
         // Ensure test transcript isolation is active before writing JSONL entries.
         let _ = crate::jsonl_history::read_existing_transcript_turns(conversation_id);
-        let root = vibex_acp_transcripts_root();
+        let root = dimo_acp_transcripts_root();
         let header = TranscriptHeader::new("codex", &external_sid, "/workspace", 1_700_000_000_000);
         let _ = acp_transcript::record_header_in(&root, "codex", &header).await;
         let _ = acp_transcript::record_entry_in(

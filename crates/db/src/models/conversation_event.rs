@@ -376,7 +376,7 @@ mod tests {
 
     async fn setup_concurrent_file_pool() -> (SqlitePool, String) {
         let db_path = std::env::temp_dir().join(format!(
-            "vibex-conversation-events-{}.sqlite",
+            "dimo-conversation-events-{}.sqlite",
             Uuid::new_v4()
         ));
         let options = SqliteConnectOptions::new()

@@ -2,12 +2,12 @@
 //! handle that cannot signal a recycled pid.
 //!
 //! * **Disclaim** (`responsibility_spawnattrs_setdisclaim`) makes the child
-//!   its own TCC responsible process. vibex launches the helper this way, so
-//!   the permissions the user grants land on the helper and not on vibex —
+//!   its own TCC responsible process. dimo launches the helper this way, so
+//!   the permissions the user grants land on the helper and not on dimo —
 //!   where every agent's shell would inherit them. It is exported by
 //!   libSystem but absent from the public headers, so it is looked up at run
 //!   time; where it is missing, launching the helper fails rather than
-//!   quietly charging its permissions to vibex.
+//!   quietly charging its permissions to dimo.
 //! * **A launch requirement** (see [`super::launch_req`]) has the kernel
 //!   refuse any image that is not the one named, at `exec`, before it runs.
 //!   This is what holds a spawn from a user-writable path to the pinned build:

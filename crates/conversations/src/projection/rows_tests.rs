@@ -525,7 +525,7 @@
         assert_eq!(placeholders.len(), 1, "exactly one placeholder row");
         assert_eq!(
             placeholders[0].message.as_deref(),
-            Some("VibeX 无法读取其中一条历史记录，其余会话内容不受影响。")
+            Some("Dimo 无法读取其中一条历史记录，其余会话内容不受影响。")
         );
 
         // The normal assistant text still folded through, proving the unknown event

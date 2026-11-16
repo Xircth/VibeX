@@ -100,7 +100,7 @@ const LogEntry = memo(function LogEntry({
         expanded: true,
       };
       e.dataTransfer.setData(
-        'application/x-vibex-panel',
+        'application/x-dimo-panel',
         JSON.stringify(payload)
       );
       e.dataTransfer.effectAllowed = 'copy';

@@ -15,7 +15,7 @@ pub struct ConversationReviewCursor {
     pub last_turn_id: Option<String>,
 }
 
-/// Persisted review cursor per Space (`~/.vibex/spaces/<space_id>/reviewed.json`).
+/// Persisted review cursor per Space (`~/.dimo/spaces/<space_id>/reviewed.json`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceReviewState {
@@ -315,7 +315,7 @@ impl ReviewSessionDriver for AgentRuntimeMemoryReviewModel {
             .await
             .map_err(|e| CollaborationError::new("review_model_unavailable", e.to_string()))?;
 
-        let working_dir = utils::path::vibex_scratch_subdir("memory-review")
+        let working_dir = utils::path::dimo_scratch_subdir("memory-review")
             .unwrap_or_else(|_| space_memory_root_dir(space_id));
         let prepared = self
             .context
@@ -907,7 +907,7 @@ pub(super) fn fact_distiller() -> Arc<dyn FactDistiller> {
 /// opening blocks and `[Message from ...]` / `[Group chat ...]` header lines).
 pub(super) fn extract_last_user_delivery_body(raw_prompt: &str) -> &str {
     let trimmed = raw_prompt.trim();
-    if trimmed.contains("<vibex-private-bootstrap>") {
+    if trimmed.contains("<dimo-private-bootstrap>") {
         return "";
     }
     let mut header_end_and_line: Option<(usize, &str)> = None;

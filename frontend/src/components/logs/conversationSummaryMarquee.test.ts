@@ -15,7 +15,7 @@ describe('conversation summary marquee', () => {
   it('finds the grouped tool summary and the mixed activity summary', () => {
     const root = document.createElement('div');
     root.innerHTML = [
-      '<div class="vibex-tool-call-batch">',
+      '<div class="dimo-tool-call-batch">',
       '<div role="button">',
       '<span>wrench</span>',
       '<span>已读 10 个文件、完成 1 次搜索、1 次其他工具调用</span>',
@@ -30,7 +30,7 @@ describe('conversation summary marquee', () => {
     ].join('');
 
     const batchLabel = root.querySelector(
-      '.vibex-tool-call-batch [role="button"] span'
+      '.dimo-tool-call-batch [role="button"] span'
     );
     const activityIcon = root.querySelector('.conv-activity-header svg');
 

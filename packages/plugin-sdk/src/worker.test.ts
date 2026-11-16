@@ -8,7 +8,7 @@ import {
   PluginSdkError,
 } from './worker.js';
 
-describe('VibeX plugin worker SDK', () => {
+describe('Dimo plugin worker SDK', () => {
   it('registers typed handlers and disposes them in reverse order', async () => {
     const disposal: string[] = [];
     const worker = definePluginWorker((plugin) => {
@@ -86,10 +86,10 @@ describe('VibeX plugin worker SDK', () => {
     });
 
     const providerHarness = await createWorkerHarness(providerWorker, {
-      pluginId: 'dev.vibex.provider',
+      pluginId: 'dev.dimo.provider',
     });
     const consumerHarness = await createWorkerHarness(consumerWorker, {
-      pluginId: 'dev.vibex.consumer',
+      pluginId: 'dev.dimo.consumer',
     });
 
     await expect(
@@ -129,7 +129,7 @@ describe('VibeX plugin worker SDK', () => {
     const v1Harness = await createWorkerHarness(v1);
     const v2Harness = await createWorkerHost(v2, {
       context: {
-        pluginId: 'dev.vibex.v2',
+        pluginId: 'dev.dimo.v2',
         pluginVersion: '0.0.0-test',
         generation: 1,
         packageClass: 'full-trust',
@@ -153,7 +153,7 @@ describe('VibeX plugin worker SDK', () => {
         },
         {
           context: {
-            pluginId: 'dev.vibex.bad',
+            pluginId: 'dev.dimo.bad',
             pluginVersion: '0.0.0-test',
             generation: 1,
             packageClass: 'full-trust',

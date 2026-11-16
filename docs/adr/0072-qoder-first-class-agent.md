@@ -2,12 +2,12 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Qoder 接入为一等 Agent，ACP 启动参数收敛到单一解析口
 
-Qoder CLI 原生实现 ACP，具备接入 VibeX 的全部条件。本 ADR 把它加入
+Qoder CLI 原生实现 ACP，具备接入 Dimo 的全部条件。本 ADR 把它加入
 `AgentKind`，按既有的 npx 托管安装形态接入，并顺带修掉一处会让它启动错的
 既有缺陷：ACP 启动参数在三个地方各推导一遍。
 
@@ -19,17 +19,17 @@ Qoder CLI 原生实现 ACP，具备接入 VibeX 的全部条件。本 ADR 把它
 `frontend/src/components/onboarding/hero/EquationLine.tsx` 的四个轮播位语义不同：
 
 - `SLOT_A` 是**用户现在用的 IDE**（Cursor / Trae / Qoder / VS Code / JetBrains）。
-- `SLOT_B` 是**VibeX 能跑的 Agent**（13 个内置档案里的 12 个）。
+- `SLOT_B` 是**Dimo 能跑的 Agent**（13 个内置档案里的 12 个）。
 
 Qoder 目前是 `SLOT_A` 里 `kind: 'mark'` 的一条，用 `EquationIcons` 的通用字形
-渲染。这本身没有谎报——它说的是「你从 Qoder 过来」，不是「VibeX 能跑 Qoder」。
-问题是**能力缺口**而非诚实性缺口：Qoder CLI 已经原生支持 ACP，VibeX 却接不了它。
+渲染。这本身没有谎报——它说的是「你从 Qoder 过来」，不是「Dimo 能跑 Qoder」。
+问题是**能力缺口**而非诚实性缺口：Qoder CLI 已经原生支持 ACP，Dimo 却接不了它。
 
 Qoder CLI 的接入条件（来自 `docs.qoder.com/cli/acp` 与 Zed ACP agent 页）：
 
 - 以 `--acp` 参数启动即为 ACP server，走 stdio。
 - 支持内置工具、Subagent、MCP（stdio/SSE/Streamable HTTP）、权限配置、上下文
-  压缩、多模态图片；文件与终端操作走 ACP 交给客户端。这几项正好覆盖 VibeX 依赖
+  压缩、多模态图片；文件与终端操作走 ACP 交给客户端。这几项正好覆盖 Dimo 依赖
   的 ACP 面。
 - 鉴权有两条路：CLI 内 `/login`（浏览器或 PAT），或 `QODER_PERSONAL_ACCESS_TOKEN`
   环境变量；环境变量优先于已登录状态。
@@ -53,7 +53,7 @@ npm 上 `@qoder-ai/qodercli` 的 `latest` 是 `1.1.44`，`bin` 同时提供 `qod
 ### 既有缺陷：ACP 启动参数有三份推导
 
 `--acp` 是 Qoder 的开关——不带它，同一个可执行文件起的是交互式 TUI 而不是 ACP
-server。而 VibeX 目前从 `install_sources` 里按组件反查启动参数，这段逻辑在三处
+server。而 Dimo 目前从 `install_sources` 里按组件反查启动参数，这段逻辑在三处
 各写了一遍：
 
 - `crates/agents/src/launch_gate.rs` 的 `discover_path_acp_launch_lock`
@@ -105,7 +105,7 @@ registry 的 `dist.integrity`。`external_candidates` 同时覆盖 `qoder` 与
 
 Qoder 的账号面是 `qoder login`（或 IDE 的 `qoder-browser` 流程）。无浏览器环境
 可用同一账号的 `QODER_PERSONAL_ACCESS_TOKEN`；它不是独立的官方 API Key，也
-没有可改的官方 URL。`allow_byok` 只是账号能力位，不是 VibeX 的供应商模式。
+没有可改的官方 URL。`allow_byok` 只是账号能力位，不是 Dimo 的供应商模式。
 因此 `built_in_auth_mode_policy` 只声明 `official_subscription`，设置页不出现
 鉴权 Tab。登录动作是 `qodercli login`，不能裸启 TUI。
 

@@ -15,7 +15,7 @@ const WORKFLOW_IDS = [
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.office',
+  id: 'dimo.office',
   activate(ctx) {
     let idleTimeoutMinutes = 10;
 
@@ -27,7 +27,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.office.preview',
+      id: 'dimo.office.preview',
       title: 'Preview Office Document',
       category: 'Office',
       icon: 'file-text',
@@ -36,7 +36,7 @@ export default {
       },
     });
 
-    ctx.services.provide('vibex.office', {
+    ctx.services.provide('dimo.office', {
       supportedExtensions: [...SUPPORTED_EXTENSIONS],
       supportedMediaTypes: [...SUPPORTED_MEDIA_TYPES],
       workflows: [...WORKFLOW_IDS],

@@ -1,10 +1,19 @@
 {
-  "name": "@vibex/plugin-cli",
+  "name": "@dimoai/plugin-cli",
   "version": "2.0.0",
   "type": "module",
-  "description": "Build, validate, test, link, and package VibeX plugins",
+  "description": "Build, validate, test, link, and package Dimo plugins",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DimoADE/Dimo.git",
+    "directory": "packages/plugin-cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
-    "vibex-plugin": "dist/cli.js"
+    "dimo-plugin": "dist/cli.js"
   },
   "files": [
     "dist"
@@ -16,7 +25,7 @@
   },
   "dependencies": {
     "@module-federation/vite": "^1.9.0",
-    "@vibex/plugin-sdk": "workspace:*",
+    "@dimoai/plugin-sdk": "workspace:*",
     "adm-zip": "^0.6.1",
     "esbuild": "^0.25.0",
     "react": "^19.2.8",

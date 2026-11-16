@@ -56,7 +56,7 @@ fn write_crash_report(info: &std::panic::PanicHookInfo<'_>) -> std::io::Result<P
     let backtrace = std::backtrace::Backtrace::force_capture();
 
     let report = format!(
-        "VibeX crash report\n\
+        "Dimo crash report\n\
          ==================\n\
          time (UTC): {time}\n\
          app version: {version}\n\

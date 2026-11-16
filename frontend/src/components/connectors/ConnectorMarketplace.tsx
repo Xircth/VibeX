@@ -74,7 +74,7 @@ export interface ConnectorMarketplaceOpenEventDetail {
 }
 
 export const OPEN_CONNECTOR_MARKETPLACE_EVENT =
-  'vibex:open-connector-marketplace';
+  'dimo:open-connector-marketplace';
 
 export function dispatchOpenConnectorMarketplace(
   detail?: ConnectorMarketplaceOpenEventDetail

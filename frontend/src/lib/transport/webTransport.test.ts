@@ -83,7 +83,7 @@ describe('WebTransport', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer remote-secret',
           'Content-Type': 'application/json',
-          'X-VibeX-Protocol-Version': '1.0',
+          'X-Dimo-Protocol-Version': '1.0',
         }),
       })
     );
@@ -188,8 +188,8 @@ describe('WebTransport', () => {
     expect(socket.url).toBe('ws://127.0.0.1:17891/api/v1/ws');
     expect(socket.url).not.toContain('remote-secret');
     expect(socket.protocols).toEqual([
-      'vibex.v1',
-      expect.stringMatching(/^vibex\.token\./),
+      'dimo.v1',
+      expect.stringMatching(/^dimo\.token\./),
     ]);
     socket.open();
     const attaches = socket.sent.map((frame) => JSON.parse(frame));

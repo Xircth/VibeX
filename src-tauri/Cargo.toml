@@ -1,8 +1,8 @@
 [package]
-name = "vibex"
+name = "dimo"
 version = "0.4.4"
 edition = "2024"
-default-run = "vibex"
+default-run = "dimo"
 
 [features]
 qa-mode = ["executors/qa-mode"]
@@ -12,7 +12,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri-plugin-redline = "=0.1.0"
-tauri-plugin-vibex-inspector = { path = "../.vibex/tauri-plugin-vibex-inspector" }
+tauri-plugin-dimo-inspector = { path = "../.dimo/tauri-plugin-dimo-inspector" }
 tauri = { version = "2", features = ["image-png", "tray-icon", "macos-private-api", "protocol-asset"] }
 tauri-runtime-wry = { version = "2", default-features = false }
 tauri-plugin-shell = "2"

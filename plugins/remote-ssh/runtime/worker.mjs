@@ -1,4 +1,4 @@
-import { definePluginWorker } from '@vibex/plugin-sdk';
+import { definePluginWorker } from '@dimoai/plugin-sdk';
 
 import { createPipeline, emptyJob } from './pipeline.mjs';
 import { nonce, secretKey } from './ssh.mjs';

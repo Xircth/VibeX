@@ -1,5 +1,5 @@
 ---
-summary: Ayu Light, Mirage, and Dark color themes for the VibeX window, editor, and terminal.
+summary: Ayu Light, Mirage, and Dark color themes for the Dimo window, editor, and terminal.
 ---
 # Ayu Theme
 
@@ -36,7 +36,7 @@ as your own theme, so plugin updates never overwrite it.
   the stock look.
 - Pure color data: no code runs, no network access, and nothing is stored
   beyond your theme choice. While the plugin is disabled or uninstalled, a
-  scheme set to an Ayu theme shows the VibeX theme; enabling the plugin again
+  scheme set to an Ayu theme shows the Dimo theme; enabling the plugin again
   brings Ayu back.
 
 ## License

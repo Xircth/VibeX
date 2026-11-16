@@ -11,7 +11,7 @@ test(
   { skip: process.platform !== 'win32' },
   () => {
     const temporaryRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'vibex-native-build-env-')
+      path.join(os.tmpdir(), 'dimo-native-build-env-')
     );
     const visualStudioRoot = path.join(
       temporaryRoot,

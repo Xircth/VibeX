@@ -170,7 +170,7 @@ describe('HostTunnelPanel', () => {
       enabled: true,
     });
     hostTunnelApi.checkExisting.mockRejectedValue(
-      new Error('Bad request: Could not reach a VibeX Host')
+      new Error('Bad request: Could not reach a Dimo Host')
     );
     hostTunnelApi.confirmCreate.mockRejectedValue(
       new Error('Bad request: Generate a setup command first')

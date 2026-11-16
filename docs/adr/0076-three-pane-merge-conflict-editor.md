@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 三窗格冲突编辑器：冲突是工作区事实，解决只写工作区

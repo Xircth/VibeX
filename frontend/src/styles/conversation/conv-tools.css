@@ -379,7 +379,7 @@
 }
 
 .conv-tool-artifact-host,
-.vibex-tool-call-result-detail {
+.dimo-tool-call-result-detail {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -749,7 +749,7 @@ button.conv-tool-artifact-title:hover {
    already covers ungrouped rows; restore that 8px only on folds so prose
    does not sit against the aggregation chrome. */
 .conv-activity-batch,
-.conv-assistant-body .astryx-chat-tool-calls.vibex-tool-call-batch {
+.conv-assistant-body .astryx-chat-tool-calls.dimo-tool-call-batch {
   margin-block-start: 8px;
   margin-block-end: 8px;
 }
@@ -763,15 +763,15 @@ button.conv-tool-artifact-title:hover {
   background: var(--conv-surface-control) !important;
 }
 
-.vibex-tool-call-batch > [role='button']:hover,
-.vibex-tool-call-batch > [role='button']:focus-visible {
+.dimo-tool-call-batch > [role='button']:hover,
+.dimo-tool-call-batch > [role='button']:focus-visible {
   background: transparent !important;
 }
 
 /* StyleX paints this label with --text-supporting-size at a specificity a
    plain font-size cannot beat. Match the 13px stream prose. The line stays
    single and clips; hover scrolls it inside the same box. */
-.vibex-tool-call-batch > [role='button'] > span:nth-child(2) {
+.dimo-tool-call-batch > [role='button'] > span:nth-child(2) {
   --text-supporting-size: 13px;
   --text-supporting-leading: 1.7;
   display: block;
@@ -815,7 +815,7 @@ button.conv-tool-artifact-title:hover {
   overflow: visible;
 }
 
-.vibex-tool-call-result-detail,
+.dimo-tool-call-result-detail,
 .conv-tool-artifact-host,
 .conv-tool-artifact {
   width: 100%;
@@ -824,20 +824,20 @@ button.conv-tool-artifact-title:hover {
 }
 
 .astryx-chat-tool-calls
-  [role='button']:has(.vibex-tool-call-target)
+  [role='button']:has(.dimo-tool-call-target)
   > span:nth-child(2) {
   flex-shrink: 0 !important;
   overflow: visible !important;
   text-overflow: clip !important;
 }
 
-.astryx-chat-tool-calls [role='button'] > span:has(.vibex-tool-call-target) {
+.astryx-chat-tool-calls [role='button'] > span:has(.dimo-tool-call-target) {
   flex: 1 1 0 !important;
   min-width: 0 !important;
   overflow: hidden;
 }
 
-.vibex-tool-call-target {
+.dimo-tool-call-target {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
@@ -845,7 +845,7 @@ button.conv-tool-artifact-title:hover {
   gap: 5px;
 }
 
-.vibex-tool-call-file-icon {
+.dimo-tool-call-file-icon {
   display: inline-flex;
   width: 14px;
   height: 14px;
@@ -853,7 +853,7 @@ button.conv-tool-artifact-title:hover {
   overflow: hidden;
 }
 
-.vibex-tool-call-target-label {
+.dimo-tool-call-target-label {
   min-width: 0;
   overflow: hidden;
   padding: 0;
@@ -865,7 +865,7 @@ button.conv-tool-artifact-title:hover {
   white-space: nowrap;
 }
 
-.vibex-tool-call-target-label.is-overflow {
+.dimo-tool-call-target-label.is-overflow {
   text-overflow: ellipsis;
   mask-image: linear-gradient(
     to right,
@@ -875,15 +875,15 @@ button.conv-tool-artifact-title:hover {
   );
 }
 
-button.vibex-tool-call-target-label {
+button.dimo-tool-call-target-label {
   cursor: pointer;
 }
 
-button.vibex-tool-call-target-label:hover {
+button.dimo-tool-call-target-label:hover {
   color: var(--conv-tool-icon);
 }
 
-.vibex-tool-call-target-suffix {
+.dimo-tool-call-target-suffix {
   flex-shrink: 0;
   color: var(--conv-text-tertiary);
   font-variant-numeric: tabular-nums;
@@ -921,7 +921,7 @@ button.vibex-tool-call-target-label:hover {
   white-space: nowrap;
 }
 
-.vibex-tool-file-link {
+.dimo-tool-file-link {
   min-width: 0;
   max-width: min(34rem, 48vw);
   overflow: hidden;
@@ -935,7 +935,7 @@ button.vibex-tool-call-target-label:hover {
   cursor: pointer;
 }
 
-.vibex-tool-file-link:hover {
+.dimo-tool-file-link:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -1142,19 +1142,19 @@ button.vibex-tool-call-target-label:hover {
   margin-top: 10px;
 }
 
-.conv-assistant-body > .vibex-turn-tool-calls:only-child:has(> .conv-thinking),
-.conv-nested-scroll > .vibex-turn-tool-calls:has(> .conv-thinking) {
+.conv-assistant-body > .dimo-turn-tool-calls:only-child:has(> .conv-thinking),
+.conv-nested-scroll > .dimo-turn-tool-calls:has(> .conv-thinking) {
   margin-top: 10px;
   margin-bottom: 10px;
 }
 
 .conv-collapsed-process.is-expanded
   .conv-nested-scroll
-  > .vibex-turn-tool-calls:first-child:has(> .conv-thinking) {
+  > .dimo-turn-tool-calls:first-child:has(> .conv-thinking) {
   margin-top: 0;
 }
 
-.conv-nested-scroll > .vibex-turn-tool-calls:has(> .conv-thinking) + * {
+.conv-nested-scroll > .dimo-turn-tool-calls:has(> .conv-thinking) + * {
   margin-top: 0;
 }
 
@@ -1259,7 +1259,7 @@ button.vibex-tool-call-target-label:hover {
   white-space: nowrap;
 }
 
-.vibex-tool-call-batch > [role='button'] > span:nth-child(2).is-overflow,
+.dimo-tool-call-batch > [role='button'] > span:nth-child(2).is-overflow,
 .conv-activity-header > span.is-overflow {
   mask-image: linear-gradient(
     to right,
@@ -1269,8 +1269,8 @@ button.vibex-tool-call-target-label:hover {
   );
 }
 
-.vibex-tool-call-batch > [role='button']:hover > span:nth-child(2),
-.vibex-tool-call-batch > [role='button']:focus-visible > span:nth-child(2),
+.dimo-tool-call-batch > [role='button']:hover > span:nth-child(2),
+.dimo-tool-call-batch > [role='button']:focus-visible > span:nth-child(2),
 .conv-activity-header:hover > span,
 .conv-activity-header:focus-visible > span {
   mask-image: none;

@@ -1,6 +1,6 @@
 -- Event-sourced conversation core.
 --
--- `sessions.id` remains the physical VibeX conversation id during the cutover.
+-- `sessions.id` remains the physical Dimo conversation id during the cutover.
 -- The new conversation_* tables own durable turns, events, projections, side
 -- effects, import/export metadata, and ACP binding state. Agent transcript files
 -- are no longer the intended conversation-detail source.
@@ -215,7 +215,7 @@ CREATE INDEX idx_conversation_checkpoints_turn
 CREATE TABLE conversation_imports (
     id BLOB PRIMARY KEY,
     source TEXT NOT NULL
-        CHECK (source IN ('vibex_bundle','agent_transcript')),
+        CHECK (source IN ('dimo_bundle','agent_transcript')),
     source_agent TEXT,
     external_session_id TEXT,
     bundle_version TEXT,

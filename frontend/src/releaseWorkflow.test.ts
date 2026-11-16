@@ -31,7 +31,7 @@ function cargoBinaryNames(packageDirectory: string): string[] {
 
 describe('release workflow contract', () => {
   it('builds and packages the Cargo binary targets that actually exist', () => {
-    const packages = ['crates/server', 'crates/vibex-mcp', 'crates/review'].map(
+    const packages = ['crates/server', 'crates/dimo-mcp', 'crates/review'].map(
       (directory) => ({
         directory,
         packageName: cargoPackageName(directory),
@@ -43,12 +43,12 @@ describe('release workflow contract', () => {
       {
         directory: 'crates/server',
         packageName: 'server',
-        binaryNames: ['vibex-server'],
+        binaryNames: ['dimo-server'],
       },
       {
-        directory: 'crates/vibex-mcp',
-        packageName: 'vibex-mcp',
-        binaryNames: ['vibex-mcp'],
+        directory: 'crates/dimo-mcp',
+        packageName: 'dimo-mcp',
+        binaryNames: ['dimo-mcp'],
       },
       {
         directory: 'crates/review',
@@ -73,7 +73,7 @@ describe('release workflow contract', () => {
 
   it('uses the current server binary target for backend development', () => {
     const launcher = read('scripts/run-backend-dev.js');
-    expect(launcher).toContain('run --bin vibex-server');
+    expect(launcher).toContain('run --bin dimo-server');
     expect(launcher).not.toContain('run --bin server');
   });
 
@@ -119,7 +119,7 @@ describe('release workflow contract', () => {
     expect(read('scripts/smoke-macos-desktop.sh')).toContain(
       'kill -KILL "$app_pid"'
     );
-    expect(workflow).toContain('vibex.exe');
+    expect(workflow).toContain('dimo.exe');
     expect(workflow).toContain('bundles: appimage');
     expect(workflow).toContain('bundles: app');
     expect(workflow).toContain('scripts/macos-notarize-and-dmg.js');

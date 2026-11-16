@@ -416,6 +416,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "dimo-computer-helper"
+version = "0.34.0"
+dependencies = [
+ "arboard",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "core-foundation",
+ "core-foundation-sys",
+ "core-graphics",
+ "dirs",
+ "flate2",
+ "futures-util",
+ "image",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "temp-env",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "windows-sys 0.59.0",
+ "zip",
+]
+
+[[package]]
 name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2213,41 +2248,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vibex-computer-helper"
-version = "0.34.0"
-dependencies = [
- "arboard",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "core-foundation",
- "core-foundation-sys",
- "core-graphics",
- "dirs",
- "flate2",
- "futures-util",
- "image",
- "libc",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "temp-env",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "windows-sys 0.59.0",
- "zip",
-]
 
 [[package]]
 name = "want"

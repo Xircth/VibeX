@@ -187,7 +187,7 @@ impl TauriNativeTabs {
         ]);
         uuid::Uuid::new_v5(
             &NAMESPACE_URL,
-            format!("https://vibex.app/browser-profile/{profile_id}").as_bytes(),
+            format!("https://dimo.app/browser-profile/{profile_id}").as_bytes(),
         )
         .into_bytes()
     }
@@ -444,7 +444,7 @@ fn apply_user_agent(webview: &WebView, device: &str, sign_in_ua: bool) {
 
 #[cfg(not(target_os = "macos"))]
 fn ephemeral_profile_dir() -> PathBuf {
-    utils::path::get_vibex_temp_dir().join("browser-ephemeral")
+    utils::path::get_dimo_temp_dir().join("browser-ephemeral")
 }
 
 fn open_system_browser(url: &str) {
@@ -454,7 +454,7 @@ fn open_system_browser(url: &str) {
     });
 }
 
-/// Proxy inherited from the process environment (VibeX system-proxy settings
+/// Proxy inherited from the process environment (Dimo system-proxy settings
 /// write these before the browser starts). Returns `http://host:port` or
 /// `socks5://host:port`.
 fn inherited_proxy_url() -> Option<String> {
@@ -575,9 +575,9 @@ fn allow_navigation(raw: &str) -> bool {
 /// classic scrollbar gutter. Windows also uses Fluent overlay chrome.
 const OVERLAY_SCROLLBAR_SCRIPT: &str = r#"
 (() => {
-  if (document.getElementById('vibex-overlay-scroll')) return;
+  if (document.getElementById('dimo-overlay-scroll')) return;
   const style = document.createElement('style');
-  style.id = 'vibex-overlay-scroll';
+  style.id = 'dimo-overlay-scroll';
   style.textContent = `
     html { scrollbar-width: thin; scrollbar-color: rgba(80,80,80,.45) transparent; }
     html::-webkit-scrollbar, body::-webkit-scrollbar {
@@ -602,7 +602,7 @@ const OVERLAY_SCROLLBAR_SCRIPT: &str = r#"
 const PAGE_CHROME_SCRIPT: &str = r#"
 (() => {
   function send(kind, payload) {
-    var msg = 'vibex:' + JSON.stringify({ kind: kind, payload: payload });
+    var msg = 'dimo:' + JSON.stringify({ kind: kind, payload: payload });
     try {
       if (window.ipc && typeof window.ipc.postMessage === 'function') {
         window.ipc.postMessage(msg);
@@ -668,10 +668,10 @@ const PAGE_CHROME_SCRIPT: &str = r#"
 
 const PAGE_NAV_SCRIPT: &str = r#"
 (() => {
-  if (window.__vibexNavHooked) return;
-  window.__vibexNavHooked = true;
+  if (window.__dimoNavHooked) return;
+  window.__dimoNavHooked = true;
   function send(kind, payload) {
-    var msg = 'vibex:' + JSON.stringify({ kind: kind, payload: payload });
+    var msg = 'dimo:' + JSON.stringify({ kind: kind, payload: payload });
     try {
       if (window.ipc && typeof window.ipc.postMessage === 'function') {
         window.ipc.postMessage(msg);
@@ -718,9 +718,9 @@ const PAGE_NAV_SCRIPT: &str = r#"
       try {
         sent = send('gesture', {}) || sent;
         sent = send('navigate', { url: url, newTab: true }) || sent;
-        console.info('[vibex-browser] new-tab', url, sent ? 'sent' : 'ipc-missing');
+        console.info('[dimo-browser] new-tab', url, sent ? 'sent' : 'ipc-missing');
       } catch (e) {
-        try { console.info('[vibex-browser] new-tab', url, e); } catch (e2) {}
+        try { console.info('[dimo-browser] new-tab', url, e); } catch (e2) {}
       }
       return;
     }
@@ -778,10 +778,10 @@ const PAGE_NAV_SCRIPT: &str = r#"
 
 const PAGE_CONSOLE_SCRIPT: &str = r#"
 (() => {
-  if (window.__vibexConsoleHooked) return;
-  window.__vibexConsoleHooked = true;
+  if (window.__dimoConsoleHooked) return;
+  window.__dimoConsoleHooked = true;
   function send(payload) {
-    var msg = 'vibex:' + JSON.stringify({ kind: 'console', payload: payload });
+    var msg = 'dimo:' + JSON.stringify({ kind: 'console', payload: payload });
     try {
       if (window.ipc && typeof window.ipc.postMessage === 'function') {
         window.ipc.postMessage(msg);
@@ -918,11 +918,11 @@ fn emit_tab_open_url(app: &tauri::AppHandle, url: &str, source_tab_id: &str) {
 
 fn parse_page_ipc(body: &str) -> Option<Value> {
     let body = body.trim();
-    let body = body.strip_prefix("vibex:").unwrap_or(body);
+    let body = body.strip_prefix("dimo:").unwrap_or(body);
     let value = serde_json::from_str::<Value>(body).ok()?;
     match value {
         Value::String(inner) => {
-            let inner = inner.strip_prefix("vibex:").unwrap_or(&inner);
+            let inner = inner.strip_prefix("dimo:").unwrap_or(&inner);
             serde_json::from_str(inner).ok()
         }
         other => Some(other),
@@ -1066,7 +1066,7 @@ fn emit_tab_open_payload(app: &tauri::AppHandle, payload: Value) {
         let _ = window.emit(PAGE_EVENT, payload.clone());
         if let Ok(json) = serde_json::to_string(&payload) {
             let script = format!(
-                "(function(){{try{{window.dispatchEvent(new CustomEvent('vibex-browser-tab-open',{{detail:{json}}}));}}catch(e){{}}}})();"
+                "(function(){{try{{window.dispatchEvent(new CustomEvent('dimo-browser-tab-open',{{detail:{json}}}));}}catch(e){{}}}})();"
             );
             let _ = window.eval(&script);
         }
@@ -1947,7 +1947,7 @@ impl NativeTabs for TauriNativeTabs {
                                 }
                             }
                             let _ = webview.evaluate_script(
-                                r#"(function(){try{document.querySelectorAll('video,audio').forEach(function(m){if(!m.paused){m.dataset.vibexSuspended='1';m.pause();}});window.__vibexTabSuspended=true;}catch(e){}})()"#,
+                                r#"(function(){try{document.querySelectorAll('video,audio').forEach(function(m){if(!m.paused){m.dataset.dimoSuspended='1';m.pause();}});window.__dimoTabSuspended=true;}catch(e){}})()"#,
                             );
                         } else if bounds.visible {
                             #[cfg(target_os = "windows")]
@@ -1967,7 +1967,7 @@ impl NativeTabs for TauriNativeTabs {
                                 }
                             }
                             let _ = webview.evaluate_script(
-                                r#"(function(){try{if(window.__vibexTabSuspended){window.__vibexTabSuspended=false;document.querySelectorAll('video[data-vibex-suspended="1"],audio[data-vibex-suspended="1"]').forEach(function(m){delete m.dataset.vibexSuspended;m.play().catch(function(){});});}}catch(e){}})()"#,
+                                r#"(function(){try{if(window.__dimoTabSuspended){window.__dimoTabSuspended=false;document.querySelectorAll('video[data-dimo-suspended="1"],audio[data-dimo-suspended="1"]').forEach(function(m){delete m.dataset.dimoSuspended;m.play().catch(function(){});});}}catch(e){}})()"#,
                             );
                         }
                     }

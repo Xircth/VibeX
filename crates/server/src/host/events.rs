@@ -42,9 +42,9 @@ pub struct HostEventChannel {
     pub required_scope: &'static str,
 }
 
-pub const COLLABORATION_SPACE_CHANGED_EVENT: &str = "vibex://collaboration-space-changed";
+pub const COLLABORATION_SPACE_CHANGED_EVENT: &str = "dimo://collaboration-space-changed";
 /// Three-state delivery receipts of a space message changed.
-pub const COLLABORATION_RECEIPTS_CHANGED_EVENT: &str = "vibex://collaboration-receipts-changed";
+pub const COLLABORATION_RECEIPTS_CHANGED_EVENT: &str = "dimo://collaboration-receipts-changed";
 
 /// Catalog of Host push channels. Prefix match is longest-first.
 pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
@@ -134,7 +134,7 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "application.call",
     },
     HostEventChannel {
-        prefix: "vibex://settings-file-changed",
+        prefix: "dimo://settings-file-changed",
         durability: EventDurability::Invalidation,
         required_scope: "application.call",
     },
@@ -622,7 +622,7 @@ mod tests {
             "file-tree-stream",
             "projects-stream",
             "theme-changed",
-            "vibex://collaboration-space-changed",
+            "dimo://collaboration-space-changed",
             "agent-management-snapshot-invalidated",
             "agent-events",
             "slash-commands-stream:codex:default:none:none",

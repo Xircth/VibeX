@@ -43,7 +43,7 @@ describe("parseRunInvocation", () => {
 
   it("prints usage when the script is missing", () => {
     expect(() => parseRunInvocation([])).toThrow(
-      /^Usage: vibex plugin run <server\|dev\|build\|test>$/,
+      /^Usage: dimo plugin run <server\|dev\|build\|test>$/,
     );
   });
 });

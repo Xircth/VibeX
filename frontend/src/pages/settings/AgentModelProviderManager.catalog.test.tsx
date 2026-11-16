@@ -31,7 +31,7 @@ vi.mock('@/lib/api/plugins', () => ({
       generation: 4,
       items: [
         {
-          pluginId: 'vibex.provider-switch',
+          pluginId: 'dimo.provider-switch',
           id: 'claude-code',
           kind: 'provider_model_catalog',
           label: 'Claude Code presets',
@@ -46,7 +46,7 @@ vi.mock('@/lib/api/plugins', () => ({
       templates: [
         {
           id: 'openrouter',
-          plugin_id: 'vibex.provider-switch',
+          plugin_id: 'dimo.provider-switch',
           contribution_id: 'claude-code',
           plugin_label: 'ProviderSwitch',
           agent_id: 'claude_code',

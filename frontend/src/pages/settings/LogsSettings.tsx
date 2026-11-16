@@ -69,7 +69,7 @@ const LOG_MODULES = [
   'services',
   'tool_runtime',
   'utils',
-  'vibex',
+  'dimo',
   'workflows',
 ] as const;
 

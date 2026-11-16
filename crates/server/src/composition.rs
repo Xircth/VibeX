@@ -592,7 +592,7 @@ impl HeadlessServer {
             let recovery = self.automation_recovery.take();
             tokio::spawn(runtime.run(engine, recovery))
         });
-        tracing::info!(%listen_addr, "vibex-server listening");
+        tracing::info!(%listen_addr, "dimo-server listening");
         let result = axum::serve(listener, self.runtime.router())
             .with_graceful_shutdown(shutdown)
             .await;

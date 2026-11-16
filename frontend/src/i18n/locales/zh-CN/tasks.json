@@ -46,7 +46,7 @@
     }
   },
   "agentMention": {
-    "companionUnsupported": "当前父 Agent 不支持 VibeX companion，Mention 不会启动委派。",
+    "companionUnsupported": "当前父 Agent 不支持 Dimo companion，Mention 不会启动委派。",
     "loading": "正在加载 Agent...",
     "noMatches": "没有匹配的 Agent。"
   },
@@ -413,7 +413,7 @@
     "startDevServer": "启动开发服务器",
     "settings": "设置",
     "fixStartScript": "修复启动脚本",
-    "companionDescription": "如果需要在预览中启用点击组件定位，请安装 VibeX Web Companion。",
+    "companionDescription": "如果需要在预览中启用点击组件定位，请安装 Dimo Web Companion。",
     "installingCompanion": "正在安装 Companion",
     "installCompanion": "安装 Companion",
     "viewCompanionRepo": "查看 Companion 仓库"

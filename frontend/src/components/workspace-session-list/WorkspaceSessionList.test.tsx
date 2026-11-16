@@ -35,7 +35,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     updated_at: '2026-08-01T00:00:00Z',
     archived: false,
     pinned: false,
-    name: 'VibeX',
+    name: 'Dimo',
     ...overrides,
   };
 }
@@ -83,7 +83,7 @@ describe('WorkspaceSessionList', () => {
   });
 
   it('groups sessions under the workspace branch or worktree name', () => {
-    const main = workspace({ id: 'ws-main', branch: 'main', name: 'VibeX' });
+    const main = workspace({ id: 'ws-main', branch: 'main', name: 'Dimo' });
     const worktree = workspace({
       id: 'ws-wt',
       branch: 'feature/login',
@@ -121,7 +121,7 @@ describe('WorkspaceSessionList', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'main' })).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'VibeX' })
+      screen.queryByRole('button', { name: 'Dimo' })
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: 'Claude Code', hidden: true })
@@ -165,7 +165,7 @@ describe('WorkspaceSessionList', () => {
     const workspaceLine = card.querySelector(
       '.workspace-session-card-workspace'
     )!;
-    expect(workspaceLine).toHaveTextContent('VibeX');
+    expect(workspaceLine).toHaveTextContent('Dimo');
     expect(
       within(card as HTMLElement).getByRole('img', { name: '待办' })
     ).toBeInTheDocument();
@@ -866,10 +866,10 @@ describe('WorkspaceSessionList', () => {
 
   it('hides Bot sessions from the Workspace session list when hideBotSessions is enabled', () => {
     act(() => {
-      localStorage.setItem('vibex:hide-bot-sessions', 'true');
+      localStorage.setItem('dimo:hide-bot-sessions', 'true');
       window.dispatchEvent(
         new StorageEvent('storage', {
-          key: 'vibex:hide-bot-sessions',
+          key: 'dimo:hide-bot-sessions',
           newValue: 'true',
         })
       );
@@ -912,10 +912,10 @@ describe('WorkspaceSessionList', () => {
     ).not.toBeInTheDocument();
 
     act(() => {
-      localStorage.setItem('vibex:hide-bot-sessions', 'false');
+      localStorage.setItem('dimo:hide-bot-sessions', 'false');
       window.dispatchEvent(
         new StorageEvent('storage', {
-          key: 'vibex:hide-bot-sessions',
+          key: 'dimo:hide-bot-sessions',
           newValue: 'false',
         })
       );

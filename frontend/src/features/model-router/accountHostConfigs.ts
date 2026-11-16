@@ -46,11 +46,11 @@ import {
   type AccountOwnerSummary,
   type RouterOverview,
 } from './account';
-import { resolveAccountDisplayName, useVibeXAccount } from './useVibeXAccount';
+import { resolveAccountDisplayName, useDimoAccount } from './useDimoAccount';
 
-export const ACCOUNT_HOST_CONFIGS_STORAGE_KEY = 'vibex.account.hostConfigs.v1';
+export const ACCOUNT_HOST_CONFIGS_STORAGE_KEY = 'dimo.account.hostConfigs.v1';
 export const DESKTOP_SHARED_HOST_CONFIGS_KEY = '__account_host_configs_v1';
-const ACCOUNT_HOST_CONFIGS_EVENT = 'vibex:account-host-configs-changed';
+const ACCOUNT_HOST_CONFIGS_EVENT = 'dimo:account-host-configs-changed';
 const AUTO_SYNC_DEBOUNCE_MS = 800;
 
 export type AccountHostKind = 'local' | 'ssh' | 'remote' | 'web';
@@ -83,7 +83,7 @@ export type AccountHostConfigSnapshot = {
   osArch: string;
   updatedAt: string;
   fingerprint: string;
-  vibeXSettings: {
+  dimoSettings: {
     userConfig: Partial<PortableUserConfig>;
     frontendPreferences: Record<string, JsonValue>;
   };
@@ -251,7 +251,7 @@ export function computeHostConfigFingerprint(payload: {
   kind: AccountHostKind;
   osType: string;
   osArch: string;
-  vibeXSettings: AccountHostConfigSnapshot['vibeXSettings'];
+  dimoSettings: AccountHostConfigSnapshot['dimoSettings'];
   agents: HostAgentEnablementItem[];
 }): string {
   return hashFingerprint(stableStringify(payload));
@@ -350,14 +350,14 @@ function coerceSnapshot(
       ? candidate.kind
       : 'remote';
   const userConfig =
-    candidate.vibeXSettings?.userConfig &&
-    typeof candidate.vibeXSettings.userConfig === 'object'
-      ? candidate.vibeXSettings.userConfig
+    candidate.dimoSettings?.userConfig &&
+    typeof candidate.dimoSettings.userConfig === 'object'
+      ? candidate.dimoSettings.userConfig
       : {};
   const rawPrefs =
-    candidate.vibeXSettings?.frontendPreferences &&
-    typeof candidate.vibeXSettings.frontendPreferences === 'object'
-      ? candidate.vibeXSettings.frontendPreferences
+    candidate.dimoSettings?.frontendPreferences &&
+    typeof candidate.dimoSettings.frontendPreferences === 'object'
+      ? candidate.dimoSettings.frontendPreferences
       : {};
   const frontendPreferences = Object.fromEntries(
     Object.entries(rawPrefs).filter(
@@ -391,7 +391,7 @@ function coerceSnapshot(
     typeof candidate.updatedAt === 'string' && candidate.updatedAt.trim()
       ? candidate.updatedAt
       : new Date(0).toISOString();
-  const vibeXSettings = {
+  const dimoSettings = {
     userConfig,
     frontendPreferences,
   };
@@ -403,7 +403,7 @@ function coerceSnapshot(
           kind,
           osType,
           osArch,
-          vibeXSettings,
+          dimoSettings,
           agents,
         });
 
@@ -417,7 +417,7 @@ function coerceSnapshot(
     osArch,
     updatedAt,
     fingerprint,
-    vibeXSettings,
+    dimoSettings,
     agents,
   };
 }
@@ -695,7 +695,7 @@ export async function captureCurrentHostSnapshot(
 
   const osType = systemInfo.environment?.os_type ?? '';
   const osArch = systemInfo.environment?.os_architecture ?? '';
-  const vibeXSettings = {
+  const dimoSettings = {
     userConfig,
     frontendPreferences,
   };
@@ -704,7 +704,7 @@ export async function captureCurrentHostSnapshot(
     kind: identity.kind,
     osType,
     osArch,
-    vibeXSettings,
+    dimoSettings,
     agents,
   });
 
@@ -718,7 +718,7 @@ export async function captureCurrentHostSnapshot(
     osArch,
     updatedAt: new Date().toISOString(),
     fingerprint,
-    vibeXSettings,
+    dimoSettings,
     agents,
   };
 }
@@ -855,7 +855,7 @@ export async function reconcileRemoteHostAccount(
     }
   }
 
-  // Case 1: Remote Host has no logged-in VibeX account -> automatically sync current account to it
+  // Case 1: Remote Host has no logged-in Dimo account -> automatically sync current account to it
   if (!remoteToken && !remoteOwner) {
     if (localToken && localUsername) {
       await Promise.resolve()
@@ -875,7 +875,7 @@ export async function reconcileRemoteHostAccount(
     return { syncedToRemote: true, differentAccount: null };
   }
 
-  // Case 2: Remote Host is logged into a DIFFERENT user's VibeX account -> do NOT overwrite; record boundAccount
+  // Case 2: Remote Host is logged into a DIFFERENT user's Dimo account -> do NOT overwrite; record boundAccount
   if (
     remoteOwner &&
     (!localUsername ||
@@ -885,7 +885,7 @@ export async function reconcileRemoteHostAccount(
     return { syncedToRemote: false, differentAccount: remoteOwner };
   }
 
-  // Case 3: Remote Host is logged into the SAME user's VibeX account
+  // Case 3: Remote Host is logged into the SAME user's Dimo account
   writeHostBoundAccount(profileKeys, null);
   if (localToken && localUsername && remoteToken !== localToken) {
     await Promise.resolve()
@@ -926,7 +926,7 @@ async function issueAndApplyLocalRelayLease(input: {
       })
       .catch(() => undefined);
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
+      window.dispatchEvent(new Event('dimo:host-tunnel-updated'));
     }
     return true;
   } catch {
@@ -1247,7 +1247,7 @@ export async function importHostConfigToCurrentHost(params: {
       const mergedConfig = mergePortableUserConfigOntoTarget({
         targetConfig: currentSystem.config,
         targetEnvironment: currentSystem.environment ?? null,
-        sourceUserConfig: source.vibeXSettings.userConfig,
+        sourceUserConfig: source.dimoSettings.userConfig,
         sourceOsType: source.osType,
       });
       const savedConfig = await configApi.saveConfig(mergedConfig);
@@ -1258,7 +1258,7 @@ export async function importHostConfigToCurrentHost(params: {
         });
       }
       await applyImportedFrontendPreferences(
-        source.vibeXSettings.frontendPreferences
+        source.dimoSettings.frontendPreferences
       );
       await refreshLiveFrontendSingletons();
       appliedSettings = true;
@@ -1347,7 +1347,7 @@ export function resetAccountHostConfigsForTests(): void {
 }
 
 export function useAccountHostConfigs() {
-  const { isSignedIn, user } = useVibeXAccount();
+  const { isSignedIn, user } = useDimoAccount();
   const queryClient = useContext(QueryClientContext);
   const state = useSyncExternalStore(
     subscribeStore,
@@ -1464,7 +1464,7 @@ export function useAccountHostConfigs() {
 }
 
 export function AccountHostConfigSyncBridge(): null {
-  const { isSignedIn, user } = useVibeXAccount();
+  const { isSignedIn, user } = useDimoAccount();
   const { config, loading } = useUserSystem();
   const accountKey = isSignedIn ? resolveAccountStorageKey(user) : null;
   const debounceTimerRef = useRef<number | null>(null);
@@ -1511,7 +1511,7 @@ export function AccountHostConfigSyncBridge(): null {
     const handlePreferenceStorage = (event: StorageEvent) => {
       if (
         event.key === ACCOUNT_HOST_CONFIGS_STORAGE_KEY ||
-        event.key === 'vibex.account.token'
+        event.key === 'dimo.account.token'
       ) {
         return;
       }
@@ -1557,7 +1557,7 @@ export function AccountHostConfigSyncBridge(): null {
 function resetStoreOnSignOut(): void {
   void hostTunnelApi.setAccountLease(null).catch(() => undefined);
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
+    window.dispatchEvent(new Event('dimo:host-tunnel-updated'));
   }
   if (
     storeState.accountKey !== null ||

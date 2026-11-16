@@ -8,7 +8,7 @@ import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 export const DEFAULT_KANBAN_CANVAS_LIST_VISIBLE = true;
 export const KANBAN_CANVAS_LIST_VISIBLE_KEY =
-  'vibex:kanban-canvas-list-visible' as const;
+  'dimo:kanban-canvas-list-visible' as const;
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;

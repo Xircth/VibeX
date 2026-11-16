@@ -2,14 +2,14 @@
 status: accepted
 date: 2026-07-28
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 内置 Agent 永久保留，其他 Agent 可以移除
 
 当前十三个内置 Agent（Claude Code、Codex、Gemini、OpenClaw、OpenCode、Cline、
-Hermes、CodeBuddy、Kimi Code、Pi、Grok、Cursor 与 DeepSeek Harness）永久属于 VibeX Agent 集合，用户可以禁用、卸载其托管 Runtime
-或清除配置，但不能把它们从 Agent 导航带移除。其他已添加 Agent 可以从 VibeX
+Hermes、CodeBuddy、Kimi Code、Pi、Grok、Cursor 与 DeepSeek Harness）永久属于 Dimo Agent 集合，用户可以禁用、卸载其托管 Runtime
+或清除配置，但不能把它们从 Agent 导航带移除。其他已添加 Agent 可以从 Dimo
 移除；仍存在于上游 Registry 时重新成为可添加 Agent，已经下架时则只从本地界面
 消失。
 

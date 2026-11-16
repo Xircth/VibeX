@@ -801,7 +801,7 @@ pub(super) fn plugin_control_item_with_quarantine(
         .formats
         .iter()
         .map(|format| match format {
-            plugins::PackageFormat::VibeX => "vibex",
+            plugins::PackageFormat::Dimo => "dimo",
             plugins::PackageFormat::Codex => "codex",
             plugins::PackageFormat::ClaudeCode => "claude_code",
         })
@@ -954,7 +954,7 @@ pub(super) async fn download_marketplace_archive(url: &str) -> Result<std::path:
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
     let response = client
         .get(url)
-        .header("user-agent", "VibeX")
+        .header("user-agent", "Dimo")
         .send()
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
@@ -966,7 +966,7 @@ pub(super) async fn download_marketplace_archive(url: &str) -> Result<std::path:
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
     let suffix = plugins::marketplace_archive_suffix(url);
-    let path = utils::path::get_vibex_temp_dir().join(format!(
+    let path = utils::path::get_dimo_temp_dir().join(format!(
         "market-{}.{}",
         uuid::Uuid::new_v4(),
         suffix
@@ -976,7 +976,7 @@ pub(super) async fn download_marketplace_archive(url: &str) -> Result<std::path:
 }
 
 pub(super) fn monorepo_plugin_version(monorepo_root: &std::path::Path) -> Option<String> {
-    for rel in [".vibex-plugin/plugin.json", "plugin.json"] {
+    for rel in [".dimo-plugin/plugin.json", "plugin.json"] {
         let manifest_path = monorepo_root.join(rel);
         let Ok(content) = std::fs::read_to_string(&manifest_path) else {
             continue;

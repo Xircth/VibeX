@@ -74,7 +74,7 @@ function formatEnhancedPromptSync(promptText, configInput) {
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.prompt-enhancer',
+  id: 'dimo.prompt-enhancer',
   activate(ctx) {
     let currentConfig = { ...DEFAULT_CONFIG };
     let lastEnhancedDraft = '';
@@ -118,7 +118,7 @@ export default {
     async function callHostEnhanceService(rawPrompt, config) {
       const hostService =
         ctx.services.get('enhance_prompt') ??
-        ctx.services.get('vibex.prompt-enhancer.host');
+        ctx.services.get('dimo.prompt-enhancer.host');
       if (hostService) {
         if (typeof hostService === 'function') {
           const out = await hostService(rawPrompt, config);
@@ -300,7 +300,7 @@ export default {
       },
     });
 
-    ctx.services.provide('vibex.prompt-enhancer', {
+    ctx.services.provide('dimo.prompt-enhancer', {
       enhance,
       enhanceAsync,
       getConfig() {

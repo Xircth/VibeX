@@ -10,8 +10,8 @@ import {
 import { isLocalDesktopHost } from '@/lib/desktopShell';
 
 const POLL_INTERVAL_MS = 2500;
-export const CONNECT_REQUESTS_CHANGED_EVENT = 'vibex:connect-requests-changed';
-export const REMOTE_AUTO_CONNECT_KEY = 'vibex:remote-auto-connect';
+export const CONNECT_REQUESTS_CHANGED_EVENT = 'dimo:connect-requests-changed';
+export const REMOTE_AUTO_CONNECT_KEY = 'dimo:remote-auto-connect';
 
 export function getRemoteAutoConnect(): boolean {
   if (typeof window === 'undefined') return false;

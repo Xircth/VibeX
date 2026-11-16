@@ -329,7 +329,7 @@ impl AgentConnectionRunner {
             merged_env.insert(k.clone(), v.clone());
         }
         let default_model_env = merged_env
-            .get("VIBEX_DEFAULT_MODEL")
+            .get("DIMO_DEFAULT_MODEL")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .or_else(|| driver.resolve_default_model(&merged_env));
@@ -563,7 +563,7 @@ impl AgentConnectionRunner {
             .or_else(|| {
                 stored.and_then(|s| s.asserted_config_values.get("model").cloned())
             })
-            .or_else(|| self.snapshot.env.get("VIBEX_DEFAULT_MODEL").cloned())
+            .or_else(|| self.snapshot.env.get("DIMO_DEFAULT_MODEL").cloned())
             .filter(|candidate| driver.accepts_model_id(candidate, &merged_env));
 
         let effort = config_overrides

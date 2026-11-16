@@ -2,9 +2,9 @@
 summary: Low-latency AI ghost-text inline code completion supporting OpenAI-compatible and Anthropic Messages endpoints.
 ---
 
-# Code Completion (`vibex.code-completion`)
+# Code Completion (`dimo.code-completion`)
 
-Provides low-latency AI inline code completion (Ghost Text) inside VibeX Monaco code editors with dual-protocol LLM support and privacy-aware Fill-in-the-Middle (FIM) context assembly.
+Provides low-latency AI inline code completion (Ghost Text) inside Dimo Monaco code editors with dual-protocol LLM support and privacy-aware Fill-in-the-Middle (FIM) context assembly.
 
 ## Key Capabilities
 

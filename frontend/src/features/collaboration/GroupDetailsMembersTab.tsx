@@ -21,9 +21,9 @@ import {
 } from './spaceModel';
 import { attachSidebarIdentityIds } from './threadApi';
 
-export const COLLABORATION_ADD_MEMBER_EVENT = 'vibex:collaboration-add-member';
+export const COLLABORATION_ADD_MEMBER_EVENT = 'dimo:collaboration-add-member';
 export const COLLABORATION_MEMBERS_CHANGED_EVENT =
-  'vibex:collaboration-members-changed';
+  'dimo:collaboration-members-changed';
 
 export function requestCreateAssistantForSpace(spaceId: string) {
   window.dispatchEvent(

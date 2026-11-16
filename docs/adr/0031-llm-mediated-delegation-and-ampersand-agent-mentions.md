@@ -2,18 +2,18 @@
 status: accepted
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 多 Agent 采用 Codeg 式异步委派，Agent Mention 使用 `&`
 
 > 2026-08-17：companion 拆成两个内置插件、`&` 的出现条件、凭据寿命与平台
-> `vibex-mcp` 退场见
+> `dimo-mcp` 退场见
 > [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md)。
 > 下文的异步委派行为、`&` 语法、one-shot 子任务与 Broker 不变量仍然有效。
 
-VibeX 的首个完整多 Agent 协作模式采用 Codeg 已验证的 LLM-mediated delegation：
-父 Agent 通过按会话注入的 `vibex-mcp` companion 调用异步委派工具，主进程内
+Dimo 的首个完整多 Agent 协作模式采用 Codeg 已验证的 LLM-mediated delegation：
+父 Agent 通过按会话注入的 `dimo-mcp` companion 调用异步委派工具，主进程内
 Delegation Broker 创建一次性子 Conversation/Turn，父 Agent 通过状态工具等待、
 轮询、取消并汇总结果。
 
@@ -28,9 +28,9 @@ Delegation Broker 创建一次性子 Conversation/Turn，父 Agent 通过状态�
   时明确显示，禁止按 Agent 名称硬编码成功假象；
 - 子任务 v1 为 one-shot，首个 Turn 到达终态即完成，不提供隐式多轮续聊。
 
-现有 `crates/delegation`、`crates/delegation-proto`、`crates/vibex-mcp` 和
+现有 `crates/delegation`、`crates/delegation-proto`、`crates/dimo-mcp` 和
 `src-tauri/src/delegation` 是继续完善的基础。目标是行为对齐 Codeg，而不是把其巨型
-Broker 文件整体复制进 VibeX；现有模块边界可以替换，只要公开行为与不变量成立。
+Broker 文件整体复制进 Dimo；现有模块边界可以替换，只要公开行为与不变量成立。
 
 ## `&Agent` Mention
 
@@ -39,7 +39,7 @@ Composer 中 Agent Mention 的可见触发符固定为 `&`，例如 `&Codex`。�
 重新做模糊匹配。发送到 Agent 时使用稳定、可读的序列化形式，例如：
 
 ```markdown
-[&Codex](vibex://agent/codex)
+[&Codex](dimo://agent/codex)
 ```
 
 Mention 只表达“用户明确要求考虑把工作委派给该 Agent”，并通过 companion tool
@@ -86,7 +86,7 @@ Graph Engineering 模式具有价值，但当前没有稳定领域基础。本�
 
 - 前端看到多个 Mention 后直接并发创建子会话：本阶段否决。它改变了用户与主 Agent
   的职责关系，实质上是尚未决策的 Graph 编排。
-- 使用 `@` 作为 Agent Mention：否决。VibeX 选择 `&` 区分 Agent 与其它引用语法。
+- 使用 `@` 作为 Agent Mention：否决。Dimo 选择 `&` 区分 Agent 与其它引用语法。
 - 为每种父 Agent 写一套 delegation 实现：否决。是否可注入由 ACP/MCP 能力决定，
   Agent kind 只提供身份，不改变统一管线。
 

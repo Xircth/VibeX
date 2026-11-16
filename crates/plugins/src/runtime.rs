@@ -89,10 +89,10 @@ impl PluginWorkerRuntimeProvider {
 
     fn prepare_storage(&self) -> Result<(), PluginError> {
         std::fs::create_dir_all(&self.root).map_err(|error| {
-            PluginError::runtime_install_failed("vibex-plugin-worker-node", error.to_string())
+            PluginError::runtime_install_failed("dimo-plugin-worker-node", error.to_string())
         })?;
         prepare_macos_managed_runtime_storage(&self.data_root, &self.root)
-            .map_err(|error| PluginError::runtime_install_failed("vibex-plugin-worker-node", error))
+            .map_err(|error| PluginError::runtime_install_failed("dimo-plugin-worker-node", error))
     }
 
     pub async fn resolve_for_package(
@@ -113,7 +113,7 @@ impl PluginWorkerRuntimeProvider {
                 .map(PathBuf::from)
                 .ok_or_else(|| {
                     PluginError::runtime_not_ready(
-                        "vibex-plugin-worker-native",
+                        "dimo-plugin-worker-native",
                         "native Worker entrypoint is missing",
                     )
                 }),
@@ -125,9 +125,9 @@ impl PluginWorkerRuntimeProvider {
         self.prepare_storage()?;
         let lock = crate::plugin_worker_cpython_lock().ok_or_else(|| {
             PluginError::runtime_not_ready(
-                "vibex-plugin-worker-cpython",
+                "dimo-plugin-worker-cpython",
                 format!(
-                    "VibeX has no pinned Plugin Worker CPython artifact for {}-{}",
+                    "Dimo has no pinned Plugin Worker CPython artifact for {}-{}",
                     std::env::consts::OS,
                     std::env::consts::ARCH
                 ),
@@ -151,7 +151,7 @@ impl PluginWorkerRuntimeProvider {
             return Ok(expected);
         }
         let installation = GlobalRuntimeInstaller::new(&host)
-            .install("vibex.host", &runtime)
+            .install("dimo.host", &runtime)
             .await?;
         if !worker_python_is_healthy(&installation.executable_path).await {
             return Err(PluginError::runtime_not_ready(
@@ -172,9 +172,9 @@ impl PluginWorkerRuntimeProvider {
         }
         let runtime = plugin_worker_node_runtime().ok_or_else(|| {
             PluginError::runtime_not_ready(
-                "vibex-plugin-worker-node",
+                "dimo-plugin-worker-node",
                 format!(
-                    "VibeX has no pinned Plugin Worker Node.js artifact for {}-{}",
+                    "Dimo has no pinned Plugin Worker Node.js artifact for {}-{}",
                     std::env::consts::OS,
                     std::env::consts::ARCH
                 ),
@@ -195,7 +195,7 @@ impl PluginWorkerRuntimeProvider {
                 })?;
         }
         let installation = GlobalRuntimeInstaller::new(&host)
-            .install("vibex.host", &runtime)
+            .install("dimo.host", &runtime)
             .await?;
         if !worker_node_is_healthy(&installation.executable_path).await {
             return Err(PluginError::runtime_not_ready(
@@ -247,7 +247,7 @@ fn plugin_worker_node_runtime() -> Option<RuntimeContribution> {
     let command = if cfg!(windows) { "node.exe" } else { "node" };
     let filename = format!("node-v{PLUGIN_WORKER_NODE_VERSION}-{target}.{extension}");
     Some(RuntimeContribution {
-        id: "vibex-plugin-worker-node".to_owned(),
+        id: "dimo-plugin-worker-node".to_owned(),
         command: command.to_owned(),
         version: Some(PLUGIN_WORKER_NODE_VERSION.to_owned()),
         target: target.to_owned(),
@@ -1060,8 +1060,8 @@ mod tests {
         tokio::fs::write(&executable, b"verified-runtime")
             .await
             .unwrap();
-        xattr::set(&directory, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
-        xattr::set(&executable, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+        xattr::set(&directory, "com.apple.quarantine", b"0081;0;Dimo;").unwrap();
+        xattr::set(&executable, "com.apple.quarantine", b"0081;0;Dimo;").unwrap();
         let quarantined_directory_inode = std::fs::metadata(&directory).unwrap().ino();
         let quarantined_inode = std::fs::metadata(&executable).unwrap().ino();
 
@@ -1097,7 +1097,7 @@ mod tests {
         std::fs::create_dir_all(&provider.root).unwrap();
         let plugins_root = data.path().join("plugins");
         for path in [data.path(), plugins_root.as_path(), provider.root.as_path()] {
-            xattr::set(path, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+            xattr::set(path, "com.apple.quarantine", b"0081;0;Dimo;").unwrap();
         }
 
         provider.prepare_storage().unwrap();
@@ -1147,7 +1147,7 @@ mod tests {
     #[test]
     fn plugin_worker_node_catalog_is_pinned_for_the_current_supported_target() {
         let runtime = plugin_worker_node_runtime().expect("supported desktop target");
-        assert_eq!(runtime.id, "vibex-plugin-worker-node");
+        assert_eq!(runtime.id, "dimo-plugin-worker-node");
         assert_eq!(runtime.version.as_deref(), Some(PLUGIN_WORKER_NODE_VERSION));
         assert!(runtime.content_digest.starts_with("sha256:"));
         assert_eq!(runtime.content_digest.len(), "sha256:".len() + 64);

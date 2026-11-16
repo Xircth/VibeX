@@ -175,7 +175,7 @@ pub fn is_placeholder_engine_session_id(raw: &str) -> bool {
     trimmed.is_empty()
         || trimmed.starts_with("prepared-")
         || trimmed.starts_with("pending-")
-        || trimmed.starts_with("vibex-new-session-")
+        || trimmed.starts_with("dimo-new-session-")
         || trimmed.starts_with("claude-native-")
         || trimmed.starts_with("codex-native-")
 }
@@ -244,7 +244,7 @@ impl EngineStartSpec {
     /// and credential environment overrides without retaining or exposing plaintext secrets.
     pub fn auth_fingerprint(&self) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(b"vibex-engine-auth-v1\0");
+        hasher.update(b"dimo-engine-auth-v1\0");
 
         match &self.auth {
             EngineAuth::Ambient => {
@@ -381,9 +381,9 @@ impl EngineStartSpec {
         {
             let root_base = self
                 .env
-                .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+                .get("DIMO_PROVIDER_INSTANCES_ROOT")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| std::env::temp_dir().join("vibex-provider-instances"));
+                .unwrap_or_else(|| std::env::temp_dir().join("dimo-provider-instances"));
             return Some(
                 root_base
                     .join(stream_router::sanitize_instance_dir_segment(instance_id))
@@ -414,9 +414,9 @@ impl EngineStartSpec {
         {
             let root_base = self
                 .env
-                .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+                .get("DIMO_PROVIDER_INSTANCES_ROOT")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| std::env::temp_dir().join("vibex-provider-instances"));
+                .unwrap_or_else(|| std::env::temp_dir().join("dimo-provider-instances"));
             return Some(
                 root_base
                     .join(stream_router::sanitize_instance_dir_segment(instance_id))
@@ -427,11 +427,11 @@ impl EngineStartSpec {
     }
 
     /// Deterministic SHA-256 hex digest over native Codex configuration/catalog/auth files
-    /// (`config.toml`, `auth.json`, `vibex-model-catalog.json`, or `model_catalog_json` target)
+    /// (`config.toml`, `auth.json`, `dimo-model-catalog.json`, or `model_catalog_json` target)
     /// so `CodexAppServer` pooling invalidates automatically when native files change.
     pub fn native_codex_config_fingerprint(&self) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(b"vibex-codex-native-config-v1\0");
+        hasher.update(b"dimo-codex-native-config-v1\0");
         if let Some(codex_home) = self.effective_codex_home() {
             feed_length_prefixed(&mut hasher, "codex_home", &codex_home.to_string_lossy());
             let config_path = codex_home.join("config.toml");
@@ -439,11 +439,11 @@ impl EngineStartSpec {
             hash_optional_file_bytes(&mut hasher, "config.toml", config_bytes.as_deref());
             let auth_bytes = std::fs::read(codex_home.join("auth.json")).ok();
             hash_optional_file_bytes(&mut hasher, "auth.json", auth_bytes.as_deref());
-            let vibex_catalog = std::fs::read(codex_home.join("vibex-model-catalog.json")).ok();
+            let dimo_catalog = std::fs::read(codex_home.join("dimo-model-catalog.json")).ok();
             hash_optional_file_bytes(
                 &mut hasher,
-                "vibex-model-catalog.json",
-                vibex_catalog.as_deref(),
+                "dimo-model-catalog.json",
+                dimo_catalog.as_deref(),
             );
             if let Some(catalog_rel) = config_bytes
                 .as_deref()
@@ -454,7 +454,7 @@ impl EngineStartSpec {
                         .get("model_catalog_json")
                         .and_then(toml::Value::as_str)
                         .map(str::trim)
-                        .filter(|s| !s.is_empty() && *s != "vibex-model-catalog.json")
+                        .filter(|s| !s.is_empty() && *s != "dimo-model-catalog.json")
                         .map(str::to_string)
                 })
             {
@@ -1110,7 +1110,7 @@ pub trait NativeEngineDriver: Send + Sync + 'static {
         false
     }
 
-    /// Resolves the engine's native default model from local configuration when `VIBEX_DEFAULT_MODEL` is unset.
+    /// Resolves the engine's native default model from local configuration when `DIMO_DEFAULT_MODEL` is unset.
     fn resolve_default_model(&self, _env: &HashMap<String, String>) -> Option<String> {
         None
     }

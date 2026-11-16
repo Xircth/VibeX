@@ -115,7 +115,7 @@ pub async fn read_history_page(
     if turns.is_empty()
         && let Some(segment_turns) = crate::transcript_segments::read_in(
             pool,
-            &agents::acp_transcript::vibex_acp_transcripts_root(),
+            &agents::acp_transcript::dimo_acp_transcripts_root(),
             conversation_id,
         )
         .await?
@@ -543,7 +543,7 @@ async fn try_load_compact_transcript(
     let jsonl_turns = if !has_assistant_in_events {
         match crate::transcript_segments::read_in(
             pool,
-            &agents::acp_transcript::vibex_acp_transcripts_root(),
+            &agents::acp_transcript::dimo_acp_transcripts_root(),
             conversation_id,
         )
         .await

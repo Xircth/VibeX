@@ -1,7 +1,7 @@
 //! In-process multi-agent delegation broker.
 //!
 //! The parent agent's LLM calls the built-in MCP tool `delegate_to_agent`
-//! (exposed by the out-of-process `vibex-mcp` companion). The companion frames
+//! (exposed by the out-of-process `dimo-mcp` companion). The companion frames
 //! the call over a UDS / named pipe to this crate's listener, which hands it to
 //! the [`DelegationBroker`]. The broker spawns a fresh child ACP session via the
 //! [`spawner::ConnectionSpawner`] trait, tracks it asynchronously, and resolves

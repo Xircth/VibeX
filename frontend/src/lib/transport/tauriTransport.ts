@@ -182,7 +182,11 @@ export class TauriTransport implements BackendTransport {
               started = true;
               // Validate cursor before registering listeners.
               sequenceToWire(afterSequence);
-              unlisten = await this.listen('conversation-events', () => {
+              const eventChannel =
+                'conversation_id' in request && request.conversation_id
+                  ? `conversation-events:${request.conversation_id}`
+                  : 'conversation-events';
+              unlisten = await this.listen(eventChannel, () => {
                 if (closed) return;
                 dirty = true;
                 const pendingWake = wake;
@@ -201,14 +205,21 @@ export class TauriTransport implements BackendTransport {
               }
               if (!dirty) {
                 if (isWorkflowRun) {
-                  await Promise.race([
-                    new Promise<void>((resolve) => {
-                      wake = resolve;
-                    }),
-                    new Promise<void>((resolve) =>
-                      globalThis.setTimeout(resolve, 100)
-                    ),
-                  ]);
+                  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+                  try {
+                    await Promise.race([
+                      new Promise<void>((resolve) => {
+                        wake = resolve;
+                      }),
+                      new Promise<void>((resolve) => {
+                        timer = globalThis.setTimeout(resolve, 500);
+                      }),
+                    ]);
+                  } finally {
+                    if (timer !== undefined) {
+                      globalThis.clearTimeout(timer);
+                    }
+                  }
                 } else {
                   await new Promise<void>((resolve) => {
                     wake = resolve;

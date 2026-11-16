@@ -106,6 +106,38 @@ export function SideChatPane({
   const [isStreaming, setIsStreaming] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingDeltaRef = useRef<{ messageId: string; text: string } | null>(
+    null
+  );
+  const deltaRafRef = useRef<{
+    id: number;
+    kind: 'raf' | 'timeout';
+  } | null>(null);
+
+  const cancelScheduledDeltaFlush = useCallback(() => {
+    const scheduled = deltaRafRef.current;
+    if (!scheduled) return;
+    deltaRafRef.current = null;
+    if (scheduled.kind === 'raf') {
+      cancelAnimationFrame(scheduled.id);
+    } else {
+      window.clearTimeout(scheduled.id);
+    }
+  }, []);
+
+  const flushPendingDelta = useCallback(() => {
+    cancelScheduledDeltaFlush();
+    const pending = pendingDeltaRef.current;
+    pendingDeltaRef.current = null;
+    if (!pending || !pending.text) return;
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === pending.messageId
+          ? { ...msg, content: msg.content + pending.text }
+          : msg
+      )
+    );
+  }, [cancelScheduledDeltaFlush]);
 
   const contextTurns = useMemo(
     () => extractRecentMainThreadTurns(turns, 3),
@@ -113,13 +145,15 @@ export function SideChatPane({
   );
 
   const resetEphemeralState = useCallback(() => {
+    cancelScheduledDeltaFlush();
+    pendingDeltaRef.current = null;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setIsStreaming(false);
     setMessages([]);
     setDraft('');
     setSideChatId(makeSideChatSessionId(conversationId));
-  }, [conversationId]);
+  }, [cancelScheduledDeltaFlush, conversationId]);
 
   const handleDiscard = useCallback(() => {
     if (isStreaming && conversationId) {
@@ -158,9 +192,11 @@ export function SideChatPane({
 
   useEffect(
     () => () => {
+      cancelScheduledDeltaFlush();
+      pendingDeltaRef.current = null;
       abortControllerRef.current?.abort();
     },
-    []
+    [cancelScheduledDeltaFlush]
   );
 
   const latestConclusionPair = useMemo(() => {
@@ -227,6 +263,7 @@ export function SideChatPane({
   ]);
 
   const handleStopStreaming = useCallback(() => {
+    flushPendingDelta();
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setIsStreaming(false);
@@ -238,7 +275,7 @@ export function SideChatPane({
     if (conversationId) {
       void client.abortSideChat({ conversationId, sideChatId });
     }
-  }, [client, conversationId, sideChatId]);
+  }, [client, conversationId, flushPendingDelta, sideChatId]);
 
   const handleSend = useCallback(async () => {
     const prompt = draft.trim();
@@ -277,14 +314,35 @@ export function SideChatPane({
         onEvent: (event) => {
           if (controller.signal.aborted) return;
           if (event.type === 'delta') {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId
-                  ? { ...msg, content: msg.content + event.text }
-                  : msg
-              )
-            );
+            if (pendingDeltaRef.current?.messageId === assistantMessageId) {
+              pendingDeltaRef.current.text += event.text;
+            } else {
+              pendingDeltaRef.current = {
+                messageId: assistantMessageId,
+                text: event.text,
+              };
+            }
+            if (!deltaRafRef.current) {
+              if (typeof window.requestAnimationFrame === 'function') {
+                deltaRafRef.current = {
+                  kind: 'raf',
+                  id: window.requestAnimationFrame(() => {
+                    deltaRafRef.current = null;
+                    flushPendingDelta();
+                  }),
+                };
+              } else {
+                deltaRafRef.current = {
+                  kind: 'timeout',
+                  id: window.setTimeout(() => {
+                    deltaRafRef.current = null;
+                    flushPendingDelta();
+                  }, 16),
+                };
+              }
+            }
           } else if (event.type === 'tool') {
+            flushPendingDelta();
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMessageId
@@ -296,6 +354,7 @@ export function SideChatPane({
               )
             );
           } else if (event.type === 'done' && event.content !== undefined) {
+            flushPendingDelta();
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMessageId
@@ -304,6 +363,7 @@ export function SideChatPane({
               )
             );
           } else if (event.type === 'error') {
+            flushPendingDelta();
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMessageId
@@ -321,6 +381,7 @@ export function SideChatPane({
       });
 
       if (controller.signal.aborted) return;
+      flushPendingDelta();
 
       setMessages((prev) =>
         prev.map((msg) => {
@@ -342,6 +403,8 @@ export function SideChatPane({
         })
       );
     } catch (error) {
+      cancelScheduledDeltaFlush();
+      pendingDeltaRef.current = null;
       if (controller.signal.aborted) return;
       const errMessage =
         error instanceof Error ? error.message : String(error);
@@ -363,7 +426,17 @@ export function SideChatPane({
         setIsStreaming(false);
       }
     }
-  }, [client, contextTurns, conversationId, draft, isStreaming, messages, sideChatId]);
+  }, [
+    cancelScheduledDeltaFlush,
+    client,
+    contextTurns,
+    conversationId,
+    draft,
+    flushPendingDelta,
+    isStreaming,
+    messages,
+    sideChatId,
+  ]);
 
   const handleComposerKeyDown = (
     event: ReactKeyboardEvent<HTMLTextAreaElement>

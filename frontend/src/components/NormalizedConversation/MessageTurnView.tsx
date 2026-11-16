@@ -323,8 +323,8 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
   const [verb, setVerb] = useState(() =>
     nextStreamingActivityVerb(STREAMING_ACTIVITY_VERBS)
   );
-  const [elapsedMs, setElapsedMs] = useState(0);
   const startedAtRef = useRef(Date.now());
+  const elapsedRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
@@ -340,7 +340,11 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
   // once-per-second counter reads as stalled beside a 650ms animation.
   useEffect(() => {
     const ticker = window.setInterval(() => {
-      setElapsedMs(Date.now() - startedAtRef.current);
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatLoadingElapsed(
+          Date.now() - startedAtRef.current
+        );
+      }
     }, 100);
     return () => window.clearInterval(ticker);
   }, []);
@@ -357,8 +361,11 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
     >
       <PixelGridLoader size="sm" />
       <span className="conv-shimmer-text">{`${verb}…`}</span>
-      <span className="conv-streaming-elapsed tabular-nums">
-        {formatLoadingElapsed(elapsedMs)}
+      <span
+        ref={elapsedRef}
+        className="conv-streaming-elapsed tabular-nums"
+      >
+        {formatLoadingElapsed(0)}
       </span>
     </div>
   );

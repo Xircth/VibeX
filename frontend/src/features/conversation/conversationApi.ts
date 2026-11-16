@@ -480,10 +480,33 @@ const conversationDetailInflight = new Map<
 >();
 
 const PREFETCH_DETAIL_TTL_MS = 4000;
+const MAX_PREFETCH_DETAIL_ENTRIES = 32;
 const conversationDetailPrefetchCache = new Map<
   string,
   { promise: Promise<DbConversationDetail | null>; expiresAt: number }
 >();
+
+function storePrefetchedConversationDetail(
+  key: string,
+  promise: Promise<DbConversationDetail | null>
+) {
+  const now = Date.now();
+  for (const [entryKey, entry] of conversationDetailPrefetchCache) {
+    if (entry.expiresAt <= now) {
+      conversationDetailPrefetchCache.delete(entryKey);
+    }
+  }
+  conversationDetailPrefetchCache.delete(key);
+  conversationDetailPrefetchCache.set(key, {
+    promise,
+    expiresAt: now + PREFETCH_DETAIL_TTL_MS,
+  });
+  while (conversationDetailPrefetchCache.size > MAX_PREFETCH_DETAIL_ENTRIES) {
+    const oldestKey = conversationDetailPrefetchCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    conversationDetailPrefetchCache.delete(oldestKey);
+  }
+}
 
 export type ConversationDetailWindow = {
   tailTurns?: number;
@@ -522,10 +545,7 @@ function fetchConversationDetail(
   const existing = conversationDetailInflight.get(key);
   if (existing) {
     if (isPrefetch) {
-      conversationDetailPrefetchCache.set(key, {
-        promise: existing,
-        expiresAt: Date.now() + PREFETCH_DETAIL_TTL_MS,
-      });
+      storePrefetchedConversationDetail(key, existing);
     }
     return existing;
   }
@@ -542,10 +562,7 @@ function fetchConversationDetail(
   });
   conversationDetailInflight.set(key, pending);
   if (isPrefetch) {
-    conversationDetailPrefetchCache.set(key, {
-      promise: pending,
-      expiresAt: Date.now() + PREFETCH_DETAIL_TTL_MS,
-    });
+    storePrefetchedConversationDetail(key, pending);
     void pending.catch(() => {
       if (conversationDetailPrefetchCache.get(key)?.promise === pending) {
         conversationDetailPrefetchCache.delete(key);

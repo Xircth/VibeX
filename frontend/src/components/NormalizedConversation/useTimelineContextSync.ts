@@ -15,7 +15,7 @@ import {
   useOptionalConversationStatus,
   type ConversationStatusNotice,
 } from '@/contexts/ConversationStatusContext';
-import { useOptionalEntries } from '@/contexts/EntriesContext';
+import { useOptionalEntriesActions } from '@/contexts/EntriesContext';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import {
   isDurableHostNote,
@@ -143,7 +143,7 @@ export function useTimelineContextSync({
   setSearchParams: SetURLSearchParams;
 }) {
   const queryClient = useQueryClient();
-  const entries = useOptionalEntries();
+  const entries = useOptionalEntriesActions();
   const conversationStatus = useOptionalConversationStatus();
 
   const setConversationStatusNotices = conversationStatus?.setNotices;

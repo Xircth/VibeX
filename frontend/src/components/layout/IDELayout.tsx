@@ -159,15 +159,21 @@ export function IDELayout({
     (state) => state.kanbanByProject[projectKey]?.lastActiveWorkspaceId ?? null
   );
   const { worktrees } = useProjectWorktrees(projectId);
-  const {
-    serializedLayout,
-    setSerializedLayout,
-    isRightPanelVisible,
-    setRightPanelWidth,
-    isEditorAreaVisible,
-    toggleEditorArea,
-    activeTab,
-  } = useLayoutStore();
+  const serializedLayout = useLayoutStore((state) => state.serializedLayout);
+  const setSerializedLayout = useLayoutStore(
+    (state) => state.setSerializedLayout
+  );
+  const isRightPanelVisible = useLayoutStore(
+    (state) => state.isRightPanelVisible
+  );
+  const setRightPanelWidth = useLayoutStore(
+    (state) => state.setRightPanelWidth
+  );
+  const isEditorAreaVisible = useLayoutStore(
+    (state) => state.isEditorAreaVisible
+  );
+  const toggleEditorArea = useLayoutStore((state) => state.toggleEditorArea);
+  const activeTab = useLayoutStore((state) => state.activeTab);
   const arrangement = useLayoutArrangement();
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
   const surfaceWorkspaceId = useMemo(

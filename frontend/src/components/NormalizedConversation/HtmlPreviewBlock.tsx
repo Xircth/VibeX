@@ -263,10 +263,31 @@ export const HtmlPreviewBlock = memo(function HtmlPreviewBlock({
     [openContextMenuAt]
   );
 
-  const srcDoc = useMemo(
+  const rawSrcDoc = useMemo(
     () => wrapHtmlPreviewDocument(effectiveCode, previewId),
     [effectiveCode, previewId]
   );
+  const [srcDoc, setSrcDoc] = useState(rawSrcDoc);
+  const lastSrcDocCommitRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      lastSrcDocCommitRef.current = Date.now();
+      setSrcDoc((prev) => (prev === rawSrcDoc ? prev : rawSrcDoc));
+      return;
+    }
+    const elapsed = Date.now() - lastSrcDocCommitRef.current;
+    if (elapsed >= 400) {
+      lastSrcDocCommitRef.current = Date.now();
+      setSrcDoc((prev) => (prev === rawSrcDoc ? prev : rawSrcDoc));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      lastSrcDocCommitRef.current = Date.now();
+      setSrcDoc(rawSrcDoc);
+    }, 400 - elapsed);
+    return () => window.clearTimeout(timer);
+  }, [isStreaming, rawSrcDoc]);
 
   if (isStreaming && !effectiveCode.trim()) {
     return (

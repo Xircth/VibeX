@@ -74,7 +74,10 @@ import {
   normalizeAgentIdentity,
   shouldShowDurableHostNote,
   type ConversationSessionModesState,
+  type ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
+
+const EMPTY_TIMELINE_FOR_ROW: ConversationTimelineTurn[] = [];
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
 import { useOptionalConversationStatus } from '@/contexts/ConversationStatusContext';
@@ -1196,7 +1199,12 @@ const AgentTimelineConversation = forwardRef<
                               scrollMargin={scrollMargin}
                               measureElement={rowVirtualizer.measureElement}
                               item={item}
-                              timeline={timeline}
+                              timeline={
+                                item.kind === 'side' &&
+                                item.row.row.kind === 'question_request'
+                                  ? timeline
+                                  : EMPTY_TIMELINE_FOR_ROW
+                              }
                               slice={entry.slice}
                               isLastSlice={entry.isLast}
                               foldEdge={foldEdge}

@@ -3825,6 +3825,211 @@ describe('conversationStore (row-op dumb container)', () => {
       combineWindowAndLiveRows(CONVERSATION_ID, windowRows, [], {})
     ).toBe(windowRows);
   });
+
+  it('does not drop the next append_text (rev+1) after an unconsuming usage-only patch_blocks', () => {
+    let state = loaded([streamingUser('t1', 'q', 68n)]);
+    const usage = {
+      input_tokens: 10n,
+      output_tokens: 4n,
+      cache_creation_input_tokens: 0n,
+      cache_read_input_tokens: 30n,
+      context_used: 9000n,
+      context_window_max: 200000n,
+    };
+
+    const dispatchOps = (ops: ConversationRowOp[], lastSeq: bigint) => {
+      state = conversationStoreReducer(state, {
+        type: 'row_ops',
+        batch: batch(ops, lastSeq),
+      });
+    };
+
+    dispatchOps(
+      [
+        {
+          op: 'append_text',
+          row_id: 't1:assistant',
+          revision: 69n,
+          stream: 'text',
+          delta: 'part1 ',
+        },
+      ],
+      69n
+    );
+    dispatchOps(
+      [
+        {
+          op: 'patch_blocks',
+          row_id: 't1:assistant',
+          revision: 70n,
+          phase: 'streaming',
+          blocks: [],
+          usage,
+        },
+      ],
+      70n
+    );
+    // Immediate next delta at rev = 71 (patch_blocks.revision + 1) must NOT be dropped.
+    dispatchOps(
+      [
+        {
+          op: 'append_text',
+          row_id: 't1:assistant',
+          revision: 71n,
+          stream: 'text',
+          delta: 'part2 ',
+        },
+      ],
+      71n
+    );
+    let assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('part1 part2 ');
+
+    dispatchOps(
+      [
+        {
+          op: 'append_text',
+          row_id: 't1:assistant',
+          revision: 72n,
+          stream: 'text',
+          delta: 'part3',
+        },
+      ],
+      72n
+    );
+    dispatchOps(
+      [
+        {
+          op: 'patch_blocks',
+          row_id: 't1:assistant',
+          revision: 76n,
+          phase: 'streaming',
+          blocks: [],
+          usage,
+        },
+      ],
+      76n
+    );
+    dispatchOps(
+      [
+        {
+          op: 'upsert',
+          row: assistantRow(
+            't1',
+            [{ type: 'text', text: 'part1 part2 part3' }],
+            77n,
+            'settled'
+          ),
+        },
+      ],
+      77n
+    );
+    assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('part1 part2 part3');
+  });
+
+  it('retains unconsumed live overlay across load_success after a usage-only patch_blocks', () => {
+    let state = loaded([streamingUser('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'still streaming',
+          },
+        ],
+        2n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 3n,
+            phase: 'streaming',
+            blocks: [],
+            usage: {
+              input_tokens: 10n,
+              output_tokens: 2n,
+              cache_creation_input_tokens: 0n,
+              cache_read_input_tokens: 0n,
+              context_used: 100n,
+              context_window_max: 200000n,
+            },
+          },
+        ],
+        3n
+      ),
+    });
+
+    const rowAtRev3 = entryOf(state).liveRows.find(
+      (r) => r.row_id === 't1:assistant'
+    )!;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: emptyDetail([streamingUser('t1', 'q', 1n), rowAtRev3]),
+    });
+
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('still streaming');
+  });
+
+  it('replaces diverged live text cleanly on authoritative terminal upsert instead of concatenating two copies', () => {
+    let state = loaded([streamingUser('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'Part 1 Part 3' }],
+              4n,
+              'streaming'
+            ),
+          },
+        ],
+        4n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'Part 1 Part 2 Part 3' }],
+              5n,
+              'settled'
+            ),
+          },
+        ],
+        5n
+      ),
+    });
+
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('Part 1 Part 2 Part 3');
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

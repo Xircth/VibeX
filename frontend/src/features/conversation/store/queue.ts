@@ -262,15 +262,18 @@ function findMatchingStructuredBlockIndex(
 
 export function mergeAssistantBlocks(
   fileBlocks: ContentBlock[],
-  clientBlocks: ContentBlock[]
+  clientBlocks: ContentBlock[],
+  options: { preferClientText?: boolean } = {}
 ): ContentBlock[] {
   if (fileBlocks.length === 0) return clientBlocks;
   if (clientBlocks.length === 0) return fileBlocks;
 
+  const preferClientText = Boolean(options.preferClientText);
   const fileHasStructured = fileBlocks.some(isStructuredBlock);
   const clientHasStructured = clientBlocks.some(isStructuredBlock);
 
-  // Pure text / thinking on both sides: combine without duplicating prefix/suffix.
+  // Pure text / thinking on both sides: combine snapshot segments without
+  // duplicating diverged prefixes/copies.
   if (!fileHasStructured && !clientHasStructured) {
     const fileThinking = fileBlocks
       .flatMap((b) => (b.type === 'thinking' ? [b.text] : []))
@@ -285,11 +288,19 @@ export function mergeAssistantBlocks(
       .flatMap((b) => (b.type === 'text' ? [b.text] : []))
       .join('');
     const merged: ContentBlock[] = [];
-    const combinedThinking = mergeOverlayText(fileThinking, clientThinking);
+    const combinedThinking = mergeSnapshotText(
+      fileThinking,
+      clientThinking,
+      preferClientText
+    );
     if (combinedThinking) {
       merged.push({ type: 'thinking', text: combinedThinking });
     }
-    const combinedText = mergeOverlayText(fileText, clientText);
+    const combinedText = mergeSnapshotText(
+      fileText,
+      clientText,
+      preferClientText
+    );
     if (combinedText) {
       merged.push({ type: 'text', text: combinedText });
     }
@@ -303,13 +314,14 @@ export function mergeAssistantBlocks(
     if (matchIndex >= 0) {
       const prefix = mergeAssistantBlocks(
         fileBlocks.slice(0, matchIndex),
-        clientBlocks.slice(0, clientIdx)
+        clientBlocks.slice(0, clientIdx),
+        options
       );
       const seeded = [
         ...prefix,
         ...fileBlocks.slice(matchIndex).filter(isStructuredBlock),
       ];
-      return mergeBlockSequence(seeded, clientBlocks.slice(clientIdx));
+      return mergeBlockSequence(seeded, clientBlocks.slice(clientIdx), options);
     }
   }
 
@@ -317,31 +329,70 @@ export function mergeAssistantBlocks(
     const firstStructuredIdx = clientBlocks.findIndex(isStructuredBlock);
     const prefix = mergeAssistantBlocks(
       fileBlocks,
-      clientBlocks.slice(0, firstStructuredIdx)
+      clientBlocks.slice(0, firstStructuredIdx),
+      options
     );
-    return mergeBlockSequence(prefix, clientBlocks.slice(firstStructuredIdx));
+    return mergeBlockSequence(
+      prefix,
+      clientBlocks.slice(firstStructuredIdx),
+      options
+    );
   }
 
-  return mergeBlockSequence(fileBlocks, clientBlocks);
+  return mergeBlockSequence(fileBlocks, clientBlocks, options);
 }
 
 function mergeBlockSequence(
   baseBlocks: ContentBlock[],
-  incomingBlocks: ContentBlock[]
+  incomingBlocks: ContentBlock[],
+  options: { preferClientText?: boolean } = {}
 ): ContentBlock[] {
   const result = baseBlocks.slice();
+  const preferClientText = Boolean(options.preferClientText);
   for (const block of incomingBlocks) {
     if (isStructuredBlock(block)) {
       const patched = mergePatchedBlocks(result, [block]);
       result.length = 0;
       result.push(...patched);
     } else if (block.type === 'text' || block.type === 'thinking') {
-      mergeOverlayBlock(result, block.type, block.text);
+      mergeSnapshotBlock(result, block.type, block.text, preferClientText);
     } else {
       result.push(block);
     }
   }
   return result;
+}
+
+function mergeSnapshotBlock(
+  result: ContentBlock[],
+  type: 'text' | 'thinking',
+  incomingText: string,
+  preferIncoming: boolean
+) {
+  const last = result[result.length - 1];
+  if (last?.type === type) {
+    result[result.length - 1] = {
+      type,
+      text: mergeSnapshotText(last.text, incomingText, preferIncoming),
+    };
+    return;
+  }
+  result.push({ type, text: incomingText });
+}
+
+function mergeSnapshotText(
+  existing: string,
+  incoming: string,
+  preferIncoming = false
+): string {
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+  if (preferIncoming) return incoming;
+  if (incoming.startsWith(existing)) return incoming;
+  if (existing.startsWith(incoming) || existing.endsWith(incoming)) {
+    return existing;
+  }
+  return incoming;
 }
 
 export function liveOverlayForRow(

@@ -142,6 +142,25 @@ export function syncSettledAssistantRowId(
   return next;
 }
 
+export function overlayRevisionHorizon(overlay: LiveTextOverlay): bigint {
+  return overlay.patchedRevision !== undefined &&
+    overlay.patchedRevision > overlay.revision
+    ? overlay.patchedRevision
+    : overlay.revision;
+}
+
+export function isOverlayAheadOfRevision(
+  overlay: LiveTextOverlay,
+  rowRevision: bigint
+): boolean {
+  if (overlay.revision > rowRevision) return true;
+  return (
+    overlay.patchedRevision !== undefined &&
+    overlay.patchedRevision >= overlay.revision &&
+    overlay.patchedRevision >= rowRevision
+  );
+}
+
 export function applyDeleteTombstone(
   windowRows: TimelineRow[],
   liveRows: TimelineRow[],
@@ -170,7 +189,7 @@ export function applyDeleteTombstone(
     nextWindowRows = nextWindowRows.filter((row) => row.row_id !== rowId);
   }
   const overlay = nextLiveText[rowId];
-  if (overlay && revision >= overlay.revision) {
+  if (overlay && revision >= overlayRevisionHorizon(overlay)) {
     nextLiveText = { ...nextLiveText };
     delete nextLiveText[rowId];
   }
@@ -366,6 +385,10 @@ export function appendLiveText(
     reasoning:
       op.stream === 'reasoning' ? base.reasoning + op.delta : base.reasoning,
     revision,
+    ...(existing?.patchedRevision !== undefined &&
+    existing.patchedRevision > revision
+      ? { patchedRevision: existing.patchedRevision }
+      : {}),
   };
   return { ...liveText, [rowId]: next };
 }
@@ -397,7 +420,7 @@ export function retainStreamingLiveText(
     ) {
       continue;
     }
-    if (overlay.revision > toBigInt(existing.revision)) {
+    if (isOverlayAheadOfRevision(overlay, toBigInt(existing.revision))) {
       next[rowId] = overlay;
     }
   }

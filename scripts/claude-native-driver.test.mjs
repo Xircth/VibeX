@@ -13,6 +13,7 @@ import {
   PROBE_OK,
   PromptCacheTtlTracker,
   isOfficialAnthropicSession,
+  normalizeSdkEvent,
   startClaudeNativeDriverStdioServer,
 } from './claude-native-driver.mjs';
 
@@ -1300,6 +1301,8 @@ test('discoverClaudeModels merges gateway /v1/models, query().supportedModels(),
     assert.equal(models.find((m) => m.value === 'claude-opus-5-5')?.isDefault, true);
     assert.equal(models.find((m) => m.value === 'claude-fable-5-2')?.displayName, 'Claude Fable 5.2');
     assert.equal(models.find((m) => m.value === 'claude-sonnet-5-5')?.displayName, 'Claude Sonnet 5.5');
+    assert.equal(models.find((m) => m.value === 'sonnet')?.displayName, 'Claude Sonnet 5.5');
+    assert.equal(models.find((m) => m.value === 'opus')?.displayName, 'Opus (Latest Alias)');
     assert.equal(models.find((m) => m.value === 'sonnet')?.isDefault, undefined);
   } finally {
     await harness.close();
@@ -1478,4 +1481,82 @@ test('multi-step usage separates single-step contextUsed from result isTurnSumma
     await harness.close();
   }
 });
+
+test('normalizeSdkEvent correlates stream_event deltas and assistant messages via message.id and emits assistant_message before tool_call', async () => {
+  const streamMessageIds = new Map();
+  const baseCtx = {
+    promptId: 'p-dedup',
+    sessionId: 'sess-dedup',
+    streamMessageIds,
+  };
+
+  assert.deepEqual(
+    normalizeSdkEvent(
+      {
+        type: 'stream_event',
+        uuid: 'uuid-start',
+        event: {
+          type: 'message_start',
+          message: { id: 'msg_api_1' },
+        },
+      },
+      baseCtx
+    ),
+    []
+  );
+
+  const deltaEvents = normalizeSdkEvent(
+    {
+      type: 'stream_event',
+      uuid: 'uuid-delta',
+      event: {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'Hello ' },
+      },
+    },
+    baseCtx
+  );
+  assert.deepEqual(deltaEvents, [
+    {
+      kind: 'assistant_text_delta',
+      promptId: 'p-dedup',
+      sessionId: null,
+      messageId: 'msg_api_1',
+      text: 'Hello ',
+    },
+  ]);
+
+  const mixedAssistantEvents = normalizeSdkEvent(
+    {
+      type: 'assistant',
+      uuid: 'uuid-assistant',
+      message: {
+        id: 'msg_api_1',
+        content: [
+          { type: 'text', text: 'Hello ' },
+          { type: 'tool_use', id: 'tu-1', name: 'Read', input: { file_path: 'a.txt' } },
+        ],
+      },
+    },
+    baseCtx
+  );
+  assert.equal(mixedAssistantEvents.length, 2);
+  assert.equal(mixedAssistantEvents[0].kind, 'assistant_message');
+  assert.equal(mixedAssistantEvents[0].messageId, 'msg_api_1');
+  assert.equal(mixedAssistantEvents[0].uuid, 'uuid-assistant');
+  assert.equal(mixedAssistantEvents[0].text, 'Hello ');
+  assert.equal(mixedAssistantEvents[1].kind, 'tool_call');
+  assert.equal(mixedAssistantEvents[1].toolUseId, 'tu-1');
+
+  normalizeSdkEvent(
+    {
+      type: 'stream_event',
+      uuid: 'uuid-stop',
+      event: { type: 'message_stop' },
+    },
+    baseCtx
+  );
+  assert.equal(streamMessageIds.size, 0);
+});
+
 

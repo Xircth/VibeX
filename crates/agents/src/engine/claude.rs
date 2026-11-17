@@ -32,10 +32,11 @@ pub use super::claude_events::{
     default_claude_models, resolve_claude_driver_script, resolve_node_executable,
 };
 use super::claude_events::{
-    classify_claude_tool_call, claude_accepts_model_id, claude_capabilities, claude_normalize_mode,
-    default_claude_permission_options, encode_claude_question_answers, normalize_sidecar_event,
-    parse_sidecar_models, prepare_claude_launch_env, resolve_claude_auth,
-    resolve_claude_default_model, serialize_sidecar_blocks, str_opt, str_or,
+    apply_claude_env_to_models, classify_claude_tool_call, claude_accepts_model_id,
+    claude_capabilities, claude_normalize_mode, default_claude_permission_options,
+    encode_claude_question_answers, normalize_sidecar_event, parse_sidecar_models,
+    prepare_claude_launch_env, resolve_claude_auth, resolve_claude_default_model,
+    serialize_sidecar_blocks, str_opt, str_or,
 };
 use crate::{
     engine::{
@@ -791,6 +792,14 @@ impl NativeEngineDriver for ClaudeNativeDriver {
         crate::end_turn_usage::collect_claude_model_aliases(env)
     }
 
+    fn apply_env_to_models(
+        &self,
+        models: &mut Vec<EngineModelInfo>,
+        env: &HashMap<String, String>,
+    ) {
+        apply_claude_env_to_models(models, env);
+    }
+
     fn accepts_model_id(&self, model_id: &str, env: &HashMap<String, String>) -> bool {
         claude_accepts_model_id(model_id, env)
     }
@@ -1272,5 +1281,87 @@ mod tests {
             "https://proxy.example.com/v1".to_string(),
         );
         assert!(driver.accepts_model_id("gpt-5.4", &custom));
+    }
+
+    #[test]
+    fn assistant_message_event_prefers_message_id_over_per_frame_uuid() {
+        let latest_rate = Arc::new(RwLock::new(None));
+        let latest_cache = Arc::new(RwLock::new(None));
+
+        let with_message_id = normalize_sidecar_event(
+            &json!({
+                "kind": "assistant_message",
+                "sessionId": "sess-1",
+                "promptId": "p-1",
+                "messageId": "msg_api_42",
+                "uuid": "frame-uuid-99",
+                "text": "Hello"
+            }),
+            &latest_rate,
+            &latest_cache,
+            true,
+        );
+        assert!(matches!(
+            with_message_id,
+            Some(EngineEvent::AssistantMessage {
+                message_id: Some(ref mid),
+                ref text,
+                ..
+            }) if mid == "msg_api_42" && text == "Hello"
+        ));
+
+        let fallback_uuid = normalize_sidecar_event(
+            &json!({
+                "kind": "assistant_message",
+                "sessionId": "sess-1",
+                "promptId": "p-1",
+                "uuid": "frame-uuid-100",
+                "text": "Fallback"
+            }),
+            &latest_rate,
+            &latest_cache,
+            true,
+        );
+        assert!(matches!(
+            fallback_uuid,
+            Some(EngineEvent::AssistantMessage {
+                message_id: Some(ref mid),
+                ref text,
+                ..
+            }) if mid == "frame-uuid-100" && text == "Fallback"
+        ));
+    }
+
+    #[test]
+    fn apply_claude_env_to_models_replaces_alias_labels_and_inserts_mapped_models() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut models = default_claude_models();
+        let mut env = HashMap::new();
+        env.insert(
+            "CLAUDE_CONFIG_DIR".to_string(),
+            dir.path().to_string_lossy().to_string(),
+        );
+        env.insert("ANTHROPIC_MODEL".to_string(), "glm-5".to_string());
+        env.insert(
+            "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
+            "claude-sonnet-5-5".to_string(),
+        );
+        env.insert(
+            "ANTHROPIC_DEFAULT_FABLE_MODEL".to_string(),
+            "glm-fable".to_string(),
+        );
+
+        let driver = ClaudeNativeDriver::new();
+        driver.apply_env_to_models(&mut models, &env);
+
+        let sonnet = models.iter().find(|m| m.id == "sonnet").expect("sonnet alias");
+        assert_eq!(sonnet.label, "Claude Sonnet 5.5");
+
+        let opus = models.iter().find(|m| m.id == "opus").expect("opus alias");
+        assert_eq!(opus.label, "Opus (Latest Alias)");
+
+        let glm = models.iter().find(|m| m.id == "glm-5").expect("glm-5 concrete");
+        assert!(glm.is_default);
+        assert!(models.iter().any(|m| m.id == "glm-fable"));
     }
 }

@@ -1128,6 +1128,14 @@ pub trait NativeEngineDriver: Send + Sync + 'static {
         HashMap::new()
     }
 
+    /// Applies environment/settings-derived model labels, custom models, and default flags onto discovered models.
+    fn apply_env_to_models(
+        &self,
+        _models: &mut Vec<EngineModelInfo>,
+        _env: &HashMap<String, String>,
+    ) {
+    }
+
     /// Returns `true` when `model_id` is compatible with this engine given `env`
     /// (allowing custom/proxy endpoints while filtering stale foreign models across agent handoffs).
     fn accepts_model_id(&self, _model_id: &str, _env: &HashMap<String, String>) -> bool {

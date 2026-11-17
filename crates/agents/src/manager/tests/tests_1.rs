@@ -1111,3 +1111,192 @@ fn vendor_fallback_does_not_duplicate_standard_thought_level() {
     );
     assert_eq!(options.len(), 2);
 }
+
+#[tokio::test]
+async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
+    use crate::engine::{ClaudeNativeDriver, EngineEvent, EngineHandle, NativeEngineDriver};
+    use crate::manager::runner::native_events::NativeTurnState;
+
+    let collect_emitted_text = |rx: &mut mpsc::UnboundedReceiver<AgentConnectionManagerEvent>| -> Vec<String> {
+        let mut chunks = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text { text },
+            } = ev.event
+            {
+                chunks.push(text);
+            }
+        }
+        chunks
+    };
+
+    let driver: Arc<dyn NativeEngineDriver> = Arc::new(ClaudeNativeDriver::new());
+    let handle = EngineHandle::for_engine(
+        uuid::Uuid::new_v4(),
+        "claude-native",
+        uuid::Uuid::nil(),
+        PathBuf::from("C:/workspace"),
+        true,
+        None,
+    );
+    let session_id = AgentSessionId::new();
+    let prompt_id = AgentPromptId::new();
+
+    // 1. Matching message_id suppresses AssistantMessage replay.
+    {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner(tx);
+        let mut char_acc = 0usize;
+        let mut state = NativeTurnState::default();
+        for ev in [
+            EngineEvent::AssistantTextDelta {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("msg_1".into()),
+                text: "Hello ".into(),
+            },
+            EngineEvent::AssistantTextDelta {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("msg_1".into()),
+                text: "world!".into(),
+            },
+            EngineEvent::AssistantMessage {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("msg_1".into()),
+                text: "Hello world!".into(),
+            },
+        ] {
+            runner
+                .handle_native_stream_event(
+                    &driver,
+                    &handle,
+                    false,
+                    None,
+                    session_id,
+                    prompt_id,
+                    ev,
+                    &mut char_acc,
+                    &mut state,
+                )
+                .await;
+        }
+        assert_eq!(collect_emitted_text(&mut rx).concat(), "Hello world!");
+    }
+
+    // 2. Mismatched message_ids (proxy rewrite) still suppress exact replay and emit only unstreamed suffix.
+    {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner(tx);
+        let mut char_acc = 0usize;
+        let mut state = NativeTurnState::default();
+        for ev in [
+            EngineEvent::AssistantTextDelta {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("proxy-delta-id".into()),
+                text: "Part A ".into(),
+            },
+            EngineEvent::AssistantMessage {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("proxy-asst-uuid".into()),
+                text: "Part A ".into(),
+            },
+            EngineEvent::AssistantMessage {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("proxy-asst-uuid-2".into()),
+                text: "Part A Part B".into(),
+            },
+        ] {
+            runner
+                .handle_native_stream_event(
+                    &driver,
+                    &handle,
+                    true,
+                    None,
+                    session_id,
+                    prompt_id,
+                    ev,
+                    &mut char_acc,
+                    &mut state,
+                )
+                .await;
+        }
+        assert_eq!(
+            collect_emitted_text(&mut rx),
+            vec!["Part A ".to_string(), "Part B".to_string()]
+        );
+    }
+
+    // 3. Tool call / result boundary resets buffer so post-tool text emits once cleanly.
+    {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner(tx);
+        let mut char_acc = 0usize;
+        let mut state = NativeTurnState::default();
+        for ev in [
+            EngineEvent::AssistantTextDelta {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("m-pre".into()),
+                text: "Checking file...".into(),
+            },
+            EngineEvent::AssistantMessage {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("m-pre".into()),
+                text: "Checking file...".into(),
+            },
+            EngineEvent::ToolCall {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                parent_tool_use_id: None,
+                tool_use_id: Some("tu-1".into()),
+                tool_name: "Read".into(),
+                input: serde_json::json!({ "file_path": "x.rs" }),
+            },
+            EngineEvent::ToolResult {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                parent_tool_use_id: None,
+                tool_use_id: Some("tu-1".into()),
+                is_error: false,
+                content: serde_json::json!("ok"),
+            },
+            EngineEvent::AssistantTextDelta {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("m-post".into()),
+                text: "All done.".into(),
+            },
+            EngineEvent::AssistantMessage {
+                prompt_id: Some(prompt_id.0.to_string()),
+                session_id: None,
+                message_id: Some("m-post".into()),
+                text: "All done.".into(),
+            },
+        ] {
+            runner
+                .handle_native_stream_event(
+                    &driver,
+                    &handle,
+                    false,
+                    None,
+                    session_id,
+                    prompt_id,
+                    ev,
+                    &mut char_acc,
+                    &mut state,
+                )
+                .await;
+        }
+        assert_eq!(
+            collect_emitted_text(&mut rx),
+            vec!["Checking file...".to_string(), "All done.".to_string()]
+        );
+    }
+}
+

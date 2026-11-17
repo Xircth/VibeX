@@ -712,6 +712,7 @@ export class ClaudeNativeSidecarServer {
       }
     }
     const subagentRegistry = new Map();
+    const streamMessageIds = new Map();
 
     const turnState = {
       promptId,
@@ -764,6 +765,7 @@ export class ClaudeNativeSidecarServer {
             fallbackSessionId: currentSessionId,
             fallbackModel: servedModel ?? options.model ?? null,
             subagentRegistry,
+            streamMessageIds,
           });
           for (const event of normalized) {
             if (event.kind === 'rate_limits_updated') this.latestRateLimits = event.rateLimits;

@@ -23,6 +23,7 @@ pub(in crate::manager) struct NativeTurnState {
     pub(in crate::manager) running_tool_calls: std::collections::HashSet<String>,
     pub(in crate::manager) streamed_assistant_text: bool,
     pub(in crate::manager) last_streamed_message_id: Option<String>,
+    pub(in crate::manager) streamed_assistant_buffer: String,
     pub(in crate::manager) accumulated_usage: Option<AgentUsage>,
 }
 
@@ -273,10 +274,17 @@ impl AgentConnectionRunner {
                 message_id, text, ..
             } => {
                 if !text.is_empty() {
+                    if let (Some(prev), Some(curr)) =
+                        (&turn_state.last_streamed_message_id, &message_id)
+                        && prev != curr
+                    {
+                        turn_state.streamed_assistant_buffer.clear();
+                    }
                     turn_state.streamed_assistant_text = true;
                     if message_id.is_some() {
                         turn_state.last_streamed_message_id = message_id;
                     }
+                    turn_state.streamed_assistant_buffer.push_str(&text);
                     *char_accumulator = char_accumulator.saturating_add(text.len());
                     self.emit(
                         Some(session_id),
@@ -291,24 +299,47 @@ impl AgentConnectionRunner {
             EngineEvent::AssistantMessage {
                 message_id, text, ..
             } => {
-                let already_streamed_same_msg = turn_state.streamed_assistant_text
+                let text_already_streamed = turn_state.streamed_assistant_text
+                    && !turn_state.streamed_assistant_buffer.is_empty()
+                    && (turn_state.streamed_assistant_buffer == text
+                        || turn_state.streamed_assistant_buffer.ends_with(&text));
+                let same_message_id = turn_state.streamed_assistant_text
                     && match (&message_id, &turn_state.last_streamed_message_id) {
                         (Some(a), Some(b)) => a == b,
                         _ => true,
                     };
-                if !already_streamed_same_msg && !text.is_empty() {
-                    turn_state.streamed_assistant_text = true;
-                    if message_id.is_some() {
-                        turn_state.last_streamed_message_id = message_id;
+                let unstreamed_suffix = if turn_state.streamed_assistant_text
+                    && !turn_state.streamed_assistant_buffer.is_empty()
+                {
+                    text.strip_prefix(&turn_state.streamed_assistant_buffer)
+                        .map(str::to_string)
+                } else {
+                    None
+                };
+                if !text_already_streamed && (!same_message_id || unstreamed_suffix.is_some()) && !text.is_empty() {
+                    let emit_text = unstreamed_suffix.unwrap_or(text);
+                    if !emit_text.is_empty() {
+                        if let (Some(prev), Some(curr)) =
+                            (&turn_state.last_streamed_message_id, &message_id)
+                            && prev != curr
+                            && !turn_state.streamed_assistant_buffer.ends_with(&emit_text)
+                        {
+                            turn_state.streamed_assistant_buffer.clear();
+                        }
+                        turn_state.streamed_assistant_text = true;
+                        if message_id.is_some() {
+                            turn_state.last_streamed_message_id = message_id;
+                        }
+                        turn_state.streamed_assistant_buffer.push_str(&emit_text);
+                        *char_accumulator = char_accumulator.saturating_add(emit_text.len());
+                        self.emit(
+                            Some(session_id),
+                            Some(prompt_id),
+                            AgentEvent::MessageChunk {
+                                content: AgentContentBlock::Text { text: emit_text },
+                            },
+                        );
                     }
-                    *char_accumulator = char_accumulator.saturating_add(text.len());
-                    self.emit(
-                        Some(session_id),
-                        Some(prompt_id),
-                        AgentEvent::MessageChunk {
-                            content: AgentContentBlock::Text { text },
-                        },
-                    );
                 }
                 false
             }
@@ -334,6 +365,7 @@ impl AgentConnectionRunner {
             } => {
                 turn_state.streamed_assistant_text = false;
                 turn_state.last_streamed_message_id = None;
+                turn_state.streamed_assistant_buffer.clear();
                 let id = tool_use_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 turn_state.tool_names.insert(id.clone(), tool_name.clone());
                 turn_state.running_tool_calls.insert(id.clone());
@@ -379,6 +411,7 @@ impl AgentConnectionRunner {
             } => {
                 turn_state.streamed_assistant_text = false;
                 turn_state.last_streamed_message_id = None;
+                turn_state.streamed_assistant_buffer.clear();
                 if let Some(id) = tool_use_id {
                     turn_state.running_tool_calls.remove(&id);
                     let tool_name = turn_state.tool_names.remove(&id);

@@ -339,6 +339,7 @@ export function normalizeSdkEvent(
     fallbackSessionId = null,
     fallbackModel = null,
     subagentRegistry = new Map(),
+    streamMessageIds = new Map(),
   } = {}
 ) {
   if (!message || typeof message !== 'object') return [];
@@ -440,6 +441,19 @@ export function normalizeSdkEvent(
   }
 
   if (message.type === 'stream_event' && message.event) {
+    const streamScope = parentToolUseId ?? '__main__';
+    const eventMessageId = readString(message.event.message?.id ?? message.message?.id);
+    if (message.event.type === 'message_start') {
+      if (eventMessageId) {
+        streamMessageIds.set(streamScope, eventMessageId);
+      } else {
+        streamMessageIds.delete(streamScope);
+      }
+    }
+    // Claude CLI stamps a distinct random `message.uuid` on every stream_event and
+    // assistant line. Only expose the stable Anthropic API message id here so Rust
+    // deduplication does not mistake the final assistant frame for a new message.
+    const resolvedMessageId = eventMessageId ?? streamMessageIds.get(streamScope) ?? null;
     const delta =
       message.event.type === 'content_block_delta' ? message.event.delta : undefined;
     if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
@@ -457,7 +471,7 @@ export function normalizeSdkEvent(
           kind: 'assistant_text_delta',
           sessionId,
           promptId,
-          messageId: readString(message.uuid) ?? null,
+          messageId: resolvedMessageId,
           text: delta.text,
         });
       }
@@ -466,9 +480,12 @@ export function normalizeSdkEvent(
         kind: 'thinking_delta',
         sessionId,
         promptId,
-        messageId: readString(message.uuid) ?? null,
+        messageId: resolvedMessageId,
         thinking: delta.thinking,
       });
+    }
+    if (message.event.type === 'message_stop') {
+      streamMessageIds.delete(streamScope);
     }
     return events;
   }
@@ -478,6 +495,31 @@ export function normalizeSdkEvent(
     : Array.isArray(message?.content)
       ? message.content
       : [];
+
+  if (parentToolUseId && message.type === 'assistant') {
+    const childText = extractTextFromBlocks(blocks);
+    if (childText) {
+      events.push({
+        kind: 'subagent/update',
+        sessionId,
+        promptId,
+        subagentId: parentToolUseId,
+        parentToolUseId,
+        text: childText,
+      });
+    }
+  } else if (message.type === 'assistant') {
+    // Emit assistant_message before any tool_call blocks in the same message so
+    // ToolCall does not clear streaming dedup state before AssistantMessage is checked.
+    events.push({
+      kind: 'assistant_message',
+      sessionId,
+      promptId,
+      messageId: readString(message.message?.id) ?? null,
+      uuid: readString(message.uuid) ?? null,
+      text: extractTextFromBlocks(blocks) ?? '',
+    });
+  }
 
   for (const block of blocks) {
     if (!block || typeof block !== 'object') continue;
@@ -546,27 +588,7 @@ export function normalizeSdkEvent(
     }
   }
 
-  if (parentToolUseId && message.type === 'assistant') {
-    const childText = extractTextFromBlocks(blocks);
-    if (childText) {
-      events.push({
-        kind: 'subagent/update',
-        sessionId,
-        promptId,
-        subagentId: parentToolUseId,
-        parentToolUseId,
-        text: childText,
-      });
-    }
-  } else if (message.type === 'assistant') {
-    events.push({
-      kind: 'assistant_message',
-      sessionId,
-      promptId,
-      uuid: readString(message.uuid) ?? null,
-      text: extractTextFromBlocks(blocks) ?? '',
-    });
-  } else if (message.type === 'system' && message.subtype === 'init') {
+  if (message.type === 'system' && message.subtype === 'init') {
     events.push({
       kind: 'session_initialized',
       sessionId,

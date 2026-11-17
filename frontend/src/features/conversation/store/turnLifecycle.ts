@@ -46,12 +46,14 @@ import {
   extendOptimisticBaselines,
   extractCurrentTurnStartedAt,
   isNonTerminalMessageRow,
+  isOverlayAheadOfRevision,
   isSettledAssistantRow,
   isTerminalMessageRow,
   markSettledAssistantRow,
   maxLiveRowRevision,
   normalizeAgentIdentity,
   opRevision,
+  overlayRevisionHorizon,
   pruneOptimisticBaselines,
   retainStreamingLiveText,
   selectActiveTurnStartedAt,
@@ -115,6 +117,8 @@ export type LiveTextOverlay = {
   reasoning: string;
   /** Highest applied append revision, for idempotent dedup. */
   revision: bigint;
+  /** Highest unconsuming patch revision (e.g. usage-only patch) covering this overlay. */
+  patchedRevision?: bigint;
 };
 
 export type ConversationStoreEntry = {
@@ -1192,7 +1196,7 @@ function upsertRow(
   if (
     applied &&
     overlay &&
-    (incomingRevision >= overlay.revision || terminalConverged)
+    (incomingRevision >= overlayRevisionHorizon(overlay) || terminalConverged)
   ) {
     nextLive = { ...liveText };
     delete nextLive[incoming.row_id];
@@ -1218,7 +1222,7 @@ function preserveAssistantBlocksOnColdUpsert(
   if (existing === incoming) {
     if (!overlay) return incoming;
     if (
-      overlay.revision > incomingRevision ||
+      isOverlayAheadOfRevision(overlay, incomingRevision) ||
       incoming.row.turn.blocks.length === 0
     ) {
       const mergedBlocks =
@@ -1241,10 +1245,12 @@ function preserveAssistantBlocksOnColdUpsert(
     }
     return incoming;
   }
+  const existingRevision = toBigInt(existing.revision);
   const shouldApplyOverlay = Boolean(
     overlay &&
-      (incomingRevision >= overlay.revision || forceApplyOverlay) &&
-      overlay.revision > toBigInt(existing.revision)
+      (incomingRevision >= overlayRevisionHorizon(overlay) ||
+        forceApplyOverlay) &&
+      isOverlayAheadOfRevision(overlay, existingRevision)
   );
   const baseBlocks =
     shouldApplyOverlay && overlay
@@ -1253,9 +1259,14 @@ function preserveAssistantBlocksOnColdUpsert(
   if (baseBlocks.length === 0) {
     return incoming;
   }
+  const incomingAuthoritative =
+    incomingRevision >= existingRevision &&
+    (!overlay || incomingRevision >= overlayRevisionHorizon(overlay));
   const mergedBlocks =
     incoming.row.turn.blocks.length > 0
-      ? mergeAssistantBlocks(baseBlocks, incoming.row.turn.blocks)
+      ? mergeAssistantBlocks(baseBlocks, incoming.row.turn.blocks, {
+          preferClientText: incomingAuthoritative,
+        })
       : baseBlocks;
   return {
     ...incoming,
@@ -1289,7 +1300,15 @@ function advanceOverlayOnPatch(
     return nextLive;
   }
   if (overlay && overlay.revision <= revision) {
-    return { ...liveText, [rowId]: { ...overlay, revision: revision + 1n } };
+    const nextPatchedRevision =
+      overlay.patchedRevision !== undefined &&
+      overlay.patchedRevision > revision
+        ? overlay.patchedRevision
+        : revision;
+    return {
+      ...liveText,
+      [rowId]: { ...overlay, patchedRevision: nextPatchedRevision },
+    };
   }
   return liveText;
 }

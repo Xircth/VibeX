@@ -247,7 +247,7 @@ pub(super) fn normalize_sidecar_event(
         "assistant_message" => Some(EngineEvent::AssistantMessage {
             prompt_id,
             session_id,
-            message_id: str_opt(event, "uuid").or_else(|| str_opt(event, "messageId")),
+            message_id: str_opt(event, "messageId").or_else(|| str_opt(event, "uuid")),
             text: str_or(event, "text", ""),
         }),
         "tool_call" => Some(EngineEvent::ToolCall {
@@ -787,6 +787,235 @@ pub(super) fn resolve_claude_default_model(env: &HashMap<String, String>) -> Opt
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+fn is_claude_alias_id(id: &str) -> bool {
+    matches!(
+        id.trim().to_ascii_lowercase().as_str(),
+        "default" | "sonnet" | "opus" | "haiku" | "fable"
+    )
+}
+
+pub(super) fn format_claude_model_display_name(model_id: &str) -> String {
+    let raw = model_id.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    match raw.to_ascii_lowercase().as_str() {
+        "default" => return "Default".to_string(),
+        "sonnet" => return "Sonnet (Latest Alias)".to_string(),
+        "opus" => return "Opus (Latest Alias)".to_string(),
+        "haiku" => return "Haiku (Latest Alias)".to_string(),
+        "fable" => return "Fable (Latest Alias)".to_string(),
+        _ => {}
+    }
+
+    let mut normalized = raw
+        .rsplit_once('/')
+        .map(|(_, tail)| tail)
+        .filter(|tail| !tail.is_empty())
+        .unwrap_or(raw);
+    for prefix in [
+        "us.anthropic.",
+        "eu.anthropic.",
+        "apac.anthropic.",
+        "anthropic.",
+    ] {
+        if normalized.len() > prefix.len()
+            && normalized[..prefix.len()].eq_ignore_ascii_case(prefix)
+        {
+            normalized = &normalized[prefix.len()..];
+            break;
+        }
+    }
+
+    let lower = normalized.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("claude-") {
+        let parts: Vec<&str> = rest.split('-').collect();
+        let family_label = |token: &str| -> Option<&'static str> {
+            match token {
+                "opus" => Some("Opus"),
+                "sonnet" => Some("Sonnet"),
+                "haiku" => Some("Haiku"),
+                "fable" => Some("Fable"),
+                _ => None,
+            }
+        };
+        // Modern pattern: claude-<family>-<major>(-<minor>)?(-YYYYMMDD)?(-extra)?
+        if parts.len() >= 2
+            && let Some(family) = family_label(parts[0])
+            && !parts[1].is_empty()
+            && parts[1].bytes().all(|b| b.is_ascii_digit())
+        {
+            let mut idx = 2;
+            let version = if idx < parts.len()
+                && !parts[idx].is_empty()
+                && parts[idx].len() <= 3
+                && parts[idx].bytes().all(|b| b.is_ascii_digit())
+            {
+                let v = format!("{}.{}", parts[1], parts[idx]);
+                idx += 1;
+                v
+            } else {
+                parts[1].to_string()
+            };
+            let date_tag = if idx < parts.len()
+                && parts[idx].len() == 8
+                && parts[idx].bytes().all(|b| b.is_ascii_digit())
+            {
+                let d = parts[idx];
+                idx += 1;
+                Some(d)
+            } else {
+                None
+            };
+            let mut out = vec![format!("Claude {family} {version}")];
+            if idx < parts.len() {
+                let extra = parts[idx..].join("-");
+                if !extra.is_empty() {
+                    out.push(extra);
+                }
+            }
+            if let Some(d) = date_tag {
+                out.push(format!("({d})"));
+            }
+            return out.join(" ");
+        }
+        // Legacy pattern: claude-<major>(-<minor>)?-<family>(-YYYYMMDD)?(-extra)?
+        if parts.len() >= 2
+            && !parts[0].is_empty()
+            && parts[0].bytes().all(|b| b.is_ascii_digit())
+        {
+            let mut idx = 1;
+            let version = if idx < parts.len()
+                && !parts[idx].is_empty()
+                && parts[idx].len() <= 3
+                && parts[idx].bytes().all(|b| b.is_ascii_digit())
+            {
+                let v = format!("{}.{}", parts[0], parts[idx]);
+                idx += 1;
+                v
+            } else {
+                parts[0].to_string()
+            };
+            if idx < parts.len()
+                && let Some(family) = family_label(parts[idx])
+            {
+                idx += 1;
+                let date_tag = if idx < parts.len()
+                    && parts[idx].len() == 8
+                    && parts[idx].bytes().all(|b| b.is_ascii_digit())
+                {
+                    let d = parts[idx];
+                    idx += 1;
+                    Some(d)
+                } else {
+                    None
+                };
+                let mut out = vec![format!("Claude {version} {family}")];
+                if idx < parts.len() {
+                    let extra = parts[idx..].join("-");
+                    if !extra.is_empty() {
+                        out.push(extra);
+                    }
+                }
+                if let Some(d) = date_tag {
+                    out.push(format!("({d})"));
+                }
+                return out.join(" ");
+            }
+        }
+    }
+
+    raw.to_string()
+}
+
+pub(super) fn apply_claude_env_to_models(
+    models: &mut Vec<EngineModelInfo>,
+    env: &HashMap<String, String>,
+) {
+    let effective = crate::end_turn_usage::read_claude_settings_env(env);
+    let aliases = crate::end_turn_usage::collect_claude_model_aliases(env);
+
+    for entry in models.iter_mut() {
+        let lower_id = entry.id.trim().to_ascii_lowercase();
+        if let Some(target) = aliases.get(&lower_id) {
+            entry.label = format_claude_model_display_name(target);
+        }
+    }
+
+    let configured_candidates = [
+        ("ANTHROPIC_MODEL", None, None),
+        ("ANTHROPIC_REASONING_MODEL", None, None),
+        (
+            "ANTHROPIC_CUSTOM_MODEL_OPTION",
+            Some("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"),
+            Some("ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"),
+        ),
+        ("ANTHROPIC_DEFAULT_OPUS_MODEL", None, None),
+        ("ANTHROPIC_DEFAULT_SONNET_MODEL", None, None),
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", None, None),
+        ("ANTHROPIC_DEFAULT_FABLE_MODEL", None, None),
+        ("CLAUDE_CODE_SUBAGENT_MODEL", None, None),
+    ];
+
+    let mut to_insert = Vec::new();
+    for (id_key, name_key, desc_key) in configured_candidates {
+        let Some(id) = effective
+            .get(id_key)
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        if is_claude_alias_id(id)
+            || models.iter().any(|existing| existing.id == id)
+            || to_insert
+                .iter()
+                .any(|existing: &EngineModelInfo| existing.id == id)
+        {
+            continue;
+        }
+        let label = name_key
+            .and_then(|key| effective.get(key))
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format_claude_model_display_name(id));
+        let description = desc_key
+            .and_then(|key| effective.get(key))
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        to_insert.push(EngineModelInfo {
+            id: id.to_string(),
+            label,
+            description,
+            is_default: false,
+        });
+    }
+
+    if !to_insert.is_empty() {
+        let insert_at = models
+            .iter()
+            .position(|m| is_claude_alias_id(&m.id))
+            .unwrap_or(models.len());
+        models.splice(insert_at..insert_at, to_insert);
+    }
+
+    if let Some(preferred_default) = effective
+        .get("ANTHROPIC_MODEL")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        for entry in models.iter_mut() {
+            entry.is_default = entry.id == preferred_default;
+        }
+    }
 }
 
 pub(super) fn claude_accepts_model_id(model_id: &str, env: &HashMap<String, String>) -> bool {

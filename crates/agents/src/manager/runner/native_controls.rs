@@ -313,7 +313,7 @@ impl AgentConnectionRunner {
         handle: &EngineHandle,
         session_id: AgentSessionId,
     ) -> AgentSessionControlsSnapshot {
-        let models = match driver.list_models(handle).await {
+        let mut models = match driver.list_models(handle).await {
             Ok(models) => models,
             Err(error) => {
                 tracing::warn!(
@@ -338,6 +338,7 @@ impl AgentConnectionRunner {
         for (k, v) in &self.snapshot.env {
             merged_env.insert(k.clone(), v.clone());
         }
+        driver.apply_env_to_models(&mut models, &merged_env);
         let default_model_env = merged_env
             .get("DIMO_DEFAULT_MODEL")
             .map(|s| s.trim().to_string())

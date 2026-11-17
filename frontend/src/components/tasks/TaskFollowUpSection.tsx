@@ -32,11 +32,14 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import {
   clearConversationPromptSuggestion,
   getConversationAsyncTasks,
+  getConversationControlsAgentId,
+  getConversationHandoffPending,
   getConversationPersona,
   getConversationPromptSuggestion,
   getConversationSessionGoal,
   subscribeConversationTimeline,
 } from '@/features/conversation/conversationTimelineRegistry';
+import { normalizeAgentIdentity } from '@/features/conversation/conversationStore';
 import { sessionsApi } from '@/lib/api';
 import { listenToConversationEvents } from '@/features/conversation/events';
 
@@ -53,7 +56,11 @@ import { useComposerEngineHandoff } from './follow-up/ComposerEngineHandoffContr
 import type { SessionProviderInstanceConfig } from './follow-up/SessionSettingsSummary';
 import { useComposerProviderInstances } from './follow-up/useComposerProviderInstances';
 import { useComposerSessionControlsQuery } from './follow-up/useComposerSessionControlsQuery';
-import { normalizeProviderInstanceIdForApi } from '@/lib/providerInstancesApi';
+import {
+  LOCAL_PROVIDER_INSTANCE_ID,
+  normalizeProviderInstanceIdForApi,
+} from '@/lib/providerInstancesApi';
+import { canonicalSessionAgentId } from '@/lib/sessionQueryCache';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
@@ -213,6 +220,16 @@ export function TaskFollowUpSection({
     subscribeConversationTimeline,
     () => getConversationPromptSuggestion(sessionId ?? null),
     () => getConversationPromptSuggestion(sessionId ?? null)
+  );
+  const handoffPending = useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationHandoffPending(sessionId ?? null),
+    () => getConversationHandoffPending(sessionId ?? null)
+  );
+  const timelineControlsAgentId = useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationControlsAgentId(sessionId ?? null),
+    () => getConversationControlsAgentId(sessionId ?? null)
   );
   const previousSessionIdRef = useRef(sessionId);
   useEffect(() => {
@@ -475,11 +492,6 @@ export function TaskFollowUpSection({
     isChangingAgent,
   });
   const selectedProviderInstanceId = providerInstances.scopedProviderInstanceId;
-  const instanceScopeKey = `${sessionId ?? '__new__'}::${targetExecutor ?? ''}::${selectedProviderInstanceId ?? 'local'}`;
-  const isChangingInstance = instanceSwitchedScope === instanceScopeKey;
-  useEffect(() => {
-    setInstanceSwitchedScope(null);
-  }, [sessionId, targetExecutor, sessionModes, sessionConfigOptions]);
 
   const {
     selectedMode,
@@ -579,16 +591,38 @@ export function TaskFollowUpSection({
       return next;
     });
   }, []);
+  const canonicalTargetExecutor = targetExecutor
+    ? canonicalSessionAgentId(targetExecutor)
+    : '';
+  const instanceScopeKey = `${sessionId ?? '__new__'}::${canonicalTargetExecutor}::${selectedProviderInstanceId ?? LOCAL_PROVIDER_INSTANCE_ID}`;
+  const isChangingInstance = instanceSwitchedScope === instanceScopeKey;
+  const controlsAgentMatchesTarget = Boolean(
+    timelineControlsAgentId &&
+      targetExecutor &&
+      normalizeAgentIdentity(timelineControlsAgentId) ===
+        normalizeAgentIdentity(targetExecutor)
+  );
+  useEffect(() => {
+    setInstanceSwitchedScope(null);
+  }, [sessionId]);
+  useEffect(() => {
+    if (!handoffPending && sessionBindReady && controlsAgentMatchesTarget) {
+      setInstanceSwitchedScope(null);
+    }
+  }, [controlsAgentMatchesTarget, handoffPending, sessionBindReady]);
   const setSelectedInstanceOverride =
     providerInstances.setSelectedInstanceOverride;
   const handleApplyProviderInstanceId = useCallback(
     (instanceId: string | null, targetAgentId?: string | null) => {
-      setSelectedInstanceOverride(instanceId, targetAgentId);
-      if (targetAgentId && targetAgentId === targetExecutor) {
+      const effectiveAgent = targetAgentId ?? targetExecutor;
+      setSelectedInstanceOverride(instanceId, effectiveAgent);
+      if (effectiveAgent) {
+        const canonicalAgent = canonicalSessionAgentId(effectiveAgent);
         const normalized =
-          normalizeProviderInstanceIdForApi(instanceId) ?? 'local';
+          normalizeProviderInstanceIdForApi(instanceId) ??
+          LOCAL_PROVIDER_INSTANCE_ID;
         setInstanceSwitchedScope(
-          `${sessionId ?? '__new__'}::${targetAgentId}::${normalized}`
+          `${sessionId ?? '__new__'}::${canonicalAgent}::${normalized}`
         );
       }
     },
@@ -607,10 +641,12 @@ export function TaskFollowUpSection({
   const handleSelectProviderInstance = useCallback(
     (nextInstanceId: string) => {
       if (targetExecutor) {
+        const canonicalAgent = canonicalSessionAgentId(targetExecutor);
         const normalized =
-          normalizeProviderInstanceIdForApi(nextInstanceId) ?? 'local';
+          normalizeProviderInstanceIdForApi(nextInstanceId) ??
+          LOCAL_PROVIDER_INSTANCE_ID;
         setInstanceSwitchedScope(
-          `${sessionId ?? '__new__'}::${targetExecutor}::${normalized}`
+          `${sessionId ?? '__new__'}::${canonicalAgent}::${normalized}`
         );
       }
       engineHandoff.handleChangeProviderInstance(nextInstanceId);
@@ -672,7 +708,8 @@ export function TaskFollowUpSection({
     sessionModes,
     sessionConfigOptions,
     selectedConfigValues,
-    ignoreLiveControls: isChangingAgent || isChangingInstance,
+    ignoreLiveControls:
+      isChangingAgent || isChangingInstance || handoffPending,
   });
   useEffect(() => {
     if (
@@ -713,7 +750,7 @@ export function TaskFollowUpSection({
   const { handleSelectMode, handleSelectConfigOption } =
     useSessionComposerControlSync({
       sessionId,
-      isChangingAgent: isChangingAgent || isChangingInstance,
+      isChangingAgent: isChangingAgent || isChangingInstance || handoffPending,
       liveModeId,
       displaySessionConfigOptions,
       selectedConfigValues,
@@ -1392,7 +1429,12 @@ export function TaskFollowUpSection({
             sessionConfigOptions={displaySessionConfigOptions}
             selectedConfigValues={selectedConfigValues}
             onSelectConfigOption={handleSelectConfigOption}
-            sessionControlsLoading={catalogQuery.isLoading}
+            sessionControlsLoading={
+              catalogQuery.isLoading ||
+              ((isChangingAgent || isChangingInstance || handoffPending) &&
+                displaySessionModes.modes.length === 0 &&
+                displaySessionConfigOptions.length === 0)
+            }
             continuation={continuationConfig}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}

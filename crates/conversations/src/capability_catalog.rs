@@ -1,6 +1,7 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 
 use agents::{
@@ -13,6 +14,7 @@ use db::models::agent_capability_catalog::AgentCapabilityCatalogRecord;
 use services::services::agent_management::AgentManagementApplicationService;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::{
@@ -333,6 +335,28 @@ pub async fn invalidate_open_capability_catalog(
     Ok(())
 }
 
+pub async fn invalidate_open_capability_catalog_for_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<(), ConversationServiceError> {
+    let launch = match resolve_agent_runtime_launch_settings_for_provider_instance(
+        pool,
+        agent_id,
+        provider_instance_id,
+    )
+    .await
+    {
+        Ok(launch) => launch,
+        Err(_) => return Ok(()),
+    };
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch).await?;
+    AgentCapabilityCatalogRecord::delete_for_fingerprint(pool, agent_id.as_str(), &fingerprint)
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+    Ok(())
+}
+
 fn catalog_controls_if_fresh(
     record: AgentCapabilityCatalogRecord,
     now: chrono::DateTime<Utc>,
@@ -507,6 +531,79 @@ pub async fn refresh_open_capability_catalog(
     refresh_open_capability_catalog_for_provider_instance(pool, agent_runtime, agent_id, None).await
 }
 
+type CatalogRefreshResult = Result<bool, ConversationServiceError>;
+type CatalogRefreshSender = watch::Sender<Option<CatalogRefreshResult>>;
+type CatalogRefreshReceiver = watch::Receiver<Option<CatalogRefreshResult>>;
+
+static IN_FLIGHT_CATALOG_REFRESHES: OnceLock<
+    Mutex<HashMap<(String, String), CatalogRefreshReceiver>>,
+> = OnceLock::new();
+
+fn in_flight_catalog_refreshes()
+-> &'static Mutex<HashMap<(String, String), CatalogRefreshReceiver>> {
+    IN_FLIGHT_CATALOG_REFRESHES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct CatalogRefreshLeaderGuard {
+    key: (String, String),
+    sender: Option<CatalogRefreshSender>,
+}
+
+impl CatalogRefreshLeaderGuard {
+    fn finish(mut self, result: CatalogRefreshResult) -> CatalogRefreshResult {
+        {
+            let mut map = in_flight_catalog_refreshes()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            map.remove(&self.key);
+        }
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(Some(result.clone()));
+        }
+        result
+    }
+}
+
+impl Drop for CatalogRefreshLeaderGuard {
+    fn drop(&mut self) {
+        if let Some(sender) = self.sender.take() {
+            {
+                let mut map = in_flight_catalog_refreshes()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                map.remove(&self.key);
+            }
+            let _ = sender.send(Some(Err(ConversationServiceError::Internal(
+                "capability catalog refresh cancelled".to_string(),
+            ))));
+        }
+    }
+}
+
+enum CatalogRefreshRegistration {
+    Leader(CatalogRefreshLeaderGuard),
+    Follower(CatalogRefreshReceiver),
+}
+
+fn register_or_join_catalog_refresh(
+    agent_id: &AgentId,
+    fingerprint: &str,
+) -> CatalogRefreshRegistration {
+    let key = (agent_id.as_str().to_string(), fingerprint.to_string());
+    let mut map = in_flight_catalog_refreshes()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(rx) = map.get(&key) {
+        return CatalogRefreshRegistration::Follower(rx.clone());
+    }
+    let (tx, rx) = watch::channel(None);
+    map.insert(key.clone(), rx);
+    CatalogRefreshRegistration::Leader(CatalogRefreshLeaderGuard {
+        key,
+        sender: Some(tx),
+    })
+}
+
 pub async fn refresh_open_capability_catalog_for_provider_instance(
     pool: &SqlitePool,
     agent_runtime: &AgentRuntime,
@@ -527,8 +624,64 @@ pub async fn refresh_open_capability_catalog_for_provider_instance(
     )
     .is_some();
     let fingerprint = open_capability_catalog_fingerprint(pool, &launch).await?;
+
+    let leader_guard = match register_or_join_catalog_refresh(agent_id, &fingerprint) {
+        CatalogRefreshRegistration::Leader(guard) => guard,
+        CatalogRefreshRegistration::Follower(mut rx) => {
+            let result = match rx.wait_for(|value| value.is_some()).await {
+                Ok(value) => value
+                    .as_ref()
+                    .expect("wait_for guarantees Some")
+                    .clone(),
+                Err(_) => Err(ConversationServiceError::Internal(
+                    "capability catalog refresh channel closed".to_string(),
+                )),
+            };
+            if let Ok(ok) = result {
+                if AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
+                    .await
+                    .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
+                    .is_some()
+                {
+                    return Ok(ok);
+                }
+                // Different backing database (e.g. parallel in-memory tests): run locally.
+                return refresh_open_capability_catalog_uncached(
+                    pool,
+                    agent_runtime,
+                    agent_id,
+                    &launch,
+                    is_custom_instance,
+                    &fingerprint,
+                )
+                .await;
+            }
+            return result;
+        }
+    };
+
+    let result = refresh_open_capability_catalog_uncached(
+        pool,
+        agent_runtime,
+        agent_id,
+        &launch,
+        is_custom_instance,
+        &fingerprint,
+    )
+    .await;
+    leader_guard.finish(result)
+}
+
+async fn refresh_open_capability_catalog_uncached(
+    pool: &SqlitePool,
+    agent_runtime: &AgentRuntime,
+    agent_id: &AgentId,
+    launch: &AgentRuntimeLaunchSettings,
+    is_custom_instance: bool,
+    fingerprint: &str,
+) -> Result<bool, ConversationServiceError> {
     let expected_generation =
-        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
+        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), fingerprint)
             .await
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
             .map(|record| record.generation);
@@ -562,14 +715,14 @@ pub async fn refresh_open_capability_catalog_for_provider_instance(
     .await;
     let persist_result = match discovery {
         Ok(prepared) => {
-            persist_capability_catalog(pool, agent_id, &launch, &prepared.controls).await
+            persist_capability_catalog(pool, agent_id, launch, &prepared.controls).await
         }
         Err(error) => {
             if let Some(expected_generation) = expected_generation {
                 let _ = AgentCapabilityCatalogRecord::record_refresh_error_if_generation(
                     pool,
                     agent_id.as_str(),
-                    &fingerprint,
+                    fingerprint,
                     expected_generation,
                     "probe_failed",
                 )
@@ -1111,5 +1264,227 @@ mod tests {
             .unwrap();
         assert_ne!(local_fp, local_fp_after_probe);
         assert_eq!(custom_fp_3, custom_fp_after_probe);
+    }
+
+    #[tokio::test]
+    async fn singleflight_refresh_coalesces_concurrent_callers_and_recovers_on_drop() {
+        let agent_id = AgentId::parse("codex").unwrap();
+        let fingerprint = format!("singleflight-test-{}", Uuid::new_v4());
+
+        let leader = match register_or_join_catalog_refresh(&agent_id, &fingerprint) {
+            CatalogRefreshRegistration::Leader(guard) => guard,
+            CatalogRefreshRegistration::Follower(_) => {
+                panic!("first caller should be leader")
+            }
+        };
+        let mut follower = match register_or_join_catalog_refresh(&agent_id, &fingerprint) {
+            CatalogRefreshRegistration::Follower(rx) => rx,
+            CatalogRefreshRegistration::Leader(_) => {
+                panic!("second concurrent caller should join as follower")
+            }
+        };
+
+        let waiter = tokio::spawn(async move {
+            follower
+                .wait_for(|value| value.is_some())
+                .await
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .clone()
+        });
+
+        let finish_result = leader.finish(Ok(true));
+        assert!(finish_result.unwrap());
+        assert!(waiter.await.unwrap().unwrap());
+
+        // Dropping an unfinished leader notifies followers with an error and cleans up the slot
+        // so subsequent refreshes can acquire leadership again.
+        let dropped_leader = match register_or_join_catalog_refresh(&agent_id, &fingerprint) {
+            CatalogRefreshRegistration::Leader(guard) => guard,
+            CatalogRefreshRegistration::Follower(_) => {
+                panic!("slot should be free after previous leader finished")
+            }
+        };
+        let mut dropped_follower = match register_or_join_catalog_refresh(&agent_id, &fingerprint) {
+            CatalogRefreshRegistration::Follower(rx) => rx,
+            CatalogRefreshRegistration::Leader(_) => {
+                panic!("concurrent caller should join dropped leader")
+            }
+        };
+        drop(dropped_leader);
+
+        let cancel_err = dropped_follower
+            .wait_for(|value| value.is_some())
+            .await
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone()
+            .unwrap_err();
+        assert!(cancel_err.to_string().contains("cancelled"));
+
+        match register_or_join_catalog_refresh(&agent_id, &fingerprint) {
+            CatalogRefreshRegistration::Leader(guard) => {
+                let _ = guard.finish(Ok(true));
+            }
+            CatalogRefreshRegistration::Follower(_) => {
+                panic!("slot should be cleaned up on drop")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn invalidate_for_provider_instance_only_removes_target_instance_catalog() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+
+        let agent_id = AgentId::parse("codex").unwrap();
+        let now = "2026-11-16T00:00:00Z";
+        let instances_root = tempfile::tempdir().unwrap();
+        let exe_path = std::env::current_exe().unwrap();
+        let lock_payload = serde_json::json!({
+            "absolute_acp_program": exe_path,
+            "args": ["acp"],
+            "env": {},
+            "runtime_version": "1.0.0",
+            "acp_version": "0.8"
+        })
+        .to_string();
+        let setting_env = serde_json::json!({
+            "DIMO_PROVIDER_INSTANCES_ROOT": instances_root.path().to_string_lossy()
+        })
+        .to_string();
+
+        sqlx::query(
+            r#"INSERT OR IGNORE INTO agent_membership (
+                   agent_id, source, built_in, retired, enabled, position, created_at, updated_at
+               ) VALUES ('codex', 'built_in_profile', 1, 0, 1, 0, ?, ?)"#,
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"INSERT INTO agent_install_lock (
+                   id, agent_id, registry_version, platform, distribution_kind, resolved_json, created_at
+               ) VALUES ('lock-codex', 'codex', '1.0.0', 'test', 'binary', ?, ?)"#,
+        )
+        .bind(&lock_payload)
+        .bind(now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"INSERT OR REPLACE INTO agent_installation (
+                   agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id, active_operation, updated_at
+               ) VALUES ('codex', 'external', 'ready', 'lock-codex', NULL, NULL, ?)"#,
+        )
+        .bind(now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"INSERT OR REPLACE INTO agent_probe (
+                   agent_id, lifecycle, authentication, detail_json, probed_at
+               ) VALUES ('codex', 'ready', 'logged_in', '{}', ?)"#,
+        )
+        .bind(now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"INSERT OR REPLACE INTO agent_setting (
+                   agent_type, updated_at, config_json, env_json
+               ) VALUES ('codex', ?, '{}', ?)"#,
+        )
+        .bind(now)
+        .bind(&setting_env)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"INSERT INTO provider_instances (
+                   agent_id, instance_id, display_name, auth_mode, is_default, created_at, updated_at
+               ) VALUES
+                   ('codex', 'work-a', 'Work A', 'api_key', 0, ?, ?),
+                   ('codex', 'work-b', 'Work B', 'api_key', 0, ?, ?)"#,
+        )
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let snapshot = AgentSessionControlsSnapshot::default();
+        let launch_local =
+            resolve_agent_runtime_launch_settings_for_provider_instance(&pool, &agent_id, None)
+                .await
+                .unwrap();
+        let launch_a = resolve_agent_runtime_launch_settings_for_provider_instance(
+            &pool,
+            &agent_id,
+            Some("work-a"),
+        )
+        .await
+        .unwrap();
+        let launch_b = resolve_agent_runtime_launch_settings_for_provider_instance(
+            &pool,
+            &agent_id,
+            Some("work-b"),
+        )
+        .await
+        .unwrap();
+
+        record_open_capability_catalog(&pool, &agent_id, &launch_local, &snapshot)
+            .await
+            .unwrap();
+        record_open_capability_catalog(&pool, &agent_id, &launch_a, &snapshot)
+            .await
+            .unwrap();
+        record_open_capability_catalog(&pool, &agent_id, &launch_b, &snapshot)
+            .await
+            .unwrap();
+
+        invalidate_open_capability_catalog_for_provider_instance(&pool, &agent_id, Some("work-a"))
+            .await
+            .unwrap();
+
+        let fp_local = open_capability_catalog_fingerprint(&pool, &launch_local)
+            .await
+            .unwrap();
+        let fp_a = open_capability_catalog_fingerprint(&pool, &launch_a)
+            .await
+            .unwrap();
+        let fp_b = open_capability_catalog_fingerprint(&pool, &launch_b)
+            .await
+            .unwrap();
+
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, agent_id.as_str(), &fp_a)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, agent_id.as_str(), &fp_local)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, agent_id.as_str(), &fp_b)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }

@@ -6,6 +6,7 @@ import type { DbConversationDetail, ExecutorProfileId } from 'shared/types';
 import { sessionListAgentKey } from '@/components/kanban/session-hub/utils';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { getConversationHandoffPending } from '@/features/conversation/conversationTimelineRegistry';
 import {
   useConversationSessionFacts,
   useConversationTimeline,
@@ -650,4 +651,84 @@ describe('ComposerEngineHandoffControl', () => {
       'claude_code'
     );
   });
+
+  it('serializes beginBind and touch until confirmEngineHandoff resolves', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    trackSpy(
+      vi
+        .spyOn(conversationApi, 'detail')
+        .mockResolvedValue(makeDetail('conv-serial-1', 'claude_code', null))
+    );
+    const ensureControlsSpy = trackSpy(
+      vi.spyOn(conversationApi, 'ensureSessionControls').mockResolvedValue({
+        modes: [],
+        current_mode: null,
+        config_options: [],
+      })
+    );
+    const touchSpy = trackSpy(
+      vi.spyOn(conversationApi, 'touch').mockResolvedValue({
+        ok: true,
+        idleTimeoutSecs: 0,
+      })
+    );
+
+    let resolveConfirm: () => void = () => {};
+    trackSpy(
+      vi.spyOn(conversationApi, 'confirmEngineHandoff').mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveConfirm = resolve;
+          })
+      )
+    );
+    const onApply = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HandoffHarness
+          sessionId="conv-serial-1"
+          currentExecutor="CLAUDE_CODE"
+          onApply={onApply}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(ensureControlsSpy).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(touchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    ensureControlsSpy.mockClear();
+    touchSpy.mockClear();
+
+    fireEvent.click(screen.getByTestId('switch-to-codex'));
+
+    expect(getConversationHandoffPending('conv-serial-1')).toBe(true);
+    expect(ensureControlsSpy).not.toHaveBeenCalled();
+    expect(touchSpy).not.toHaveBeenCalledWith('conv-serial-1', true);
+    expect(screen.getByTestId('session-facts-probe')).toHaveAttribute(
+      'data-agent-id',
+      'codex'
+    );
+
+    resolveConfirm();
+
+    await waitFor(() => {
+      expect(getConversationHandoffPending('conv-serial-1')).toBe(false);
+    });
+    await waitFor(() => {
+      expect(ensureControlsSpy).toHaveBeenCalledWith('conv-serial-1', {
+        reload: false,
+      });
+    });
+    await waitFor(() => {
+      expect(touchSpy).toHaveBeenCalledWith('conv-serial-1', true);
+    });
+  });
 });
+

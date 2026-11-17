@@ -124,6 +124,23 @@ impl AgentCapabilityCatalogRecord {
         )
     }
 
+    pub async fn delete_for_fingerprint(
+        pool: &SqlitePool,
+        agent_type: &str,
+        fingerprint: &str,
+    ) -> Result<u64, sqlx::Error> {
+        Ok(
+            sqlx::query(
+                "DELETE FROM agent_capability_catalog WHERE agent_type = ? AND fingerprint = ?",
+            )
+            .bind(agent_type)
+            .bind(fingerprint)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+        )
+    }
+
     pub async fn record_refresh_error_if_generation(
         pool: &SqlitePool,
         agent_type: &str,
@@ -318,5 +335,61 @@ mod tests {
         assert!(record.is_stale_at(now, Duration::minutes(10)));
         record.retrieved_at = "not-a-date".to_string();
         assert!(record.is_stale_at(now, Duration::minutes(10)));
+    }
+
+    #[tokio::test]
+    async fn delete_for_fingerprint_preserves_sibling_fingerprints_and_other_agents() {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_capability_catalog (
+                agent_type TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                generation INTEGER NOT NULL DEFAULT 0, controls_json TEXT NOT NULL,
+                retrieved_at TEXT NOT NULL, refresh_error_code TEXT,
+                PRIMARY KEY (agent_type, fingerprint)
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        AgentCapabilityCatalogRecord::replace(&pool, "codex", "fp-local", r#"{"options":["local"]}"#)
+            .await
+            .unwrap();
+        AgentCapabilityCatalogRecord::replace(&pool, "codex", "fp-work", r#"{"options":["work"]}"#)
+            .await
+            .unwrap();
+        AgentCapabilityCatalogRecord::replace(
+            &pool,
+            "claude_code",
+            "fp-work",
+            r#"{"options":["claude"]}"#,
+        )
+        .await
+        .unwrap();
+
+        let deleted =
+            AgentCapabilityCatalogRecord::delete_for_fingerprint(&pool, "codex", "fp-work")
+                .await
+                .unwrap();
+        assert_eq!(deleted, 1);
+
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, "codex", "fp-work")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, "codex", "fp-local")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            AgentCapabilityCatalogRecord::find_matching(&pool, "claude_code", "fp-work")
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }

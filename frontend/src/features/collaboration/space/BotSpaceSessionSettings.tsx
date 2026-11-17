@@ -33,6 +33,7 @@ import {
   type SelectableAgent,
 } from '@/features/agents/useSelectableAgents';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { normalizeAgentIdentity } from '@/features/conversation/conversationStore';
 import {
   canonicalSessionAgentId,
   SESSION_AGENT_SWITCHED_EVENT,
@@ -303,15 +304,32 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     isChangingAgent,
   });
   const selectedProviderInstanceId = providerInstances.scopedProviderInstanceId;
+  const handoffPending = Boolean(activeBotTimeline?.handoffPending);
   const currentInstanceScopeKey = `${activeBotConversationId ?? '__new__'}::${effectiveAgentId}::${selectedProviderInstanceId ?? 'local'}`;
   const isChangingInstance = instanceSwitchedScope === currentInstanceScopeKey;
+  const controlsAgentMatchesTarget = Boolean(
+    activeBotTimeline?.controlsAgentId &&
+      effectiveAgentId &&
+      normalizeAgentIdentity(activeBotTimeline.controlsAgentId) ===
+        normalizeAgentIdentity(effectiveAgentId)
+  );
   useEffect(() => {
     setInstanceSwitchedScope(null);
+  }, [activeBotConversationId]);
+  useEffect(() => {
+    if (
+      !activeBotConversationId ||
+      (!handoffPending &&
+        activeBotTimeline?.sessionBindReady &&
+        controlsAgentMatchesTarget)
+    ) {
+      setInstanceSwitchedScope(null);
+    }
   }, [
     activeBotConversationId,
-    effectiveAgentId,
-    activeBotTimeline?.sessionModes,
-    activeBotTimeline?.sessionConfigOptions,
+    activeBotTimeline?.sessionBindReady,
+    controlsAgentMatchesTarget,
+    handoffPending,
   ]);
 
   const selectableAgents = useMemo<SelectableAgent[]>(() => {
@@ -436,7 +454,10 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   const displayControls = useMemo(
     () =>
       composerSessionControlDisplay([
-        activeBotConversationId && !isChangingAgent && !isChangingInstance
+        activeBotConversationId &&
+        !isChangingAgent &&
+        !isChangingInstance &&
+        !handoffPending
           ? liveSessionControlsSnapshot(
               activeBotTimeline?.sessionModes ?? { current: null, modes: [] },
               activeBotTimeline?.sessionConfigOptions ?? []
@@ -450,6 +471,7 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
       activeBotTimeline?.sessionConfigOptions,
       activeBotTimeline?.sessionModes,
       catalogQuery.data,
+      handoffPending,
       isChangingAgent,
       isChangingInstance,
       schemaQuery.data,
@@ -637,16 +659,18 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     providerInstances.setSelectedInstanceOverride;
   const handleApplyProviderInstanceId = useCallback(
     (instanceId: string | null, targetAgentId?: string | null) => {
-      setSelectedInstanceOverride(instanceId, targetAgentId);
-      if (targetAgentId && canonicalSessionAgentId(targetAgentId) === effectiveAgentId) {
+      const effectiveTarget = targetAgentId ?? effectiveAgentIdRef.current;
+      setSelectedInstanceOverride(instanceId, effectiveTarget);
+      if (effectiveTarget) {
+        const canonicalTarget = canonicalSessionAgentId(effectiveTarget);
         const normalized =
           normalizeProviderInstanceIdForApi(instanceId) ?? 'local';
         setInstanceSwitchedScope(
-          `${activeBotConversationId ?? '__new__'}::${effectiveAgentId}::${normalized}`
+          `${activeBotConversationId ?? '__new__'}::${canonicalTarget}::${normalized}`
         );
       }
     },
-    [activeBotConversationId, effectiveAgentId, setSelectedInstanceOverride]
+    [activeBotConversationId, setSelectedInstanceOverride]
   );
 
   const engineHandoff = useComposerEngineHandoff({
@@ -816,7 +840,12 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
       agentIconSvg={currentAgentIcons?.iconSvg ?? null}
       agentRail={agentRail}
       providerInstanceConfig={providerInstanceConfig}
-      controlsLoading={catalogQuery.isLoading}
+      controlsLoading={
+        catalogQuery.isLoading ||
+        ((isChangingAgent || isChangingInstance || handoffPending) &&
+          displaySessionModes.modes.length === 0 &&
+          displaySessionConfigOptions.length === 0)
+      }
     />
   );
 });

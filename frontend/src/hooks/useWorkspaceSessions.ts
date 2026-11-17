@@ -241,6 +241,9 @@ export function useWorkspaceSessions(
           executor: session.executor,
           agent_id: session.agent_id,
           agentId: session.agent_id ?? session.executor,
+          provider_instance_id:
+            (session as { provider_instance_id?: string | null })
+              .provider_instance_id ?? null,
           model: session.model,
           created_at: session.created_at,
           updated_at: session.updated_at,

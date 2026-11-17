@@ -1384,4 +1384,79 @@ describe('SessionCreationForm provider instance selector', () => {
       });
     });
   });
+
+  it('aligns instance selector trigger height (h-7) inside the Coding Agent row without duplicate label and immediately loads custom default instance controls', async () => {
+    let resolveList: (
+      value: Awaited<ReturnType<typeof providerInstancesApi.list>>
+    ) => void = () => {};
+    trackedSpies.push(
+      vi.spyOn(providerInstancesApi, 'list').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveList = resolve;
+          })
+      )
+    );
+    capabilityCatalog.mockImplementation(
+      async (_agentId: string, instanceId?: string) => ({
+        ...CONTROLS,
+        config_options: [
+          {
+            ...CONTROLS.config_options[0],
+            value: instanceId === 'claude-work' ? 'opus' : 'sonnet',
+          },
+          CONTROLS.config_options[1],
+        ],
+      })
+    );
+
+    const onPreset = vi.fn();
+    renderForm('claude_code', onPreset, 'new_workspace');
+
+    // Should not fire a wasted 'local' catalog request while instance options are loading.
+    expect(capabilityCatalog).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/sessionCreation\.controlsLoading|正在读取/)
+    ).toBeInTheDocument();
+
+    resolveList([
+      {
+        instanceId: 'claude-work',
+        agentId: 'claude-code',
+        displayName: 'Work Default',
+        authMode: { mode: 'ApiKey' },
+        isDefault: true,
+        hasActiveSessions: false,
+      },
+    ]);
+
+    const selector = await screen.findByTestId('session-instance-selector');
+    const trigger = screen.getByTestId('session-instance-selector-trigger');
+    expect(trigger).toHaveClass('h-7');
+    expect(trigger).not.toHaveClass('h-9');
+    expect(trigger).toHaveTextContent('Work Default');
+    // Embedded inline beside agent selector with showLabel={false} (no duplicate 实例 label).
+    expect(selector.querySelector('label')).toBeNull();
+    const agentSelector = document.querySelector(
+      '[data-basic-guide="session-agent-selector"]'
+    );
+    expect(agentSelector?.parentElement).toBe(selector.parentElement);
+
+    // Default instance controls and preset load immediately without manual click.
+    await waitFor(() => {
+      expect(capabilityCatalog).toHaveBeenCalledTimes(1);
+      expect(capabilityCatalog).toHaveBeenCalledWith(
+        'claude_code',
+        'claude-work'
+      );
+      expect(onPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'auto',
+        configOverrides: {
+          model: 'opus',
+          fast: 'false',
+        },
+        providerInstanceId: 'claude-work',
+      });
+    });
+  });
 });

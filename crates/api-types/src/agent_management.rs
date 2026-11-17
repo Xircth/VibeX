@@ -615,6 +615,8 @@ pub struct AgentModelProvidersView {
     pub agent_id: AgentId,
     pub providers: Vec<AgentModelProviderView>,
     pub bound_provider_id: Option<String>,
+    #[serde(default)]
+    pub multi_enable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

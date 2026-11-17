@@ -69,7 +69,7 @@ pub struct AgentRuntimeLaunchSettings {
 
 /// Orchestration error. Mirrors the shell's `AppError` variants; mapped back to `AppError`
 /// at the command boundary via `impl From<ConversationServiceError> for AppError`.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ConversationServiceError {
     #[error("Not found: {0}")]
     NotFound(String),

@@ -2,6 +2,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
 import {
+  beginConversationEngineHandoff,
+  cancelConversationEngineHandoff,
+  completeConversationEngineHandoff,
   resetConversationTimelineRegistryForTests,
   streamFlushDelayMs,
 } from './conversationTimelineRegistry';
@@ -1791,4 +1794,164 @@ describe('useConversationTimeline', () => {
 
     expect(result.current.timeline.map((r) => r.turn.id)).toEqual(['t11:user']);
   });
+
+  it('defers bind, ignores stale bind events and detail controls while handoff is pending, and resumes or rolls back cleanly', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        agent_id: 'codex',
+      },
+      session_modes: {
+        current_mode: 'default',
+        modes: [{ id: 'default', name: 'Default' }],
+      },
+      session_config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'gpt-5',
+          choices: [{ value: 'gpt-5', label: 'GPT-5' }],
+        },
+      ],
+    });
+    ensureSessionControlsMock.mockResolvedValue({
+      modes: [{ id: 'default', name: 'Default' }],
+      current_mode: 'default',
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'gpt-5',
+          choices: [{ value: 'gpt-5', label: 'GPT-5' }],
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+    expect(result.current.sessionModes.modes).toHaveLength(1);
+    expect(result.current.sessionConfigOptions).toHaveLength(1);
+
+    ensureSessionControlsMock.mockClear();
+
+    let handoffToken: number | null = null;
+    act(() => {
+      handoffToken = beginConversationEngineHandoff(
+        CONVERSATION_ID,
+        'claude_code'
+      );
+    });
+
+    expect(handoffToken).not.toBeNull();
+    expect(result.current.handoffPending).toBe(true);
+    expect(result.current.connecting).toBe(true);
+    expect(result.current.sessionBindReady).toBe(false);
+    expect(result.current.agentId).toBe('claude_code');
+    expect(result.current.controlsAgentId).toBe('claudecode');
+    expect(result.current.sessionModes.modes).toEqual([]);
+    expect(result.current.sessionConfigOptions).toEqual([]);
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+
+    // Stale session_bind_ready event during pending handoff must be ignored
+    act(() => {
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        event: { kind: 'session_bind_ready', acp_session_id: 'acp-stale' },
+      });
+    });
+    expect(result.current.sessionBindReady).toBe(false);
+    expect(result.current.handoffPending).toBe(true);
+
+    // Detail refresh returning stale codex controls during pending handoff must be stripped
+    detailMock.mockResolvedValueOnce({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        agent_id: 'codex',
+      },
+      session_modes: {
+        current_mode: 'default',
+        modes: [{ id: 'default', name: 'Default' }],
+      },
+      session_config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'gpt-5',
+          choices: [{ value: 'gpt-5', label: 'GPT-5' }],
+        },
+      ],
+    });
+    await act(async () => {
+      result.current.refresh();
+      await Promise.resolve();
+    });
+    expect(result.current.agentId).toBe('claude_code');
+    expect(result.current.sessionModes.modes).toEqual([]);
+    expect(result.current.sessionConfigOptions).toEqual([]);
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+
+    // Completing handoff triggers bind for the target agent
+    ensureSessionControlsMock.mockResolvedValueOnce({
+      modes: [{ id: 'plan', name: 'Plan' }],
+      current_mode: 'plan',
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'claude-sonnet-4-6',
+          choices: [{ value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }],
+        },
+      ],
+    });
+    act(() => {
+      completeConversationEngineHandoff(CONVERSATION_ID, handoffToken);
+    });
+
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+    expect(result.current.handoffPending).toBe(false);
+    expect(result.current.sessionModes.current).toBe('plan');
+    expect(result.current.sessionConfigOptions[0]?.value).toBe(
+      'claude-sonnet-4-6'
+    );
+
+    // Cancelling a subsequent handoff rolls back agentId and re-binds cleanly
+    ensureSessionControlsMock.mockClear();
+    let cancelToken: number | null = null;
+    act(() => {
+      cancelToken = beginConversationEngineHandoff(CONVERSATION_ID, 'codex');
+    });
+    expect(result.current.handoffPending).toBe(true);
+    expect(result.current.agentId).toBe('codex');
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+
+    act(() => {
+      cancelConversationEngineHandoff(
+        CONVERSATION_ID,
+        'claude_code',
+        cancelToken
+      );
+    });
+    expect(result.current.handoffPending).toBe(false);
+    expect(result.current.agentId).toBe('claude_code');
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+  });
 });
+

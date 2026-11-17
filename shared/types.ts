@@ -2046,7 +2046,7 @@ export type AgentModelProviderView = { id: string, name: string, agent_id: Agent
  */
 managed: boolean, };
 
-export type AgentModelProvidersView = { agent_id: AgentId, providers: Array<AgentModelProviderView>, bound_provider_id: string | null, };
+export type AgentModelProvidersView = { agent_id: AgentId, providers: Array<AgentModelProviderView>, bound_provider_id: string | null, multi_enable: boolean, };
 
 export type AgentModelProviderProbeView = { ok: boolean, latency_ms: number, error: string | null, };
 

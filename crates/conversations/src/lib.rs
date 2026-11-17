@@ -44,7 +44,8 @@ pub use bundle::{
 };
 pub use capability_catalog::{
     capability_catalog_is_fresh, capability_catalog_is_fresh_for_provider_instance,
-    invalidate_open_capability_catalog, load_capability_catalog_for_session_defaults,
+    invalidate_open_capability_catalog, invalidate_open_capability_catalog_for_provider_instance,
+    load_capability_catalog_for_session_defaults,
     load_capability_catalog_for_session_defaults_for_provider_instance,
     open_capability_catalog_fingerprint, read_matching_capability_catalog_for_defaults,
     read_matching_capability_catalog_for_defaults_for_provider_instance,

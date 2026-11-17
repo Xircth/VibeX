@@ -175,12 +175,6 @@ async fn mark_provider_agent_sessions_stale(
     raw_agent_id: &str,
 ) {
     if let Ok(agent_id) = agents::AgentId::parse(raw_agent_id.trim()) {
-        if let Err(err) =
-            conversations::invalidate_open_capability_catalog(domains.writer_pool(), &agent_id)
-                .await
-        {
-            tracing::warn!(%err, agent = %agent_id, "failed to invalidate capability catalog after provider instance mutation");
-        }
         domains
             .conversations
             .agent_runtime

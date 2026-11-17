@@ -234,12 +234,14 @@ export const agentManagementApi = {
   bindModelProvider: (
     agentId: AgentId,
     providerId: string | null,
-    providerInstanceId?: string | null
+    providerInstanceId?: string | null,
+    enabled?: boolean
   ): Promise<AgentModelProvidersView> =>
     backendCall('agent_model_provider_bind', {
       agentId,
       providerId,
       ...(providerInstanceId ? { providerInstanceId } : {}),
+      ...(enabled !== undefined ? { enabled } : {}),
     }),
 
   deleteModelProvider: (

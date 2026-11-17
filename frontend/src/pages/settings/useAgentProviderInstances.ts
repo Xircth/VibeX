@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentAuthModeView,
@@ -44,6 +45,7 @@ export function useAgentProviderInstances({
   confirmDiscardConfig: () => Promise<boolean>;
 }) {
   const { t } = useTranslation(['settings', 'common']);
+  const queryClient = useContext(QueryClientContext);
   const [allInstances, setAllInstances] = useState<ProviderInstanceConfig[]>(
     []
   );
@@ -52,6 +54,25 @@ export function useAgentProviderInstances({
   >({});
   const [loading, setLoading] = useState(false);
   const [mutating, setMutating] = useState(false);
+
+  const invalidateInstanceQueries = useCallback(() => {
+    if (!queryClient) return;
+    void queryClient.invalidateQueries({
+      queryKey: ['provider-instances'],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['agent-session-controls-catalog'],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['agent-session-controls-schema'],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['agentSessionDefaults'],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['agentCapabilityCatalogFreshness'],
+    });
+  }, [queryClient]);
 
   const supportsInstances = supportsAgentInstances(selectedAgentId);
   const canonicalAgentId = useMemo(
@@ -141,6 +162,7 @@ export function useAgentProviderInstances({
           displayName: trimmed,
         });
         await reload();
+        invalidateInstanceQueries();
         setSelectedByAgent((current) => ({
           ...current,
           [canonicalAgentId]: created.instanceId,
@@ -169,6 +191,7 @@ export function useAgentProviderInstances({
     [
       canonicalAgentId,
       confirmDiscardConfig,
+      invalidateInstanceQueries,
       reload,
       supportsInstances,
       t,
@@ -187,6 +210,7 @@ export function useAgentProviderInstances({
           displayName: trimmed,
         });
         await reload();
+        invalidateInstanceQueries();
         toast.success(
           t('settings:providerInstances.renamedSuccess', {
             name: updated.displayName,
@@ -208,7 +232,13 @@ export function useAgentProviderInstances({
         setMutating(false);
       }
     },
-    [canonicalAgentId, reload, supportsInstances, t]
+    [
+      canonicalAgentId,
+      invalidateInstanceQueries,
+      reload,
+      supportsInstances,
+      t,
+    ]
   );
 
   const setDefaultInstance = useCallback(
@@ -218,6 +248,7 @@ export function useAgentProviderInstances({
       try {
         await providerInstancesApi.setDefault(canonicalAgentId, instanceId);
         await reload();
+        invalidateInstanceQueries();
         toast.success(
           t('settings:providerInstances.setDefaultSuccess', {
             defaultValue: '已设为默认实例',
@@ -238,7 +269,13 @@ export function useAgentProviderInstances({
         setMutating(false);
       }
     },
-    [canonicalAgentId, reload, supportsInstances, t]
+    [
+      canonicalAgentId,
+      invalidateInstanceQueries,
+      reload,
+      supportsInstances,
+      t,
+    ]
   );
 
   const deleteInstance = useCallback(
@@ -248,6 +285,7 @@ export function useAgentProviderInstances({
       try {
         await providerInstancesApi.remove(canonicalAgentId, instanceId);
         await reload();
+        invalidateInstanceQueries();
         setSelectedByAgent((current) =>
           current[canonicalAgentId] === instanceId
             ? {
@@ -276,7 +314,13 @@ export function useAgentProviderInstances({
         setMutating(false);
       }
     },
-    [canonicalAgentId, reload, supportsInstances, t]
+    [
+      canonicalAgentId,
+      invalidateInstanceQueries,
+      reload,
+      supportsInstances,
+      t,
+    ]
   );
 
   return {

@@ -17,6 +17,7 @@ import {
 } from '@/contexts/ConversationStatusContext';
 import { useOptionalEntriesActions } from '@/contexts/EntriesContext';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
+import { getConversationHandoffPending } from '@/features/conversation/conversationTimelineRegistry';
 import {
   isDurableHostNote,
   normalizeAgentIdentity,
@@ -217,6 +218,7 @@ export function useTimelineContextSync({
     if (
       !sessionAgentType ||
       !normalizedSessionAgent ||
+      getConversationHandoffPending(sessionId) ||
       controlsAgentId !== normalizedSessionAgent ||
       (conversationSessionModes.modes.length === 0 &&
         conversationSessionConfigOptions.length === 0)
@@ -226,6 +228,7 @@ export function useTimelineContextSync({
     publishLiveSessionControls(queryClient, {
       agentType: sessionAgentType,
       workspaceId: attempt.id,
+      providerInstanceId: attempt.session?.provider_instance_id ?? null,
       controls: {
         modes: conversationSessionModes.modes,
         current_mode: conversationSessionModes.current,
@@ -234,12 +237,14 @@ export function useTimelineContextSync({
     });
   }, [
     attempt.id,
+    attempt.session?.provider_instance_id,
     controlsAgentId,
     conversationSessionConfigOptions,
     conversationSessionModes,
     normalizedSessionAgent,
     queryClient,
     sessionAgentType,
+    sessionId,
   ]);
 
   const setConversationPlanEntries = entries?.setConversationPlanEntries;

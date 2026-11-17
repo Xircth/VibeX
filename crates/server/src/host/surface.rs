@@ -2119,8 +2119,12 @@ impl ServerApplicationDomains {
             .agent_runtime
             .mark_agent_sessions_config_stale(agent_id, message)
             .await;
-        if let Err(error) =
-            conversations::invalidate_open_capability_catalog(&self.pool, agent_id).await
+        if let Err(error) = conversations::invalidate_open_capability_catalog_for_provider_instance(
+            &self.pool,
+            agent_id,
+            instance_id,
+        )
+        .await
         {
             tracing::warn!(%error, "failed to invalidate capability catalog");
         }
@@ -2160,10 +2164,15 @@ impl ServerApplicationDomains {
         struct AuthModeSetArgs {
             agent_id: AgentId,
         }
+        let instance_id = super::management::instance_scope::extract_provider_instance_id(&args);
         let preview: AuthModeSetArgs = parse(args.clone())?;
         let view = super::management::dispatch_auth_mode_set(&self.pool, args).await?;
-        if let Err(error) =
-            conversations::invalidate_open_capability_catalog(&self.pool, &preview.agent_id).await
+        if let Err(error) = conversations::invalidate_open_capability_catalog_for_provider_instance(
+            &self.pool,
+            &preview.agent_id,
+            instance_id.as_deref(),
+        )
+        .await
         {
             tracing::warn!(%error, "failed to invalidate capability catalog after auth mode change");
         }

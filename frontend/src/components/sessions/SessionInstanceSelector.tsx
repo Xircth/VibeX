@@ -18,6 +18,7 @@ export interface SessionInstanceSelectorProps {
   onSelectInstance: (instanceId: string) => void;
   disabled?: boolean;
   dropdownSide?: 'top' | 'bottom';
+  showLabel?: boolean;
   className?: string;
 }
 
@@ -27,6 +28,7 @@ export function SessionInstanceSelector({
   onSelectInstance,
   disabled = false,
   dropdownSide = 'bottom',
+  showLabel = true,
   className,
 }: SessionInstanceSelectorProps) {
   const { t } = useTranslation(['tasks', 'settings']);
@@ -37,15 +39,18 @@ export function SessionInstanceSelector({
   const active =
     options.find((option) => option.instanceId === selectedInstanceId) ??
     options[0];
+  const instanceLabel = t('tasks:sessionCreation.instanceLabel', {
+    defaultValue: '实例',
+  });
 
   return (
     <div
-      className={cn('space-y-1.5', className)}
+      className={cn(showLabel ? 'space-y-1.5' : undefined, className)}
       data-testid="session-instance-selector"
     >
-      <Label className="text-xs font-medium">
-        {t('tasks:sessionCreation.instanceLabel', { defaultValue: '实例' })}
-      </Label>
+      {showLabel ? (
+        <Label className="text-xs font-medium">{instanceLabel}</Label>
+      ) : null}
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
@@ -53,8 +58,10 @@ export function SessionInstanceSelector({
             variant="outline"
             size="sm"
             disabled={disabled}
+            aria-label={instanceLabel}
+            title={active.displayName}
             data-testid="session-instance-selector-trigger"
-            className="h-9 w-full justify-between px-3 text-xs font-normal"
+            className="h-7 w-full justify-between px-2.5 text-xs font-normal"
           >
             <span className="truncate">{active.displayName}</span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -63,7 +70,7 @@ export function SessionInstanceSelector({
         <DropdownMenuContent
           side={dropdownSide}
           align="start"
-          className="min-w-[var(--radix-dropdown-menu-trigger-width)]"
+          className="min-w-[max(var(--radix-dropdown-menu-trigger-width),11rem)]"
         >
           {options.map((option) => {
             const isSelected = option.instanceId === active.instanceId;

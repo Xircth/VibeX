@@ -176,6 +176,8 @@ export function SessionCreationForm({
   const scopedInstanceId = normalizeProviderInstanceIdForApi(
     effectiveInstanceId
   );
+  const instanceOptionsReady =
+    !instanceOptions.supported || !instanceOptions.isLoading;
   const defaultsScopeKey = executor
     ? `${executor}::${scopedInstanceId ?? 'local'}`
     : null;
@@ -190,7 +192,7 @@ export function SessionCreationForm({
   const catalogQuery = useQuery({
     queryKey: sessionControlsQueryKey(executor ?? '', null, scopedInstanceId),
     queryFn: () => loadAgentSessionControlsCatalog(executor, scopedInstanceId),
-    enabled: Boolean(executor),
+    enabled: Boolean(executor && instanceOptionsReady),
     staleTime: 60_000,
     gcTime: Infinity,
     retry: false,
@@ -238,7 +240,7 @@ export function SessionCreationForm({
       scopedInstanceId
         ? agentsApi.sessionDefaults(executor!, scopedInstanceId)
         : agentsApi.sessionDefaults(executor!),
-    enabled: Boolean(executor),
+    enabled: Boolean(executor && instanceOptionsReady),
     staleTime: Infinity,
     retry: false,
   });
@@ -536,7 +538,8 @@ export function SessionCreationForm({
             sanitizedConfigValues
           ).length > 1
       ));
-  const controlsPending = Boolean(executor) && catalogQuery.isPending;
+  const controlsPending =
+    Boolean(executor) && (catalogQuery.isPending || !instanceOptionsReady);
   const preparationError = catalogQuery.error
     ? formatSessionControlsError(t, executor, catalogQuery.error)
     : null;
@@ -696,35 +699,42 @@ export function SessionCreationForm({
 
       <div className="space-y-2">
         <Label>{t('sessionCreation.codingAgent')}</Label>
-        <div data-basic-guide="session-agent-selector" className="w-full">
-          <TerminalProfileControls
-            profiles={profiles}
-            selectedProfile={selectedExecutorProfile}
-            onChange={(profile) => {
-              onSelectedExecutorProfileChange(profile);
-              window.dispatchEvent(new Event(BASIC_GUIDE_SESSION_AGENT_EVENT));
-            }}
-            disabled={isSubmitting}
-            dropdownSide={dropdownSide}
-            suppressAcpManagedControls={true}
-            className={cn('w-full', compact && 'min-w-0')}
-          />
+        <div className="flex items-center gap-2">
+          <div
+            data-basic-guide="session-agent-selector"
+            className="min-w-0 flex-1"
+          >
+            <TerminalProfileControls
+              profiles={profiles}
+              selectedProfile={selectedExecutorProfile}
+              onChange={(profile) => {
+                onSelectedExecutorProfileChange(profile);
+                window.dispatchEvent(new Event(BASIC_GUIDE_SESSION_AGENT_EVENT));
+              }}
+              disabled={isSubmitting}
+              dropdownSide={dropdownSide}
+              suppressAcpManagedControls={true}
+              className={cn('w-full', compact && 'min-w-0')}
+            />
+          </div>
+          {instanceOptions.hasMultipleInstances ? (
+            <SessionInstanceSelector
+              options={instanceOptions.options}
+              selectedInstanceId={effectiveInstanceId}
+              onSelectInstance={(nextInstanceId) => {
+                if (!canonicalInstanceAgent) return;
+                setSelectedInstanceByAgent((previous) => ({
+                  ...previous,
+                  [canonicalInstanceAgent]: nextInstanceId,
+                }));
+              }}
+              disabled={isSubmitting}
+              dropdownSide={dropdownSide}
+              showLabel={false}
+              className="w-[144px] max-w-[44%] shrink-0"
+            />
+          ) : null}
         </div>
-        {instanceOptions.hasMultipleInstances ? (
-          <SessionInstanceSelector
-            options={instanceOptions.options}
-            selectedInstanceId={effectiveInstanceId}
-            onSelectInstance={(nextInstanceId) => {
-              if (!canonicalInstanceAgent) return;
-              setSelectedInstanceByAgent((previous) => ({
-                ...previous,
-                [canonicalInstanceAgent]: nextInstanceId,
-              }));
-            }}
-            disabled={isSubmitting}
-            dropdownSide={dropdownSide}
-          />
-        ) : null}
         {hasControls && activeControls ? (
           <>
             <div

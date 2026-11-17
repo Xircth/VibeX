@@ -153,18 +153,28 @@ export type ConversationTimelineView = {
   userTurnsBeforeOffset: number;
   sessionBindReady: boolean;
   connecting: boolean;
+  handoffPending: boolean;
+};
+
+type PendingEngineHandoff = {
+  token: number;
+  targetAgentId: string;
+  targetAgentKey: string;
 };
 
 const listeners = new Set<() => void>();
 const listenersByConversation = new Map<string, Set<() => void>>();
 const slots = new Map<string, Slot>();
 const inflightBinds = new Map<string, Promise<unknown>>();
+const pendingEngineHandoffs = new Map<string, PendingEngineHandoff>();
+let nextEngineHandoffToken = 1;
 const viewCache = new Map<
   string,
   {
     entry: ConversationStoreState['byConversationId'][string] | undefined;
     bindReady: boolean;
     connecting: boolean;
+    handoffPending: boolean;
     connectionStatus?: string;
     view: ConversationTimelineView;
   }
@@ -252,6 +262,7 @@ const EMPTY_VIEW: ConversationTimelineView = {
   userTurnsBeforeOffset: 0,
   sessionBindReady: false,
   connecting: false,
+  handoffPending: false,
 };
 
 function notify(conversationId?: string): void {
@@ -353,6 +364,22 @@ export function getConversationBindReady(
   return slots.get(conversationId)?.bindReady ?? false;
 }
 
+export function getConversationHandoffPending(
+  conversationId: string | null | undefined
+): boolean {
+  const id = conversationId?.trim();
+  if (!id) return false;
+  return pendingEngineHandoffs.has(id);
+}
+
+export function getConversationControlsAgentId(
+  conversationId: string | null | undefined
+): string | null {
+  const id = conversationId?.trim();
+  if (!id) return null;
+  return state.byConversationId[id]?.controlsAgentId ?? null;
+}
+
 export function getConversationPromptSuggestion(
   conversationId: string | null
 ): string | null {
@@ -421,15 +448,110 @@ function areSessionFactsEqual(
   );
 }
 
+export function beginConversationEngineHandoff(
+  conversationId: string | null | undefined,
+  nextAgentId: string | null | undefined,
+  options?: { forceInvalidate?: boolean }
+): number | null {
+  const id = conversationId?.trim();
+  const normalized = nextAgentId?.trim();
+  if (!id || !normalized) return null;
+  const targetAgentKey = normalizeAgentIdentity(normalized) ?? '';
+  const token = nextEngineHandoffToken++;
+  pendingEngineHandoffs.set(id, {
+    token,
+    targetAgentId: normalized,
+    targetAgentKey,
+  });
+  syncConversationSelectedAgent(id, normalized, {
+    deferBind: true,
+    forceInvalidate: options?.forceInvalidate ?? true,
+  });
+  return token;
+}
+
+export function completeConversationEngineHandoff(
+  conversationId: string | null | undefined,
+  token?: number | null
+): void {
+  const id = conversationId?.trim();
+  if (!id) return;
+  const currentPending = pendingEngineHandoffs.get(id);
+  if (token != null && currentPending && currentPending.token !== token) {
+    return;
+  }
+  pendingEngineHandoffs.delete(id);
+  const slot = slots.get(id);
+  if (slot?.controller && !slot.controller.stopped) {
+    if (slot.controller.bindTimer != null) {
+      window.clearTimeout(slot.controller.bindTimer);
+      slot.controller.bindTimer = null;
+    }
+    slot.controller.cancelBindIdle?.();
+    slot.controller.cancelBindIdle = null;
+    if (slot.refs > 0 && canBind(id)) {
+      beginBind(id);
+    }
+  }
+  viewCache.delete(id);
+  notify(id);
+}
+
+export function cancelConversationEngineHandoff(
+  conversationId: string | null | undefined,
+  rollbackAgentId?: string | null,
+  token?: number | null
+): void {
+  const id = conversationId?.trim();
+  if (!id) return;
+  const currentPending = pendingEngineHandoffs.get(id);
+  if (token != null && currentPending && currentPending.token !== token) {
+    return;
+  }
+  pendingEngineHandoffs.delete(id);
+  if (rollbackAgentId?.trim()) {
+    syncConversationSelectedAgent(id, rollbackAgentId, {
+      deferBind: false,
+      forceInvalidate: true,
+    });
+    return;
+  }
+  const slot = slots.get(id);
+  if (slot && !slot.bindReady && !inflightBinds.has(id)) {
+    slot.connecting = false;
+  }
+  viewCache.delete(id);
+  notify(id);
+}
+
 export function syncConversationSelectedAgent(
   conversationId: string | null | undefined,
-  nextAgentId: string | null | undefined
+  nextAgentId: string | null | undefined,
+  options?: {
+    deferBind?: boolean;
+    forceInvalidate?: boolean;
+  }
 ): void {
   const id = conversationId?.trim();
   const normalized = nextAgentId?.trim();
   if (!id || !normalized) return;
   const entry = state.byConversationId[id];
-  if (!entry?.detail) return;
+  const deferBind = Boolean(options?.deferBind || pendingEngineHandoffs.has(id));
+  const forceInvalidate = Boolean(options?.forceInvalidate);
+  if (!entry?.detail) {
+    if (forceInvalidate || deferBind) {
+      const slot = slots.get(id);
+      if (slot) {
+        slot.bindReady = false;
+        slot.connecting = deferBind;
+        slot.bindGeneration = (slot.bindGeneration ?? 0) + 1;
+        inflightBinds.delete(id);
+      }
+      viewCache.delete(id);
+      notify(id);
+    }
+    return;
+  }
   const prevKey =
     normalizeAgentIdentity(
       entry.detail.summary.agent_id ??
@@ -440,9 +562,11 @@ export function syncConversationSelectedAgent(
   const controlsMismatch = Boolean(
     entry.controlsAgentId && entry.controlsAgentId !== nextKey
   );
-  const changed = prevKey !== nextKey || controlsMismatch;
+  const agentChanged = prevKey !== nextKey || controlsMismatch;
+  const changed = agentChanged || forceInvalidate;
   if (!changed && entry.detail.summary.agent_id === normalized) return;
   const activeBindingMatchesNext =
+    !forceInvalidate &&
     normalizeAgentIdentity(entry.detail.active_binding?.agent_type) === nextKey;
   state = {
     ...state,
@@ -482,7 +606,7 @@ export function syncConversationSelectedAgent(
       slot.connectionSequence = undefined;
       slot.connectionStatus = undefined;
       slot.bindReady = false;
-      slot.connecting = false;
+      slot.connecting = deferBind;
       slot.staleBindRetries = 0;
       slot.bindGeneration = (slot.bindGeneration ?? 0) + 1;
       slot.keepalive?.();
@@ -495,7 +619,7 @@ export function syncConversationSelectedAgent(
         }
         slot.controller.cancelBindIdle?.();
         slot.controller.cancelBindIdle = null;
-        if (slot.refs > 0 && canBind(id)) {
+        if (!deferBind && slot.refs > 0 && canBind(id)) {
           beginBind(id);
         }
       }
@@ -530,8 +654,9 @@ export function getConversationTimelineView(
   const entry = state.byConversationId[conversationId];
   const slot = slots.get(conversationId);
   const bindReady = slot?.bindReady ?? false;
+  const handoffPending = pendingEngineHandoffs.has(conversationId);
   const connecting = Boolean(
-    slot?.connecting || inflightBinds.has(conversationId)
+    handoffPending || slot?.connecting || inflightBinds.has(conversationId)
   );
   const connectionStatus = slot?.connectionStatus;
   const cached = viewCache.get(conversationId);
@@ -540,15 +665,23 @@ export function getConversationTimelineView(
     cached.entry === entry &&
     cached.bindReady === bindReady &&
     cached.connecting === connecting &&
+    cached.handoffPending === handoffPending &&
     cached.connectionStatus === connectionStatus
   ) {
     return cached.view;
   }
-  const view = buildView(conversationId, entry, bindReady, connecting);
+  const view = buildView(
+    conversationId,
+    entry,
+    bindReady,
+    connecting,
+    handoffPending
+  );
   viewCache.set(conversationId, {
     entry,
     bindReady,
     connecting,
+    handoffPending,
     connectionStatus,
     view,
   });
@@ -650,6 +783,8 @@ export function resetConversationTimelineRegistryForTests(): void {
   for (const slot of slots.values()) stopController(slot);
   slots.clear();
   inflightBinds.clear();
+  pendingEngineHandoffs.clear();
+  nextEngineHandoffToken = 1;
   inactiveConversationLru.length = 0;
   viewCache.clear();
   factsCache.clear();
@@ -778,6 +913,9 @@ function startController(conversationId: string, slot: Slot): void {
         current.connectionSequence = envelope.sequence;
     }
     if (envelope.event.kind === 'session_bind_ready') {
+      if (pendingEngineHandoffs.has(conversationId)) {
+        return;
+      }
       current.bindGeneration = (current.bindGeneration ?? 0) + 1;
       current.connecting = false;
       current.staleBindRetries = 0;
@@ -975,10 +1113,23 @@ function loadDetail(
         if (controller.stopped || controller.loadEpoch !== epoch) return;
         if (tail) resolved = tail;
       }
+      const pendingHandoff = pendingEngineHandoffs.get(conversationId);
+      const effectiveDetail = pendingHandoff
+        ? {
+            ...resolved,
+            active_binding: null,
+            session_modes: null,
+            session_config_options: [],
+            summary: {
+              ...resolved.summary,
+              agent_id: pendingHandoff.targetAgentId,
+            },
+          }
+        : resolved;
       dispatch({
         type: 'load_success',
         conversationId,
-        detail: resolved,
+        detail: effectiveDetail,
         forceReplaceWindow,
       });
       const detailCursor = toBigIntSeq(
@@ -1250,6 +1401,7 @@ function beginBind(conversationId: string): void {
 }
 
 function canBind(conversationId: string): boolean {
+  if (pendingEngineHandoffs.has(conversationId)) return false;
   const entry = state.byConversationId[conversationId];
   const skip = canSkipInFlightHistoryWait(
     entry?.detail?.active_binding?.capabilities
@@ -1488,7 +1640,8 @@ function buildView(
   conversationId: string,
   entry: ConversationStoreState['byConversationId'][string] | undefined,
   bindReady: boolean,
-  slotConnecting: boolean
+  slotConnecting: boolean,
+  handoffPending: boolean
 ): ConversationTimelineView {
   const timeline = timelineTurnsForEntry(entry ?? null);
   const sideRows = sideRowsForEntry(entry ?? null);
@@ -1562,17 +1715,19 @@ function buildView(
     userTurnsBeforeOffset: entry?.userTurnsBeforeOffset ?? 0,
     sessionBindReady: bindReady,
     connecting:
-      hasDetail &&
-      Boolean(entry?.detail?.summary.workspace_id) &&
-      !bindReady &&
-      slotConnecting &&
-      !['failed', 'disconnected'].includes(
-        slots.get(conversationId)?.connectionStatus ?? ''
-      ) &&
-      !entry?.error &&
-      !(entry?.rows ?? []).some(
-        (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
-      ),
+      handoffPending ||
+      (hasDetail &&
+        Boolean(entry?.detail?.summary.workspace_id) &&
+        !bindReady &&
+        slotConnecting &&
+        !['failed', 'disconnected'].includes(
+          slots.get(conversationId)?.connectionStatus ?? ''
+        ) &&
+        !entry?.error &&
+        !(entry?.rows ?? []).some(
+          (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+        )),
+    handoffPending,
   };
 }
 

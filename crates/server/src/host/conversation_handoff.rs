@@ -85,14 +85,6 @@ impl ServerApplicationDomains {
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         let target_agent = parse_target_agent_id(&args.target_engine)?;
         let service = ConversationSessionService::new(self.conversations.clone());
-        service
-            .preflight_engine_handoff(
-                id,
-                &target_agent,
-                args.target_provider_instance_id.as_deref(),
-            )
-            .await
-            .map_err(map_handoff_error)?;
         let confirmation = service
             .confirm_engine_handoff(
                 id,

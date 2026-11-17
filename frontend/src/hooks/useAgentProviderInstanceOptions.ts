@@ -26,7 +26,8 @@ export function useAgentProviderInstanceOptions(
   const query = useQuery<ProviderInstanceConfig[]>({
     queryKey: PROVIDER_INSTANCES_QUERY_KEY,
     queryFn: () => providerInstancesApi.list().catch(() => []),
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
     retry: false,
   });
 

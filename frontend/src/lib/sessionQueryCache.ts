@@ -43,7 +43,11 @@ export function syncSessionAgentInCaches(
   queryClient: QueryClient | null | undefined,
   sessionId: string | null | undefined,
   rawExecutor: string | null | undefined,
-  rawProviderInstanceId?: string | null
+  rawProviderInstanceId?: string | null,
+  options?: {
+    deferBind?: boolean;
+    forceInvalidate?: boolean;
+  }
 ): void {
   const id = sessionId?.trim();
   const executor = rawExecutor?.trim();
@@ -54,7 +58,7 @@ export function syncSessionAgentInCaches(
   const nextInstanceId = normalizeCacheInstanceId(rawProviderInstanceId);
   const hasInstanceUpdate = nextInstanceId !== undefined;
 
-  syncConversationSelectedAgent(id, agentId);
+  syncConversationSelectedAgent(id, agentId, options);
 
   if (queryClient) {
     queryClient.setQueriesData<Array<Record<string, unknown>>>(

@@ -246,9 +246,7 @@ export function AgentConfigurationAndDiagnostics({
         aria-labelledby={embedded ? undefined : 'agent-config-heading'}
         aria-label={embedded ? t('agents.configTitle') : undefined}
         className={
-          embedded
-            ? 'agent-config-surface is-embedded'
-            : 'agent-config-surface'
+          embedded ? 'agent-config-surface is-embedded' : 'agent-config-surface'
         }
       >
         {embedded ? null : (
@@ -876,8 +874,9 @@ function GrokOfficialModelField({
   const [detecting, setDetecting] = useState(false);
   const detect = async () => {
     const apiKey = drafts.grok_api_key?.trim();
-    if (!apiKey && !credentialPresent) {
-      toast.warning(t('agents.providerRequiredFields'));
+    const customBaseUrl = drafts.grok_base_url?.trim();
+    if (!apiKey && !credentialPresent && !customBaseUrl) {
+      toast.warning(t('agents.dshProviderKeyRequired'));
       return;
     }
     setDetecting(true);
@@ -885,7 +884,7 @@ function GrokOfficialModelField({
       const next = await agentManagementApi.modelProviderCatalog(
         'grok',
         null,
-        drafts.grok_base_url?.trim() || 'https://api.x.ai/v1',
+        customBaseUrl || 'https://api.x.ai/v1',
         apiKey || null
       );
       setCatalog(next);

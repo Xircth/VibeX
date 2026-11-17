@@ -51,9 +51,24 @@ describe('AgentInstanceSwitcher', () => {
 
     const trigger = screen.getByTestId('agent-instance-switcher-trigger');
     expect(trigger).toHaveTextContent('本地实例');
+    expect(
+      screen.queryByTestId('agent-instance-add-button')
+    ).not.toBeInTheDocument();
 
-    // Create instance
-    await user.click(screen.getByTestId('agent-instance-add-button'));
+    // Open dropdown and verify pinned add button sits above the scrollable options list
+    await user.click(trigger);
+    const addButton = screen.getByTestId('agent-instance-add-button');
+    const pinnedTop = addButton.closest('.astryx-select-pinned-top');
+    const optionsScroll = screen
+      .getByTestId('agent-instance-option-local')
+      .closest('.astryx-select-options-scroll');
+    expect(pinnedTop).toBeInTheDocument();
+    expect(optionsScroll).toBeInTheDocument();
+    expect(pinnedTop?.contains(optionsScroll ?? null)).toBe(false);
+    expect(optionsScroll?.contains(addButton)).toBe(false);
+
+    // Create instance from pinned action
+    await user.click(addButton);
     await user.type(
       screen.getByTestId('agent-instance-create-name-input'),
       '  New Clean Instance  '
@@ -63,7 +78,7 @@ describe('AgentInstanceSwitcher', () => {
       expect(onCreateInstance).toHaveBeenCalledWith('New Clean Instance')
     );
 
-    // Open menu: verify default setting on local, delete disabled on active-session instance, delete enabled on idle instance
+    // Re-open menu: verify default setting on local, delete disabled on active-session instance, delete enabled on idle instance
     await user.click(trigger);
     expect(screen.getByTestId('agent-instance-option-local')).toBeInTheDocument();
     expect(
@@ -79,7 +94,7 @@ describe('AgentInstanceSwitcher', () => {
     await user.click(screen.getByTestId('agent-instance-delete-claude-work'));
     expect(onDeleteInstance).toHaveBeenCalledWith('claude-work');
 
-    // Rename instance
+    // Rename instance closes menu cleanly before opening dialog
     await user.click(screen.getByTestId('agent-instance-rename-claude-work'));
     const renameInput = screen.getByTestId('agent-instance-rename-input');
     fireEvent.change(renameInput, { target: { value: 'Renamed Work' } });

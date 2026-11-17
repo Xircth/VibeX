@@ -1020,11 +1020,13 @@ export function createConversationApi(transport: BackendTransport) {
 
     fork: (
       conversationId: string,
-      atTurnId?: string
+      atTurnId?: string,
+      targetAgentId?: string | null
     ): Promise<ConversationForkResult> =>
       call('conversation_fork', {
         conversationId,
         atTurnId: atTurnId ?? null,
+        targetAgentId: targetAgentId ?? null,
       }),
   };
 }

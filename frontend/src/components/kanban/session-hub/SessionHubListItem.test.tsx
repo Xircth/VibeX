@@ -28,6 +28,55 @@ vi.mock('@/vscode/bridge', () => ({
   writeClipboardViaBridge: vi.fn(),
 }));
 
+vi.mock('@/features/agents/useSelectableAgents', () => ({
+  useSelectableAgents: () => [
+    {
+      agentId: 'codex',
+      displayName: 'Codex',
+      iconLight: null,
+      iconDark: null,
+      iconSvg: null,
+      enabled: true,
+      lifecycle: 'ready',
+      runnable: true,
+      settingsFeatures: [],
+    },
+    {
+      agentId: 'claude_code',
+      displayName: 'Claude Code',
+      iconLight: null,
+      iconDark: null,
+      iconSvg: null,
+      enabled: true,
+      lifecycle: 'ready',
+      runnable: true,
+      settingsFeatures: [],
+    },
+    {
+      agentId: 'disabled_agent',
+      displayName: 'Disabled Agent',
+      iconLight: null,
+      iconDark: null,
+      iconSvg: null,
+      enabled: false,
+      lifecycle: 'ready',
+      runnable: false,
+      settingsFeatures: [],
+    },
+    {
+      agentId: 'uninstalled_agent',
+      displayName: 'Uninstalled Agent',
+      iconLight: null,
+      iconDark: null,
+      iconSvg: null,
+      enabled: true,
+      lifecycle: 'uninstalled',
+      runnable: false,
+      settingsFeatures: [],
+    },
+  ],
+}));
+
 function session(
   overrides: Partial<KanbanProjectSessionRecord> = {}
 ): KanbanProjectSessionRecord {
@@ -308,7 +357,7 @@ describe('SessionHubListItem', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
-  it('opens the 3-dot menu with rename, copy submenus, export submenus, fork, and delete', () => {
+  it('opens the 3-dot menu with rename, copy submenus, export submenus, fork, and delete', async () => {
     const onDeleteSession = vi.fn();
     vi.mocked(conversationApi.fork).mockResolvedValue({
       conversationId: 'forked-1',
@@ -369,23 +418,63 @@ describe('SessionHubListItem', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '从本会话Fork' }));
-    expect(conversationApi.fork).toHaveBeenCalledWith('session-1');
+    fireEvent.mouseEnter(
+      screen.getByRole('menuitem', { name: '从本会话Fork' })
+    );
+    expect(screen.getByText('选择Fork目标')).toBeInTheDocument();
+    const claudeTarget = screen.getByRole('menuitem', { name: 'Claude Code' });
+    expect(claudeTarget.parentElement).toHaveClass(
+      'max-h-56',
+      'overflow-y-auto'
+    );
+    expect(
+      screen.queryByRole('menuitem', { name: 'Disabled Agent' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Uninstalled Agent' })
+    ).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(claudeTarget);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(conversationApi.fork).toHaveBeenCalledWith(
+        'session-1',
+        undefined,
+        'claude_code'
+      )
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
     fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }));
     expect(onDeleteSession).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the fork menu item when the session agent does not support fork', () => {
+  it('offers handoff fork target submenu for any source agent including gemini and supports same-agent fork', async () => {
+    vi.mocked(conversationApi.fork).mockResolvedValue({
+      conversationId: 'forked-2',
+      continuity: 'full',
+      continuityNote: null,
+    } as never);
     renderItem({
       session: session({ executor: 'gemini', agentId: 'gemini' }),
     });
 
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
-
-    expect(
-      screen.queryByRole('menuitem', { name: '从本会话Fork' })
-    ).not.toBeInTheDocument();
+    fireEvent.mouseEnter(
+      screen.getByRole('menuitem', { name: '从本会话Fork' })
+    );
+    expect(screen.getByText('选择Fork目标')).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Codex' }));
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(conversationApi.fork).toHaveBeenCalledWith(
+        'session-1',
+        undefined,
+        'codex'
+      )
+    );
   });
 });

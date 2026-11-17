@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ArrowRight } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, GitFork, Loader2 } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentKind, AgentSessionConfigOption } from 'shared/types';
@@ -6,6 +6,7 @@ import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { resolveSessionModelDisplayLabel } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { usePendingAgentHandoff } from '@/contexts/ActiveExecutorProfileContext';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
+import { usePendingForkHandoff } from '@/features/conversation/pendingForkStore';
 import { cn } from '@/lib/utils';
 
 type AgentVisualMeta = {
@@ -111,6 +112,7 @@ export type ContextHandoffDividerProps = {
   toIcon?: AgentVisualMeta;
   handoffTokens?: number | null;
   continuationPolicy?: 'portable' | 'fresh';
+  mode?: 'switch' | 'fork' | 'forking';
   className?: string;
 };
 
@@ -123,21 +125,29 @@ export function ContextHandoffDivider({
   toIcon,
   handoffTokens = null,
   continuationPolicy = 'portable',
+  mode = 'switch',
   className,
 }: ContextHandoffDividerProps) {
   const { t } = useTranslation(['app']);
   const title =
-    continuationPolicy === 'fresh'
-      ? t('app:continuation.fresh')
-      : t('app:continuation.handoff');
+    mode === 'forking'
+      ? t('app:continuation.forking')
+      : mode === 'fork'
+        ? t('app:continuation.forkHandoff')
+        : continuationPolicy === 'fresh'
+          ? t('app:continuation.fresh')
+          : t('app:continuation.handoff');
   const formattedTokens =
-    continuationPolicy === 'fresh' ? null : formatHandoffTokens(handoffTokens);
+    mode === 'forking' || continuationPolicy === 'fresh'
+      ? null
+      : formatHandoffTokens(handoffTokens);
 
   return (
     <div
       role="status"
       aria-live="polite"
       data-testid="context-handoff-divider"
+      data-handoff-mode={mode}
       className={cn(
         'flex select-none items-center gap-3 px-4 py-3 text-xs text-muted-foreground',
         className
@@ -146,7 +156,19 @@ export function ContextHandoffDivider({
       <div aria-hidden="true" className="h-px min-w-6 flex-1 bg-border/60" />
       <div className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1">
         <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-muted-foreground">
-          <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {mode === 'forking' ? (
+            <Loader2
+              className="h-3.5 w-3.5 shrink-0 animate-spin"
+              aria-hidden="true"
+            />
+          ) : mode === 'fork' ? (
+            <GitFork className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          ) : (
+            <ArrowLeftRight
+              className="h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+          )}
           <span>
             {title}
             {formattedTokens ? (
@@ -232,6 +254,7 @@ export function TimelineAgentHandoffRow({
   handoff,
 }: {
   handoff: {
+    handoffKind?: 'switch' | 'fork';
     fromAgent: string;
     toAgent: string;
     fromModel: string | null;
@@ -259,6 +282,7 @@ export function TimelineAgentHandoffRow({
       toIcon={toMeta}
       handoffTokens={handoff.handoffTokens}
       continuationPolicy={handoff.continuationPolicy}
+      mode={handoff.handoffKind === 'fork' ? 'fork' : 'switch'}
     />
   );
 }
@@ -278,11 +302,31 @@ export function ConversationTailHandoff({
   suppressedByInlineHandoff?: boolean;
   onReveal?: () => void;
 }) {
+  const pendingFork = usePendingForkHandoff(sessionId);
   const pendingHandoff = usePendingAgentHandoff(sessionId);
   const agentById = useAgentVisualMap();
-  const visible = Boolean(
-    pendingHandoff && hasMessages && !suppressedByInlineHandoff
-  );
+  const activeTail = pendingFork
+    ? {
+        mode: 'forking' as const,
+        fromAgent: pendingFork.fromAgent,
+        toAgent: pendingFork.toAgent,
+        fromModelLabel: pendingFork.fromModelLabel,
+        toModelLabel: pendingFork.toModelLabel,
+        handoffTokens: null,
+        continuationPolicy: 'portable' as const,
+      }
+    : pendingHandoff && hasMessages && !suppressedByInlineHandoff
+      ? {
+          mode: 'switch' as const,
+          fromAgent: pendingHandoff.fromAgent,
+          toAgent: pendingHandoff.toAgent,
+          fromModelLabel: pendingHandoff.fromModelLabel,
+          toModelLabel: pendingHandoff.toModelLabel,
+          handoffTokens: pendingHandoff.handoffTokens ?? null,
+          continuationPolicy: pendingHandoff.continuationPolicy,
+        }
+      : null;
+  const visible = Boolean(activeTail);
   const wasVisibleRef = useRef(false);
   const onRevealRef = useRef(onReveal);
   onRevealRef.current = onReveal;
@@ -294,44 +338,43 @@ export function ConversationTailHandoff({
     wasVisibleRef.current = visible;
   }, [
     visible,
-    pendingHandoff?.fromAgent,
-    pendingHandoff?.toAgent,
-    pendingHandoff?.toModelLabel,
+    activeTail?.mode,
+    activeTail?.fromAgent,
+    activeTail?.toAgent,
+    activeTail?.toModelLabel,
   ]);
 
-  if (!pendingHandoff || !hasMessages || suppressedByInlineHandoff) {
+  if (!activeTail) {
     return null;
   }
 
-  const fromMeta = agentById.get(pendingHandoff.fromAgent);
-  const toMeta = agentById.get(pendingHandoff.toAgent);
+  const fromMeta = agentById.get(activeTail.fromAgent);
+  const toMeta = agentById.get(activeTail.toAgent);
   const fromAgentName =
-    fromMeta?.displayName ?? getAgentName(pendingHandoff.fromAgent);
-  const toAgentName =
-    toMeta?.displayName ?? getAgentName(pendingHandoff.toAgent);
+    fromMeta?.displayName ?? getAgentName(activeTail.fromAgent);
+  const toAgentName = toMeta?.displayName ?? getAgentName(activeTail.toAgent);
   const resolvedLiveFromModel = resolveSessionModelDisplayLabel(
     sessionConfigOptions,
     {}
   );
   const fromLabel =
     formatHandoffModelLabel(
-      pendingHandoff.fromModelLabel ??
-        resolvedLiveFromModel ??
-        fallbackFromModel
+      activeTail.fromModelLabel ?? resolvedLiveFromModel ?? fallbackFromModel
     ) ?? fromAgentName;
   const toLabel =
-    formatHandoffModelLabel(pendingHandoff.toModelLabel) ?? toAgentName;
+    formatHandoffModelLabel(activeTail.toModelLabel) ?? toAgentName;
 
   return (
     <ContextHandoffDivider
-      fromAgent={pendingHandoff.fromAgent}
-      toAgent={pendingHandoff.toAgent}
+      fromAgent={activeTail.fromAgent}
+      toAgent={activeTail.toAgent}
       fromLabel={fromLabel}
       toLabel={toLabel}
       fromIcon={fromMeta}
       toIcon={toMeta}
-      handoffTokens={pendingHandoff.handoffTokens}
-      continuationPolicy={pendingHandoff.continuationPolicy}
+      handoffTokens={activeTail.handoffTokens}
+      continuationPolicy={activeTail.continuationPolicy}
+      mode={activeTail.mode}
     />
   );
 }

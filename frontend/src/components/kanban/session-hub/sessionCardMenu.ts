@@ -4,20 +4,15 @@ import {
   Copy,
   FileCode,
   FileDown,
-  GitFork,
   Pencil,
   RotateCcw,
   Trash2,
 } from 'lucide-react';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
-import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
-import { isSessionForkSupported } from './utils';
+import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
+import { buildForkTargetSubmenu } from '@/features/conversation/ForkTargetMenu';
 
 export interface BuildSessionCardMenuItemsParams {
-  session: Pick<
-    KanbanProjectSessionRecord,
-    'agentId' | 'executor' | 'forkSupported'
-  >;
   t: TFunction;
   /** Bot sessions: open the Bot's chat in the collaboration space. */
   openCollaboration?: { label: string; onSelect: () => void };
@@ -26,7 +21,8 @@ export interface BuildSessionCardMenuItemsParams {
   onCopySessionName: () => void;
   onExportHtml: () => void;
   onExportMarkdown: () => void;
-  onFork?: () => void;
+  forkAgents?: readonly SelectableAgent[];
+  onForkToAgent?: (agentId: string) => void;
   isForking?: boolean;
   onDelete?: () => void;
   onRestore?: () => void;
@@ -34,7 +30,6 @@ export interface BuildSessionCardMenuItemsParams {
 }
 
 export function buildSessionCardMenuItems({
-  session,
   t,
   openCollaboration,
   onRename,
@@ -42,7 +37,8 @@ export function buildSessionCardMenuItems({
   onCopySessionName,
   onExportHtml,
   onExportMarkdown,
-  onFork,
+  forkAgents = [],
+  onForkToAgent,
   isForking = false,
   onDelete,
   onRestore,
@@ -127,14 +123,17 @@ export function buildSessionCardMenuItems({
     }
   );
 
-  if (onFork && isSessionForkSupported(session)) {
-    items.push({
-      id: 'fork-session',
-      label: t('tasks:hubListItem.forkFromSession'),
-      icon: GitFork,
-      disabled: isForking,
-      onSelect: onFork,
-    });
+  if (onForkToAgent) {
+    items.push(
+      buildForkTargetSubmenu({
+        id: 'fork-session',
+        label: t('tasks:hubListItem.forkFromSession'),
+        headerLabel: t('common:contextMenu.selectForkTarget'),
+        agents: forkAgents,
+        disabled: isForking,
+        onSelectAgent: onForkToAgent,
+      })
+    );
   }
 
   if (onDelete) {

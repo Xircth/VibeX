@@ -549,18 +549,34 @@ function SubmenuItem({
           data-testid="product-context-submenu-bridge"
           onMouseEnter={onOpen}
         >
-          <div
-            className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100"
-            style={{ fontFamily: 'var(--font-ui)' }}
-            role="menu"
-          >
-            <MenuItems
-              items={item.children}
-              onClose={onClose}
-              itemRole={itemRole}
-            />
+            <div
+              className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100"
+              style={{ fontFamily: 'var(--font-ui)' }}
+              role="menu"
+            >
+              {item.headerLabel ? (
+                <>
+                  <div
+                    className="px-2 py-1 text-[11px] font-medium text-muted-foreground select-none"
+                    role="presentation"
+                  >
+                    {item.headerLabel}
+                  </div>
+                  <div
+                    className="mx-1 my-1 border-t border-border/60"
+                    role="separator"
+                  />
+                </>
+              ) : null}
+              <div className={item.childrenMaxHeightClass}>
+                <MenuItems
+                  items={item.children}
+                  onClose={onClose}
+                  itemRole={itemRole}
+                />
+              </div>
+            </div>
           </div>
-        </div>
       ) : null}
     </div>
   );

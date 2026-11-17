@@ -26,6 +26,7 @@
     "exportHtml": "导出为 HTML",
     "forkSession": "Fork 本会话",
     "forkFromHere": "从此处 Fork",
+    "selectForkTarget": "选择Fork目标",
     "copyAsMarkdown": "复制为 Markdown",
     "createSession": "创建会话",
     "autoSort": "自动排序",

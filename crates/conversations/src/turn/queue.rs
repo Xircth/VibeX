@@ -461,6 +461,8 @@ pub async fn create_fork_conversation(
 pub struct ForkVisibleConversation {
     pub source_id: Uuid,
     pub until_turn_id: Option<Uuid>,
+    pub target_agent_id: Option<agents::AgentId>,
+    pub target_provider_instance_id: Option<String>,
 }
 
 pub async fn fork_visible_conversation(
@@ -497,12 +499,45 @@ pub async fn fork_visible_conversation(
 
     let child_id = Uuid::new_v4();
     let persisted = Session::find_by_id(pool, input.source_id).await?;
+    let source_agent_id = persisted
+        .as_ref()
+        .and_then(|row| row.agent_id.clone())
+        .or_else(|| {
+            persisted
+                .as_ref()
+                .and_then(|row| row.executor.as_deref())
+                .and_then(agents::AgentKind::from_lenient)
+                .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+        });
+    let target_agent_id = input.target_agent_id.clone().or(source_agent_id.clone());
+    let target_executor = target_agent_id
+        .as_ref()
+        .map(|agent| agent.as_str().to_string())
+        .or_else(|| persisted.as_ref().and_then(|row| row.executor.clone()));
+    let same_agent = match (&target_agent_id, &source_agent_id) {
+        (Some(target), Some(source)) => target == source,
+        (None, _) => true,
+        _ => false,
+    };
+    let provider_instance_id = input
+        .target_provider_instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            if same_agent {
+                persisted
+                    .as_ref()
+                    .and_then(|row| row.provider_instance_id.clone())
+            } else {
+                None
+            }
+        });
     let session = CreateSession {
-        executor: persisted.as_ref().and_then(|row| row.executor.clone()),
-        agent_id: persisted.as_ref().and_then(|row| row.agent_id.clone()),
-        provider_instance_id: persisted
-            .as_ref()
-            .and_then(|row| row.provider_instance_id.clone()),
+        executor: target_executor,
+        agent_id: target_agent_id,
+        provider_instance_id,
         task_id: parent.task_id,
         name: None,
         initial_prompt: None,
@@ -661,8 +696,12 @@ async fn copy_sqlite_conversation_snapshot_on_connection(
         None
     };
 
+    let mut steering_map: HashMap<Uuid, Uuid> = HashMap::new();
     for record in source_events {
-        if record.event_kind == "conversation_relation_created" {
+        if matches!(
+            record.event_kind.as_str(),
+            "conversation_relation_created" | "conversation_input"
+        ) {
             continue;
         }
         let mapped_turn_id = match record.turn_id {
@@ -679,6 +718,74 @@ async fn copy_sqlite_conversation_snapshot_on_connection(
                 None
             }
         };
+        let remapped_normalized_json = if record.event_kind == "conversation_steering" {
+            let Ok(mut event) =
+                serde_json::from_str::<agents::conversation::ConversationEvent>(
+                    &record.normalized_json,
+                )
+            else {
+                continue;
+            };
+            if let agents::conversation::ConversationEvent::ConversationSteering {
+                event: ref mut steering,
+            } = event
+            {
+                let remapped_steering_id = |id: Uuid, map: &mut HashMap<Uuid, Uuid>| {
+                    *map.entry(id).or_insert_with(Uuid::new_v4)
+                };
+                match steering {
+                    agents::ConversationSteeringEvent::Requested {
+                        steering_id,
+                        expected_turn_id,
+                        ..
+                    } => {
+                        let Some(&mapped_expected) = turn_map.get(expected_turn_id) else {
+                            continue;
+                        };
+                        *steering_id = remapped_steering_id(*steering_id, &mut steering_map);
+                        *expected_turn_id = mapped_expected;
+                    }
+                    agents::ConversationSteeringEvent::Accepted {
+                        steering_id,
+                        expected_turn_id,
+                        restarted_turn_id,
+                        ..
+                    } => {
+                        let Some(&mapped_expected) = turn_map.get(expected_turn_id) else {
+                            continue;
+                        };
+                        *steering_id = remapped_steering_id(*steering_id, &mut steering_map);
+                        *expected_turn_id = mapped_expected;
+                        *restarted_turn_id =
+                            restarted_turn_id.and_then(|id| turn_map.get(&id).copied());
+                    }
+                    agents::ConversationSteeringEvent::Rejected {
+                        steering_id,
+                        expected_turn_id,
+                        ..
+                    }
+                    | agents::ConversationSteeringEvent::Unknown {
+                        steering_id,
+                        expected_turn_id,
+                        ..
+                    } => {
+                        let Some(&mapped_expected) = turn_map.get(expected_turn_id) else {
+                            continue;
+                        };
+                        *steering_id = remapped_steering_id(*steering_id, &mut steering_map);
+                        *expected_turn_id = mapped_expected;
+                    }
+                }
+                Some(serde_json::to_string(&event)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let normalized_json = remapped_normalized_json
+            .as_deref()
+            .unwrap_or(&record.normalized_json);
         insert_conversation_event(
             &mut *conn,
             AppendConversationEvent {
@@ -690,7 +797,7 @@ async fn copy_sqlite_conversation_snapshot_on_connection(
                 prompt_id: record.prompt_id.as_deref(),
                 source: &record.source,
                 event_kind: &record.event_kind,
-                normalized_json: &record.normalized_json,
+                normalized_json,
                 raw_json: record.raw_json.as_deref(),
                 idempotency_key: None,
             },

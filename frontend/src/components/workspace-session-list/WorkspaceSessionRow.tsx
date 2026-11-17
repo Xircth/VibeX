@@ -18,11 +18,14 @@ import {
 } from 'lucide-react';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
-import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import {
+  beginPendingForkHandoff,
+  endPendingForkHandoff,
+} from '@/features/conversation/pendingForkStore';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { CollaborationSessionTitle } from '@/features/collaboration/CollaborationSessionTitle';
 import { collaborationSessionMenuAction } from '@/features/collaboration/sessionCollaboration';
@@ -33,11 +36,11 @@ import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/utils/date';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { SessionCardContextMenu } from '@/components/kanban/session-hub/SessionCardContextMenu';
 import {
   SessionCardHoverCard,
   useSessionCardHoverDetails,
 } from '@/components/kanban/session-hub/SessionCardHoverInfo';
-import { buildSessionCardMenuItems } from '@/components/kanban/session-hub/sessionCardMenu';
 import {
   formatSessionInfoForCopy,
   getExecutorDisplayName,
@@ -180,11 +183,16 @@ export function WorkspaceSessionRow({
     void submitRename();
   };
 
-  const handleForkSession = () => {
+  const handleForkSession = (targetAgentId: string) => {
     if (isForking) return;
     setIsForking(true);
+    const pendingId = beginPendingForkHandoff({
+      sessionId: session.id,
+      fromAgent: agentKey ?? targetAgentId,
+      toAgent: targetAgentId,
+    });
     void conversationApi
-      .fork(session.id)
+      .fork(session.id, undefined, targetAgentId)
       .then((result) => {
         if (result.continuity === 'history_only') {
           toast.warning(
@@ -218,55 +226,10 @@ export function WorkspaceSessionRow({
         )
       )
       .finally(() => {
+        endPendingForkHandoff(pendingId);
         setIsForking(false);
       });
   };
-
-  const menuItems = buildSessionCardMenuItems({
-    session,
-    t,
-    onRestore,
-    restoreLabel: t('workspaceSessionList.restore'),
-    openCollaboration: collaborationSessionMenuAction(
-      session.id,
-      session.collaboration
-    ),
-    onRename: onRename && !session.collaboration ? beginRename : undefined,
-    onCopySessionInfo: () => {
-      void writeClipboardViaBridge(
-        formatSessionInfoForCopy({
-          ...session,
-          fullName: title,
-        })
-      );
-      toast.success(t('tasks:hubListItem.copiedSessionInfo'));
-    },
-    onCopySessionName: () => {
-      void writeClipboardViaBridge(title);
-      toast.success(t('tasks:hubListItem.copiedSessionName'));
-    },
-    onExportHtml: () => {
-      void exportConversation(
-        session.id,
-        'html',
-        session.name ?? title ?? t('tasks:hubListItem.sessionFallback')
-      );
-    },
-    onExportMarkdown: () => {
-      void exportConversation(
-        session.id,
-        'markdown',
-        session.name ?? title ?? t('tasks:hubListItem.sessionFallback')
-      );
-    },
-    onFork: handleForkSession,
-    isForking,
-    onDelete: onDelete
-      ? () => {
-          void onDelete();
-        }
-      : undefined,
-  });
 
   return (
     <div
@@ -575,11 +538,54 @@ export function WorkspaceSessionRow({
         )}
       </div>
       {contextMenu ? (
-        <ProductContextMenu
+        <SessionCardContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          items={menuItems}
           onClose={() => setContextMenu(null)}
+          t={t}
+          onRestore={onRestore}
+          restoreLabel={t('workspaceSessionList.restore')}
+          openCollaboration={collaborationSessionMenuAction(
+            session.id,
+            session.collaboration
+          )}
+          onRename={onRename && !session.collaboration ? beginRename : undefined}
+          onCopySessionInfo={() => {
+            void writeClipboardViaBridge(
+              formatSessionInfoForCopy({
+                ...session,
+                fullName: title,
+              })
+            );
+            toast.success(t('tasks:hubListItem.copiedSessionInfo'));
+          }}
+          onCopySessionName={() => {
+            void writeClipboardViaBridge(title);
+            toast.success(t('tasks:hubListItem.copiedSessionName'));
+          }}
+          onExportHtml={() => {
+            void exportConversation(
+              session.id,
+              'html',
+              session.name ?? title ?? t('tasks:hubListItem.sessionFallback')
+            );
+          }}
+          onExportMarkdown={() => {
+            void exportConversation(
+              session.id,
+              'markdown',
+              session.name ?? title ?? t('tasks:hubListItem.sessionFallback')
+            );
+          }}
+          onForkToAgent={handleForkSession}
+          isForking={isForking}
+          onDelete={
+            onDelete
+              ? () => {
+                  void onDelete();
+                }
+              : undefined
+          }
         />
       ) : null}
     </div>

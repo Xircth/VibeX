@@ -57,11 +57,6 @@ export type SessionPersona = {
 
 export type SessionAgentRailConfig = Omit<AgentRailProps, 'disabled'>;
 
-export type SessionContinuationConfig = {
-  policy: 'portable' | 'fresh';
-  onChange: (policy: 'portable' | 'fresh') => void;
-};
-
 export type SessionProviderInstanceConfig = {
   options: AgentInstanceOption[];
   selectedInstanceId: string;
@@ -203,7 +198,6 @@ export function SessionSettingsSummary({
   agentIconSvg = null,
   agentRail = null,
   providerInstanceConfig = null,
-  continuation = null,
   controlsLoading = false,
 }: {
   sessionModes?: ConversationSessionModesState;
@@ -222,10 +216,9 @@ export function SessionSettingsSummary({
   agentIconSvg?: string | null;
   agentRail?: SessionAgentRailConfig | null;
   providerInstanceConfig?: SessionProviderInstanceConfig | null;
-  continuation?: SessionContinuationConfig | null;
   controlsLoading?: boolean;
 }) {
-  const { t } = useTranslation(['tasks', 'common', 'app']);
+  const { t } = useTranslation(['tasks', 'common']);
   const activeModeId = selectedMode ?? sessionModes?.current ?? null;
   const visibleOptions = useMemo(
     () => visibleSessionConfigOptions(options),
@@ -377,16 +370,6 @@ export function SessionSettingsSummary({
         },
       ];
     }),
-    ...(continuation?.policy === 'fresh'
-      ? [
-          {
-            key: 'continuation-fresh',
-            label: t('app:continuation.fresh'),
-            isFast: false,
-            isModel: false,
-          },
-        ]
-      : []),
   ];
 
   const showInstanceRow = Boolean(
@@ -401,7 +384,6 @@ export function SessionSettingsSummary({
     !showPersonaOnly &&
     !showAgentRail &&
     !showInstanceRow &&
-    !continuation &&
     !hasSessionControls &&
     summary.length === 0 &&
     !resolvedAgentId
@@ -631,16 +613,6 @@ export function SessionSettingsSummary({
                     : t('sessionSettings.defaultConfig')}
                 </div>
               )}
-              {continuation ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <ContinuationRow
-                    policy={continuation.policy}
-                    onSelect={continuation.onChange}
-                    disabled={disabled}
-                  />
-                </>
-              ) : null}
             </div>
           </div>
         ) : (
@@ -654,22 +626,10 @@ export function SessionSettingsSummary({
                   config={providerInstanceConfig}
                   disabled={disabled}
                 />
-                {hasSessionControls || continuation ? (
-                  <DropdownMenuSeparator />
-                ) : null}
+                {hasSessionControls ? <DropdownMenuSeparator /> : null}
               </>
             ) : null}
             {sessionControlRows}
-            {continuation ? (
-              <>
-                {hasSessionControls ? <DropdownMenuSeparator /> : null}
-                <ContinuationRow
-                  policy={continuation.policy}
-                  onSelect={continuation.onChange}
-                  disabled={disabled}
-                />
-              </>
-            ) : null}
           </>
         )}
       </DropdownMenuContent>
@@ -892,62 +852,6 @@ function ToggleRow({
         {row.activeLabel}
       </span>
     </DropdownMenuItem>
-  );
-}
-
-function ContinuationRow({
-  policy,
-  onSelect,
-  disabled,
-}: {
-  policy: 'portable' | 'fresh';
-  onSelect: (policy: 'portable' | 'fresh') => void;
-  disabled: boolean;
-}) {
-  const { t } = useTranslation('app');
-  const [open, setOpen] = useState(false);
-  const choices: Array<{ value: 'portable' | 'fresh'; label: string }> = [
-    { value: 'portable', label: t('continuation.portable') },
-    { value: 'fresh', label: t('continuation.fresh') },
-  ];
-  const activeLabel =
-    policy === 'fresh'
-      ? t('continuation.fresh')
-      : t('continuation.portable');
-
-  return (
-    <DropdownMenuSub open={open} onOpenChange={setOpen}>
-      <DropdownMenuSubTrigger
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-        className="px-2.5 py-1.5"
-      >
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {t('continuation.context')}
-        </span>
-        <RowValue>{activeLabel}</RowValue>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="min-w-[13rem]">
-        <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          {t('continuation.context')}
-        </DropdownMenuLabel>
-        {choices.map((choice) => {
-          const active = choice.value === policy;
-          return (
-            <DropdownMenuItem
-              key={choice.value}
-              onSelect={() => {
-                setOpen(false);
-                onSelect(choice.value);
-              }}
-            >
-              <span className="min-w-0 flex-1 truncate">{choice.label}</span>
-              {active ? <Check className="h-4 w-4" /> : null}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
   );
 }
 

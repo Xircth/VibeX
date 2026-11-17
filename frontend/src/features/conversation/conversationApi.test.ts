@@ -167,19 +167,21 @@ describe('conversationApi', () => {
     });
   });
 
-  it('forks from the tail or a named turn', async () => {
+  it('forks from the tail or a named turn with an optional target agent', async () => {
     call.mockResolvedValue({ conversationId: 'child-1' });
 
     await conversationApi.fork('conversation-1');
     expect(call).toHaveBeenCalledWith('conversation_fork', {
       conversationId: 'conversation-1',
       atTurnId: null,
+      targetAgentId: null,
     });
 
-    await conversationApi.fork('conversation-1', 'turn-9');
+    await conversationApi.fork('conversation-1', 'turn-9', 'codex');
     expect(call).toHaveBeenLastCalledWith('conversation_fork', {
       conversationId: 'conversation-1',
       atTurnId: 'turn-9',
+      targetAgentId: 'codex',
     });
   });
 

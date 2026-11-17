@@ -709,6 +709,8 @@ mod tests {
             crate::ForkVisibleConversation {
                 source_id: conversation_id,
                 until_turn_id: Some(first.id),
+                target_agent_id: None,
+                target_provider_instance_id: None,
             },
         )
         .await

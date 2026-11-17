@@ -1646,6 +1646,45 @@
                 .all(|row| row.row_id != expected_row_id),
             "reverting to source agent before any new turn must delete the boundary handoff row"
         );
+
+        // 4. Same-agent fork handoff keeps the inline Fork交接 divider
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "host",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: "agent_handoff".into(),
+                payload: Some(serde_json::json!({
+                    "handoffKind": "fork",
+                    "afterTurnId": turn_id.to_string(),
+                    "fromAgent": "codex",
+                    "toAgent": "codex",
+                    "handoffTokens": 420,
+                })),
+            },
+            None,
+        )
+        .await;
+        let rows_after_fork = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project same-agent fork handoff")
+            .rows;
+        let fork_row = rows_after_fork
+            .iter()
+            .find(|row| row.row_id == expected_row_id)
+            .expect("same-agent fork handoff notice must remain projected");
+        match &fork_row.row {
+            ConversationTimelineRow::SessionNotice { notice } => {
+                assert_eq!(notice.title, "Fork交接");
+                let parsed: serde_json::Value =
+                    serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
+                assert_eq!(parsed["handoffKind"], "fork");
+                assert_eq!(parsed["fromAgent"], "codex");
+                assert_eq!(parsed["toAgent"], "codex");
+            }
+            other => panic!("expected session_notice row, got {other:?}"),
+        }
     }
 
     #[tokio::test]

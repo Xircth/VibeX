@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { TurnStats } from './thread/TurnStats';
 import { LiveTurnStats } from './thread/LiveTurnStats';
 import type { TurnStatsData } from './thread/turnStatsModel';
+import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
 import {
   assistantCopyText,
   buildSettledTurnStats,
@@ -165,10 +166,13 @@ export interface TimelineVirtualRowItemProps {
   > | null;
   onUndoTurnChanges: (turnId: string) => Promise<void> | void;
   isTurnInFlight: boolean;
-  forkSupported: boolean;
+  forkAgents: readonly SelectableAgent[];
   jumpTarget: number | null;
   onJumpToVirtualIndex: (index: number) => void;
-  onForkFromTurn: (turnId?: string) => Promise<void> | void;
+  onForkFromTurn: (
+    turnId?: string,
+    targetAgentId?: string
+  ) => Promise<void> | void;
   liveStatsFallback: TurnStatsData | null;
   streamingLiveStatus: {
     hideStatus: boolean;
@@ -212,7 +216,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   fileChanges,
   onUndoTurnChanges,
   isTurnInFlight,
-  forkSupported,
+  forkAgents,
   jumpTarget,
   onJumpToVirtualIndex,
   onForkFromTurn,
@@ -253,16 +257,14 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
     [jumpTarget, onJumpToVirtualIndex]
   );
 
-  const forkPointStatus = row?.forkPointStatus ?? null;
-  const canOfferFork = forkSupported && forkPointStatus !== 'unsupported';
   const onForkFromHere = useMemo(
     () =>
-      canOfferFork && turnId
-        ? () => {
-            void onForkFromTurn(turnId);
+      turnId
+        ? (targetAgentId: string) => {
+            void onForkFromTurn(turnId, targetAgentId);
           }
         : null,
-    [canOfferFork, onForkFromTurn, turnId]
+    [onForkFromTurn, turnId]
   );
 
   const assistantStats = useMemo(() => {
@@ -285,13 +287,8 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
     const stats = liveStatsFallback
       ? mergeMissingTurnStats(settled, liveStatsFallback)
       : settled;
-    const forkDisabledReason: 'unnamed' | 'busy' =
-      forkPointStatus === 'unnamed' || row.phase === 'streaming'
-        ? 'unnamed'
-        : 'busy';
     const forkDisabled =
       isTurnInFlight ||
-      forkPointStatus === 'unnamed' ||
       row.phase === 'streaming' ||
       row.phase === 'optimistic';
     return {
@@ -299,10 +296,9 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
       copyText,
       stats,
       forkDisabled,
-      forkDisabledReason,
+      forkDisabledReason: 'busy' as const,
     };
   }, [
-    forkPointStatus,
     hideAssistantStats,
     isLastSlice,
     isTurnInFlight,
@@ -391,6 +387,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
           copyText={assistantStats.copyText}
           onJumpBack={onJumpBack}
           onForkFromHere={onForkFromHere}
+          forkAgents={forkAgents}
           forkDisabled={assistantStats.forkDisabled}
           forkDisabledReason={assistantStats.forkDisabledReason}
         />

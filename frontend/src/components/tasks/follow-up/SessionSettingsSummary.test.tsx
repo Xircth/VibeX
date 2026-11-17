@@ -105,23 +105,18 @@ describe('SessionSettingsSummary', () => {
           },
         ]}
         pending={{}}
-        continuation={{
-          policy: 'fresh',
-          onChange: vi.fn(),
-        }}
         onSelectMode={vi.fn()}
         onSelectConfigOption={vi.fn()}
       />
     );
 
     const trigger = screen.getByRole('button', {
-      name: '本次会话: Plan · 5.6 Terra · 高 · Enabled · 全新上下文',
+      name: '本次会话: Plan · 5.6 Terra · 高 · Enabled',
     });
     expect(trigger).toBeInTheDocument();
     expect(trigger).toHaveTextContent('5.6 Terra · 高');
     expect(trigger).not.toHaveTextContent('Plan');
     expect(trigger).not.toHaveTextContent('Enabled');
-    expect(trigger).not.toHaveTextContent('全新上下文');
   });
 
   it('moves the Fast indicator onto the model or agent name without widening the summary', async () => {
@@ -396,10 +391,9 @@ describe('SessionSettingsSummary', () => {
     expect(screen.getByRole('radiogroup', { name: '切换 Agent' })).toBeInTheDocument();
   });
 
-  it('stays mounted with the selected agent name when an agent advertises no session options and supports continuation policy', async () => {
+  it('stays mounted with the selected agent name when an agent advertises no session options', async () => {
     const user = userEvent.setup();
-    const onContinuationChange = vi.fn();
-    const { rerender } = render(
+    render(
       <SessionSettingsSummary
         options={[]}
         pending={{}}
@@ -420,10 +414,6 @@ describe('SessionSettingsSummary', () => {
               settingsFeatures: [],
             },
           ],
-        }}
-        continuation={{
-          policy: 'portable',
-          onChange: onContinuationChange,
         }}
       />
     );
@@ -434,44 +424,7 @@ describe('SessionSettingsSummary', () => {
 
     await user.click(screen.getByTestId('session-settings-summary'));
     expect(screen.getByText('使用默认配置')).toBeInTheDocument();
-    await user.click(screen.getByText('下一条输入的上下文'));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '全新上下文' }));
-    expect(onContinuationChange).toHaveBeenCalledWith('fresh');
-
-    rerender(
-      <SessionSettingsSummary
-        options={[]}
-        pending={{}}
-        agentRail={{
-          profiles: {},
-          effectiveExecutorProfile: { executor: 'codex', variant: null },
-          onChangeExecutorProfile: vi.fn(),
-          selectableAgents: [
-            {
-              agentId: 'codex',
-              displayName: 'Codex',
-              iconLight: null,
-              iconDark: null,
-              iconSvg: null,
-              enabled: true,
-              lifecycle: 'ready',
-              runnable: true,
-              settingsFeatures: [],
-            },
-          ],
-        }}
-        continuation={{
-          policy: 'fresh',
-          onChange: onContinuationChange,
-        }}
-      />
-    );
-
-    const updatedTrigger = screen.getByRole('button', {
-      name: '本次会话: 全新上下文',
-    });
-    expect(updatedTrigger).toHaveTextContent('Codex');
-    expect(updatedTrigger).not.toHaveTextContent('全新上下文');
+    expect(screen.queryByText('下一条输入的上下文')).not.toBeInTheDocument();
   });
 
   it('renders a borderless summary trigger and keeps Agent switching enabled even when persona metadata is present', async () => {

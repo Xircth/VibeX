@@ -7,6 +7,10 @@ import {
   useActiveExecutorProfile,
 } from '@/contexts/ActiveExecutorProfileContext';
 import {
+  beginPendingForkHandoff,
+  endPendingForkHandoff,
+} from '@/features/conversation/pendingForkStore';
+import {
   ContextHandoffDivider,
   ConversationTailHandoff,
   TimelineAgentHandoffRow,
@@ -139,6 +143,37 @@ describe('ContextHandoffDivider', () => {
     expect(screen.queryByTestId('context-handoff-tokens')).toBeNull();
   });
 
+  it('renders TimelineAgentHandoffRow in fork mode with Fork Handoff title', () => {
+    render(
+      wrapWithProviders(
+        <TimelineAgentHandoffRow
+          handoff={{
+            handoffKind: 'fork',
+            fromAgent: 'claude_code',
+            toAgent: 'codex',
+            fromModel: 'Grok 4.6',
+            toModel: null,
+            handoffTokens: 231,
+            continuationPolicy: 'portable',
+          }}
+        />
+      )
+    );
+
+    const divider = screen.getByTestId('context-handoff-divider');
+    expect(divider).toHaveAttribute('data-handoff-mode', 'fork');
+    expect(divider).toHaveTextContent('Fork');
+    expect(screen.getByTestId('context-handoff-tokens')).toHaveTextContent(
+      '231 Tokens'
+    );
+    expect(screen.getByTestId('context-handoff-from-label')).toHaveTextContent(
+      'Grok 4.6'
+    );
+    expect(screen.getByTestId('context-handoff-to-label')).toHaveTextContent(
+      'Codex'
+    );
+  });
+
   it('mounts ConversationTailHandoff only when the matching session has messages and an agent switch is pending', () => {
     const onReveal = vi.fn();
     render(
@@ -176,5 +211,51 @@ describe('ContextHandoffDivider', () => {
       '4 Carbon'
     );
     expect(onReveal).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders ConversationTailHandoff in forking mode while a fork request is in flight', () => {
+    const onReveal = vi.fn();
+    render(
+      wrapWithProviders(
+        <ConversationTailHandoff
+          sessionId="session-fork"
+          hasMessages={true}
+          fallbackFromModel="Grok 4.6"
+          onReveal={onReveal}
+        />
+      )
+    );
+
+    expect(
+      screen.queryByTestId('context-handoff-divider')
+    ).not.toBeInTheDocument();
+
+    let pendingId = 0;
+    act(() => {
+      pendingId = beginPendingForkHandoff({
+        sessionId: 'session-fork',
+        fromAgent: 'claude_code',
+        toAgent: 'codex',
+      });
+    });
+
+    const divider = screen.getByTestId('context-handoff-divider');
+    expect(divider).toHaveAttribute('data-handoff-mode', 'forking');
+    expect(screen.getByTestId('context-handoff-from-label')).toHaveTextContent(
+      'Grok 4.6'
+    );
+    expect(screen.getByTestId('context-handoff-to-label')).toHaveTextContent(
+      'Codex'
+    );
+    expect(screen.queryByTestId('context-handoff-tokens')).toBeNull();
+    expect(onReveal).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      endPendingForkHandoff(pendingId);
+    });
+
+    expect(
+      screen.queryByTestId('context-handoff-divider')
+    ).not.toBeInTheDocument();
   });
 });

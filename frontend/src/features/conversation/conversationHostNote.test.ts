@@ -85,6 +85,7 @@ describe('agent handoff host notes', () => {
     );
     expect(isAgentHandoffHostNote(handoffRow)).toBe(true);
     expect(parseAgentHandoffNotice(handoffRow)).toEqual({
+      handoffKind: 'switch',
       fromAgent: 'claude_code',
       fromModel: 'claude-opus-4-6',
       toAgent: 'codex',
@@ -103,5 +104,26 @@ describe('agent handoff host notes', () => {
       })
     );
     expect(parseAgentHandoffNotice(roundTripSame)).toBeNull();
+
+    const sameAgentFork = notice(
+      'host-note:agent-handoff:after:turn-1',
+      'host-note:agent-handoff:after:turn-1',
+      JSON.stringify({
+        handoffKind: 'fork',
+        afterTurnId: 'turn-1',
+        fromAgent: 'codex',
+        toAgent: 'codex',
+        handoffTokens: 231,
+      })
+    );
+    expect(parseAgentHandoffNotice(sameAgentFork)).toEqual({
+      handoffKind: 'fork',
+      fromAgent: 'codex',
+      fromModel: null,
+      toAgent: 'codex',
+      toModel: null,
+      handoffTokens: 231,
+      continuationPolicy: 'portable',
+    });
   });
 });

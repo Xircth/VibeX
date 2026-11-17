@@ -1102,6 +1102,64 @@ impl crate::ConversationSessionService {
         }
         Ok(confirmation)
     }
+
+    pub async fn append_fork_handoff_notice(
+        &self,
+        conversation_id: Uuid,
+        after_turn_id: Uuid,
+        from_agent: &agents::AgentId,
+        to_agent: &agents::AgentId,
+        from_model: Option<&str>,
+    ) {
+        let handoff_tokens = match DeterministicHandoffService::build_handoff_context(
+            &self.ctx.deployment.db().pool,
+            conversation_id,
+            to_agent.as_str(),
+            None,
+        )
+        .await
+        {
+            Ok(ctx) if ctx.total_tokens > 0 => Some(ctx.total_tokens),
+            Ok(_) => None,
+            Err(error) => {
+                tracing::warn!(
+                    %conversation_id,
+                    %error,
+                    "failed to compute fork handoff token count for timeline event"
+                );
+                None
+            }
+        };
+        let payload = serde_json::json!({
+            "kind": "agent_handoff",
+            "handoffKind": "fork",
+            "afterTurnId": after_turn_id,
+            "fromAgent": from_agent.as_str(),
+            "toAgent": to_agent.as_str(),
+            "fromModel": from_model,
+            "handoffTokens": handoff_tokens,
+            "continuationPolicy": "portable",
+        });
+        if let Err(error) = self
+            .append_event(
+                conversation_id,
+                None,
+                "host",
+                ConversationEvent::RawDiagnosticRecorded {
+                    label: "agent_handoff".into(),
+                    payload: Some(payload),
+                },
+                None,
+            )
+            .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "failed to append fork handoff timeline event"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

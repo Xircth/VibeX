@@ -61,6 +61,7 @@ export function isPersonaHostNote(row: TimelineRow): boolean {
 export const AGENT_HANDOFF_HOST_NOTE_PREFIX = 'host-note:agent-handoff:';
 
 export type ParsedAgentHandoffNotice = {
+  handoffKind: 'switch' | 'fork';
   fromAgent: string;
   toAgent: string;
   fromModel: string | null;
@@ -87,12 +88,17 @@ export function parseAgentHandoffNotice(
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const handoffKind = parsed.handoffKind === 'fork' ? 'fork' : 'switch';
     const fromAgent =
       typeof parsed.fromAgent === 'string' ? parsed.fromAgent.trim() : '';
     const toAgent =
       typeof parsed.toAgent === 'string' ? parsed.toAgent.trim() : '';
     const norm = (id: string) => id.toLowerCase().replace(/[-_\s]/g, '');
-    if (!fromAgent || !toAgent || norm(fromAgent) === norm(toAgent)) {
+    if (
+      !fromAgent ||
+      !toAgent ||
+      (handoffKind !== 'fork' && norm(fromAgent) === norm(toAgent))
+    ) {
       return null;
     }
     const fromModel =
@@ -117,6 +123,7 @@ export function parseAgentHandoffNotice(
     const continuationPolicy =
       parsed.continuationPolicy === 'fresh' ? 'fresh' : 'portable';
     return {
+      handoffKind,
       fromAgent,
       toAgent,
       fromModel,

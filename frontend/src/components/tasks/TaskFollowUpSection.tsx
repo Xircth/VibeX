@@ -456,9 +456,7 @@ export function TaskFollowUpSection({
   const isChangingAgent = Boolean(
     resolvedSessionExecutor && targetExecutor !== resolvedSessionExecutor
   );
-  const [continuationPolicy, setContinuationPolicy] = useState<
-    'portable' | 'fresh'
-  >('portable');
+  const continuationPolicy = 'portable' as const;
 
   // Publish the composer's effective profile so the conversation's reset-to-here
   // retry re-sends with the SAME model/variant selection (keeping the create form,
@@ -509,7 +507,6 @@ export function TaskFollowUpSection({
     () => new Set()
   );
   useEffect(() => {
-    setContinuationPolicy('portable');
     setDismissedQuestionIds(new Set());
   }, [sessionId]);
 
@@ -779,7 +776,6 @@ export function TaskFollowUpSection({
   const handleAfterSendWithSessionControlCleanup = useCallback(async () => {
     sentAttachmentsRef.current.forEach(revokeComposerImagePreviewUrl);
     sentAttachmentsRef.current = [];
-    setContinuationPolicy('portable');
     await handleAfterSendCleanup();
   }, [handleAfterSendCleanup]);
   const handleBeforeSend = useCallback(() => {
@@ -1229,17 +1225,6 @@ export function TaskFollowUpSection({
     ]
   );
 
-  const continuationConfig = useMemo(
-    () =>
-      sessionId && entries.length > 0
-        ? {
-            policy: continuationPolicy,
-            onChange: setContinuationPolicy,
-          }
-        : null,
-    [continuationPolicy, entries.length, sessionId]
-  );
-
   const providerInstanceConfig = useMemo<SessionProviderInstanceConfig | null>(
     () =>
       providerInstances.hasMultipleInstances
@@ -1435,7 +1420,6 @@ export function TaskFollowUpSection({
                 displaySessionModes.modes.length === 0 &&
                 displaySessionConfigOptions.length === 0)
             }
-            continuation={continuationConfig}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
             compactContextEnabled={config?.compact_context_enabled ?? false}

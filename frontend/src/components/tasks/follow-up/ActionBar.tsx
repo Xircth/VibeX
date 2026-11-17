@@ -16,7 +16,6 @@ import { ActionBarRunningControls } from './ActionBarRunningControls';
 import { ComposerStashMenu } from './ComposerStashMenu';
 import {
   SessionSettingsSummary,
-  type SessionContinuationConfig,
   type SessionPersona,
   type SessionProviderInstanceConfig,
 } from './SessionSettingsSummary';
@@ -38,7 +37,6 @@ interface ActionBarProps {
   selectedConfigValues?: Record<string, string>;
   onSelectConfigOption?: (key: string, value: string) => void;
   sessionControlsLoading?: boolean;
-  continuation?: SessionContinuationConfig | null;
   persona?: SessionPersona | null;
   isAwaitingNewSessionConfirmation?: boolean;
   isEditable: boolean;
@@ -86,7 +84,6 @@ export const ActionBar = memo(function ActionBar({
   selectedConfigValues = {},
   onSelectConfigOption,
   sessionControlsLoading = false,
-  continuation = null,
   persona = null,
   isAwaitingNewSessionConfirmation = false,
   isEditable,
@@ -221,7 +218,6 @@ export const ActionBar = memo(function ActionBar({
         agentIconSvg={currentAgentIcons?.iconSvg ?? null}
         agentRail={agentRail}
         providerInstanceConfig={showProfileControls ? providerInstanceConfig : null}
-        continuation={continuation}
         controlsLoading={sessionControlsLoading}
       />
 

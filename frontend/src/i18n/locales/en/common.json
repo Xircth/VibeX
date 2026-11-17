@@ -26,6 +26,7 @@
     "exportHtml": "Export as HTML",
     "forkSession": "Fork session",
     "forkFromHere": "Fork from here",
+    "selectForkTarget": "Select Fork Target",
     "copyAsMarkdown": "Copy as Markdown",
     "createSession": "New session",
     "autoSort": "Auto-sort",

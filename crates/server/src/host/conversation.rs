@@ -16,10 +16,7 @@ use conversations::{
     session_stats_with_usage_snapshot,
 };
 use db::models::{
-    conversation::{
-        BindingStatus, ConversationAgentBindingRecord, CreateConversationAgentBinding,
-        DbConversationSummary,
-    },
+    conversation::{ConversationAgentBindingRecord, DbConversationSummary},
     conversation_event::ConversationEventRecord,
     conversation_turn::ConversationTurnRecord,
     conversation_usage::ConversationUsageSnapshotRecord,
@@ -145,9 +142,18 @@ struct ConversationForkArgs {
     #[serde(default, alias = "at_turn_id")]
     at_turn_id: Option<String>,
     #[serde(default)]
-    current_mode: Option<String>,
+    _current_mode: Option<String>,
     #[serde(default, alias = "config_selection_json")]
-    config_selection_json: Option<String>,
+    _config_selection_json: Option<String>,
+    #[serde(default, alias = "target_agent_id", alias = "agentId", alias = "agent_id")]
+    target_agent_id: Option<String>,
+    #[serde(
+        default,
+        alias = "target_provider_instance_id",
+        alias = "providerInstanceId",
+        alias = "provider_instance_id"
+    )]
+    target_provider_instance_id: Option<String>,
     #[serde(default, alias = "operation_id")]
     _operation_id: Option<String>,
 }
@@ -543,9 +549,8 @@ impl ServerApplicationDomains {
             self.fork_conversation(
                 source_id,
                 until_turn_id,
-                args.at_turn_id.as_deref(),
-                args.current_mode,
-                args.config_selection_json,
+                args.target_agent_id,
+                args.target_provider_instance_id,
             )
             .await?,
         )
@@ -603,44 +608,33 @@ impl ServerApplicationDomains {
         &self,
         source_id: Uuid,
         until_turn_id: Option<Uuid>,
-        raw_at_turn_id: Option<&str>,
-        overlay_mode: Option<String>,
-        overlay_config_json: Option<String>,
+        target_agent_id: Option<String>,
+        target_provider_instance_id: Option<String>,
     ) -> Result<ConversationForkResult, ApplicationError> {
+        let parsed_target_agent_id = match target_agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(raw) => {
+                let parsed = agents::AgentId::parse(raw).ok().or_else(|| {
+                    agents::AgentKind::from_lenient(raw)
+                        .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+                });
+                Some(parsed.ok_or_else(|| {
+                    ApplicationError::bad_request(format!("invalid targetAgentId: {raw}"))
+                })?)
+            }
+            None => None,
+        };
+
         let summary = DbConversationSummary::find_by_id(self.writer_pool(), source_id)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| {
                 ApplicationError::not_found(format!("conversation {source_id} not found"))
             })?;
-        let source_binding =
-            ConversationAgentBindingRecord::active_for_conversation(&self.pool, source_id)
-                .await
-                .map_err(internal_error)?;
-        if let Some(turn_id) = until_turn_id {
-            let target_turn = ConversationTurnRecord::find_by_id(&self.pool, turn_id)
-                .await
-                .map_err(internal_error)?;
-            if target_turn
-                .and_then(|turn| turn.agent_binding_id)
-                .is_some_and(|binding_id| {
-                    source_binding
-                        .as_ref()
-                        .is_none_or(|binding| binding.id != binding_id)
-                })
-            {
-                return Err(ApplicationError::bad_request("fork_point_unnamed"));
-            }
-        }
-        let capabilities = source_binding.as_ref().and_then(|binding| {
-            serde_json::from_str::<AcpCapabilitySnapshot>(&binding.session_capabilities_json).ok()
-        });
-        if !capabilities
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.fork_session)
-        {
-            return Err(ApplicationError::bad_request("fork_unsupported"));
-        }
+
         let latest_turn = ConversationTurnRecord::latest_for_conversation(&self.pool, source_id)
             .await
             .map_err(internal_error)?;
@@ -662,23 +656,26 @@ impl ServerApplicationDomains {
         if is_tail && latest_in_flight {
             return Err(ApplicationError::conflict("fork_turn_in_flight"));
         }
-        let agent_id = summary.agent_id.as_ref();
-        let fork_point = match (agent_id, until_turn_id) {
-            (Some(agent_id), Some(_)) => {
-                self.resolve_agent_fork_point(source_id, until_turn_id, raw_at_turn_id, agent_id)
-                    .await?
-            }
-            _ => None,
-        };
-        if !is_tail && fork_point.is_none() {
-            return Err(ApplicationError::bad_request("fork_point_unnamed"));
-        }
+
+        conversations::runtime_events::flush_conversation_persistence(source_id).await;
+
+        let source_binding =
+            ConversationAgentBindingRecord::active_for_conversation(&self.pool, source_id)
+                .await
+                .map_err(internal_error)?;
+        let source_agent_id = summary
+            .agent_id
+            .clone()
+            .or_else(|| source_binding.as_ref().map(|b| b.agent_id.clone()));
+        let resolved_target_agent_id = parsed_target_agent_id.or_else(|| source_agent_id.clone());
 
         let (new_id, imported_event_count) = fork_visible_conversation(
             &self.pool,
             ForkVisibleConversation {
                 source_id,
                 until_turn_id,
+                target_agent_id: resolved_target_agent_id.clone(),
+                target_provider_instance_id,
             },
         )
         .await
@@ -694,60 +691,11 @@ impl ServerApplicationDomains {
             }
             other => ApplicationError::internal(other.to_string()),
         })?;
+
         let imported = ConversationImportResult {
             conversation_id: new_id,
             imported_event_count,
             projection_version: CONVERSATION_PROJECTION_VERSION,
-        };
-        let Some(agent_id) = agent_id else {
-            ConversationRelationControl::with_publisher(
-                self.pool.clone(),
-                self.conversations.event_publisher.clone(),
-            )
-            .create(CreateConversationRelation {
-                parent_conversation_id: source_id,
-                child_conversation_id: new_id,
-                kind: agents::ConversationRelationKind::Fork,
-                visibility: agents::ConversationRelationVisibility::Visible,
-                metadata: serde_json::json!({
-                    "source": "conversation_fork",
-                    "forkTurnId": until_turn_id,
-                    "continuity": "history_only",
-                    "continuityNote": "The source conversation has no Agent binding",
-                }),
-            })
-            .await
-            .map_err(internal_error)?;
-            return Ok(ConversationForkResult::history_only(
-                imported,
-                source_id,
-                "The source conversation has no Agent binding; only visible history was copied",
-            ));
-        };
-        let Some(source_binding) = source_binding else {
-            ConversationRelationControl::with_publisher(
-                self.pool.clone(),
-                self.conversations.event_publisher.clone(),
-            )
-            .create(CreateConversationRelation {
-                parent_conversation_id: source_id,
-                child_conversation_id: new_id,
-                kind: agents::ConversationRelationKind::Fork,
-                visibility: agents::ConversationRelationVisibility::Visible,
-                metadata: serde_json::json!({
-                    "source": "conversation_fork",
-                    "forkTurnId": until_turn_id,
-                    "continuity": "history_only",
-                    "continuityNote": "The source Agent session has no resumable binding",
-                }),
-            })
-            .await
-            .map_err(internal_error)?;
-            return Ok(ConversationForkResult::history_only(
-                imported,
-                source_id,
-                "The source Agent session has no resumable binding; only visible history was copied",
-            ));
         };
 
         ConversationRelationControl::with_publisher(
@@ -762,6 +710,8 @@ impl ServerApplicationDomains {
             metadata: serde_json::json!({
                 "source": "conversation_fork",
                 "forkTurnId": until_turn_id,
+                "targetAgentId": resolved_target_agent_id.as_ref().map(|id| id.as_str()),
+                "handoff": true,
             }),
         })
         .await
@@ -778,85 +728,59 @@ impl ServerApplicationDomains {
             tracing::warn!(%error, conversation_id = %new_id, "forked conversation title was not updated");
         }
 
-        let child_mode = overlay_mode
-            .as_deref()
-            .or(source_binding.current_mode.as_deref());
-        let child_config = overlay_config_json
-            .as_deref()
-            .unwrap_or(source_binding.config_selection_json.as_str());
-
-        match self
-            .conversations
-            .agent_runtime
-            .fork_session(AgentSessionId(source_id), fork_point)
-            .await
+        if let (Some(source_agent), Some(target_agent)) =
+            (source_agent_id.as_ref(), resolved_target_agent_id.as_ref())
         {
-            Ok(forked_external_id) => {
-                let binding = ConversationAgentBindingRecord::create(
-                    &self.pool,
-                    Uuid::new_v4(),
-                    CreateConversationAgentBinding {
-                        conversation_id: new_id,
-                        agent_id,
-                        working_dir: &source_binding.working_dir,
-                        acp_session_id: Some(&forked_external_id),
-                        continuation_key: source_binding.continuation_key.as_deref(),
-                        acp_protocol_version: source_binding.acp_protocol_version.as_deref(),
-                        runtime_version: source_binding.runtime_version.as_deref(),
-                        acp_version: source_binding.acp_version.as_deref(),
-                        load_supported: source_binding.load_supported,
-                        resume_supported: source_binding.resume_supported,
-                        close_supported: source_binding.close_supported,
-                        terminal_supported: source_binding.terminal_supported,
-                        additional_directories_supported: source_binding
-                            .additional_directories_supported,
-                        prompt_capabilities_json: &source_binding.prompt_capabilities_json,
-                        session_capabilities_json: &source_binding.session_capabilities_json,
-                        client_capabilities_json: &source_binding.client_capabilities_json,
-                        mcp_servers_json: &source_binding.mcp_servers_json,
-                        modes_json: &source_binding.modes_json,
-                        config_options_json: &source_binding.config_options_json,
-                        current_mode: child_mode,
-                        config_selection_json: child_config,
-                        status: BindingStatus::Closed,
-                    },
-                )
-                .await;
-                match binding {
-                    Ok(_) => Ok(ConversationForkResult::with_agent_context(
-                        imported, source_id,
-                    )),
-                    Err(error) => Ok(ConversationForkResult::history_only(
-                        imported,
-                        source_id,
-                        format!("Agent context was forked but could not be attached: {error}"),
-                    )),
+            if imported_event_count > 0 {
+                if let Ok(Some(child_last_turn)) =
+                    ConversationTurnRecord::latest_for_conversation(&self.pool, new_id).await
+                {
+                    let mut source_model = child_last_turn
+                        .model
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|m| !m.is_empty())
+                        .map(str::to_string)
+                        .or_else(|| {
+                            summary
+                                .model
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|m| !m.is_empty())
+                                .map(str::to_string)
+                        });
+                    if source_model.is_none()
+                        && let Ok(Some(snapshot)) =
+                            ConversationUsageSnapshotRecord::find(&self.pool, source_id).await
+                    {
+                        source_model = snapshot
+                            .model
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|m| !m.is_empty())
+                            .map(str::to_string);
+                    }
+                    conversations::ConversationSessionService::new(self.conversations.clone())
+                        .append_fork_handoff_notice(
+                            new_id,
+                            child_last_turn.id,
+                            source_agent,
+                            target_agent,
+                            source_model.as_deref(),
+                        )
+                        .await;
                 }
             }
-            Err(error) => Ok(ConversationForkResult::history_only(
-                imported,
-                source_id,
-                format!("Agent context could not be forked: {error}"),
-            )),
+            return Ok(ConversationForkResult::with_agent_context(
+                imported, source_id,
+            ));
         }
-    }
 
-    async fn resolve_agent_fork_point(
-        &self,
-        source_id: Uuid,
-        until_turn_id: Option<Uuid>,
-        raw_at_turn_id: Option<&str>,
-        agent_id: &agents::AgentId,
-    ) -> Result<Option<agents::ForkPoint>, ApplicationError> {
-        conversations::resolve_agent_fork_point(
-            &self.pool,
+        Ok(ConversationForkResult::history_only(
+            imported,
             source_id,
-            until_turn_id,
-            raw_at_turn_id,
-            agent_id,
-        )
-        .await
-        .map_err(bundle_error)
+            "The source conversation has no Agent; only visible history was copied",
+        ))
     }
 }
 
@@ -1468,6 +1392,15 @@ mod tests {
         let value = serde_json::to_value(&imported).expect("fork");
         assert_eq!(value["continuity"], "history_only");
         assert!(value.get("conversationId").is_some() || value.get("conversation_id").is_some());
+
+        let fork_args: ConversationForkArgs = crate::domains::parse(serde_json::json!({
+            "conversationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "atTurnId": "turn-1",
+            "targetAgentId": "codex"
+        }))
+        .expect("fork args");
+        assert_eq!(fork_args.target_agent_id.as_deref(), Some("codex"));
+        assert_eq!(fork_args.at_turn_id.as_deref(), Some("turn-1"));
     }
 
     #[derive(serde::Deserialize)]

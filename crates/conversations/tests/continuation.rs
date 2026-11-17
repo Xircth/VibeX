@@ -1173,3 +1173,266 @@ async fn auth_blocked_turn_does_not_deadlock_rebind_or_next_turn() {
     assert!(next.is_ok(), "next turn after auth block must succeed: {next:?}");
     f.service.cancel_turn(f.conversation, None).await.unwrap();
 }
+
+#[tokio::test]
+async fn cross_agent_fork_copies_history_up_to_cutoff_and_injects_handoff_on_first_turn() {
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+
+    // Turn 1 on Claude Code
+    let first = f
+        .service
+        .submit_and_dispatch(f.input("claude_code", "first secret alpha"), "user")
+        .await
+        .unwrap();
+    let turn1_id = first.turn.expect("turn 1 created").turn_id;
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+
+    // Turn 2 on Claude Code (after cutoff)
+    let second = f
+        .service
+        .submit_and_dispatch(f.input("claude_code", "second secret beta"), "user")
+        .await
+        .unwrap();
+    assert!(second.turn.is_some(), "turn 2 created");
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+
+    let claude = AgentId::parse("claude_code").unwrap();
+    let codex = AgentId::parse("codex").unwrap();
+    let (child_id, copied_turns) = conversations::fork_visible_conversation(
+        pool,
+        conversations::ForkVisibleConversation {
+            source_id: f.conversation,
+            until_turn_id: Some(turn1_id),
+            target_agent_id: Some(codex.clone()),
+            target_provider_instance_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(copied_turns, 1, "only turns up to cutoff are copied");
+
+    let child_session = db::models::session::Session::find_by_id(pool, child_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        child_session.agent_id.as_ref().map(|a| a.as_str()),
+        Some("codex")
+    );
+    assert!(
+        child_session.external_session_id.is_none(),
+        "handoff fork leaves external_session_id empty until first turn"
+    );
+    assert!(
+        ConversationAgentBindingRecord::active_for_conversation(pool, child_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "handoff fork creates no eager binding"
+    );
+
+    let child_last_turn = db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
+        pool, child_id,
+    )
+    .await
+    .unwrap()
+    .expect("child has copied turn");
+    f.service
+        .append_fork_handoff_notice(child_id, child_last_turn.id, &claude, &codex, None)
+        .await;
+
+    let timeline = conversations::ConversationProjector::project(pool, child_id)
+        .await
+        .unwrap();
+    assert!(
+        timeline.rows.iter().any(|row| {
+            matches!(
+                &row.row,
+                agents::conversation::ConversationTimelineRow::SessionNotice { notice }
+                    if notice.message.as_deref().is_some_and(|m| m.contains("\"handoffKind\":\"fork\""))
+            )
+        }),
+        "cross-agent fork projects inline fork handoff notice"
+    );
+
+    let mut events = f.ctx.agent_runtime.subscribe_events();
+    let mut child_input = f.input("codex", "continue on codex");
+    child_input.conversation_id = child_id;
+    child_input.continuation_policy = Some(ContinuationPolicy::Portable);
+    let child_turn = f
+        .service
+        .submit_and_dispatch(child_input, "user")
+        .await
+        .unwrap();
+    assert!(child_turn.turn.is_some());
+
+    let mut delivered_prompt = None;
+    for _ in 0..30 {
+        let event: AgentEventEnvelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if event.session_id == Some(AgentSessionId(child_id))
+            && let agents::AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text { text },
+            } = event.event
+        {
+            delivered_prompt = Some(text);
+            break;
+        }
+    }
+    let prompt = delivered_prompt.expect("Codex receives handoff prompt in forked session");
+    assert!(
+        prompt.contains("<dimo-engine-handoff"),
+        "expected handoff block in prompt: {prompt}"
+    );
+    assert!(
+        prompt.contains("first secret alpha"),
+        "expected cutoff history in prompt: {prompt}"
+    );
+    assert!(
+        !prompt.contains("second secret beta"),
+        "post-cutoff history must not leak: {prompt}"
+    );
+    assert!(
+        prompt.contains("continue on codex"),
+        "expected new prompt text: {prompt}"
+    );
+
+    f.service.cancel_turn(child_id, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn same_agent_fork_also_uses_handoff_on_first_turn() {
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+
+    let first = f
+        .service
+        .submit_and_dispatch(f.input("codex", "remember cobalt token"), "user")
+        .await
+        .unwrap();
+    assert!(first.turn.is_some());
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+
+    let codex = AgentId::parse("codex").unwrap();
+    let (child_id, copied_turns) = conversations::fork_visible_conversation(
+        pool,
+        conversations::ForkVisibleConversation {
+            source_id: f.conversation,
+            until_turn_id: None,
+            target_agent_id: Some(codex.clone()),
+            target_provider_instance_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(copied_turns, 1);
+
+    let child_session = db::models::session::Session::find_by_id(pool, child_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        child_session.external_session_id.is_none(),
+        "same-agent handoff fork leaves external_session_id empty"
+    );
+    assert!(
+        ConversationAgentBindingRecord::active_for_conversation(pool, child_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "same-agent handoff fork creates no eager binding"
+    );
+
+    let child_last_turn = db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
+        pool, child_id,
+    )
+    .await
+    .unwrap()
+    .expect("child has copied turn");
+    f.service
+        .append_fork_handoff_notice(child_id, child_last_turn.id, &codex, &codex, None)
+        .await;
+    let timeline = conversations::ConversationProjector::project(pool, child_id)
+        .await
+        .unwrap();
+    assert!(
+        timeline.rows.iter().any(|row| {
+            matches!(
+                &row.row,
+                agents::conversation::ConversationTimelineRow::SessionNotice { notice }
+                    if notice.title == "Fork交接"
+                        && notice.message.as_deref().is_some_and(|m| m.contains("\"handoffKind\":\"fork\""))
+            )
+        }),
+        "same-agent fork projects inline Fork交接 notice"
+    );
+
+    let mut events = f.ctx.agent_runtime.subscribe_events();
+    let mut child_input = f.input("codex", "continue same agent");
+    child_input.conversation_id = child_id;
+    child_input.continuation_policy = Some(ContinuationPolicy::Portable);
+    let child_turn = f
+        .service
+        .submit_and_dispatch(child_input, "user")
+        .await
+        .unwrap();
+    assert!(child_turn.turn.is_some());
+
+    let mut delivered_prompt = None;
+    for _ in 0..30 {
+        let event: AgentEventEnvelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if event.session_id == Some(AgentSessionId(child_id))
+            && let agents::AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text { text },
+            } = event.event
+        {
+            delivered_prompt = Some(text);
+            break;
+        }
+    }
+    let prompt = delivered_prompt.expect("same-agent fork delivers handoff prompt");
+    assert!(
+        prompt.contains("<dimo-engine-handoff"),
+        "expected handoff block in same-agent fork prompt: {prompt}"
+    );
+    assert!(
+        prompt.contains("remember cobalt token"),
+        "expected prior turn in same-agent handoff prompt: {prompt}"
+    );
+    assert!(
+        prompt.contains("continue same agent"),
+        "expected new prompt text: {prompt}"
+    );
+
+    f.service.cancel_turn(child_id, None).await.unwrap();
+}

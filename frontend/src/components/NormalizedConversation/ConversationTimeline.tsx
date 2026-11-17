@@ -52,7 +52,14 @@ import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/t
 import { ConversationStatusDock } from '@/components/tasks/follow-up/ConversationStatusDock';
 import { PluginTimelineCards } from '@/components/plugins/PluginTimelineCards';
 import { agentsApi } from '@/features/agents/api';
+import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
+import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { buildForkTargetSubmenu } from '@/features/conversation/ForkTargetMenu';
+import {
+  beginPendingForkHandoff,
+  endPendingForkHandoff,
+} from '@/features/conversation/pendingForkStore';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { PiProjectTrustBanner } from '@/features/conversation/PiProjectTrustBanner';
 import { nextSurfaceActive } from '@/features/conversation/surfaceActivity';
@@ -204,7 +211,11 @@ const AgentTimelineConversation = forwardRef<
     active: surfaceActive,
   });
   const kanbanSessions = useOptionalKanbanSessionContext();
-  const forkSupported = conversation.forkSessionSupported;
+  const selectableAgents = useSelectableAgents();
+  const forkAgents = useMemo(
+    () => selectableAgents.filter(isEnabledInstalledAgent),
+    [selectableAgents]
+  );
   const usesComposerStatusDock = useOptionalConversationStatus()?.enabled ?? false;
   const { hidePersonaHostNotes } = useSessionSurfaceChrome();
   const timeline = conversation.timeline;
@@ -504,10 +515,25 @@ const AgentTimelineConversation = forwardRef<
   }, [timeline]);
 
   const handleForkFromTurn = useCallback(
-    async (turnId?: string) => {
+    async (turnId?: string, targetAgentId?: string) => {
       if (!sessionId) return;
+      const fromAgent =
+        attempt.session?.agent_id ??
+        attempt.session?.executor ??
+        targetAgentId ??
+        'claude_code';
+      const toAgent = targetAgentId ?? fromAgent;
+      const pendingId = beginPendingForkHandoff({
+        sessionId,
+        fromAgent,
+        toAgent,
+      });
       try {
-        const result = await conversationApi.fork(sessionId, turnId);
+        const result = await conversationApi.fork(
+          sessionId,
+          turnId,
+          targetAgentId
+        );
         if (result.continuity === 'history_only') {
           toast.warning(
             t('tasks:hubListItem.forkHistoryOnly', {
@@ -528,9 +554,18 @@ const AgentTimelineConversation = forwardRef<
             error: getErrorMessage(error),
           })
         );
+      } finally {
+        endPendingForkHandoff(pendingId);
       }
     },
-    [attempt.id, kanbanSessions, sessionId, t]
+    [
+      attempt.id,
+      attempt.session?.agent_id,
+      attempt.session?.executor,
+      kanbanSessions,
+      sessionId,
+      t,
+    ]
   );
   // The Nth user turn maps to the Nth checkpoint ordinal (see G-R1).
   const userOrdinalByKey = useMemo(() => {
@@ -1022,22 +1057,22 @@ const AgentTimelineConversation = forwardRef<
                 });
               }
               const turnId = dimoTurnIdFromTimelineRowId(row.turn.id);
-              const forkPointStatus = row.forkPointStatus ?? null;
-              const canOfferFork =
-                forkSupported && forkPointStatus !== 'unsupported';
-              items.push({
-                id: 'fork-from-here',
-                label: t('common:contextMenu.forkFromHere'),
-                disabled:
-                  !canOfferFork ||
-                  isTurnInFlight ||
-                  forkPointStatus === 'unnamed' ||
-                  row.phase === 'streaming' ||
-                  row.phase === 'optimistic',
-                onSelect: () => {
-                  void handleForkFromTurn(turnId);
-                },
-              });
+              items.push(
+                buildForkTargetSubmenu({
+                  id: 'fork-from-here',
+                  label: t('common:contextMenu.forkFromHere'),
+                  headerLabel: t('common:contextMenu.selectForkTarget'),
+                  agents: forkAgents,
+                  disabled:
+                    !turnId ||
+                    isTurnInFlight ||
+                    row.phase === 'streaming' ||
+                    row.phase === 'optimistic',
+                  onSelectAgent: (agentId) => {
+                    void handleForkFromTurn(turnId ?? undefined, agentId);
+                  },
+                })
+              );
               items.push({ type: 'separator', id: 'turn-sep' });
             }
             if (sessionId) {
@@ -1064,14 +1099,18 @@ const AgentTimelineConversation = forwardRef<
                   },
                 ],
               });
-              items.push({
-                id: 'fork-session',
-                label: t('common:contextMenu.forkSession'),
-                disabled: !forkSupported,
-                onSelect: () => {
-                  void handleForkFromTurn();
-                },
-              });
+              items.push(
+                buildForkTargetSubmenu({
+                  id: 'fork-session',
+                  label: t('common:contextMenu.forkSession'),
+                  headerLabel: t('common:contextMenu.selectForkTarget'),
+                  agents: forkAgents,
+                  disabled: isTurnInFlight,
+                  onSelectAgent: (agentId) => {
+                    void handleForkFromTurn(undefined, agentId);
+                  },
+                })
+              );
               items.push({
                 id: 'copy-markdown',
                 label: t('common:contextMenu.copyAsMarkdown'),
@@ -1253,7 +1292,7 @@ const AgentTimelineConversation = forwardRef<
                               fileChanges={fileChanges}
                               onUndoTurnChanges={handleUndoTurnChanges}
                               isTurnInFlight={isTurnInFlight}
-                              forkSupported={forkSupported}
+                              forkAgents={forkAgents}
                               jumpTarget={jumpTarget}
                               onJumpToVirtualIndex={handleJumpToVirtualIndex}
                               onForkFromTurn={handleForkFromTurn}

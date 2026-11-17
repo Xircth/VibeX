@@ -95,17 +95,53 @@ describe('TurnStats', () => {
     expect(onJumpBack).toHaveBeenCalledTimes(1);
   });
 
-  it('places fork next to copy and keeps it readable when disabled', () => {
+  it('opens the height-limited fork target picker and keeps disabled state readable', () => {
     const onForkFromHere = vi.fn();
+    const forkAgents = [
+      {
+        agentId: 'codex',
+        displayName: 'Codex',
+        iconLight: null,
+        iconDark: null,
+        iconSvg: null,
+        enabled: true,
+        lifecycle: 'ready' as const,
+        runnable: true,
+        settingsFeatures: [],
+      },
+      {
+        agentId: 'claude_code',
+        displayName: 'Claude Code',
+        iconLight: null,
+        iconDark: null,
+        iconSvg: null,
+        enabled: true,
+        lifecycle: 'ready' as const,
+        runnable: true,
+        settingsFeatures: [],
+      },
+    ];
     const { rerender } = render(
-      <TurnStats copyText="assistant answer" onForkFromHere={onForkFromHere} />
+      <TurnStats
+        copyText="assistant answer"
+        onForkFromHere={onForkFromHere}
+        forkAgents={forkAgents}
+      />
     );
     fireEvent.click(screen.getByRole('button', { name: '从此处分叉' }));
+    expect(screen.getByText('选择Fork目标')).toBeInTheDocument();
+    const menu = screen.getByRole('menu', { name: '选择Fork目标' });
+    expect(menu).toHaveClass('max-h-56', 'overflow-y-auto');
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Code' }));
     expect(onForkFromHere).toHaveBeenCalledTimes(1);
+    expect(onForkFromHere).toHaveBeenCalledWith('claude_code');
+
     rerender(
       <TurnStats
         copyText="assistant answer"
         onForkFromHere={onForkFromHere}
+        forkAgents={forkAgents}
         forkDisabled
       />
     );
@@ -121,6 +157,7 @@ describe('TurnStats', () => {
       <TurnStats
         copyText="assistant answer"
         onForkFromHere={onForkFromHere}
+        forkAgents={forkAgents}
         forkDisabled
         forkDisabledReason="unnamed"
       />

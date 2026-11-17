@@ -922,7 +922,14 @@ fn agent_handoff_notice(
         Some(turn_id) => format!("host-note:agent-handoff:after:{turn_id}"),
         None => format!("host-note:agent-handoff:seq:{sequence}"),
     };
-    if normalize_agent_key(from_agent) == normalize_agent_key(to_agent) {
+    let handoff_kind = payload
+        .get("handoffKind")
+        .or_else(|| payload.get("handoff_kind"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| *s == "fork")
+        .unwrap_or("switch");
+    if handoff_kind != "fork" && normalize_agent_key(from_agent) == normalize_agent_key(to_agent) {
         return Some(AgentHandoffRowAction::Remove { row_id });
     }
     let from_model = payload
@@ -952,6 +959,7 @@ fn agent_handoff_notice(
         .filter(|&tokens| tokens > 0);
     let structured = serde_json::json!({
         "kind": "agent_handoff",
+        "handoffKind": handoff_kind,
         "fromAgent": from_agent,
         "toAgent": to_agent,
         "fromModel": from_model,
@@ -962,7 +970,11 @@ fn agent_handoff_notice(
     Some(AgentHandoffRowAction::Upsert {
         row_id: row_id.clone(),
         notice: Box::new(ConversationSessionNotice {
-            title: "交接".into(),
+            title: if handoff_kind == "fork" {
+                "Fork交接".into()
+            } else {
+                "交接".into()
+            },
             message: Some(structured.to_string()),
             severity: "info".into(),
             announcement_id: Some(row_id),

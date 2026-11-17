@@ -15,10 +15,13 @@ import {
 import { toast } from '@/components/ui/toast';
 import { exportConversation } from '@/lib/exportConversation';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import {
+  beginPendingForkHandoff,
+  endPendingForkHandoff,
+} from '@/features/conversation/pendingForkStore';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
-import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
@@ -33,11 +36,11 @@ import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { SessionCardContextMenu } from './SessionCardContextMenu';
 import {
   SessionCardHoverCard,
   useSessionCardHoverDetails,
 } from './SessionCardHoverInfo';
-import { buildSessionCardMenuItems } from './sessionCardMenu';
 import {
   INFO_TEXT_CLASS,
   formatSessionInfoForCopy,
@@ -195,11 +198,16 @@ export function SessionHubListItem({
     void submitRename();
   };
 
-  const handleForkSession = () => {
+  const handleForkSession = (targetAgentId: string) => {
     if (isForking) return;
     setIsForking(true);
+    const pendingId = beginPendingForkHandoff({
+      sessionId: session.id,
+      fromAgent: sessionListAgentKey(session) ?? targetAgentId,
+      toAgent: targetAgentId,
+    });
     void conversationApi
-      .fork(session.id)
+      .fork(session.id, undefined, targetAgentId)
       .then((result) => {
         if (result.continuity === 'history_only') {
           toast.warning(
@@ -229,54 +237,10 @@ export function SessionHubListItem({
         toast.error(t('hubListItem.forkFailed', { error: String(error) }))
       )
       .finally(() => {
+        endPendingForkHandoff(pendingId);
         setIsForking(false);
       });
   };
-
-  const menuItems = buildSessionCardMenuItems({
-    session,
-    t,
-    onRestore: onRestoreFromArchive
-      ? () => {
-          void onRestoreFromArchive();
-        }
-      : undefined,
-    restoreLabel: t('hubListItem.moveToSessionList'),
-    openCollaboration: collaborationSessionMenuAction(
-      session.id,
-      session.collaboration
-    ),
-    onRename: canRename ? beginRename : undefined,
-    onCopySessionInfo: () => {
-      void writeClipboardViaBridge(formatSessionInfoForCopy(session));
-      toast.success(t('hubListItem.copiedSessionInfo'));
-    },
-    onCopySessionName: () => {
-      void writeClipboardViaBridge(session.fullName);
-      toast.success(t('hubListItem.copiedSessionName'));
-    },
-    onExportHtml: () => {
-      void exportConversation(
-        session.id,
-        'html',
-        session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
-      );
-    },
-    onExportMarkdown: () => {
-      void exportConversation(
-        session.id,
-        'markdown',
-        session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
-      );
-    },
-    onFork: handleForkSession,
-    isForking,
-    onDelete: onDeleteSession
-      ? () => {
-          void onDeleteSession();
-        }
-      : undefined,
-  });
 
   const canvasActionButtons = showCanvasActions ? (
     <div className="nodrag z-[1] flex shrink-0 items-center gap-0.5">
@@ -620,11 +584,55 @@ export function SessionHubListItem({
 
       {defaultHoverButtons}
       {contextMenu ? (
-        <ProductContextMenu
+        <SessionCardContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          items={menuItems}
           onClose={() => setContextMenu(null)}
+          t={t}
+          onRestore={
+            onRestoreFromArchive
+              ? () => {
+                  void onRestoreFromArchive();
+                }
+              : undefined
+          }
+          restoreLabel={t('hubListItem.moveToSessionList')}
+          openCollaboration={collaborationSessionMenuAction(
+            session.id,
+            session.collaboration
+          )}
+          onRename={canRename ? beginRename : undefined}
+          onCopySessionInfo={() => {
+            void writeClipboardViaBridge(formatSessionInfoForCopy(session));
+            toast.success(t('hubListItem.copiedSessionInfo'));
+          }}
+          onCopySessionName={() => {
+            void writeClipboardViaBridge(session.fullName);
+            toast.success(t('hubListItem.copiedSessionName'));
+          }}
+          onExportHtml={() => {
+            void exportConversation(
+              session.id,
+              'html',
+              session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
+            );
+          }}
+          onExportMarkdown={() => {
+            void exportConversation(
+              session.id,
+              'markdown',
+              session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
+            );
+          }}
+          onForkToAgent={handleForkSession}
+          isForking={isForking}
+          onDelete={
+            onDeleteSession
+              ? () => {
+                  void onDeleteSession();
+                }
+              : undefined
+          }
         />
       ) : null}
     </div>

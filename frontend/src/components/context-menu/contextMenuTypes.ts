@@ -46,6 +46,10 @@ export type ProductContextMenuItem =
       disabled?: boolean;
       disabledReason?: string;
       danger?: boolean;
+      /** Optional title rendered above the submenu's items. */
+      headerLabel?: string;
+      /** Optional height-limit / scroll class for long flat submenus. */
+      childrenMaxHeightClass?: string;
       /** When set, clicking the row runs this and closes. Hover still opens children. */
       onSelect?: () => void;
       children: ProductContextMenuItem[];

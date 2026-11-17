@@ -9,6 +9,13 @@ import {
   GitFork,
   Timer,
 } from 'lucide-react';
+import { AgentIcon } from '@/components/agents/AgentIcon';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
 import { asFiniteNumber, type TurnStatsData } from './turnStatsModel';
@@ -17,7 +24,8 @@ export type TurnStatsProps = {
   stats?: TurnStatsData | null;
   copyText?: string | null;
   onJumpBack?: (() => void) | null;
-  onForkFromHere?: (() => void) | null;
+  onForkFromHere?: ((targetAgentId: string) => void) | null;
+  forkAgents?: readonly SelectableAgent[];
   forkDisabled?: boolean;
   forkDisabledReason?: 'busy' | 'unnamed';
   live?: boolean;
@@ -83,11 +91,14 @@ function StatItem({
   );
 }
 
+const EMPTY_FORK_AGENTS: readonly SelectableAgent[] = [];
+
 export function TurnStats({
   stats,
   copyText,
   onJumpBack,
   onForkFromHere,
+  forkAgents = EMPTY_FORK_AGENTS,
   forkDisabled = false,
   forkDisabledReason = 'busy',
   live = false,
@@ -98,6 +109,7 @@ export function TurnStats({
   const { t } = useTranslation(['conversation', 'common']);
   const [copied, triggerCopied] = useTemporaryFlag(1600);
   const [showCompletedAt, setShowCompletedAt] = useState(false);
+  const [forkOpen, setForkOpen] = useState(false);
   const hasCopy = Boolean(copyText?.trim());
   const tokenText = formatTokenCount(stats?.totalTokens);
   const elapsedText = formatTurnDuration(stats?.elapsedMs);
@@ -146,26 +158,85 @@ export function TurnStats({
             </button>
           ) : null}
           {onForkFromHere ? (
-            <button
-              type="button"
-              className={cn(
-                'conv-turn-stat-button',
-                forkDisabled &&
-                  'cursor-not-allowed opacity-50 hover:bg-transparent'
-              )}
-              onClick={forkDisabled ? undefined : onForkFromHere}
-              aria-disabled={forkDisabled || undefined}
-              aria-label={t('turnStats.forkFromHere')}
-              title={
-                forkDisabled
-                  ? forkDisabledReason === 'unnamed'
+            forkDisabled ? (
+              <button
+                type="button"
+                className="conv-turn-stat-button cursor-not-allowed opacity-50 hover:bg-transparent"
+                aria-disabled="true"
+                aria-label={t('turnStats.forkFromHere')}
+                title={
+                  forkDisabledReason === 'unnamed'
                     ? t('turnStats.forkUnnamed')
                     : t('turnStats.forkBusy')
-                  : t('turnStats.forkFromHere')
-              }
-            >
-              <GitFork className="h-3.5 w-3.5" />
-            </button>
+                }
+              >
+                <GitFork className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <Popover open={forkOpen} onOpenChange={setForkOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="conv-turn-stat-button"
+                    aria-label={t('turnStats.forkFromHere')}
+                    title={t('turnStats.forkFromHere')}
+                  >
+                    <GitFork className="h-3.5 w-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  sideOffset={6}
+                  className="w-56 p-1.5"
+                >
+                  <div className="px-2 py-1 text-xs font-medium text-muted-foreground select-none">
+                    {t('common:contextMenu.selectForkTarget')}
+                  </div>
+                  <div
+                    className="my-1 border-t border-border/60"
+                    role="separator"
+                  />
+                  <div
+                    className="max-h-56 space-y-0.5 overflow-y-auto"
+                    role="menu"
+                    aria-label={t('common:contextMenu.selectForkTarget')}
+                  >
+                    {forkAgents.length > 0 ? (
+                      forkAgents.map((agent) => (
+                        <button
+                          key={agent.agentId}
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] leading-5 text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                          onClick={() => {
+                            setForkOpen(false);
+                            onForkFromHere(agent.agentId);
+                          }}
+                        >
+                          <span className="shrink-0" aria-hidden="true">
+                            <AgentIcon
+                              agent={agent.agentId}
+                              iconLight={agent.iconLight}
+                              iconDark={agent.iconDark}
+                              iconSvg={agent.iconSvg}
+                              className="h-4 w-4"
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">
+                            {agent.displayName}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                        —
+                      </div>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )
           ) : null}
           {onJumpBack ? (
             <button

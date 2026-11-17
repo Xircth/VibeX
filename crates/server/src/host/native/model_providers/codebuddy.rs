@@ -27,7 +27,9 @@ pub(super) async fn apply_codebuddy(
         })
         .unwrap_or_default();
     lines.push(format!("CODEBUDDY_BASE_URL={}", provider.api_url));
-    lines.push(format!("CODEBUDDY_API_KEY={}", provider.api_key));
+    if !provider.api_key.trim().is_empty() {
+        lines.push(format!("CODEBUDDY_API_KEY={}", provider.api_key.trim()));
+    }
     let model = model_default(&provider.model);
     if !model.trim().is_empty() {
         lines.push(format!("CODEBUDDY_MODEL={}", model.trim()));

@@ -466,13 +466,13 @@ fn detected_system_proxy_fills_agent_proxy_env() {
         env.iter()
             .find(|(key, _)| key == "NO_PROXY")
             .map(|(_, value)| value.as_str()),
-        Some("localhost,127.0.0.1,::1")
+        Some("localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
     );
     assert_eq!(
         env.iter()
             .find(|(key, _)| key == "no_proxy")
             .map(|(_, value)| value.as_str()),
-        Some("localhost,127.0.0.1,::1")
+        Some("localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
     );
     assert!(proxy_url_env_present(&env));
 }
@@ -491,13 +491,13 @@ fn ensure_no_proxy_loopback_preserves_custom_hosts_and_adds_loopback() {
         env.iter()
             .find(|(key, _)| key == "NO_PROXY")
             .map(|(_, value)| value.as_str()),
-        Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1")
+        Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
     );
     assert_eq!(
         env.iter()
             .find(|(key, _)| key == "no_proxy")
             .map(|(_, value)| value.as_str()),
-        Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1")
+        Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
     );
 }
 

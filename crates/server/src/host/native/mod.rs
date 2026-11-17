@@ -51,6 +51,7 @@ impl From<NativeError> for String {
 pub mod codex_device_auth;
 pub mod dsh_configuration;
 pub mod grok_plugins;
+pub mod local_http;
 pub mod model_catalogs;
 pub mod model_provider_import;
 pub mod model_providers;

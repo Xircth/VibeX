@@ -120,10 +120,15 @@ pub(super) async fn apply_kimi(
         "base_url".to_string(),
         toml::Value::String(provider.api_url.clone()),
     );
-    dimo_provider.insert(
-        "api_key".to_string(),
-        toml::Value::String(provider.api_key.clone()),
-    );
+    let api_key = provider.api_key.trim();
+    if api_key.is_empty() {
+        dimo_provider.remove("api_key");
+    } else {
+        dimo_provider.insert(
+            "api_key".to_string(),
+            toml::Value::String(api_key.to_string()),
+        );
+    }
     let models = toml_table_entry(&mut table, "models")?;
     let dimo_model = toml_table_entry(models, "dimo")?;
     dimo_model.insert(

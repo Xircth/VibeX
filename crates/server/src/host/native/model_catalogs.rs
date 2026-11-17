@@ -121,14 +121,11 @@ pub async fn provider(
     base_url: &str,
     api_key: &str,
 ) -> Result<AgentModelCatalogView, String> {
-    if !BuiltInProfileCatalog::bundled().supports_reusable_model_providers(&agent_id) {
+    if !BuiltInProfileCatalog::management().supports_provider_model_detection(&agent_id) {
         return Err("该 Agent 不支持 Provider 模型探测".to_string());
     }
     let base_url = validate_model_endpoint(base_url)?;
     let api_key = api_key.trim();
-    if api_key.is_empty() {
-        return Err("读取 Provider 模型需要填写 API Key".to_string());
-    }
     let mut urls = model_catalog_urls(&base_url);
     if urls.is_empty() {
         return Err("无法从 Provider API URL 推导模型目录地址".to_string());
@@ -145,13 +142,10 @@ pub async fn provider(
             urls.push(fallback);
         }
     }
-    let client = reqwest::Client::builder()
-        .timeout(PROVIDER_CATALOG_TIMEOUT)
-        .build()
-        .map_err(|error| format!("创建 Provider 模型客户端失败：{error}"))?;
 
     let mut last_error = None;
     for url in urls {
+        let client = crate::host::native::local_http::client_for_url(&url, PROVIDER_CATALOG_TIMEOUT)?;
         match fetch_provider_models(&client, &agent_id, url, api_key).await {
             Ok(models) => {
                 return Ok(AgentModelCatalogView {
@@ -1037,9 +1031,11 @@ fn apply_provider_auth(
     agent_id: &AgentId,
     api_key: &str,
 ) -> reqwest::RequestBuilder {
-    let request = request
-        .header(reqwest::header::ACCEPT, "application/json")
-        .bearer_auth(api_key);
+    let request = request.header(reqwest::header::ACCEPT, "application/json");
+    if api_key.is_empty() {
+        return request;
+    }
+    let request = request.bearer_auth(api_key);
     if AgentKind::Antigravity.matches_id(agent_id.as_str()) {
         request.header("x-goog-api-key", api_key)
     } else {
@@ -1972,5 +1968,17 @@ mod tests {
         assert!(loaded.customs.is_empty());
         assert_eq!(loaded.default_model.as_deref(), Some("custom-model"));
         assert!(!temp.path().join(CODEX_SOURCE_FILE).exists());
+    }
+
+    #[test]
+    fn opencode_and_mimo_code_support_provider_model_detection() {
+        let catalog = agents::BuiltInProfileCatalog::management();
+        for id in ["opencode", "mimo_code", "codex", "omp", "openclaw", "pi"] {
+            let agent_id = api_types::AgentId::parse(id).unwrap();
+            assert!(
+                catalog.supports_provider_model_detection(&agent_id),
+                "{id} must support /models detection"
+            );
+        }
     }
 }

@@ -32,18 +32,43 @@ pub(super) fn project_with_pi_native(
     let Some(native) = native else {
         return view;
     };
-    if view.bound_provider_id.is_some() {
-        return view;
+    if view.bound_provider_id.is_none() {
+        apply_native_active_binding(
+            &mut view,
+            native.active_provider.as_deref(),
+            native
+                .providers
+                .iter()
+                .map(|provider| (provider.id.as_str(), provider.api_url.as_str())),
+            None,
+        );
     }
-    apply_native_active_binding(
-        &mut view,
-        native.active_provider.as_deref(),
-        native
+    for provider in &mut view.providers {
+        let slug = pi_native_id(&StoredProvider {
+            id: provider.id.clone(),
+            name: provider.name.clone(),
+            agent_id: provider.agent_id.clone(),
+            api_url: provider.api_url.clone(),
+            api_key: provider.api_key.clone(),
+            model: provider.model.clone(),
+        });
+        let configured_in_models = native.providers.iter().any(|item| {
+            !item.api_url.is_empty()
+                && (item.id == provider.id
+                    || item.id == slug
+                    || item.api_url == provider.api_url)
+        });
+        if configured_in_models {
+            provider.bound = true;
+        }
+    }
+    if view.bound_provider_id.is_none() {
+        view.bound_provider_id = view
             .providers
             .iter()
-            .map(|provider| (provider.id.as_str(), provider.api_url.as_str())),
-        None,
-    );
+            .find(|provider| provider.bound)
+            .map(|provider| provider.id.clone());
+    }
     view
 }
 
@@ -362,6 +387,111 @@ pub(super) async fn remove_native_pi_provider(
         return Ok(());
     }
     apply_projection_mutations(&[
+        NativeFileMutation {
+            path: models_path,
+            expected: models_original,
+            replacement: Some(
+                serde_json::to_vec_pretty(&models)
+                    .map_err(|error| format!("序列化 Pi models.json 失败：{error}"))?,
+            ),
+            sensitive: false,
+        },
+        NativeFileMutation {
+            path: auth_path,
+            expected: auth_original,
+            replacement: Some(
+                serde_json::to_vec_pretty(&auth)
+                    .map_err(|error| format!("序列化 Pi auth.json 失败：{error}"))?,
+            ),
+            sensitive: true,
+        },
+    ])
+    .await
+}
+
+pub(super) async fn disable_native_pi_provider(
+    pi_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), crate::host::native::NativeError> {
+    let settings_path = pi_home.join("settings.json");
+    let models_path = pi_home.join("models.json");
+    let auth_path = pi_home.join("auth.json");
+    let filesystem = TokioNativeFileSystem;
+    let settings_original = filesystem.read(&settings_path).await?;
+    let models_original = filesystem.read(&models_path).await?;
+    let auth_original = filesystem.read(&auth_path).await?;
+    let mut settings = parse_json_object_bytes(&settings_path, settings_original.as_deref())?;
+    let mut models = parse_json_object_bytes(&models_path, models_original.as_deref())?;
+    let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
+    let slug = pi_native_id(provider);
+    let mut ids = vec![provider.id.clone(), slug];
+    let mut next_default: Option<(String, String)> = None;
+    if let Some(entries) = models.get_mut("providers").and_then(Value::as_object_mut) {
+        if let Some(url_key) = entries.iter().find_map(|(k, v)| {
+            let url = v
+                .as_object()
+                .and_then(|o| o.get("baseUrl").or_else(|| o.get("base_url")))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            (!provider.api_url.is_empty() && url == provider.api_url).then(|| k.clone())
+        }) && !ids.contains(&url_key)
+        {
+            ids.push(url_key);
+        }
+        for id in &ids {
+            entries.remove(id);
+        }
+        next_default = entries.iter().next().map(|(k, v)| {
+            let model_id = v
+                .as_object()
+                .and_then(|o| o.get("models"))
+                .and_then(Value::as_array)
+                .and_then(|arr| arr.first())
+                .and_then(|m| m.get("id").and_then(Value::as_str).or_else(|| m.as_str()))
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("model")
+                .to_string();
+            (k.clone(), model_id)
+        });
+        if entries.is_empty() {
+            models.as_object_mut().expect("object").remove("providers");
+        }
+    }
+    if let Some(entries) = auth.as_object_mut() {
+        for id in &ids {
+            entries.remove(id);
+        }
+    }
+    if let Some(settings_obj) = settings.as_object_mut()
+        && let Some(active) = settings_obj
+            .get("defaultProvider")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        && ids.iter().any(|id| id == &active)
+    {
+        match next_default {
+            Some((next_provider, next_model)) => {
+                settings_obj.insert("defaultProvider".to_string(), Value::String(next_provider));
+                settings_obj.insert("defaultModel".to_string(), Value::String(next_model));
+            }
+            None => {
+                settings_obj.remove("defaultProvider");
+                settings_obj.remove("defaultModel");
+            }
+        }
+    }
+    apply_projection_mutations(&[
+        NativeFileMutation {
+            path: settings_path,
+            expected: settings_original,
+            replacement: Some(
+                serde_json::to_vec_pretty(&settings)
+                    .map_err(|error| format!("序列化 Pi settings.json 失败：{error}"))?,
+            ),
+            sensitive: false,
+        },
         NativeFileMutation {
             path: models_path,
             expected: models_original,

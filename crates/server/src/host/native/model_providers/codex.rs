@@ -348,8 +348,6 @@ pub(super) async fn native_codex_drafts(codex_home: &Path) -> Result<Vec<ImportD
     Ok(drafts)
 }
 
-pub(super) const CODEX_AUTH_KEYS: &[&str] = &["OPENAI_API_KEY", "auth_mode"];
-
 pub(super) const CODEX_CONFIG_KEYS: &[&str] = &[
     "api_base_url",
     "openai_base_url",
@@ -390,33 +388,16 @@ pub(super) async fn restore_codex_projection(
     backup: &ProviderProjectionBackup,
 ) -> Result<(), crate::host::native::NativeError> {
     let filesystem = TokioNativeFileSystem;
-    let auth_path = codex_home.join("auth.json");
     let config_path = codex_home.join("config.toml");
     let catalog_path = codex_home.join(CODEX_CATALOG_FILE);
     let source_path = codex_home.join(CODEX_SOURCE_FILE);
-    let auth_original = filesystem.read(&auth_path).await?;
     let config_original = filesystem.read(&config_path).await?;
     let catalog_original = filesystem.read(&catalog_path).await?;
     let source_original = filesystem.read(&source_path).await?;
 
-    let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
-    restore_json_values(
-        auth.as_object_mut().expect("validated object"),
-        CODEX_AUTH_KEYS,
-        backup,
-    );
     let mut table = parse_toml_table_bytes(&config_path, config_original.as_deref())?;
     restore_codex_toml_values(&mut table, backup)?;
     apply_projection_mutations(&[
-        NativeFileMutation {
-            path: auth_path,
-            expected: auth_original,
-            replacement: Some(
-                serde_json::to_vec_pretty(&auth)
-                    .map_err(|error| format!("序列化 Codex auth.json 失败：{error}"))?,
-            ),
-            sensitive: true,
-        },
         NativeFileMutation {
             path: config_path,
             expected: config_original,
@@ -499,17 +480,6 @@ pub(super) async fn apply_codex(
     provider: &StoredProvider,
 ) -> Result<(), crate::host::native::NativeError> {
     let filesystem = TokioNativeFileSystem;
-    let auth_path = codex_home.join("auth.json");
-    let auth_original = filesystem.read(&auth_path).await?;
-    let mut auth = parse_json_object_bytes(&auth_path, auth_original.as_deref())?;
-    {
-        let auth_object = auth.as_object_mut().expect("object");
-        auth_object.remove("auth_mode");
-        auth_object.insert(
-            "OPENAI_API_KEY".to_string(),
-            Value::String(provider.api_key.clone()),
-        );
-    }
     let config_path = codex_home.join("config.toml");
     let config_original = filesystem.read(&config_path).await?;
     let mut table = parse_toml_table_bytes(&config_path, config_original.as_deref())?;
@@ -550,8 +520,18 @@ pub(super) async fn apply_codex(
     );
     provider_table.insert(
         "requires_openai_auth".to_string(),
-        toml::Value::Boolean(true),
+        toml::Value::Boolean(false),
     );
+    provider_table.remove("api_key");
+    let bearer = provider.api_key.trim();
+    if bearer.is_empty() {
+        provider_table.remove("experimental_bearer_token");
+    } else {
+        provider_table.insert(
+            "experimental_bearer_token".to_string(),
+            toml::Value::String(bearer.to_string()),
+        );
+    }
 
     let structured = serde_json::from_str::<CodexModelCatalogConfigRequest>(&provider.model).ok();
     let default_model = structured
@@ -592,25 +572,15 @@ pub(super) async fn apply_codex(
     {
         table.remove("model_catalog_json");
     }
-    let auth_bytes = serde_json::to_vec_pretty(&auth)
-        .map_err(|error| format!("序列化 Codex auth.json 失败：{error}"))?;
     let config_bytes = toml::to_string_pretty(&table)
         .map(String::into_bytes)
         .map_err(|error| format!("序列化 Codex config.toml 失败：{error}"))?;
-    let mut mutations = vec![
-        NativeFileMutation {
-            path: auth_path,
-            expected: auth_original,
-            replacement: Some(auth_bytes),
-            sensitive: true,
-        },
-        NativeFileMutation {
-            path: config_path,
-            expected: config_original,
-            replacement: Some(config_bytes),
-            sensitive: false,
-        },
-    ];
+    let mut mutations = vec![NativeFileMutation {
+        path: config_path,
+        expected: config_original,
+        replacement: Some(config_bytes),
+        sensitive: false,
+    }];
     if !catalog_models.is_empty() {
         let catalog_bytes = serde_json::to_vec_pretty(catalog_document.as_ref().expect("catalog"))
             .map_err(|error| format!("序列化 Codex 模型目录失败：{error}"))?;

@@ -389,6 +389,20 @@ export async function discoverClaudeModels({
     }
   }
 
+  const aliasTargets = {
+    default: readString(configuredModel) ?? readString(effectiveEnv.ANTHROPIC_MODEL),
+    sonnet: readString(effectiveEnv.ANTHROPIC_DEFAULT_SONNET_MODEL),
+    opus: readString(effectiveEnv.ANTHROPIC_DEFAULT_OPUS_MODEL),
+    haiku: readString(effectiveEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL),
+    fable: readString(effectiveEnv.ANTHROPIC_DEFAULT_FABLE_MODEL),
+  };
+  for (const item of aliases) {
+    const mappedTarget = aliasTargets[item.value.toLowerCase()];
+    if (mappedTarget) {
+      item.displayName = formatClaudeModelDisplayName(mappedTarget);
+    }
+  }
+
   const combined = [...concrete, ...aliases];
   const preferredDefault = readString(configuredModel) ?? readString(effectiveEnv.ANTHROPIC_MODEL);
   if (preferredDefault) {

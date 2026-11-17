@@ -22,15 +22,18 @@ const CLAUDE_DEFAULT_MODEL = 'sonnet';
 const CODEX_DEFAULT_MODEL = 'gpt-5.3-codex';
 
 const CLAUDE_MODEL_LABELS: Record<string, string> = {
+  default: 'Default',
   sonnet: 'Sonnet',
   opus: 'Opus',
   haiku: 'Haiku',
+  fable: 'Fable',
 };
 
 const CLAUDE_MODEL_ENV_KEYS: Record<string, string> = {
   sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
   haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  fable: 'ANTHROPIC_DEFAULT_FABLE_MODEL',
 };
 
 const CLAUDE_PRIMARY_MODEL_ENV_KEY = 'ANTHROPIC_MODEL';
@@ -410,7 +413,7 @@ function resolveClaudeModelFromEnv(
   const aliasModel = aliasEnvKey ? claudeEnv?.[aliasEnvKey]?.trim() : null;
   if (aliasModel) return aliasModel;
 
-  if (modelKey === CLAUDE_DEFAULT_MODEL) {
+  if (modelKey === 'default' || modelKey === CLAUDE_DEFAULT_MODEL) {
     const primaryModel = claudeEnv?.[CLAUDE_PRIMARY_MODEL_ENV_KEY]?.trim();
     if (primaryModel) return primaryModel;
   }

@@ -592,10 +592,12 @@ pub(super) async fn apply_grok(
             toml::Value::String(provider.api_url.clone()),
         );
         entry.insert("name".to_string(), toml::Value::String(model.name.clone()));
-        entry.insert(
-            "api_key".to_string(),
-            toml::Value::String(provider.api_key.clone()),
-        );
+        if !provider.api_key.trim().is_empty() {
+            entry.insert(
+                "api_key".to_string(),
+                toml::Value::String(provider.api_key.trim().to_string()),
+            );
+        }
         entry.insert(
             "api_backend".to_string(),
             toml::Value::String(spec.api_backend.clone()),

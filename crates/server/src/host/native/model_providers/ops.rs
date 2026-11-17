@@ -91,10 +91,8 @@ pub async fn resolve_probe_api_key_from(
         }
     }
 
-    if provider_id.is_none() {
-        return Err("读取 Provider 模型需要填写 API Key".into());
-    }
-    Err("找不到可用于模型探测的 Provider 凭据".into())
+    let _ = provider_id;
+    Ok(String::new())
 }
 
 fn resolve_environment_api_key(
@@ -325,8 +323,48 @@ async fn resolve_native_fallback_api_key(
             .flatten()
             .map(|draft| draft.api_key)
             .filter(|value| !value.is_empty()),
+        "opencode" | "mimo_code" => {
+            let (auth_path, config_path) =
+                opencode_family_document_paths(home, environment, agent_id);
+            let auth = read_json_object_or_empty(&auth_path)
+                .await
+                .unwrap_or_default();
+            let config = read_json_object_or_empty(&config_path)
+                .await
+                .unwrap_or_default();
+            if let Some(id) = provider_id {
+                crate::host::native::opencode_providers::opencode_provider_endpoint_and_key(
+                    &auth, &config, id,
+                )
+                .1
+            } else {
+                None
+            }
+        }
         _ => None,
     }
+}
+
+fn opencode_family_document_paths(
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: &AgentId,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    if agent_id.as_str() == "mimo_code" {
+        return agents::metadata::mimo_document_paths(home, environment);
+    }
+    let (auth_path, primary_config) =
+        crate::host::native::opencode_document_paths(home, environment);
+    if primary_config.is_file() {
+        return (auth_path, primary_config);
+    }
+    if let Some(dir) = primary_config.parent() {
+        let legacy = dir.join("config.json");
+        if legacy.is_file() {
+            return (auth_path, legacy);
+        }
+    }
+    (auth_path, primary_config)
 }
 
 async fn native_api_key(
@@ -352,6 +390,7 @@ async fn native_api_key(
     Ok(resolve_native_fallback_api_key(home, environment, agent_id, Some(provider_id)).await)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn provider_is_in_use(
     store: &ProviderStore,
     agent_id: &AgentId,
@@ -359,6 +398,8 @@ pub(super) fn provider_is_in_use(
     native_codex: Option<&NativeCodexState>,
     native_pi: Option<&NativePiState>,
     native_grok: Option<&NativeGrokState>,
+    native_openclaw: Option<&super::openclaw::NativeOpenClawState>,
+    native_omp: Option<&agents::omp_providers::OmpNativeState>,
 ) -> bool {
     if store.bindings.values().any(|value| value == provider_id) {
         return true;
@@ -384,8 +425,17 @@ pub(super) fn provider_is_in_use(
     {
         return true;
     }
-    if let Some(native) = native_pi
-        && native_active_matches_provider(
+    if let Some(native) = native_pi {
+        let slug = pi_native_id(provider);
+        if native.providers.iter().any(|item| {
+            !item.api_url.is_empty()
+                && (item.id == provider.id
+                    || item.id == slug
+                    || item.api_url == provider.api_url)
+        }) {
+            return true;
+        }
+        if native_active_matches_provider(
             native.active_provider.as_deref(),
             native
                 .providers
@@ -393,7 +443,26 @@ pub(super) fn provider_is_in_use(
                 .map(|item| (item.id.as_str(), item.api_url.as_str())),
             None,
             provider,
-        )
+        ) {
+            return true;
+        }
+    }
+    if let Some(native) = native_openclaw {
+        let slug = super::openclaw::openclaw_slug(&provider.name, &provider.id);
+        if native.providers.iter().any(|item| {
+            item.source_id == provider.id
+                || item.source_id == slug
+                || (!item.api_url.is_empty() && item.api_url == provider.api_url)
+        }) {
+            return true;
+        }
+    }
+    if let Some(native) = native_omp
+        && native.drafts.iter().any(|item| {
+            item.enabled
+                && (item.id == provider.id
+                    || (!item.api_url.is_empty() && item.api_url == provider.api_url))
+        })
     {
         return true;
     }
@@ -464,6 +533,7 @@ pub async fn preview_import(
             agent_id: agent_id.clone(),
             providers: Vec::new(),
             bound_provider_id: None,
+            multi_enable: false,
         }
     };
     let names: Vec<String> = existing
@@ -626,9 +696,7 @@ pub async fn resolve_probe_target(
                 .map(|draft| draft.api_key)
                 .filter(|value| !value.is_empty())
                 .or_else(|| (!provider.api_key.is_empty()).then(|| provider.api_key.clone()))
-                .ok_or_else(|| {
-                    crate::host::native::NativeError::from("找不到可用于测试的 Provider 凭据")
-                })?;
+                .unwrap_or_default();
             return Ok((provider.api_url.clone(), key));
         }
         if agent_id.as_str() == "deepseek_harness" {
@@ -637,6 +705,35 @@ pub async fn resolve_probe_target(
                 &paths,
                 Some(provider_id),
             );
+            let key = resolve_probe_api_key_from(
+                store_path,
+                agent_id,
+                Some(provider_id),
+                api_key,
+                Some(home),
+                Some(environment),
+            )
+            .await?;
+            return Ok((url, key));
+        }
+        if matches!(agent_id.as_str(), "opencode" | "mimo_code") {
+            let (auth_path, config_path) =
+                opencode_family_document_paths(home, environment, agent_id);
+            let auth = read_json_object_or_empty(&auth_path)
+                .await
+                .unwrap_or_default();
+            let config = read_json_object_or_empty(&config_path)
+                .await
+                .unwrap_or_default();
+            let (stored_url, _) =
+                crate::host::native::opencode_providers::opencode_provider_endpoint_and_key(
+                    &auth,
+                    &config,
+                    provider_id,
+                );
+            let Some(url) = stored_url else {
+                return Err("Provider 没有可测试的 API URL".into());
+            };
             let key = resolve_probe_api_key_from(
                 store_path,
                 agent_id,
@@ -873,7 +970,6 @@ pub(super) async fn capture_projection(
             .await?;
         }
         "codex" => {
-            capture_json_root(&homes.codex.join("auth.json"), CODEX_AUTH_KEYS, &mut backup).await?;
             capture_codex_toml(&homes.codex.join("config.toml"), &mut backup).await?;
             capture_files(
                 &homes.codex,
@@ -883,13 +979,11 @@ pub(super) async fn capture_projection(
             .await?;
         }
         id if is_antigravity(agent_id) => {
-            let settings = if id == "gemini" {
-                homes.gemini.join("settings.json")
+            if id == "gemini" {
+                capture_gemini_state(&homes.gemini, &mut backup).await?;
             } else {
-                antigravity_settings_path(&homes.gemini)
-            };
-            capture_json_env(&settings, GEMINI_ENV_KEYS, &mut backup).await?;
-            if id != "gemini" {
+                let settings = antigravity_settings_path(&homes.gemini);
+                capture_json_env(&settings, GEMINI_ENV_KEYS, &mut backup).await?;
                 capture_antigravity_auth_type(&settings, &mut backup).await?;
             }
         }
@@ -940,12 +1034,20 @@ pub(super) fn empty_projection_backup(agent_id: &AgentId) -> ProviderProjectionB
     let mut backup = ProviderProjectionBackup::default();
     let json_keys: &[&str] = match agent_id.as_str() {
         "claude_code" => CLAUDE_ENV_KEYS,
-        "codex" => CODEX_AUTH_KEYS,
         _ if is_antigravity(agent_id) => GEMINI_ENV_KEYS,
         _ => &[],
     };
     for key in json_keys {
         backup.json_values.insert((*key).to_string(), None);
+    }
+    if agent_id.as_str() == "gemini" {
+        backup
+            .json_values
+            .insert(GEMINI_SECURITY_AUTH_TYPE_KEY.to_string(), None);
+        backup
+            .json_values
+            .insert(GEMINI_MODEL_NAME_KEY.to_string(), None);
+        backup.file_values.insert(GEMINI_ENV_FILE.to_string(), None);
     }
     if agent_id.as_str() == "codex" {
         for key in CODEX_CONFIG_KEYS {
@@ -1001,15 +1103,11 @@ pub(super) async fn restore_projection(
         }
         "codex" => restore_codex_projection(&homes.codex, backup).await,
         id if is_antigravity(agent_id) => {
-            let settings = if id == "gemini" {
-                homes.gemini.join("settings.json")
-            } else {
-                antigravity_settings_path(&homes.gemini)
-            };
-            restore_json_env(&settings, GEMINI_ENV_KEYS, backup, true).await?;
             if id == "gemini" {
-                Ok(())
+                restore_gemini_state(&homes.gemini, backup).await
             } else {
+                let settings = antigravity_settings_path(&homes.gemini);
+                restore_json_env(&settings, GEMINI_ENV_KEYS, backup, true).await?;
                 restore_antigravity_auth_type(&settings, backup).await
             }
         }
@@ -1173,5 +1271,72 @@ mod tests {
         .expect("dsh probe target");
         assert_eq!(dsh_url, "https://api.deepseek.com");
         assert_eq!(dsh_key, "sk-dsh-saved");
+    }
+
+    #[tokio::test]
+    async fn resolve_probe_target_reads_opencode_and_mimo_code_endpoints_and_keys() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path();
+        let store_path = home.join("agent-model-providers.json");
+
+        let oc_auth_dir = home.join(".local/share/opencode");
+        let oc_cfg_dir = home.join(".config/opencode");
+        std::fs::create_dir_all(&oc_auth_dir).unwrap();
+        std::fs::create_dir_all(&oc_cfg_dir).unwrap();
+        std::fs::write(
+            oc_auth_dir.join("auth.json"),
+            r#"{"my-oc":{"type":"api","key":"sk-oc-saved"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            oc_cfg_dir.join("opencode.json"),
+            r#"{"provider":{"my-oc":{"name":"My OC","options":{"baseURL":"https://oc.example/v1"}}}}"#,
+        )
+        .unwrap();
+
+        let oc_id = AgentId::parse("opencode").unwrap();
+        let (oc_url, oc_key) = resolve_probe_target(
+            &store_path,
+            home,
+            &HashMap::new(),
+            &oc_id,
+            Some("my-oc"),
+            None,
+            None,
+        )
+        .await
+        .expect("opencode probe target");
+        assert_eq!(oc_url, "https://oc.example/v1");
+        assert_eq!(oc_key, "sk-oc-saved");
+
+        let mimo_auth_dir = home.join(".local/share/mimocode");
+        let mimo_cfg_dir = home.join(".config/mimocode");
+        std::fs::create_dir_all(&mimo_auth_dir).unwrap();
+        std::fs::create_dir_all(&mimo_cfg_dir).unwrap();
+        std::fs::write(
+            mimo_auth_dir.join("auth.json"),
+            r#"{"mimo-gw":{"type":"api","key":"sk-mimo-saved"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            mimo_cfg_dir.join("mimocode.json"),
+            r#"{"provider":{"mimo-gw":{"name":"MiMo GW","options":{"baseURL":"http://192.168.1.77:8080/v1"}}}}"#,
+        )
+        .unwrap();
+
+        let mimo_id = AgentId::parse("mimo_code").unwrap();
+        let (mimo_url, mimo_key) = resolve_probe_target(
+            &store_path,
+            home,
+            &HashMap::new(),
+            &mimo_id,
+            Some("mimo-gw"),
+            None,
+            None,
+        )
+        .await
+        .expect("mimo probe target");
+        assert_eq!(mimo_url, "http://192.168.1.77:8080/v1");
+        assert_eq!(mimo_key, "sk-mimo-saved");
     }
 }

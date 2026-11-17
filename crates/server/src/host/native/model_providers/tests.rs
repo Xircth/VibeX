@@ -342,11 +342,29 @@ async fn standard_codex_preset_bind_replaces_provider_fields_without_touching_ex
             .unwrap(),
         r#"{"models":[{"slug":"gateway/model","display_name":"Gateway Model","visibility":"list"}]}"#
     );
-    assert!(!codex_home.join(CODEX_SOURCE_FILE).exists());
+    let dimo_table = config
+        .get("model_providers")
+        .and_then(toml::Value::as_table)
+        .and_then(|providers| providers.get("dimo"))
+        .and_then(toml::Value::as_table)
+        .expect("dimo provider table");
+    assert_eq!(
+        dimo_table
+            .get("experimental_bearer_token")
+            .and_then(toml::Value::as_str),
+        Some("new-secret")
+    );
+    assert_eq!(
+        dimo_table
+            .get("requires_openai_auth")
+            .and_then(toml::Value::as_bool),
+        Some(false)
+    );
+    assert!(dimo_table.get("api_key").is_none());
     let auth: Value =
         serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
             .unwrap();
-    assert_eq!(auth["OPENAI_API_KEY"], "new-secret");
+    assert_eq!(auth["OPENAI_API_KEY"], "sk-native");
     assert_eq!(auth["keep"], true);
 }
 
@@ -514,10 +532,14 @@ async fn gemini_provider_binding_scrubs_conflicting_auth_and_restores_it_on_unbi
     .await
     .unwrap();
     let agent_id = AgentId::parse("gemini").unwrap();
+    let env = HashMap::from([(
+        "GEMINI_HOME".to_string(),
+        home.join(".gemini").to_string_lossy().into_owned(),
+    )]);
     let created = save(
         &store_path,
         &home,
-        &HashMap::new(),
+        &env,
         AgentModelProviderSaveRequest {
             id: None,
             name: "Gateway".to_string(),
@@ -532,7 +554,7 @@ async fn gemini_provider_binding_scrubs_conflicting_auth_and_restores_it_on_unbi
     bind(
         &store_path,
         &home,
-        &HashMap::new(),
+        &env,
         agent_id.clone(),
         Some(created.providers[0].id.clone()),
     )
@@ -540,19 +562,29 @@ async fn gemini_provider_binding_scrubs_conflicting_auth_and_restores_it_on_unbi
     .unwrap();
     let bound: Value =
         serde_json::from_slice(&tokio::fs::read(&settings_path).await.unwrap()).unwrap();
-    assert_eq!(bound["env"]["GEMINI_API_KEY"], "provider-secret");
+    assert_eq!(bound["security"]["auth"]["selectedType"], "gemini-api-key");
+    assert_eq!(bound["model"]["name"], "gemini-provider-model");
     assert_eq!(bound["env"]["KEEP"], "yes");
     assert!(bound["env"].get("GOOGLE_API_KEY").is_none());
     assert!(bound["env"].get("GOOGLE_CLOUD_PROJECT").is_none());
-
-    bind(&store_path, &home, &HashMap::new(), agent_id, None)
+    let env_text = tokio::fs::read_to_string(home.join(".gemini/.env"))
         .await
         .unwrap();
+    assert!(env_text.contains("GOOGLE_GEMINI_BASE_URL=https://gemini.example/v1"));
+    assert!(env_text.contains("GEMINI_API_KEY=provider-secret"));
+    assert!(env_text.contains("GEMINI_MODEL=gemini-provider-model"));
+
+    bind(&store_path, &home, &env, agent_id, None)
+        .await
+        .unwrap();
+    assert!(!home.join(".gemini/.env").exists());
     let restored: Value =
         serde_json::from_slice(&tokio::fs::read(&settings_path).await.unwrap()).unwrap();
     assert_eq!(restored["env"]["GOOGLE_API_KEY"], "vertex-old");
     assert_eq!(restored["env"]["GOOGLE_CLOUD_PROJECT"], "project-old");
     assert_eq!(restored["env"]["KEEP"], "yes");
+    assert!(restored.get("security").is_none());
+    assert!(restored.get("model").is_none());
 }
 
 #[tokio::test]
@@ -571,10 +603,14 @@ async fn antigravity_provider_binding_writes_acp_settings_auth_type() {
     .await
     .unwrap();
     let agent_id = AgentId::parse("antigravity").unwrap();
+    let env = HashMap::from([(
+        "GEMINI_HOME".to_string(),
+        home.join(".gemini").to_string_lossy().into_owned(),
+    )]);
     let created = save(
         &store_path,
         &home,
-        &HashMap::new(),
+        &env,
         AgentModelProviderSaveRequest {
             id: None,
             name: "Gateway".to_string(),
@@ -589,7 +625,7 @@ async fn antigravity_provider_binding_writes_acp_settings_auth_type() {
     bind(
         &store_path,
         &home,
-        &HashMap::new(),
+        &env,
         agent_id.clone(),
         Some(created.providers[0].id.clone()),
     )
@@ -607,7 +643,7 @@ async fn antigravity_provider_binding_writes_acp_settings_auth_type() {
     assert_eq!(bound["env"]["GEMINI_MODEL"], "gemini-3");
     assert!(bound["env"].get("GOOGLE_API_KEY").is_none());
 
-    bind(&store_path, &home, &HashMap::new(), agent_id, None)
+    bind(&store_path, &home, &env, agent_id, None)
         .await
         .unwrap();
     let restored: Value =
@@ -729,11 +765,21 @@ async fn structured_codex_preset_model_binds_without_official_catalog() {
     let auth: Value =
         serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
             .unwrap();
-    assert_eq!(auth["OPENAI_API_KEY"], "new-secret");
+    assert_eq!(auth["OPENAI_API_KEY"], "original-secret");
     assert_eq!(auth["keep"], true);
     let config = read_toml_table(&codex_home.join("config.toml"))
         .await
         .unwrap();
+    assert_eq!(
+        config
+            .get("model_providers")
+            .and_then(toml::Value::as_table)
+            .and_then(|providers| providers.get("dimo"))
+            .and_then(toml::Value::as_table)
+            .and_then(|dimo| dimo.get("experimental_bearer_token"))
+            .and_then(toml::Value::as_str),
+        Some("new-secret")
+    );
     assert_eq!(
         config.get("model").and_then(toml::Value::as_str),
         Some("gateway-a")
@@ -966,27 +1012,30 @@ async fn codex_provider_respects_the_saved_custom_home() {
     .await
     .unwrap();
 
-    let auth: Value = serde_json::from_slice(
-        &tokio::fs::read(custom_home.join("auth.json"))
-            .await
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(auth["OPENAI_API_KEY"], "custom-home-secret");
-    assert!(auth.get("auth_mode").is_none());
-    assert!(custom_home.join("config.toml").is_file());
-    assert!(!home.join(".codex/auth.json").exists());
+    let bound_config = read_toml_table(&custom_home.join("config.toml"))
+        .await
+        .unwrap();
+    assert_eq!(
+        bound_config
+            .get("model_providers")
+            .and_then(toml::Value::as_table)
+            .and_then(|providers| providers.get("dimo"))
+            .and_then(toml::Value::as_table)
+            .and_then(|dimo| dimo.get("experimental_bearer_token"))
+            .and_then(toml::Value::as_str),
+        Some("custom-home-secret")
+    );
+    assert!(!custom_home.join("auth.json").exists());
+    assert!(!home.join(".codex/config.toml").exists());
 
     bind(&store_path, &home, &environment, agent_id, None)
         .await
         .unwrap();
-    let restored: Value = serde_json::from_slice(
-        &tokio::fs::read(custom_home.join("auth.json"))
-            .await
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(restored.get("OPENAI_API_KEY").is_none());
+    let restored_config = read_toml_table(&custom_home.join("config.toml"))
+        .await
+        .unwrap();
+    assert!(restored_config.get("model_provider").is_none());
+    assert!(restored_config.get("model_providers").is_none());
 }
 
 #[tokio::test]
@@ -2818,5 +2867,241 @@ async fn switching_codex_from_structured_catalog_to_plain_model_cleans_dimo_cata
     assert_eq!(
         config_after.get("model").and_then(toml::Value::as_str),
         Some("gpt-custom")
+    );
+}
+
+#[tokio::test]
+async fn keyless_provider_saves_and_codex_preserves_chatgpt_oauth_auth_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let codex_home = home.join(".codex");
+    let store_path = temp.path().join("data/providers.json");
+    tokio::fs::create_dir_all(&codex_home).await.unwrap();
+    tokio::fs::write(
+        codex_home.join("auth.json"),
+        br#"{"auth_mode":"chatgpt","tokens":{"access_token":"oauth-token"}}"#,
+    )
+    .await
+    .unwrap();
+    let agent_id = AgentId::parse("codex").unwrap();
+    let environment = HashMap::new();
+
+    let created = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "Local Ollama".to_string(),
+            agent_id: agent_id.clone(),
+            api_url: "http://192.168.1.50:11434/v1".to_string(),
+            api_key: Some(String::new()),
+            model: "qwen3:32b".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let id = created.providers[0].id.clone();
+    assert!(!created.providers[0].credential_present);
+
+    bind(&store_path, &home, &environment, agent_id.clone(), Some(id))
+        .await
+        .unwrap();
+
+    let config = read_toml_table(&codex_home.join("config.toml"))
+        .await
+        .unwrap();
+    let dimo = config["model_providers"]["dimo"].as_table().unwrap();
+    assert_eq!(
+        dimo.get("requires_openai_auth").and_then(toml::Value::as_bool),
+        Some(false)
+    );
+    assert!(dimo.get("experimental_bearer_token").is_none());
+    let auth: Value =
+        serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
+            .unwrap();
+    assert_eq!(auth["auth_mode"], "chatgpt");
+    assert_eq!(auth["tokens"]["access_token"], "oauth-token");
+
+    bind(&store_path, &home, &environment, agent_id, None)
+        .await
+        .unwrap();
+    let auth_after: Value =
+        serde_json::from_slice(&tokio::fs::read(codex_home.join("auth.json")).await.unwrap())
+            .unwrap();
+    assert_eq!(auth_after["auth_mode"], "chatgpt");
+}
+
+#[tokio::test]
+async fn multi_enable_agents_allow_enabling_and_disabling_multiple_providers() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let store_path = temp.path().join("data/providers.json");
+    let environment = HashMap::new();
+
+    // 1. OMP multi-enable + disable
+    let omp = AgentId::parse("omp").unwrap();
+    let omp_a = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "OMP A".to_string(),
+            agent_id: omp.clone(),
+            api_url: "http://192.168.1.10:11434/v1".to_string(),
+            api_key: Some(String::new()),
+            model: "qwen3".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let omp_a_id = omp_a.providers.iter().find(|p| p.name == "OMP A").unwrap().id.clone();
+    let omp_b = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "OMP B".to_string(),
+            agent_id: omp.clone(),
+            api_url: "https://omp-b.example/v1".to_string(),
+            api_key: Some("sk-b".to_string()),
+            model: "gpt-4o".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let omp_b_id = omp_b.providers.iter().find(|p| p.name == "OMP B").unwrap().id.clone();
+    assert!(omp_b.multi_enable);
+
+    bind_with_mode(&store_path, &home, &environment, omp.clone(), Some(omp_a_id.clone()), Some(true))
+        .await
+        .unwrap();
+    let both = bind_with_mode(&store_path, &home, &environment, omp.clone(), Some(omp_b_id.clone()), Some(true))
+        .await
+        .unwrap();
+    assert_eq!(both.providers.iter().filter(|p| p.bound).count(), 2);
+
+    let after_disable = bind_with_mode(&store_path, &home, &environment, omp.clone(), Some(omp_b_id.clone()), Some(false))
+        .await
+        .unwrap();
+    assert!(after_disable.providers.iter().find(|p| p.id == omp_a_id).unwrap().bound);
+    assert!(!after_disable.providers.iter().find(|p| p.id == omp_b_id).unwrap().bound);
+
+    // 2. OpenClaw multi-enable + disable
+    let openclaw = AgentId::parse("openclaw").unwrap();
+    let oc_a = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "OpenClaw A".to_string(),
+            agent_id: openclaw.clone(),
+            api_url: "http://127.0.0.1:8080/v1".to_string(),
+            api_key: Some(String::new()),
+            model: "model-a".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let oc_a_id = oc_a.providers.iter().find(|p| p.name == "OpenClaw A").unwrap().id.clone();
+    let oc_b = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "OpenClaw B".to_string(),
+            agent_id: openclaw.clone(),
+            api_url: "https://oc-b.example/v1".to_string(),
+            api_key: Some("sk-oc-b".to_string()),
+            model: "model-b".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let oc_b_id = oc_b.providers.iter().find(|p| p.name == "OpenClaw B").unwrap().id.clone();
+    assert!(oc_b.multi_enable);
+
+    bind_with_mode(&store_path, &home, &environment, openclaw.clone(), Some(oc_a_id.clone()), Some(true))
+        .await
+        .unwrap();
+    let oc_both = bind_with_mode(&store_path, &home, &environment, openclaw.clone(), Some(oc_b_id.clone()), Some(true))
+        .await
+        .unwrap();
+    assert_eq!(oc_both.providers.iter().filter(|p| p.bound).count(), 2);
+
+    let oc_after_disable = bind_with_mode(&store_path, &home, &environment, openclaw, Some(oc_a_id.clone()), Some(false))
+        .await
+        .unwrap();
+    assert!(!oc_after_disable.providers.iter().find(|p| p.id == oc_a_id).unwrap().bound);
+    assert!(oc_after_disable.providers.iter().find(|p| p.id == oc_b_id).unwrap().bound);
+}
+
+#[tokio::test]
+async fn keyless_lan_providers_omit_empty_api_key_in_native_configs() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let store_path = temp.path().join("data/providers.json");
+    let environment = HashMap::new();
+
+    for agent_name in ["command_code", "trae", "codebuddy", "grok"] {
+        let agent_id = AgentId::parse(agent_name).unwrap();
+        let saved = save(
+            &store_path,
+            &home,
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: format!("LAN {agent_name}"),
+                agent_id: agent_id.clone(),
+                api_url: "http://192.168.1.50:11434/v1".to_string(),
+                api_key: Some(String::new()),
+                model: "qwen3:32b".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let id = saved.providers.last().unwrap().id.clone();
+        bind(&store_path, &home, &environment, agent_id, Some(id))
+            .await
+            .unwrap();
+    }
+
+    let cc: Value = serde_json::from_slice(
+        &tokio::fs::read(home.join(".commandcode/providers.json"))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(cc["providers"]["dimo"].get("apiKey").is_none());
+
+    let trae = read_toml_table(&home.join(".trae/traecli.toml"))
+        .await
+        .unwrap();
+    assert!(
+        trae["model_providers"]["dimo"]
+            .as_table()
+            .unwrap()
+            .get("api_key")
+            .is_none()
+    );
+
+    let codebuddy_env = tokio::fs::read_to_string(home.join(".codebuddy/.env"))
+        .await
+        .unwrap();
+    assert!(!codebuddy_env.contains("CODEBUDDY_API_KEY="));
+
+    let grok = read_toml_table(&home.join(".grok/config.toml"))
+        .await
+        .unwrap();
+    assert!(
+        grok["model"]["dimo"]
+            .as_table()
+            .unwrap()
+            .get("api_key")
+            .is_none()
     );
 }

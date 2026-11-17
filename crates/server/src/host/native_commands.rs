@@ -400,6 +400,8 @@ pub async fn dispatch_model_provider_bind(
         agent_id: AgentId,
         #[serde(alias = "provider_id")]
         provider_id: Option<String>,
+        #[serde(default)]
+        enabled: Option<bool>,
     }
     let instance_id = extract_provider_instance_id(&args);
     let args: BindArgs = parse_request(args)?;
@@ -415,14 +417,21 @@ pub async fn dispatch_model_provider_bind(
             .await
             .map_err(bad)?
             .bound_provider_id;
-    let view = model_providers::bind(&store_path, &home, &env, args.agent_id.clone(), provider_id)
-        .await
-        .map_err(bad)?;
+    let view = model_providers::bind_with_mode(
+        &store_path,
+        &home,
+        &env,
+        args.agent_id.clone(),
+        provider_id,
+        args.enabled,
+    )
+    .await
+    .map_err(bad)?;
     if let Err(error) = sync_model_provider_auth_overlay_scoped(
         pool,
         &scope,
         &args.agent_id,
-        view.bound_provider_id.is_some(),
+        view.bound_provider_id.is_some() || view.providers.iter().any(|provider| provider.bound),
     )
     .await
     {

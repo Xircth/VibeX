@@ -71,8 +71,13 @@ pub(super) fn resolve_native_home(
         .unwrap_or_else(|| home.join(fallback))
 }
 
+pub(super) fn supports_multi_enable(agent_id: &AgentId) -> bool {
+    matches!(agent_id.as_str(), "omp" | "openclaw" | "pi")
+}
+
 pub(super) fn project(store: &ProviderStore, agent_id: AgentId) -> AgentModelProvidersView {
     let bound_provider_id = store.bindings.get(agent_id.as_str()).cloned();
+    let multi_enable = supports_multi_enable(&agent_id);
     let mut providers = store
         .providers
         .iter()
@@ -94,6 +99,7 @@ pub(super) fn project(store: &ProviderStore, agent_id: AgentId) -> AgentModelPro
         agent_id,
         providers,
         bound_provider_id,
+        multi_enable,
     }
 }
 
@@ -404,20 +410,6 @@ pub(super) async fn capture_json_env(
             (*key).to_string(),
             env.and_then(|values| values.get(*key)).cloned(),
         );
-    }
-    Ok(())
-}
-
-pub(super) async fn capture_json_root(
-    path: &Path,
-    keys: &[&str],
-    backup: &mut ProviderProjectionBackup,
-) -> Result<(), crate::host::native::NativeError> {
-    let document = read_json_object_or_empty(path).await?;
-    for key in keys {
-        backup
-            .json_values
-            .insert((*key).to_string(), document.get(*key).cloned());
     }
     Ok(())
 }

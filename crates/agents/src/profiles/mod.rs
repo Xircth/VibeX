@@ -670,6 +670,19 @@ impl BuiltInProfileCatalog {
         })
     }
 
+    /// Agents whose provider settings support live `/models` probing (both
+    /// reusable provider stores and OpenCode-style provider catalogs).
+    pub fn supports_provider_model_detection(&self, agent_id: &AgentId) -> bool {
+        self.profile(agent_id).is_some_and(|profile| {
+            profile
+                .settings_features
+                .contains(&AgentSettingsFeature::ReusableModelProviders)
+                || profile
+                    .settings_features
+                    .contains(&AgentSettingsFeature::OpenCodeProviders)
+        })
+    }
+
     /// Resolve only an explicit stable Registry id binding. Display names are
     /// intentionally ignored: they are mutable metadata and may collide.
     pub fn resolve_registry_entry(&self, entry: &RegistryEntryIdentity) -> Option<&AgentId> {

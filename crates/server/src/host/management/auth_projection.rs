@@ -67,6 +67,7 @@ pub(super) async fn project_auth_mode_view_at(
                     agent_id: agent_id.clone(),
                     providers: Vec::new(),
                     bound_provider_id: None,
+                    multi_enable: false,
                 }
             }
             Err(error) => return Err(ApplicationError::internal(error.to_string())),
@@ -78,8 +79,8 @@ pub(super) async fn project_auth_mode_view_at(
     if agent_id.as_str() == "deepseek_harness" {
         return read_dsh_auth_mode(home, env).await;
     }
-    if agent_id.as_str() == "opencode" {
-        return read_opencode_auth_mode(home, env, bound, &providers).await;
+    if matches!(agent_id.as_str(), "opencode" | "mimo_code") {
+        return read_opencode_auth_mode(home, env, agent_id, bound, &providers).await;
     }
     let policy = built_in_auth_mode_policy(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
@@ -270,13 +271,17 @@ async fn read_dsh_auth_mode(
 async fn read_opencode_auth_mode(
     home: &Path,
     env: &HashMap<String, String>,
+    agent_id: AgentId,
     bound: bool,
     providers: &api_types::AgentModelProvidersView,
 ) -> Result<AgentAuthModeView, ApplicationError> {
-    let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
     let policy = built_in_auth_mode_policy(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
-    let (auth_path, config_path) = opencode_document_paths(home, env);
+    let (auth_path, config_path) = if agent_id.as_str() == "mimo_code" {
+        agents::metadata::mimo_document_paths(home, env)
+    } else {
+        opencode_document_paths(home, env)
+    };
     let auth = read_json_object_or_empty(&auth_path)
         .await
         .unwrap_or_else(|_| serde_json::json!({}));
@@ -601,7 +606,9 @@ pub(super) async fn bound_provider_has_credentials(
     let Some(home) = dirs::home_dir() else {
         return false;
     };
-    if agent_id.as_str() == "opencode" && opencode_native_api_provider_ready(&home, env).await {
+    if matches!(agent_id.as_str(), "opencode" | "mimo_code")
+        && opencode_native_api_provider_ready(&home, env, agent_id).await
+    {
         return true;
     }
     let native_home = model_providers::provider_native_home(&home, env, agent_id);
@@ -620,8 +627,16 @@ pub(super) async fn bound_provider_has_credentials(
         .is_some_and(|provider| provider.credential_present)
 }
 
-async fn opencode_native_api_provider_ready(home: &Path, env: &HashMap<String, String>) -> bool {
-    let (auth_path, config_path) = opencode_document_paths(home, env);
+async fn opencode_native_api_provider_ready(
+    home: &Path,
+    env: &HashMap<String, String>,
+    agent_id: &AgentId,
+) -> bool {
+    let (auth_path, config_path) = if agent_id.as_str() == "mimo_code" {
+        agents::metadata::mimo_document_paths(home, env)
+    } else {
+        opencode_document_paths(home, env)
+    };
     let auth = read_json_object_or_empty(&auth_path)
         .await
         .unwrap_or_else(|_| json!({}));
@@ -1085,5 +1100,39 @@ mod tests {
             "unexpected kimi mode {}",
             view.mode
         );
+    }
+
+    #[tokio::test]
+    async fn mimo_code_auth_projection_activates_provider_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let mimo_auth_dir = home.join(".local/share/mimocode");
+        let mimo_cfg_dir = home.join(".config/mimocode");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&mimo_auth_dir).await.unwrap();
+        tokio::fs::create_dir_all(&mimo_cfg_dir).await.unwrap();
+        tokio::fs::write(
+            mimo_auth_dir.join("auth.json"),
+            br#"{"my-gw":{"type":"api","key":"sk-mimo"}}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            mimo_cfg_dir.join("mimocode.json"),
+            br#"{"provider":{"my-gw":{"name":"My GW","options":{"baseURL":"https://mimo.example/v1"}}}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("mimo_code").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(view.credential_present);
     }
 }

@@ -20,15 +20,17 @@ pub(super) async fn apply_command_code(
     );
     let providers = object_entry(root, "providers")?;
     let model = model_default(&provider.model);
-    providers.insert(
-        "dimo".to_string(),
-        serde_json::json!({
-            "name": provider.name,
-            "baseUrl": provider.api_url,
-            "apiKey": provider.api_key,
-            "model": model,
-        }),
-    );
+    let mut entry = serde_json::Map::new();
+    entry.insert("name".to_string(), Value::String(provider.name.clone()));
+    entry.insert("baseUrl".to_string(), Value::String(provider.api_url.clone()));
+    if !provider.api_key.trim().is_empty() {
+        entry.insert(
+            "apiKey".to_string(),
+            Value::String(provider.api_key.trim().to_string()),
+        );
+    }
+    entry.insert("model".to_string(), Value::String(model));
+    providers.insert("dimo".to_string(), Value::Object(entry));
     apply_projection_mutations(&[NativeFileMutation {
         path,
         expected: original,

@@ -25,7 +25,11 @@ pub fn apply_opencode_provider_connection(
         .and_then(|value| value.get(&request.provider_id));
     let credential_present = opencode_auth_entry_has_credential(auth.get(&request.provider_id))
         || opencode_inline_api_key(definition).is_some();
-    if submitted_api_key.is_none() && !credential_present {
+    let has_base_url = request
+        .base_url
+        .as_deref()
+        .is_some_and(|url| !url.trim().is_empty());
+    if submitted_api_key.is_none() && !credential_present && !has_base_url {
         return Err("新 Provider 必须提供 API Key".to_string());
     }
     if let Some(api_key) = submitted_api_key {
@@ -438,6 +442,35 @@ pub fn opencode_enabled_api_provider_ready(auth: &Value, config: &Value) -> bool
                     .and_then(Value::as_str)
                     != Some("oauth")
         })
+}
+
+pub fn opencode_provider_endpoint_and_key(
+    auth: &Value,
+    config: &Value,
+    provider_id: &str,
+) -> (Option<String>, Option<String>) {
+    let definition = config
+        .get("provider")
+        .and_then(|providers| providers.get(provider_id));
+    let base_url = definition
+        .and_then(|def| def.get("options"))
+        .and_then(|options| {
+            ["baseURL", "baseUrl", "base_url"]
+                .into_iter()
+                .find_map(|key| options.get(key).and_then(Value::as_str))
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let auth_key = auth
+        .get(provider_id)
+        .and_then(|entry| entry.get("key"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| opencode_inline_api_key(definition).map(str::to_string));
+    (base_url, auth_key)
 }
 
 #[cfg(test)]

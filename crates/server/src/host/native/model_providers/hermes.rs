@@ -91,10 +91,15 @@ pub(super) async fn apply_hermes(
         serde_yaml::Value::String("base_url".to_string()),
         serde_yaml::Value::String(provider.api_url.clone()),
     );
-    model.insert(
-        serde_yaml::Value::String("api_key".to_string()),
-        serde_yaml::Value::String(provider.api_key.clone()),
-    );
+    let api_key = provider.api_key.trim();
+    if api_key.is_empty() {
+        model.remove(serde_yaml::Value::String("api_key".to_string()));
+    } else {
+        model.insert(
+            serde_yaml::Value::String("api_key".to_string()),
+            serde_yaml::Value::String(api_key.to_string()),
+        );
+    }
     apply_projection_mutations(&[NativeFileMutation {
         path,
         expected: original,

@@ -11,6 +11,7 @@ pub struct OmpProviderDraft {
     pub api_url: String,
     pub api_key: String,
     pub model: String,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,13 +23,14 @@ pub struct OmpNativeState {
 pub async fn read_state(agent_dir: &Path) -> Result<OmpNativeState, String> {
     let models = read_yaml(&agent_dir.join("models.yml")).await?;
     let config = read_yaml(&agent_dir.join("config.yml")).await?;
+    let disabled = disabled_providers(&config);
     let active_provider = config
         .get("modelRoles")
         .and_then(Value::as_mapping)
         .and_then(|roles| roles.get(Value::String("default".to_string())))
         .and_then(Value::as_str)
         .and_then(|role| role.split('/').next())
-        .filter(|id| !id.is_empty())
+        .filter(|id| !id.is_empty() && !disabled.iter().any(|item| item == id))
         .map(str::to_string);
     let Some(providers) = models.get("providers").and_then(Value::as_mapping) else {
         return Ok(OmpNativeState {
@@ -46,12 +48,14 @@ pub async fn read_state(agent_dir: &Path) -> Result<OmpNativeState, String> {
                 return None;
             }
             let model = first_model_id(object);
+            let enabled = !disabled.iter().any(|item| item == &id);
             Some(OmpProviderDraft {
                 name: id.clone(),
                 id,
                 api_url,
                 api_key: text(object, "apiKey"),
                 model,
+                enabled,
             })
         })
         .collect();
@@ -89,15 +93,19 @@ pub async fn apply(
     let node = mapping_entry(providers, &key);
     insert_string(node, "baseUrl", api_url);
     insert_string(node, "api", api);
-    insert_string(node, "auth", "apiKey");
     let secret = api_key.trim();
-    if !secret.is_empty() {
+    if secret.is_empty() {
+        insert_string(node, "auth", "none");
+        node.remove(Value::String("apiKey".to_string()));
+    } else {
+        insert_string(node, "auth", "apiKey");
         insert_string(node, "apiKey", secret);
     }
     node.insert(
         Value::String("models".to_string()),
         model_list(model, &model_id),
     );
+    remove_disabled_provider(&mut config, &[provider_id, &key, &slug(name)]);
     let roles = mapping_entry(&mut config, "modelRoles");
     insert_string(roles, "default", &format!("{key}/{model_id}"));
     filesystem
@@ -107,6 +115,104 @@ pub async fn apply(
         ])
         .await
         .map_err(|error| error.to_string())
+}
+
+pub async fn set_enabled(
+    agent_dir: &Path,
+    provider_id: &str,
+    name: &str,
+    api_url: &str,
+    api_key: &str,
+    model: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    if enabled {
+        return apply(agent_dir, provider_id, name, api_url, api_key, model).await;
+    }
+    let models_path = agent_dir.join("models.yml");
+    let config_path = agent_dir.join("config.yml");
+    let filesystem = TokioNativeFileSystem;
+    let models_original = filesystem
+        .read(&models_path)
+        .await
+        .map_err(|error| error.to_string())?;
+    let config_original = filesystem
+        .read(&config_path)
+        .await
+        .map_err(|error| error.to_string())?;
+    let models = mapping_from(models_original.as_deref(), &models_path)?;
+    let mut config = mapping_from(config_original.as_deref(), &config_path)?;
+    let key = models
+        .get(Value::String("providers".to_string()))
+        .and_then(Value::as_mapping)
+        .map(|providers| provider_key(providers, provider_id, name, api_url))
+        .unwrap_or_else(|| {
+            let s = slug(name);
+            if s.is_empty() {
+                provider_id.to_string()
+            } else {
+                s
+            }
+        });
+    add_disabled_provider(&mut config, &key);
+    let keys = [provider_id.to_string(), slug(name), key];
+    if let Some(roles) = config
+        .get_mut(Value::String("modelRoles".to_string()))
+        .and_then(Value::as_mapping_mut)
+        && let Some(Value::String(role)) = roles.get(Value::String("default".to_string()))
+        && keys.iter().any(|candidate| role.starts_with(&format!("{candidate}/")))
+    {
+        roles.remove(Value::String("default".to_string()));
+    }
+    filesystem
+        .apply_many_atomic(&[yaml_mutation(
+            &config_path,
+            config_original,
+            &config,
+            false,
+        )?])
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn disabled_providers(config: &Value) -> Vec<String> {
+    config
+        .get("disabledProviders")
+        .and_then(Value::as_sequence)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn add_disabled_provider(config: &mut Mapping, key: &str) {
+    let disabled_key = Value::String("disabledProviders".to_string());
+    if !config.get(&disabled_key).is_some_and(Value::is_sequence) {
+        config.insert(disabled_key.clone(), Value::Sequence(Vec::new()));
+    }
+    if let Some(seq) = config.get_mut(&disabled_key).and_then(Value::as_sequence_mut)
+        && !seq.iter().any(|entry| entry.as_str() == Some(key))
+    {
+        seq.push(Value::String(key.to_string()));
+    }
+}
+
+fn remove_disabled_provider(config: &mut Mapping, keys: &[&str]) {
+    let disabled_key = Value::String("disabledProviders".to_string());
+    let Some(seq) = config.get_mut(&disabled_key).and_then(Value::as_sequence_mut) else {
+        return;
+    };
+    seq.retain(|entry| {
+        entry
+            .as_str()
+            .is_none_or(|value| !keys.contains(&value))
+    });
+    if seq.is_empty() {
+        config.remove(&disabled_key);
+    }
 }
 
 pub async fn clear_active_role(agent_dir: &Path) -> Result<(), String> {
@@ -164,6 +270,19 @@ pub async fn remove(agent_dir: &Path, provider_id: &str, name: &str) -> Result<(
         && keys.iter().any(|key| role.starts_with(&format!("{key}/")))
     {
         roles.remove(Value::String("default".to_string()));
+        changed = true;
+    }
+    let key_refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    let had_disabled = config
+        .get(Value::String("disabledProviders".to_string()))
+        .and_then(Value::as_sequence)
+        .is_some_and(|seq| {
+            seq.iter()
+                .filter_map(Value::as_str)
+                .any(|value| key_refs.contains(&value))
+        });
+    if had_disabled {
+        remove_disabled_provider(&mut config, &key_refs);
         changed = true;
     }
     if !changed {
@@ -490,5 +609,101 @@ mod tests {
             .unwrap();
         assert!(config.contains("plan:"));
         assert!(!config.contains("local-gate/glm-5"));
+    }
+
+    #[tokio::test]
+    async fn keyless_apply_and_set_enabled_toggle_disabled_providers() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent_dir = temp.path();
+
+        apply(
+            agent_dir,
+            "local-ollama",
+            "Local Ollama",
+            "http://192.168.1.50:11434/v1",
+            "",
+            "qwen3:32b",
+        )
+        .await
+        .unwrap();
+        apply(
+            agent_dir,
+            "second-lan",
+            "Second LAN",
+            "http://10.0.0.20:8000/v1",
+            "sk-second",
+            "llama3",
+        )
+        .await
+        .unwrap();
+
+        let state = read_state(agent_dir).await.unwrap();
+        assert_eq!(state.drafts.len(), 2);
+        let ollama = state
+            .drafts
+            .iter()
+            .find(|draft| draft.id == "local-ollama")
+            .unwrap();
+        assert!(ollama.enabled);
+        assert!(ollama.api_key.is_empty());
+
+        let models_yml = tokio::fs::read_to_string(agent_dir.join("models.yml"))
+            .await
+            .unwrap();
+        assert!(models_yml.contains("auth: none"));
+
+        set_enabled(
+            agent_dir,
+            "second-lan",
+            "Second LAN",
+            "http://10.0.0.20:8000/v1",
+            "sk-second",
+            "llama3",
+            false,
+        )
+        .await
+        .unwrap();
+
+        let after_disable = read_state(agent_dir).await.unwrap();
+        assert!(
+            after_disable
+                .drafts
+                .iter()
+                .find(|draft| draft.id == "local-ollama")
+                .unwrap()
+                .enabled
+        );
+        assert!(
+            !after_disable
+                .drafts
+                .iter()
+                .find(|draft| draft.id == "second-lan")
+                .unwrap()
+                .enabled
+        );
+        assert_eq!(after_disable.active_provider, None);
+
+        set_enabled(
+            agent_dir,
+            "second-lan",
+            "Second LAN",
+            "http://10.0.0.20:8000/v1",
+            "sk-second",
+            "llama3",
+            true,
+        )
+        .await
+        .unwrap();
+
+        let after_enable = read_state(agent_dir).await.unwrap();
+        assert!(
+            after_enable
+                .drafts
+                .iter()
+                .find(|draft| draft.id == "second-lan")
+                .unwrap()
+                .enabled
+        );
+        assert_eq!(after_enable.active_provider.as_deref(), Some("second-lan"));
     }
 }

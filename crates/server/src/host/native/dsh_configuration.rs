@@ -383,20 +383,23 @@ pub async fn discover_models(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| resolve_stored_api_key(paths, provider_id, environment))
-        .ok_or_else(|| "拉取模型需要 API Key".to_string())?;
-    validate_secret(&key)?;
-    let client = reqwest::Client::new();
+        .unwrap_or_default();
+    if !key.is_empty() {
+        validate_secret(&key)?;
+    }
     let mut last_error = "读取模型目录失败".to_string();
     for (index, endpoint) in endpoints.iter().enumerate() {
-        let response = match client
-            .get(endpoint)
-            .bearer_auth(&key)
-            .header("x-api-key", &key)
-            .header("anthropic-version", "2023-06-01")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await
-        {
+        let parsed = url::Url::parse(endpoint).map_err(|_| "Base URL 无效".to_string())?;
+        let client =
+            crate::host::native::local_http::client_for_url(&parsed, Duration::from_secs(15))?;
+        let mut req = client.get(endpoint).timeout(Duration::from_secs(15));
+        if !key.is_empty() {
+            req = req
+                .bearer_auth(&key)
+                .header("x-api-key", &key)
+                .header("anthropic-version", "2023-06-01");
+        }
+        let response = match req.send().await {
             Ok(resp) => resp,
             Err(error) => {
                 last_error = format!("读取模型目录失败：{error}");
@@ -881,18 +884,33 @@ fn apply_pi_provider(
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "自定义 Provider 需要 Base URL".to_string())?;
         validate_http_url(base_url)?;
-        if request.models.is_empty() {
-            return Err("自定义 Provider 至少需要一个模型".to_string());
-        }
+        let effective_models: Vec<DshProviderModelView> = if request.models.is_empty() {
+            request
+                .default_model
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|id| {
+                    vec![DshProviderModelView {
+                        id: id.to_string(),
+                        name: None,
+                    }]
+                })
+                .unwrap_or_default()
+        } else {
+            request.models.clone()
+        };
         entry.insert(Value::String("api".into()), Value::String(api.to_string()));
         entry.insert(
             Value::String("baseURL".into()),
             Value::String(base_url.to_string()),
         );
-        entry.insert(
-            Value::String("models".into()),
-            Value::Sequence(model_sequence(&request.models)?),
-        );
+        if !effective_models.is_empty() {
+            entry.insert(
+                Value::String("models".into()),
+                Value::Sequence(model_sequence(&effective_models)?),
+            );
+        }
     } else if !request.models.is_empty() {
         entry.insert(
             Value::String("models".into()),

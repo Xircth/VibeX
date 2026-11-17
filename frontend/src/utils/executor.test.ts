@@ -129,6 +129,36 @@ describe('executor utilities', () => {
         ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
       })
     ).toEqual([{ value: 'sonnet', label: 'deepseek-v4-pro' }]);
+    expect(
+      getClaudeModelOptions(
+        {
+          ...profiles,
+          claude_code: {
+            ...profiles.claude_code,
+            FABLE: {
+              CLAUDE_CODE: {
+                append_prompt: null,
+                model: 'fable',
+              },
+            },
+            RAW_DEFAULT: {
+              CLAUDE_CODE: {
+                append_prompt: null,
+                model: 'default',
+              },
+            },
+          },
+        },
+        {
+          ANTHROPIC_MODEL: 'glm-5',
+          ANTHROPIC_DEFAULT_FABLE_MODEL: 'glm-fable',
+        }
+      )
+    ).toEqual([
+      { value: 'sonnet', label: 'glm-5' },
+      { value: 'fable', label: 'glm-fable' },
+      { value: 'default', label: 'glm-5' },
+    ]);
   });
 
   it('derives Codex config from the selected variant', () => {

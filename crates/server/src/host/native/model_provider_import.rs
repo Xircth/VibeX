@@ -136,8 +136,8 @@ fn extract_cc_switch_row(agent_id: &AgentId, row: CcSwitchRow) -> ImportDraft {
         "pi" => fill_pi_settings(&row.settings_config, &mut draft),
         _ => fill_gemini_settings(&row.settings_config, &mut draft),
     }
-    if draft.skip_reason.is_none() && (draft.api_url.is_empty() || draft.api_key.is_empty()) {
-        draft.skip_reason = Some("缺少端点或凭据".to_string());
+    if draft.skip_reason.is_none() && draft.api_url.is_empty() {
+        draft.skip_reason = Some("缺少端点".to_string());
     }
     draft
 }

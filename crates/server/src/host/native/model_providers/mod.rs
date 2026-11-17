@@ -189,31 +189,40 @@ pub async fn list_with_native(
             Ok(project_with_grok_native(&store, agent_id, native.as_ref()))
         }
         "omp" => {
+            let mut store = read_store(store_path).await?;
+            match native_home {
+                Some(home) => {
+                    let native = agents::omp_providers::read_state(home).await?;
+                    let drafts = omp_native_drafts(&native);
+                    if adopt_native_providers(&mut store, &agent_id, &drafts) {
+                        write_store(store_path, &store).await?;
+                    }
+                    Ok(project_with_omp_native(&store, agent_id, &native))
+                }
+                None => Ok(project(&store, agent_id)),
+            }
+        }
+        "openclaw" => {
             let native = match native_home {
-                Some(home) => agents::omp_providers::read_state(home).await?,
-                None => agents::omp_providers::OmpNativeState {
-                    drafts: Vec::new(),
-                    active_provider: None,
-                },
+                Some(home) => Some(read_native_openclaw_state(home).await?),
+                None => None,
             };
-            let drafts = omp_native_drafts(&native);
+            let drafts = custom_endpoint_drafts(
+                &agent_id,
+                native
+                    .as_ref()
+                    .map(|state| state.providers.clone())
+                    .unwrap_or_default(),
+            );
             let mut store = read_store(store_path).await?;
             if adopt_native_providers(&mut store, &agent_id, &drafts) {
                 write_store(store_path, &store).await?;
             }
-            let mut view = project(&store, agent_id);
-            if view.bound_provider_id.is_none() {
-                apply_native_active_binding(
-                    &mut view,
-                    native.active_provider.as_deref(),
-                    native
-                        .drafts
-                        .iter()
-                        .map(|draft| (draft.id.as_str(), draft.api_url.as_str())),
-                    None,
-                );
-            }
-            Ok(view)
+            Ok(project_with_openclaw_native(
+                &store,
+                agent_id,
+                native.as_ref(),
+            ))
         }
         _ => {
             let drafts = match native_home {
@@ -271,12 +280,8 @@ pub async fn save(
         .api_key
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or(prior_key);
-    if api_key.is_empty() {
-        return Err("Model Provider 需要 API Key".into());
-    }
     let provider = StoredProvider {
         id: id.clone(),
         name: request.name.trim().to_string(),
@@ -285,7 +290,15 @@ pub async fn save(
         api_key,
         model: request.model.trim().to_string(),
     };
-    let bound = store.bindings.get(request.agent_id.as_str()) == Some(&id);
+    let mut bound = store.bindings.get(request.agent_id.as_str()) == Some(&id);
+    if !bound && existing.is_some() && supports_multi_enable(&request.agent_id) {
+        let current_view =
+            projected_view(&mut store, store_path, &homes, request.agent_id.clone()).await?;
+        bound = current_view
+            .providers
+            .iter()
+            .any(|candidate| candidate.id == id && candidate.bound);
+    }
     let index = match existing {
         Some(index) => {
             store.providers[index] = provider;
@@ -319,6 +332,17 @@ pub async fn bind(
     agent_id: AgentId,
     provider_id: Option<String>,
 ) -> Result<AgentModelProvidersView, super::NativeError> {
+    bind_with_mode(store_path, home, environment, agent_id, provider_id, None).await
+}
+
+pub async fn bind_with_mode(
+    store_path: &Path,
+    home: &Path,
+    environment: &HashMap<String, String>,
+    agent_id: AgentId,
+    provider_id: Option<String>,
+    enabled: Option<bool>,
+) -> Result<AgentModelProvidersView, super::NativeError> {
     validate_agent(&agent_id)?;
     let homes = ProviderNativeHomes::resolve(home, environment);
     let mut store = load_store_with_natives(store_path, &agent_id, &homes).await?;
@@ -345,7 +369,39 @@ pub async fn bind(
             .find(|provider| provider.id == provider_id && provider.agent_id == agent_id)
             .cloned()
             .ok_or_else(|| super::NativeError::from("找不到可绑定的 Model Provider"))?;
-        if is_native_grok_channel(&provider, native_grok.as_ref()) {
+        if supports_multi_enable(&agent_id) && enabled == Some(false) {
+            let disable_result = match agent_id.as_str() {
+                "omp" => agents::omp_providers::set_enabled(
+                    &homes.omp,
+                    &provider.id,
+                    &provider.name,
+                    &provider.api_url,
+                    &provider.api_key,
+                    &provider.model,
+                    false,
+                )
+                .await
+                .map_err(super::NativeError::from),
+                "openclaw" => remove_native_openclaw_provider(&homes.openclaw, &provider).await,
+                "pi" => disable_native_pi_provider(&homes.pi, &provider).await,
+                _ => Ok(()),
+            };
+            if let Err(error) = disable_result {
+                restore_projection(&homes, &agent_id, &rollback).await?;
+                return Err(error);
+            }
+            if store.bindings.get(agent_id.as_str()).map(String::as_str) == Some(provider_id) {
+                store.bindings.remove(agent_id.as_str());
+            }
+            let view = projected_view(&mut store, store_path, &homes, agent_id.clone()).await?;
+            if let Some(next_id) = view.bound_provider_id {
+                store
+                    .bindings
+                    .insert(agent_id.as_str().to_string(), next_id);
+            } else {
+                store.bindings.remove(agent_id.as_str());
+            }
+        } else if is_native_grok_channel(&provider, native_grok.as_ref()) {
             if native_uses_dimo_grok_projection(native_grok.as_ref()) {
                 let backup = store
                     .projection_backups
@@ -393,7 +449,9 @@ pub async fn bind(
             store.bindings.remove(agent_id.as_str());
             store.projection_backups.remove(agent_id.as_str());
         } else {
-            if current_binding.is_none() {
+            let inserted_backup = current_binding.is_none()
+                && !store.projection_backups.contains_key(agent_id.as_str());
+            if inserted_backup {
                 store
                     .projection_backups
                     .insert(agent_id.as_str().to_string(), rollback.clone());
@@ -402,7 +460,7 @@ pub async fn bind(
             }
             if let Err(error) = apply_provider(&homes, &provider).await {
                 restore_projection(&homes, &agent_id, &rollback).await?;
-                if current_binding.is_none() {
+                if inserted_backup {
                     store.projection_backups.remove(agent_id.as_str());
                     write_store(store_path, &store).await?;
                 }
@@ -489,6 +547,16 @@ pub async fn delete(
     } else {
         None
     };
+    let native_openclaw = if agent_id.as_str() == "openclaw" {
+        Some(read_native_openclaw_state(&homes.openclaw).await?)
+    } else {
+        None
+    };
+    let native_omp = if agent_id.as_str() == "omp" {
+        Some(agents::omp_providers::read_state(&homes.omp).await?)
+    } else {
+        None
+    };
     let mut store = load_store_with_natives(store_path, &agent_id, &homes).await?;
     let remaining = store
         .providers
@@ -505,6 +573,8 @@ pub async fn delete(
         native_codex.as_ref(),
         native_pi.as_ref(),
         native_grok.as_ref(),
+        native_openclaw.as_ref(),
+        native_omp.as_ref(),
     ) {
         return Err("无法删除正在使用的供应商".into());
     }
@@ -520,6 +590,7 @@ pub async fn delete(
         "codex" => remove_native_codex_provider(&homes.codex, &removed).await?,
         "pi" => remove_native_pi_provider(&homes.pi, &removed).await?,
         "grok" => remove_native_grok_provider(&homes.grok, &removed).await?,
+        "openclaw" => remove_native_openclaw_provider(&homes.openclaw, &removed).await?,
         "omp" => {
             agents::omp_providers::remove(&homes.omp, &removed.id, &removed.name).await?;
         }
@@ -563,19 +634,15 @@ async fn projected_view(
             if adopt_native_providers(store, &agent_id, &drafts) {
                 write_store(store_path, store).await?;
             }
-            let mut view = project(store, agent_id);
-            if view.bound_provider_id.is_none() {
-                apply_native_active_binding(
-                    &mut view,
-                    native.active_provider.as_deref(),
-                    native
-                        .drafts
-                        .iter()
-                        .map(|draft| (draft.id.as_str(), draft.api_url.as_str())),
-                    None,
-                );
+            Ok(project_with_omp_native(store, agent_id, &native))
+        }
+        "openclaw" => {
+            let native = read_native_openclaw_state(&homes.openclaw).await?;
+            let drafts = custom_endpoint_drafts(&agent_id, native.providers.clone());
+            if adopt_native_providers(store, &agent_id, &drafts) {
+                write_store(store_path, store).await?;
             }
-            Ok(view)
+            Ok(project_with_openclaw_native(store, agent_id, Some(&native)))
         }
         _ => {
             let home = homes.native_list_home(&agent_id);
@@ -586,6 +653,42 @@ async fn projected_view(
             Ok(project_with_live_native(store, agent_id, &drafts))
         }
     }
+}
+
+fn project_with_omp_native(
+    store: &ProviderStore,
+    agent_id: AgentId,
+    native: &agents::omp_providers::OmpNativeState,
+) -> AgentModelProvidersView {
+    let mut view = project(store, agent_id);
+    let mut active_matched: Option<String> = None;
+    for provider in &mut view.providers {
+        let matched = native.drafts.iter().find(|draft| {
+            draft.id == provider.id
+                || (!draft.api_url.is_empty() && draft.api_url == provider.api_url)
+        });
+        let enabled = matched.is_some_and(|draft| draft.enabled);
+        provider.bound = enabled;
+        if enabled
+            && let Some(draft) = matched
+            && native.active_provider.as_deref() == Some(draft.id.as_str())
+        {
+            active_matched = Some(provider.id.clone());
+        }
+    }
+    view.bound_provider_id = active_matched
+        .or_else(|| {
+            view.bound_provider_id
+                .clone()
+                .filter(|id| view.providers.iter().any(|p| p.id == *id && p.bound))
+        })
+        .or_else(|| {
+            view.providers
+                .iter()
+                .find(|provider| provider.bound)
+                .map(|provider| provider.id.clone())
+        });
+    view
 }
 
 async fn live_native_drafts(
@@ -688,9 +791,8 @@ async fn native_import_drafts(
     Ok(drafts
         .into_iter()
         .map(|mut draft| {
-            if draft.skip_reason.is_none() && (draft.api_url.is_empty() || draft.api_key.is_empty())
-            {
-                draft.skip_reason = Some("缺少端点或凭据".to_string());
+            if draft.skip_reason.is_none() && draft.api_url.is_empty() {
+                draft.skip_reason = Some("缺少端点".to_string());
             }
             annotate_duplicate(draft, existing_names)
         })

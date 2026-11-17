@@ -145,6 +145,10 @@ pub fn mimo_cache_dir_from_env(env: &HashMap<String, String>) -> Option<PathBuf>
     dirs::home_dir().map(|home| mimo_cache_dir(&home, env))
 }
 
+pub fn mimo_document_paths(home: &Path, env: &HashMap<String, String>) -> (PathBuf, PathBuf) {
+    (mimo_auth_path(home, env), mimo_config_file(home, env))
+}
+
 fn mimo_config_dir(home: &Path, env: &HashMap<String, String>) -> PathBuf {
     if let Some(root) = mimo_home_from_env(env) {
         return root.join("config");

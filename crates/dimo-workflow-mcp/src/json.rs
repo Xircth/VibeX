@@ -495,7 +495,7 @@ pub fn sha256_revision(bytes: &[u8]) -> String {
     ];
 
     let bit_len = (bytes.len() as u64) * 8;
-    let mut padded = Vec::with_capacity(((bytes.len() + 9 + 63) / 64) * 64);
+    let mut padded = Vec::with_capacity((bytes.len() + 9).div_ceil(64) * 64);
     padded.extend_from_slice(bytes);
     padded.push(0x80);
     while padded.len() % 64 != 56 {

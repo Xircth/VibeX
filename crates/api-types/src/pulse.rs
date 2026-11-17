@@ -121,16 +121,45 @@ pub enum MandateOrigin {
 #[serde(tag = "op", rename_all = "snake_case")]
 #[ts(export)]
 pub enum GateFilterCondition {
-    Eq { pointer: String, value: serde_json::Value },
-    Neq { pointer: String, value: serde_json::Value },
-    Lt { pointer: String, value: f64 },
-    Lte { pointer: String, value: f64 },
-    Gt { pointer: String, value: f64 },
-    Gte { pointer: String, value: f64 },
-    Contains { pointer: String, needle: String },
-    InSet { pointer: String, values: Vec<serde_json::Value> },
-    Exists { pointer: String },
-    Regex { pointer: String, pattern: String },
+    Eq {
+        pointer: String,
+        value: serde_json::Value,
+    },
+    Neq {
+        pointer: String,
+        value: serde_json::Value,
+    },
+    Lt {
+        pointer: String,
+        value: f64,
+    },
+    Lte {
+        pointer: String,
+        value: f64,
+    },
+    Gt {
+        pointer: String,
+        value: f64,
+    },
+    Gte {
+        pointer: String,
+        value: f64,
+    },
+    Contains {
+        pointer: String,
+        needle: String,
+    },
+    InSet {
+        pointer: String,
+        values: Vec<serde_json::Value>,
+    },
+    Exists {
+        pointer: String,
+    },
+    Regex {
+        pointer: String,
+        pattern: String,
+    },
     NotBotActor,
 }
 
@@ -338,9 +367,7 @@ pub enum PulseTemporalSpec {
         catch_up_once: bool,
     },
     #[serde(rename_all = "camelCase")]
-    Once {
-        fire_at: String,
-    },
+    Once { fire_at: String },
     #[serde(rename_all = "camelCase")]
     Interval {
         every_seconds: u32,
@@ -657,8 +684,9 @@ pub struct PulseDeckSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn callback_spec_and_task_meta_round_trip_camel_case_with_defaults() {
@@ -668,8 +696,8 @@ mod tests {
             "filter": {},
             "targets": []
         });
-        let legacy_parsed: PulseRuleSpec =
-            serde_json::from_value(legacy_rule_json).expect("legacy PulseRuleSpec must deserialize");
+        let legacy_parsed: PulseRuleSpec = serde_json::from_value(legacy_rule_json)
+            .expect("legacy PulseRuleSpec must deserialize");
         assert!(legacy_parsed.callback.is_none());
         assert!(legacy_parsed.task_meta.is_none());
 
@@ -704,7 +732,10 @@ mod tests {
         assert_eq!(cb.kind, PulseCallbackKind::FeishuWebhook);
         assert!(cb.enabled, "enabled should default to true");
         assert!(cb.headers.is_empty());
-        assert_eq!(cb.payload_template, "Run {{payload.name}}: {{payload.conclusion}}");
+        assert_eq!(
+            cb.payload_template,
+            "Run {{payload.name}}: {{payload.conclusion}}"
+        );
 
         let meta = parsed.task_meta.as_ref().expect("task_meta present");
         assert_eq!(meta.task_kind, Some(PulseTaskKind::FastTask));
@@ -719,7 +750,10 @@ mod tests {
         let serialized = serde_json::to_value(&parsed).expect("serialize back to camelCase");
         assert_eq!(serialized["callback"]["kind"], "feishu_webhook");
         assert_eq!(serialized["callback"]["enabled"], true);
-        assert_eq!(serialized["callback"]["payloadTemplate"], "Run {{payload.name}}: {{payload.conclusion}}");
+        assert_eq!(
+            serialized["callback"]["payloadTemplate"],
+            "Run {{payload.name}}: {{payload.conclusion}}"
+        );
         assert_eq!(serialized["taskMeta"]["taskKind"], "fast_task");
         assert_eq!(serialized["taskMeta"]["lifecycleState"], "pending_test");
     }

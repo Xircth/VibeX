@@ -1,7 +1,6 @@
-use agents::engine::NativeEngineKind;
 use agents::{
     AgentId, BuiltInProfileCatalog, ProfileComponent, ProfileInstallSource,
-    ProfileManagementActionKind, ProfileTopology, RegistryEntryIdentity,
+    ProfileManagementActionKind, ProfileTopology, RegistryEntryIdentity, engine::NativeEngineKind,
 };
 use api_types::{AgentKind, AgentSettingsFeature};
 
@@ -1100,7 +1099,10 @@ fn native_engine_discovery_resolves_extra_dirs_and_rejects_legacy_shims() {
 
     let claude_id = AgentId::parse("claude_code").unwrap();
     let codex_id = AgentId::parse("codex").unwrap();
-    assert!(!agents::launch_program_is_vendor_cli(&claude_id, &claude_bin));
+    assert!(!agents::launch_program_is_vendor_cli(
+        &claude_id,
+        &claude_bin
+    ));
     assert!(!agents::launch_program_is_vendor_cli(&codex_id, &codex_bin));
 
     let claude_lock =

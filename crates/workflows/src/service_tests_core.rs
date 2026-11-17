@@ -1178,7 +1178,9 @@ async fn complete_step_strictly_validates_output_schema_unless_output_descriptio
     core.complete_step(CompleteWorkflowStep {
         run_id: run.id,
         step_id: "prose".to_string(),
-        output: Some(serde_json::Value::String("Natural language prose".to_string())),
+        output: Some(serde_json::Value::String(
+            "Natural language prose".to_string(),
+        )),
     })
     .await
     .unwrap();
@@ -1303,8 +1305,14 @@ async fn notify_dependency_resolves_and_user_gate_renders_steps_output_template(
     assert_eq!(claim.step.step_id, "diagnose");
     let def = version.definition().unwrap();
     let diagnose_step = def.steps.iter().find(|s| s.id == "diagnose").unwrap();
-    let resolved = store.resolve_step_input(run.id, diagnose_step).await.unwrap();
-    assert_eq!(resolved.values["intake-trigger"], serde_json::json!({"notified": true}));
+    let resolved = store
+        .resolve_step_input(run.id, diagnose_step)
+        .await
+        .unwrap();
+    assert_eq!(
+        resolved.values["intake-trigger"],
+        serde_json::json!({"notified": true})
+    );
 
     store
         .mark_started(run.id, "diagnose", claim.claim_token, None, None)
@@ -1327,4 +1335,3 @@ async fn notify_dependency_resolves_and_user_gate_renders_steps_output_template(
     .unwrap();
     assert_eq!(body, "Summary: Patched flaky test");
 }
-

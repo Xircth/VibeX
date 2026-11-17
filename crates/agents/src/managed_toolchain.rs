@@ -450,9 +450,9 @@ fn extract_zip_archive_sync(
         if output.status.success() {
             return Ok(());
         }
-        return Err(ManagedToolchainError::ExtractionFailed(
+        Err(ManagedToolchainError::ExtractionFailed(
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        ));
+        ))
     }
 
     #[cfg(not(windows))]

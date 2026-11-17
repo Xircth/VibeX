@@ -167,7 +167,8 @@ export function formatOutboxActionLabel(
   t?: WorkflowTranslateFn
 ): string {
   const tr = getWorkflowTranslator(t);
-  const safeKind = kind && String(kind).trim() ? String(kind).trim() : 'feishu_reply';
+  const safeKind =
+    kind && String(kind).trim() ? String(kind).trim() : 'feishu_reply';
   return tr(`nodes.outboxKinds.${safeKind}`, {
     defaultValue: tr('nodes.defaults.outboxTitle'),
   });
@@ -266,7 +267,8 @@ export function describeStepPresentation(
 
   switch (step.kind) {
     case 'trigger': {
-      const isTemporal = step.triggerKind === 'temporal' && Boolean(step.temporal);
+      const isTemporal =
+        step.triggerKind === 'temporal' && Boolean(step.temporal);
       const sourceBadge = isTemporal
         ? tr('nodes.triggerKinds.temporal')
         : formatWorkflowEventSource(step.sourceKind, tr);

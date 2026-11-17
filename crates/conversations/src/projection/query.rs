@@ -88,7 +88,10 @@ pub(super) fn trim_newest_within_byte_budget<T>(
     if dropped > 0 {
         items.drain(0..dropped);
     }
-    let retained = items.into_iter().map(|(sort, _, val)| (sort, val)).collect();
+    let retained = items
+        .into_iter()
+        .map(|(sort, _, val)| (sort, val))
+        .collect();
     (retained, dropped)
 }
 
@@ -542,9 +545,8 @@ impl ConversationProjector {
                     ops: Vec::new(),
                 });
             }
-            cumulative_bytes = cumulative_bytes.saturating_add(
-                serde_json::to_string(&row).map(|s| s.len()).unwrap_or(0),
-            );
+            cumulative_bytes = cumulative_bytes
+                .saturating_add(serde_json::to_string(&row).map(|s| s.len()).unwrap_or(0));
             if cumulative_bytes > MAX_WINDOW_BYTES && !ops.is_empty() {
                 return Ok(ConversationRowsSincePage {
                     conversation_id,
@@ -633,11 +635,9 @@ impl ConversationProjector {
         if let Some(snapshot) = Self::usable_snapshot(pool, conversation_id).await?
             && snapshot.last_sequence >= latest
         {
-            let count = ConversationTimelineRowRecord::count_visible_message_rows(
-                pool,
-                conversation_id,
-            )
-            .await?;
+            let count =
+                ConversationTimelineRowRecord::count_visible_message_rows(pool, conversation_id)
+                    .await?;
             return Ok(count.max(0) as usize);
         }
         let fold = Self::fold(pool, conversation_id).await?;
@@ -857,7 +857,10 @@ mod tests {
     fn keyset_cursor_round_trips_and_rejects_garbage() {
         let cursor = encode_timeline_cursor(2_000_003, "turn-2:assistant");
         assert!(!cursor.contains('='), "URL_SAFE_NO_PAD must omit '='");
-        assert!(cursor.parse::<usize>().is_err(), "cursor is opaque non-integer");
+        assert!(
+            cursor.parse::<usize>().is_err(),
+            "cursor is opaque non-integer"
+        );
 
         let decoded = decode_timeline_cursor(&cursor).expect("valid cursor");
         assert_eq!(

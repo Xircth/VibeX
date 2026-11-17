@@ -33,10 +33,7 @@ export function resolveScrubEntryIndex({
     0.999999,
     Math.max(0, (clientY - rectTop) / rectHeight)
   );
-  return Math.min(
-    entryCount - 1,
-    Math.max(0, Math.floor(ratio * entryCount))
-  );
+  return Math.min(entryCount - 1, Math.max(0, Math.floor(ratio * entryCount)));
 }
 
 type PointerScrubSession = {
@@ -89,11 +86,20 @@ export function ConversationMessageNav({
         entryCount: entries.length,
       });
 
-      if (session.rectHeight <= 0 && typeof document.elementFromPoint === 'function') {
+      if (
+        session.rectHeight <= 0 &&
+        typeof document.elementFromPoint === 'function'
+      ) {
         const hit = document.elementFromPoint(0, clientY);
         const button = hit?.closest<HTMLElement>('[data-nav-entry-index]');
-        const parsed = button ? Number(button.dataset.navEntryIndex) : Number.NaN;
-        if (Number.isInteger(parsed) && parsed >= 0 && parsed < entries.length) {
+        const parsed = button
+          ? Number(button.dataset.navEntryIndex)
+          : Number.NaN;
+        if (
+          Number.isInteger(parsed) &&
+          parsed >= 0 &&
+          parsed < entries.length
+        ) {
           entryIndex = parsed;
         }
       }
@@ -115,10 +121,7 @@ export function ConversationMessageNav({
 
       const clampedOffsetY =
         session.rectHeight > 0
-          ? Math.min(
-              session.rectHeight,
-              Math.max(0, clientY - session.rectTop)
-            )
+          ? Math.min(session.rectHeight, Math.max(0, clientY - session.rectTop))
           : 0;
 
       setScrubState((prev) =>
@@ -235,10 +238,7 @@ export function ConversationMessageNav({
 
   return (
     <nav
-      className={cn(
-        'conv-message-nav-rail',
-        scrubbedEntry && 'is-scrubbing'
-      )}
+      className={cn('conv-message-nav-rail', scrubbedEntry && 'is-scrubbing')}
       aria-label={t('messageNav.railLabel')}
     >
       <TooltipProvider delayDuration={80} skipDelayDuration={120}>

@@ -29,9 +29,14 @@ vi.mock('@/lib/desktopShell', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/backendTransport', () => ({
-  backendListen: vi.fn(() => Promise.resolve(() => undefined)),
-}));
+vi.mock('@/lib/backendTransport', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
+  return {
+    ...actual,
+    backendListen: vi.fn(() => Promise.resolve(() => undefined)),
+  };
+});
 
 vi.mock('@/lib/api', () => ({
   hostClientApi: {
@@ -195,9 +200,7 @@ describe('HostSelector', () => {
     renderHostSelector();
 
     await user.click(screen.getByTestId('toolbar-host-selector'));
-    await user.click(
-      await screen.findByTestId('host-selector-connect-host')
-    );
+    await user.click(await screen.findByTestId('host-selector-connect-host'));
 
     const dialog = await screen.findByTestId('connect-host-dialog');
     const inputs = within(dialog).getAllByRole('textbox');
@@ -321,7 +324,9 @@ describe('HostSelector', () => {
     renderHostSelector();
 
     await user.click(screen.getByTestId('toolbar-host-selector'));
-    const sshItem = await screen.findByTestId('host-selector-item-p-ssh-synced');
+    const sshItem = await screen.findByTestId(
+      'host-selector-item-p-ssh-synced'
+    );
     expect(sshItem.textContent).toContain('10.0.0.8:17891');
     expect(sshItem.textContent).not.toContain('127.0.0.1:54321');
 
@@ -354,9 +359,7 @@ describe('HostSelector', () => {
     renderHostSelector();
 
     await user.click(screen.getByTestId('toolbar-host-selector'));
-    await user.click(
-      await screen.findByTestId('host-selector-new-ssh-host')
-    );
+    await user.click(await screen.findByTestId('host-selector-new-ssh-host'));
 
     const dialog = await screen.findByTestId('new-ssh-host-dialog');
     const surface = await within(dialog).findByTestId('mock-ssh-app-surface');
@@ -369,9 +372,7 @@ describe('HostSelector', () => {
     renderHostSelector();
 
     await user.click(screen.getByTestId('toolbar-host-selector'));
-    await user.click(
-      await screen.findByTestId('host-selector-manage-remote')
-    );
+    await user.click(await screen.findByTestId('host-selector-manage-remote'));
 
     expect(mocks.openSettingsSurface).toHaveBeenCalledWith(
       expect.any(Function),
@@ -407,9 +408,8 @@ describe('HostSelector', () => {
     );
     expect(badge).toBeVisible();
     expect(within(badge).getByText('Alice Chen')).toBeVisible();
-    expect(within(badge).getByRole('img', { name: 'Alice Chen' })).toHaveAttribute(
-      'src',
-      'https://example.com/alice.png'
-    );
+    expect(
+      within(badge).getByRole('img', { name: 'Alice Chen' })
+    ).toHaveAttribute('src', 'https://example.com/alice.png');
   });
 });

@@ -214,7 +214,13 @@ pub(super) async fn restore_gemini_state(
     backup: &ProviderProjectionBackup,
 ) -> Result<(), crate::host::native::NativeError> {
     let settings_path = gemini_home.join("settings.json");
-    restore_text_file(&gemini_home.join(GEMINI_ENV_FILE), GEMINI_ENV_FILE, backup, true).await?;
+    restore_text_file(
+        &gemini_home.join(GEMINI_ENV_FILE),
+        GEMINI_ENV_FILE,
+        backup,
+        true,
+    )
+    .await?;
     let mut document = read_json_object_or_empty(&settings_path).await?;
     let root = document.as_object_mut().expect("object");
     let has_env_backup = GEMINI_ENV_KEYS

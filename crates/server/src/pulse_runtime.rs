@@ -158,12 +158,7 @@ impl ServerApplicationDomains {
         let prev_prune = LAST_RECEIPT_PRUNE_EPOCH_SECS.load(Ordering::Relaxed);
         if now_epoch.saturating_sub(prev_prune) >= 3600
             && LAST_RECEIPT_PRUNE_EPOCH_SECS
-                .compare_exchange(
-                    prev_prune,
-                    now_epoch,
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                )
+                .compare_exchange(prev_prune, now_epoch, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
         {
             let cutoff = (now - chrono::Duration::days(7)).to_rfc3339();
@@ -197,8 +192,11 @@ impl ServerApplicationDomains {
                     .deck_snapshot(project_id)
                     .await
                     .map_err(map_pulse_error)?;
-                let mut busy_ids: Vec<String> =
-                    self.compute_busy_pulse_rule_ids().await.into_iter().collect();
+                let mut busy_ids: Vec<String> = self
+                    .compute_busy_pulse_rule_ids()
+                    .await
+                    .into_iter()
+                    .collect();
                 busy_ids.sort();
                 snapshot.busy_rule_ids = busy_ids;
                 snapshot.recent_outbox = engine
@@ -251,8 +249,8 @@ impl ServerApplicationDomains {
                 } else {
                     new_secret.or_else(|| existing.as_ref().and_then(|e| e.signing_secret.clone()))
                 };
-                let public_webhook_path = is_webhook_source_kind(input.kind)
-                    .then(|| format!("/api/pulse/webhooks/{id}"));
+                let public_webhook_path =
+                    is_webhook_source_kind(input.kind).then(|| format!("/api/pulse/webhooks/{id}"));
                 let mut record = engine
                     .store()
                     .upsert_source(PulseSourceUpsert {
@@ -574,10 +572,8 @@ impl ServerApplicationDomains {
                 to_json_value(sub)
             }
             DomainCommand::PulseThreadUnsubscribe => {
-                let sub_id = require_str_field_aliases(
-                    &args,
-                    &["subscriptionId", "subscription_id", "id"],
-                )?;
+                let sub_id =
+                    require_str_field_aliases(&args, &["subscriptionId", "subscription_id", "id"])?;
                 engine
                     .store()
                     .unsubscribe_thread(&sub_id)
@@ -790,9 +786,9 @@ impl ServerApplicationDomains {
         now: chrono::DateTime<Utc>,
     ) -> Result<(String, Value), ApplicationError> {
         let now_iso = now.to_rfc3339();
-        let hmac_meta = args.get("__hmacVerification").ok_or_else(|| {
-            ApplicationError::unauthorized("missing HMAC verification metadata")
-        })?;
+        let hmac_meta = args
+            .get("__hmacVerification")
+            .ok_or_else(|| ApplicationError::unauthorized("missing HMAC verification metadata"))?;
         let raw_b64 = hmac_meta
             .get("rawBodyBase64")
             .and_then(Value::as_str)
@@ -963,11 +959,21 @@ struct PulseRuleDryRunArgs {
 struct PulseResolveInteractionArgs {
     #[serde(alias = "interaction_id", alias = "id")]
     interaction_id: String,
-    #[serde(default, alias = "option_id", alias = "selectedOptionId", alias = "selected_option_id")]
+    #[serde(
+        default,
+        alias = "option_id",
+        alias = "selectedOptionId",
+        alias = "selected_option_id"
+    )]
     option_id: Option<String>,
     #[serde(default)]
     note: Option<String>,
-    #[serde(default, alias = "form_values", alias = "formData", alias = "form_data")]
+    #[serde(
+        default,
+        alias = "form_values",
+        alias = "formData",
+        alias = "form_data"
+    )]
     form_values: Option<Value>,
 }
 
@@ -1026,7 +1032,8 @@ pub(crate) fn unwrap_input(args: &Value) -> &Value {
 }
 
 fn decode_args<T: serde::de::DeserializeOwned>(value: &Value) -> Result<T, ApplicationError> {
-    serde_json::from_value(value.clone()).map_err(|err| ApplicationError::bad_request(err.to_string()))
+    serde_json::from_value(value.clone())
+        .map_err(|err| ApplicationError::bad_request(err.to_string()))
 }
 
 fn to_json_value<T: serde::Serialize>(value: T) -> Result<Value, ApplicationError> {

@@ -55,7 +55,10 @@ export interface SessionCanvasViewContextValue {
   duplicateCanvasNode?: (instanceId: string) => string | null;
   closeOtherCanvasNodes?: (instanceId: string) => void;
   sortCanvasNodes?: () => void;
-  onCreateSessionWithExecutor?: (executor: string, parentNodeId?: string) => void;
+  onCreateSessionWithExecutor?: (
+    executor: string,
+    parentNodeId?: string
+  ) => void;
   onNewSession?: (parentNodeId?: string) => void;
   updatePanelNodeMeta?: (
     instanceId: string,

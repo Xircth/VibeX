@@ -705,8 +705,7 @@ export function TaskFollowUpSection({
     sessionModes,
     sessionConfigOptions,
     selectedConfigValues,
-    ignoreLiveControls:
-      isChangingAgent || isChangingInstance || handoffPending,
+    ignoreLiveControls: isChangingAgent || isChangingInstance || handoffPending,
   });
   useEffect(() => {
     if (

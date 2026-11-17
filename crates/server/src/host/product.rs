@@ -1102,7 +1102,8 @@ impl ServerApplicationDomains {
                 fast_mode: None,
                 reasoning_effort: None,
             };
-            let service = conversations::ConversationSessionService::new(self.conversations.clone());
+            let service =
+                conversations::ConversationSessionService::new(self.conversations.clone());
             if let Err(error) = service
                 .start_turn(conversations::ConversationStartTurnInput {
                     continuation_policy: Some(agents::conversation::ContinuationPolicy::Portable),

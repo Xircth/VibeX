@@ -265,14 +265,10 @@ async fn confirm_engine_handoff_syncs_session_bot_persona_and_preserves_source_b
     let seeded_turn_id = seeded_turn.id;
 
     let codex = AgentId::parse("codex").expect("codex");
-    let confirmation = DeterministicHandoffService::confirm_engine_handoff(
-        pool,
-        conversation_id,
-        &codex,
-        None,
-    )
-    .await
-    .expect("confirm handoff");
+    let confirmation =
+        DeterministicHandoffService::confirm_engine_handoff(pool, conversation_id, &codex, None)
+            .await
+            .expect("confirm handoff");
     assert_eq!(confirmation.workspace_id, workspace_id);
     assert!(confirmation.agent_switched);
     assert!(!confirmation.instance_switched);
@@ -458,7 +454,10 @@ async fn confirm_engine_handoff_treats_same_agent_instance_switch_as_full_handof
     .await
     .expect("switch back to local");
     assert!(back_to_local.instance_switched);
-    assert_eq!(back_to_local.from_instance_id.as_deref(), Some("work-codex"));
+    assert_eq!(
+        back_to_local.from_instance_id.as_deref(),
+        Some("work-codex")
+    );
     assert_eq!(back_to_local.to_instance_id, None);
 
     let session_local = Session::find_by_id(pool, conversation_id)
@@ -528,7 +527,10 @@ async fn preflight_engine_handoff_aborts_before_mutation_when_workspace_root_mis
         .await
         .expect("summary query")
         .expect("summary exists");
-    assert_eq!(summary.agent_id, Some(AgentId::parse("claude_code").unwrap()));
+    assert_eq!(
+        summary.agent_id,
+        Some(AgentId::parse("claude_code").unwrap())
+    );
     assert_eq!(summary.model.as_deref(), Some("claude-opus-4-6"));
     assert_eq!(summary.external_session_id.as_deref(), Some("ext-orig-1"));
 }

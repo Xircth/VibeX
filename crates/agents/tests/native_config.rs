@@ -14,10 +14,7 @@ use agents::{
 use async_trait::async_trait;
 use support::management::MemoryNativeFileSystem;
 
-fn isolated_bundled(
-    filesystem: Arc<dyn NativeFileSystem>,
-    home: PathBuf,
-) -> NativeConfigProvider {
+fn isolated_bundled(filesystem: Arc<dyn NativeFileSystem>, home: PathBuf) -> NativeConfigProvider {
     let environment = [
         "CODEX_HOME",
         "CLAUDE_CONFIG_DIR",
@@ -1558,10 +1555,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let config = String::from_utf8(filesystem.files.lock().unwrap()[&path].clone()).unwrap();
     let config: toml::Value = toml::from_str(&config).unwrap();
     assert_eq!(config["default_model"].as_str(), Some("dimo"));
-    assert_eq!(
-        config["models"]["dimo"]["provider"].as_str(),
-        Some("dimo")
-    );
+    assert_eq!(config["models"]["dimo"]["provider"].as_str(), Some("dimo"));
     assert_eq!(
         config["models"]["dimo"]["model"].as_str(),
         Some("demo-model")
@@ -1571,9 +1565,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
         Some(262_144)
     );
     assert_eq!(
-        config["models"]["dimo"]["capabilities"]
-            .as_array()
-            .unwrap(),
+        config["models"]["dimo"]["capabilities"].as_array().unwrap(),
         &[
             toml::Value::String("thinking".to_string()),
             toml::Value::String("tool_use".to_string()),

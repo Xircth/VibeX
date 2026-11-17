@@ -85,7 +85,10 @@ describe('composerDraftStash', () => {
     expect(afterDelete.map((item) => item.text)).toEqual(['First', 'Second']);
 
     // Corrupt localStorage JSON falls back cleanly to in-memory copy
-    window.localStorage.setItem(composerStashStorageKey(scope), '{corrupt-json');
+    window.localStorage.setItem(
+      composerStashStorageKey(scope),
+      '{corrupt-json'
+    );
     expect(loadComposerDraftStash(scope).map((item) => item.text)).toEqual([
       'First',
       'Second',
@@ -117,9 +120,9 @@ describe('composerDraftStash', () => {
     expect(formatComposerStashRelativeTime(base - 15_000, base, labels)).toBe(
       'Just now'
     );
-    expect(formatComposerStashRelativeTime(base - 5 * 60_000, base, labels)).toBe(
-      '5m ago'
-    );
+    expect(
+      formatComposerStashRelativeTime(base - 5 * 60_000, base, labels)
+    ).toBe('5m ago');
     expect(
       formatComposerStashRelativeTime(base - 3 * 3_600_000, base, labels)
     ).toBe('3h ago');

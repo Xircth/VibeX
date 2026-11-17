@@ -899,8 +899,7 @@ mod tests {
     #[tokio::test]
     async fn engine_status_ignores_a_lease_registered_on_a_foreign_data_dir() {
         let _guard = OWNERSHIP_TEST_LOCK.lock().await;
-        let _marker =
-            EngineOwnershipMarker::register("/tmp/com.dimo.app-app-data-dir".to_string());
+        let _marker = EngineOwnershipMarker::register("/tmp/com.dimo.app-app-data-dir".to_string());
         assert!(!this_host_owns_automation_engine());
     }
 

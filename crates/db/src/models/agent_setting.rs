@@ -227,6 +227,30 @@ impl AgentSetting {
             acp_revision: self.runtime_acp_revision.clone()?,
         })
     }
+
+    #[doc(hidden)]
+    pub async fn ensure_table_for_test(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS agent_setting (agent_type TEXT PRIMARY KEY, env_json TEXT)",
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub async fn seed_env_for_test(
+        pool: &SqlitePool,
+        agent_type: &str,
+        env_json: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("INSERT INTO agent_setting (agent_type, env_json) VALUES (?, ?)")
+            .bind(agent_type)
+            .bind(env_json)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -28,7 +28,10 @@ export type AgentInstanceSwitcherProps = {
   mutating?: boolean;
   onSelectInstance: (instanceId: string) => void | Promise<unknown>;
   onCreateInstance: (displayName: string) => Promise<unknown>;
-  onRenameInstance: (instanceId: string, displayName: string) => Promise<unknown>;
+  onRenameInstance: (
+    instanceId: string,
+    displayName: string
+  ) => Promise<unknown>;
   onSetDefaultInstance: (instanceId: string) => Promise<unknown>;
   onDeleteInstance: (instanceId: string) => Promise<unknown>;
 };
@@ -87,7 +90,10 @@ export function AgentInstanceSwitcher({
     if (!renamingInstance || mutating) return;
     const trimmed = renameValue.trim();
     if (!trimmed) return;
-    const updated = await onRenameInstance(renamingInstance.instanceId, trimmed);
+    const updated = await onRenameInstance(
+      renamingInstance.instanceId,
+      trimmed
+    );
     if (updated) {
       setRenamingInstance(null);
       setRenameValue('');

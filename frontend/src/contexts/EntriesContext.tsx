@@ -491,7 +491,9 @@ export const EntriesProvider = ({
 
   return (
     <EntriesActionsContext.Provider value={actionsValue}>
-      <EntriesContext.Provider value={value}>{children}</EntriesContext.Provider>
+      <EntriesContext.Provider value={value}>
+        {children}
+      </EntriesContext.Provider>
     </EntriesActionsContext.Provider>
   );
 };

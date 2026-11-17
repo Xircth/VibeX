@@ -460,7 +460,8 @@ impl ConversationAgentEventRecorder {
                 .iter()
                 .map(|entry| entry.batch_event().clone())
                 .collect();
-            let outcome = ConversationEventAppender::append_batch(&self.pool, &batch_inputs).await?;
+            let outcome =
+                ConversationEventAppender::append_batch(&self.pool, &batch_inputs).await?;
 
             let mut committed_pairs: Vec<(usize, ConversationEventRecord)> = outcome
                 .committed
@@ -497,8 +498,7 @@ impl ConversationAgentEventRecorder {
                     ConversationEventAppender::append_batch(&self.pool, &fk_retry_inputs).await?;
                 for committed in retry_outcome.committed {
                     if !committed.duplicate {
-                        committed_pairs
-                            .push((fk_retry_indices[committed.index], committed.record));
+                        committed_pairs.push((fk_retry_indices[committed.index], committed.record));
                     }
                 }
                 for (retry_idx, error) in retry_outcome.failed {
@@ -758,11 +758,9 @@ impl ConversationAgentEventRecorder {
                     );
                 }
                 crate::collaboration::reset_space_turn_streaming_step(conversation_id);
-                let _ = crate::collaboration::release_member_write(
-                    &pool_for_collab,
-                    conversation_id,
-                )
-                .await;
+                let _ =
+                    crate::collaboration::release_member_write(&pool_for_collab, conversation_id)
+                        .await;
                 if let Some(context) = next_input_context
                     && let Err(error) = ConversationSessionService::new(context)
                         .dispatch_next_queued_input(conversation_id)
@@ -1111,8 +1109,10 @@ async fn append_mapped_event(
     mapped: &MappedConversationEventRecord,
     normalized_json: &str,
 ) -> Result<Option<ConversationEventRecord>, sqlx::Error> {
-    let initial = batch_event_from_mapped(mapped, normalized_json.to_string(), mapped.turn_id, None);
-    let mut out = ConversationEventAppender::append_batch(pool, &[initial.clone()]).await?;
+    let initial =
+        batch_event_from_mapped(mapped, normalized_json.to_string(), mapped.turn_id, None);
+    let mut out =
+        ConversationEventAppender::append_batch(pool, std::slice::from_ref(&initial)).await?;
     if let Some(c) = out.committed.pop() {
         return Ok((!c.duplicate).then_some(c.record));
     }
@@ -1213,7 +1213,8 @@ fn start_agent_event_persistence_loop(
     mut receiver: mpsc::Receiver<AgentEventEnvelope>,
     mut on_envelope: impl FnMut(&AgentEventEnvelope) + Send + 'static,
 ) -> JoinHandle<()> {
-    let (flush_tx, mut flush_rx) = mpsc::unbounded_channel::<(Uuid, tokio::sync::oneshot::Sender<()>)>();
+    let (flush_tx, mut flush_rx) =
+        mpsc::unbounded_channel::<(Uuid, tokio::sync::oneshot::Sender<()>)>();
     if let Ok(mut guard) = ACTIVE_RECORDER_FLUSHERS.lock() {
         guard.retain(|tx| !tx.is_closed());
         guard.push(flush_tx);

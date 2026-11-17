@@ -361,6 +361,7 @@ fn same_archive_identity(left: &StoredProfile, right: &StoredProfile) -> bool {
 }
 
 impl HostClientRuntime {
+    #[cfg(test)]
     pub async fn set_sync_account(
         &self,
         registry: &RemoteDesktopRegistry,
@@ -797,16 +798,15 @@ impl HostClientRuntime {
                 };
 
                 if let Some(cred) = incoming_credential {
-                    if !local_has_valid_token || !local_is_newer {
-                        if profile.access_token.as_deref() != Some(cred.access_token.as_str())
+                    if (!local_has_valid_token || !local_is_newer)
+                        && (profile.access_token.as_deref() != Some(cred.access_token.as_str())
                             || profile.device_id != cred.device_id
-                            || profile.needs_token
-                        {
-                            profile.device_id = cred.device_id;
-                            profile.access_token = Some(cred.access_token);
-                            profile.needs_token = false;
-                            changed = true;
-                        }
+                            || profile.needs_token)
+                    {
+                        profile.device_id = cred.device_id;
+                        profile.access_token = Some(cred.access_token);
+                        profile.needs_token = false;
+                        changed = true;
                     }
                 } else if !local_has_valid_token && !profile.needs_token {
                     profile.needs_token = true;
@@ -926,7 +926,7 @@ mod tests {
             .set_local_host_id(Some("self-host-uuid".to_string()))
             .await;
 
-        let mut state = StoredState {
+        let state = StoredState {
             signed_in_account_id: Some("user-a".into()),
             profiles: vec![
                 // 1) Pure loopback manual profile -> excluded
@@ -968,7 +968,7 @@ mod tests {
             ],
             ..StoredState::default()
         };
-        runtime.save_state(&mut state).await.expect("save");
+        runtime.save_state(&state).await.expect("save");
 
         let bundle = runtime.export_sync_bundle("user-a").await.expect("export");
         assert_eq!(bundle.profiles.len(), 1);

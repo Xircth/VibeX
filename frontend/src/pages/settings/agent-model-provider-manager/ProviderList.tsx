@@ -200,7 +200,10 @@ export function ProviderList({
               canDelete={!provider.bound && providers.length > 1}
               probe={probes[provider.id]}
               onEnable={() =>
-                void bind(provider.id, multiEnable ? !provider.bound : undefined)
+                void bind(
+                  provider.id,
+                  multiEnable ? !provider.bound : undefined
+                )
               }
               onEdit={() => openEdit(provider)}
               onTest={() => void testConnection(provider)}

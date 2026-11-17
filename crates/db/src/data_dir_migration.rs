@@ -82,11 +82,10 @@ pub async fn inspect_sqlite_content_summary(db_file: &Path) -> Option<DbContentS
         }
     };
 
-    let conversation_count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or(0);
+    let conversation_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
     let project_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects")
         .fetch_one(&pool)
         .await

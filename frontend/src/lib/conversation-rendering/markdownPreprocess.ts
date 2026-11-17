@@ -199,7 +199,8 @@ function protectMathSpansInTextSegment(
       const closeAt = value.indexOf('$$', index + 2);
       if (closeAt !== -1) {
         const end = closeAt + 2;
-        out += value.slice(copyStart, index) + pushSpan(value.slice(index, end));
+        out +=
+          value.slice(copyStart, index) + pushSpan(value.slice(index, end));
         index = end;
         copyStart = end;
         continue;

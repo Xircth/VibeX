@@ -311,7 +311,12 @@ async fn resolve_side_chat_target(
 }
 
 fn normalize_tool_status(raw: Option<&str>) -> String {
-    match raw.unwrap_or("running").trim().to_ascii_lowercase().as_str() {
+    match raw
+        .unwrap_or("running")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "completed" | "done" | "succeeded" | "success" => "completed".to_string(),
         "failed" | "error" | "cancelled" | "canceled" => "failed".to_string(),
         _ => "running".to_string(),
@@ -366,7 +371,15 @@ pub(crate) async fn send(
     };
 
     let session = prepared.session;
-    bind_side_chat_run(domains, &key, generation, session.connection_id, session.id, None).await;
+    bind_side_chat_run(
+        domains,
+        &key,
+        generation,
+        session.connection_id,
+        session.id,
+        None,
+    )
+    .await;
     if cancel.is_cancelled() {
         if let Some(run) = finish_side_chat_run(domains, &key, generation).await {
             abort_side_chat_run(domains, run).await;

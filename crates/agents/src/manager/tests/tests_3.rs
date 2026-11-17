@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn session_new_after_load_maps_fs_permission_denied_to_busy() {
     let error = acp::Error::new(-32603, "Permission denied.").data(serde_json::json!({
@@ -82,17 +81,15 @@ fn kiro_models_and_reasoning_synthesize_session_controls() {
             ]
         }
     });
-    let (response, raw_models) =
-        deserialize_raw_session_response::<NewSessionResponse>(raw_reply)
-            .expect("deserialize raw session/new reply");
-    let (modes, config_options, vendor_config) =
-        session_controls_with_models_and_vendor_fallback(
-            response.modes,
-            response.config_options,
-            response.meta.as_ref(),
-            raw_models.as_ref(),
-            "kiro",
-        );
+    let (response, raw_models) = deserialize_raw_session_response::<NewSessionResponse>(raw_reply)
+        .expect("deserialize raw session/new reply");
+    let (modes, config_options, vendor_config) = session_controls_with_models_and_vendor_fallback(
+        response.modes,
+        response.config_options,
+        response.meta.as_ref(),
+        raw_models.as_ref(),
+        "kiro",
+    );
     assert_eq!(vendor_config, Some(VendorConfigWire::KiroSessionConfig));
     let (mut unified, mode_uses_set_mode) = unify_session_config_options(
         modes,
@@ -132,8 +129,7 @@ fn kiro_models_and_reasoning_synthesize_session_controls() {
             }
         })
     );
-    let thinking_req =
-        KiroExecuteCommandRequest::thinking(SessionId::new("kiro-sess-1"), false);
+    let thinking_req = KiroExecuteCommandRequest::thinking(SessionId::new("kiro-sess-1"), false);
     assert_eq!(
         serde_json::to_value(&thinking_req).unwrap(),
         serde_json::json!({
@@ -361,10 +357,7 @@ async fn failed_session_override_keeps_the_user_prompt_in_the_transcript() {
                     "Model",
                     "gemini-3.8-flash-high",
                     vec![
-                        SessionConfigSelectOption::new(
-                            "gemini-3.8-flash-high",
-                            "Gemini 3.8 Flash",
-                        ),
+                        SessionConfigSelectOption::new("gemini-3.8-flash-high", "Gemini 3.8 Flash"),
                         SessionConfigSelectOption::new("gemini-4-argon", "Gemini 4 Argon"),
                     ],
                 )
@@ -388,13 +381,11 @@ async fn failed_session_override_keeps_the_user_prompt_in_the_transcript() {
 
     let (client_write, agent_read) = tokio::io::duplex(64 * 1024);
     let (agent_write, client_read) = tokio::io::duplex(64 * 1024);
-    let agent_transport =
-        acp::ByteStreams::new(agent_write.compat_write(), agent_read.compat());
+    let agent_transport = acp::ByteStreams::new(agent_write.compat_write(), agent_read.compat());
     tokio::spawn(async move {
         let _ = acp::Agent.builder().connect_to(agent_transport).await;
     });
-    let client_transport =
-        acp::ByteStreams::new(client_write.compat_write(), client_read.compat());
+    let client_transport = acp::ByteStreams::new(client_write.compat_write(), client_read.compat());
     let (_cmd_tx, mut cmd_rx) = mpsc::channel(1);
     let request = RunPromptRequest {
         acp_session_id: acp_session_id.clone(),
@@ -531,8 +522,7 @@ fn refusal_max_tokens_and_max_turn_requests_emit_structured_turn_failure_errors(
     assert_eq!(refusal_err.code.as_deref(), Some("turn_failed_refusal"));
     assert!(refusal_err.message.contains("StopReason::Refusal"));
 
-    let max_tokens =
-        acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::MaxTokens);
+    let max_tokens = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::MaxTokens);
     let max_tokens_err = turn_failure_error_event(&max_tokens, &probe, &tail, mark)
         .expect("StopReason::MaxTokens must emit error");
     assert_eq!(
@@ -879,8 +869,7 @@ fn claude_modes(bypass: bool) -> SessionModeState {
         serde_json::json!({"id": "auto", "name": "Auto"}),
     ];
     if bypass {
-        modes
-            .push(serde_json::json!({"id": "bypassPermissions", "name": "Bypass permissions"}));
+        modes.push(serde_json::json!({"id": "bypassPermissions", "name": "Bypass permissions"}));
     }
     serde_json::from_value(serde_json::json!({
         "currentModeId": "default",
@@ -1116,9 +1105,7 @@ async fn session_info_goal_synthesizes_timeline_markers_and_normalizes_status() 
             }
         }
     });
-    assert!(
-        crate::codex_goal::session_info_goal_value(legacy_meta.as_object(), true).is_none()
-    );
+    assert!(crate::codex_goal::session_info_goal_value(legacy_meta.as_object(), true).is_none());
 
     // Neutral active goal synthesizes create_goal (codex-goal-1) + GoalUpdated.
     runner

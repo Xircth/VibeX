@@ -248,8 +248,7 @@ async fn host_rule_save<C: HostCommandCaller>(
         .unwrap_or_else(|| normalized_args.clone());
     let mut spec = normalize_rule_spec_camel_case(&raw_spec);
 
-    let mandate_origin =
-        resolve_mandate_origin(env_mandate_override, meta, Some(raw_caller_args));
+    let mandate_origin = resolve_mandate_origin(env_mandate_override, meta, Some(raw_caller_args));
     let requested_enabled = bool_field(normalized_args, &["enabled"])
         .or_else(|| bool_field(raw_caller_args, &["enabled"]))
         .unwrap_or(false);
@@ -268,29 +267,30 @@ async fn host_rule_save<C: HostCommandCaller>(
         .unwrap_or("observe")
         .to_string();
 
-    let (final_enabled, final_draft_only, final_mode, security_notice) =
-        if mandate_origin == MandateOrigin::UntrustedExternal {
-            (
-                false,
-                true,
-                "observe".to_string(),
-                Some(json!({
-                    "coerced": true,
-                    "code": "untrusted_mandate_draft_coercion",
-                    "mandateOrigin": "untrusted_external",
-                    "requestedEnabled": requested_enabled,
-                    "requestedEvalMode": requested_mode,
-                    "enforcedDraftOnly": true,
-                    "enforcedEnabled": false,
-                    "enforcedEvalMode": "observe",
-                    "message": "Caller MandateOrigin is untrusted_external; rule was coerced to draftOnly=true, enabled=false, evalMode=observe and requires explicit human confirmation.",
-                })),
-            )
-        } else if requested_draft {
-            (false, true, "observe".to_string(), None)
-        } else {
-            (requested_enabled, false, requested_mode, None)
-        };
+    let (final_enabled, final_draft_only, final_mode, security_notice) = if mandate_origin
+        == MandateOrigin::UntrustedExternal
+    {
+        (
+            false,
+            true,
+            "observe".to_string(),
+            Some(json!({
+                "coerced": true,
+                "code": "untrusted_mandate_draft_coercion",
+                "mandateOrigin": "untrusted_external",
+                "requestedEnabled": requested_enabled,
+                "requestedEvalMode": requested_mode,
+                "enforcedDraftOnly": true,
+                "enforcedEnabled": false,
+                "enforcedEvalMode": "observe",
+                "message": "Caller MandateOrigin is untrusted_external; rule was coerced to draftOnly=true, enabled=false, evalMode=observe and requires explicit human confirmation.",
+            })),
+        )
+    } else if requested_draft {
+        (false, true, "observe".to_string(), None)
+    } else {
+        (requested_enabled, false, requested_mode, None)
+    };
 
     if let Some(spec_obj) = spec.as_object_mut() {
         spec_obj.remove("eval_mode");
@@ -301,13 +301,10 @@ async fn host_rule_save<C: HostCommandCaller>(
         .or_else(|| str_field(raw_caller_args, &["id"]))
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let webhook_route_id = str_field(
-        normalized_args,
-        &["webhook_route_id", "webhookRouteId"],
-    )
-    .or_else(|| str_field(raw_caller_args, &["webhook_route_id", "webhookRouteId"]))
-    .map(str::trim)
-    .filter(|s| !s.is_empty());
+    let webhook_route_id = str_field(normalized_args, &["webhook_route_id", "webhookRouteId"])
+        .or_else(|| str_field(raw_caller_args, &["webhook_route_id", "webhookRouteId"]))
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let mut input_map = Map::new();
     input_map.insert("id".into(), json!(id));
@@ -327,7 +324,9 @@ async fn host_rule_save<C: HostCommandCaller>(
     {
         Ok(mut host_data) => {
             redact_secrets(&mut host_data);
-            if host_data.is_object() && host_data.get("rule").is_none() && host_data.get("id").is_some()
+            if host_data.is_object()
+                && host_data.get("rule").is_none()
+                && host_data.get("id").is_some()
             {
                 let rule_snapshot = host_data.clone();
                 if let Some(obj) = host_data.as_object_mut() {
@@ -417,10 +416,9 @@ async fn host_thread_subscribe<C: HostCommandCaller>(
                         .and_then(Value::as_array)
                         .and_then(|subs| {
                             subs.iter().find_map(|s| {
-                                let matches_pair =
-                                    s.get("threadKey").and_then(Value::as_str) == Some(tk)
-                                        && s.get("subscriberId").and_then(Value::as_str)
-                                            == Some(sid);
+                                let matches_pair = s.get("threadKey").and_then(Value::as_str)
+                                    == Some(tk)
+                                    && s.get("subscriberId").and_then(Value::as_str) == Some(sid);
                                 if matches_pair {
                                     s.get("id").and_then(Value::as_str).map(str::to_string)
                                 } else {

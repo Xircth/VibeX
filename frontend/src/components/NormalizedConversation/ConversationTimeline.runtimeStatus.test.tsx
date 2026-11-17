@@ -350,7 +350,9 @@ describe('ConversationTimeline runtime status placement & localization', () => {
       within(logsArea).getByTestId('agent-request-status')
     ).toHaveTextContent('连接中...');
     expect(within(logsArea).getAllByRole('status')).toHaveLength(1);
-    expect(container.textContent).not.toContain('runtime.request.waiting_agent');
+    expect(container.textContent).not.toContain(
+      'runtime.request.waiting_agent'
+    );
 
     history.view = makeView(
       [
@@ -393,7 +395,9 @@ describe('ConversationTimeline runtime status placement & localization', () => {
       </MemoryRouter>
     );
 
-    expect(container.textContent).not.toContain('runtime.request.waiting_agent');
+    expect(container.textContent).not.toContain(
+      'runtime.request.waiting_agent'
+    );
     expect(container.textContent).toContain('等待 Agent 响应');
   });
 

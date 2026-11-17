@@ -64,7 +64,9 @@ describe('ComposerStashMenu', () => {
     expect(screen.queryByTestId('composer-stash-push-button')).toBeNull();
     expect(screen.queryByTestId('composer-stash-menu-trigger')).toBeNull();
 
-    const input = screen.getByLabelText('composer-draft') as HTMLTextAreaElement;
+    const input = screen.getByLabelText(
+      'composer-draft'
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'First stashed prompt' } });
 
     // 1-click stash when stack is empty
@@ -140,9 +142,13 @@ describe('ComposerStashMenu', () => {
 
   it('pops latest stashed draft via Ctrl+Alt+S when composer is empty', () => {
     render(<StashHarness scopeId="ws-shortcut" />);
-    const input = screen.getByLabelText('composer-draft') as HTMLTextAreaElement;
+    const input = screen.getByLabelText(
+      'composer-draft'
+    ) as HTMLTextAreaElement;
 
-    fireEvent.change(input, { target: { value: 'Shortcut draft [:quote](abc)' } });
+    fireEvent.change(input, {
+      target: { value: 'Shortcut draft [:quote](abc)' },
+    });
     fireEvent.keyDown(window, { key: 's', ctrlKey: true, altKey: true });
     expect(input.value).toBe('');
 

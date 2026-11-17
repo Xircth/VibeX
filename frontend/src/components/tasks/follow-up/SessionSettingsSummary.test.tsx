@@ -354,11 +354,15 @@ describe('SessionSettingsSummary', () => {
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('session-settings-summary'));
-    expect(screen.getByRole('radiogroup', { name: '切换 Agent' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('radiogroup', { name: '切换 Agent' })
+    ).toBeInTheDocument();
     const layeredShell = screen.getByTestId('session-settings-layered-shell');
     const railContainer = screen.getByTestId('session-settings-agent-rail');
     const detailCard = screen.getByTestId('session-settings-detail-card');
-    const outerPopover = layeredShell.closest('[data-floating-layer="popover"]');
+    const outerPopover = layeredShell.closest(
+      '[data-floating-layer="popover"]'
+    );
     expect(outerPopover).toHaveClass(
       'rounded-lg',
       'border',
@@ -366,7 +370,12 @@ describe('SessionSettingsSummary', () => {
       'bg-popover'
     );
     expect(outerPopover).not.toHaveClass('border-2');
-    expect(layeredShell).toHaveClass('flex', 'min-h-[11rem]', 'items-stretch', 'p-1');
+    expect(layeredShell).toHaveClass(
+      'flex',
+      'min-h-[11rem]',
+      'items-stretch',
+      'p-1'
+    );
     expect(railContainer).toHaveClass(
       'absolute',
       'inset-0',
@@ -379,7 +388,9 @@ describe('SessionSettingsSummary', () => {
     expect(detailCard).toHaveClass('min-h-[10.5rem]', 'bg-popover', 'p-1');
     expect(detailCard).not.toHaveClass('border');
     expect(detailCard).not.toHaveClass('border-border/80');
-    expect(within(detailCard).queryByText('Claude Code')).not.toBeInTheDocument();
+    expect(
+      within(detailCard).queryByText('Claude Code')
+    ).not.toBeInTheDocument();
     expect(within(detailCard).queryByText('本次会话')).not.toBeInTheDocument();
     expect(within(detailCard).getByText('Model')).toBeInTheDocument();
 
@@ -388,7 +399,9 @@ describe('SessionSettingsSummary', () => {
       executor: 'codex',
       variant: null,
     });
-    expect(screen.getByRole('radiogroup', { name: '切换 Agent' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('radiogroup', { name: '切换 Agent' })
+    ).toBeInTheDocument();
   });
 
   it('stays mounted with the selected agent name when an agent advertises no session options', async () => {

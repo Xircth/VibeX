@@ -63,9 +63,9 @@ pub(crate) fn session_servers(path: &Path) -> Vec<McpServer> {
         .filter_map(|(name, spec)| {
             let parsed = to_session_server(name, spec);
             if parsed.is_none()
-                && !spec
+                && spec
                     .as_object()
-                    .is_some_and(|obj| obj.get("enabled").and_then(Value::as_bool) == Some(false))
+                    .is_none_or(|obj| obj.get("enabled").and_then(Value::as_bool) != Some(false))
             {
                 tracing::warn!(
                     path = %path.display(),

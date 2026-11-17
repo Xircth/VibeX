@@ -50,6 +50,7 @@ const LITERAL_COLOR_OWNERS: Record<string, true | readonly string[]> = {
     'bg-[#0ea5e9]',
     'text-white',
   ],
+  'components/onboarding/OnboardingAppearance.tsx': true,
   'components/onboarding/hero/AgentMark.tsx': true,
   'components/onboarding/hero/EquationIcons.tsx': true,
   'components/previews/imagePreviewAnnotations.ts': true,

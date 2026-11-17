@@ -122,8 +122,7 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
                 content: '## 部署步骤\n\n1. 先跑 **check** 再发布到 staging',
                 charCount: 64,
                 updatedAt: '2026-10-30T09:06:00Z',
-                filePath:
-                  'C:/Users/test/.dimo/spaces/s1/topics/deploy-flow.md',
+                filePath: 'C:/Users/test/.dimo/spaces/s1/topics/deploy-flow.md',
               },
             ],
             journal: [

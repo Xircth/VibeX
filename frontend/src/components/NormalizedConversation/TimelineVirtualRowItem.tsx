@@ -14,7 +14,10 @@ import {
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
-import { findMatchingAskQuestionTool, type TimelineQuestion } from '@/components/NormalizedConversation/TurnActivity';
+import {
+  findMatchingAskQuestionTool,
+  type TimelineQuestion,
+} from '@/components/NormalizedConversation/TurnActivity';
 import { mergeQuestionRequestWithToolUse } from '@/components/tasks/follow-up/agentQuestionModel';
 import { TimelineAgentHandoffRow } from '@/components/NormalizedConversation/ContextHandoffDivider';
 import { AgentRuntimeStatus } from '@/components/tasks/follow-up/AgentRuntimeStatus';
@@ -288,9 +291,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
       ? mergeMissingTurnStats(settled, liveStatsFallback)
       : settled;
     const forkDisabled =
-      isTurnInFlight ||
-      row.phase === 'streaming' ||
-      row.phase === 'optimistic';
+      isTurnInFlight || row.phase === 'streaming' || row.phase === 'optimistic';
     return {
       kind: 'settled' as const,
       copyText,
@@ -360,7 +361,10 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
           isLastSlice={isLastSlice}
         />
       ) : null}
-      {row?.turn.role === 'assistant' && isLastSlice && fileChanges && turnId ? (
+      {row?.turn.role === 'assistant' &&
+      isLastSlice &&
+      fileChanges &&
+      turnId ? (
         <div className="min-w-0 px-4">
           <TurnFileChangesCard
             summary={fileChanges.summary}

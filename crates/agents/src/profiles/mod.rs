@@ -314,10 +314,7 @@ impl BuiltInProfile {
         !matches!(
             AgentKind::from_lenient(self.agent_id.as_str()),
             Some(
-                AgentKind::Openclaw
-                    | AgentKind::Cline
-                    | AgentKind::Pi
-                    | AgentKind::DeepseekHarness
+                AgentKind::Openclaw | AgentKind::Cline | AgentKind::Pi | AgentKind::DeepseekHarness
             )
         )
     }
@@ -417,7 +414,9 @@ pub fn resolve_native_engine_cli(
     let cmd = native_engine_executable_name(agent_id)?;
     let extra_dirs = native_engine_extra_dirs(agent_id);
     if let Some(found) = resolve_cli_in_home_dirs(cmd, extra_dirs, home, true) {
-        return Some(workspace_utils::process::prefer_direct_spawn_executable(found));
+        return Some(workspace_utils::process::prefer_direct_spawn_executable(
+            found,
+        ));
     }
     None
 }
@@ -699,6 +698,6 @@ mod configs_b;
 #[cfg(test)]
 mod tests;
 
-pub(self) use built_ins::*;
-pub(self) use configs_a::*;
-pub(self) use configs_b::*;
+use built_ins::*;
+use configs_a::*;
+use configs_b::*;

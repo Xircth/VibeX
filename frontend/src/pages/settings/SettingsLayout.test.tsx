@@ -408,9 +408,7 @@ describe('SettingsLayout chrome', () => {
     expect(
       screen.getByRole('button', { name: '应用菜单与最近项目' })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('img', { name: /Dimo logo/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Dimo logo/i })).toBeInTheDocument();
   });
 
   it('places the Dimo logo on the leading edge on Windows and Linux', () => {

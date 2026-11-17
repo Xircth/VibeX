@@ -30,8 +30,13 @@ fn build_mode_state(spec: &EngineModeSpec, yolo: bool) -> SessionModeState {
         .modes
         .iter()
         .map(|choice| {
-            let mut mode = acp::schema::v1::SessionMode::new(choice.id.clone(), choice.label.clone());
-            if let Some(desc) = choice.description.as_deref().filter(|d| !d.trim().is_empty()) {
+            let mut mode =
+                acp::schema::v1::SessionMode::new(choice.id.clone(), choice.label.clone());
+            if let Some(desc) = choice
+                .description
+                .as_deref()
+                .filter(|d| !d.trim().is_empty())
+            {
                 mode = mode.description(desc.to_string());
             }
             mode
@@ -49,7 +54,13 @@ fn build_effort_option(spec: &EngineEffortSpec) -> AcpSessionConfigOption {
     let choices = spec
         .choices
         .iter()
-        .map(|choice| build_select_choice(choice.id.clone(), choice.label.clone(), choice.description.clone()))
+        .map(|choice| {
+            build_select_choice(
+                choice.id.clone(),
+                choice.label.clone(),
+                choice.description.clone(),
+            )
+        })
         .collect();
     AcpSessionConfigOption::select(
         "effort",
@@ -164,8 +175,7 @@ impl AgentConnectionRunner {
             .args
             .iter()
             .any(|arg| arg.eq_ignore_ascii_case("acp"));
-        let is_acp_adapter_binary =
-            stem.ends_with("-acp") || stem.ends_with("_acp") || has_acp_arg;
+        let is_acp_adapter_binary = stem.ends_with("-acp") || stem.ends_with("_acp") || has_acp_arg;
 
         if !is_acp_adapter_binary {
             return false;
@@ -643,9 +653,7 @@ impl AgentConnectionRunner {
             .map(|o| o.value.trim().to_string())
             .filter(|s| !s.is_empty())
             .or(preferred_model)
-            .or_else(|| {
-                stored.and_then(|s| s.asserted_config_values.get("model").cloned())
-            })
+            .or_else(|| stored.and_then(|s| s.asserted_config_values.get("model").cloned()))
             .or_else(|| self.snapshot.env.get("DIMO_DEFAULT_MODEL").cloned())
             .filter(|candidate| driver.accepts_model_id(candidate, &merged_env));
 
@@ -663,8 +671,9 @@ impl AgentConnectionRunner {
                 })
             });
 
-        let raw_mode = explicit_mode
-            .or_else(|| stored.and_then(|s| current_select_option_value(&s.config_options, "mode")));
+        let raw_mode = explicit_mode.or_else(|| {
+            stored.and_then(|s| current_select_option_value(&s.config_options, "mode"))
+        });
 
         let normalized_mode = raw_mode
             .as_deref()

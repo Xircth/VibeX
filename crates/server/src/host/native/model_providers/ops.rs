@@ -429,9 +429,7 @@ pub(super) fn provider_is_in_use(
         let slug = pi_native_id(provider);
         if native.providers.iter().any(|item| {
             !item.api_url.is_empty()
-                && (item.id == provider.id
-                    || item.id == slug
-                    || item.api_url == provider.api_url)
+                && (item.id == provider.id || item.id == slug || item.api_url == provider.api_url)
         }) {
             return true;
         }

@@ -152,8 +152,7 @@ export function applyConflictHunk(
       0,
       activeMatchingHunks.findIndex((item) => item.index === hunkIndex)
     );
-    targetBlock =
-      matchingBlocks[Math.min(ordinal, matchingBlocks.length - 1)];
+    targetBlock = matchingBlocks[Math.min(ordinal, matchingBlocks.length - 1)];
   }
 
   if (!targetBlock) return result;

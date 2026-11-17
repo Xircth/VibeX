@@ -4,7 +4,7 @@
  * ─────────────────────────────────────────────────────────────────────────── */
 
 .automation-filter-table-shell {
-  --grid-line: color-mix(in srgb, var(--border-subtle, #e5e5e5) 80%, transparent);
+  --grid-line: color-mix(in srgb, var(--border-subtle) 80%, transparent);
 }
 
 .automation-filter-no-scrollbar {
@@ -20,23 +20,23 @@
 
 .dark .automation-filter-table-shell,
 .legacy-design.dark .automation-filter-table-shell {
-  --grid-line: rgba(255, 255, 255, 0.08);
+  --grid-line: hsl(var(--foreground) / 0.08);
 }
 
 .automation-filter-table-card {
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   background: var(--surface-content, hsl(var(--card)));
   border: 1px solid var(--border-subtle, hsl(var(--border) / 0.7));
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.03),
-    0 4px 12px rgba(0, 0, 0, 0.025);
+    0 1px 2px hsl(var(--shadow-ink) / 0.03),
+    0 4px 12px hsl(var(--shadow-ink) / 0.025);
 }
 
 .dark .automation-filter-table-card,
 .legacy-design.dark .automation-filter-table-card {
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.25),
-    0 6px 16px rgba(0, 0, 0, 0.18);
+    0 1px 2px hsl(var(--shadow-ink) / 0.25),
+    0 6px 16px hsl(var(--shadow-ink) / 0.18);
 }
 
 .automation-filter-chip {
@@ -47,15 +47,15 @@
   background: var(--surface-raised-control, hsl(var(--background)));
   color: var(--text-strong, hsl(var(--foreground)));
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    inset 0 0 0 1px color-mix(in srgb, var(--border-subtle, #d4d4d4) 85%, transparent);
+    0 1px 2px hsl(var(--shadow-ink) / 0.06),
+    inset 0 0 0 1px color-mix(in srgb, var(--border-strong) 85%, transparent);
 }
 
 .dark .automation-filter-chip.is-active,
 .legacy-design.dark .automation-filter-chip.is-active {
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.35),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    0 1px 2px hsl(var(--shadow-ink) / 0.35),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.12);
 }
 
 .automation-filter-row {
@@ -63,75 +63,79 @@
 }
 
 .automation-filter-row:hover {
-  background: color-mix(in srgb, var(--surface-hover, rgba(0, 0, 0, 0.04)) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-hover) 70%, transparent);
 }
 
 .automation-filter-row.is-selected {
-  background: color-mix(in srgb, hsl(var(--primary)) 8%, var(--surface-content, transparent));
+  background: color-mix(
+    in srgb,
+    hsl(var(--primary)) 8%,
+    var(--surface-content, transparent)
+  );
 }
 
 /* Status pills — matching FilterTable aesthetic across light & dark */
 .filter-status-todo {
-  background: rgba(240, 154, 47, 0.12);
-  border-color: rgba(240, 154, 47, 0.28);
-  color: #b4690e;
+  background: hsl(var(--warning) / 0.12);
+  border-color: hsl(var(--warning) / 0.28);
+  color: var(--status-warning-text);
 }
 
 .dark .filter-status-todo,
 .legacy-design.dark .filter-status-todo {
-  background: rgba(240, 154, 47, 0.16);
-  border-color: rgba(240, 154, 47, 0.34);
-  color: #fbbf24;
+  background: hsl(var(--warning) / 0.16);
+  border-color: hsl(var(--warning) / 0.34);
+  color: var(--status-warning-text);
 }
 
 .filter-status-progress {
-  background: rgba(22, 166, 199, 0.11);
-  border-color: rgba(22, 166, 199, 0.28);
-  color: #0e7490;
+  background: hsl(var(--info) / 0.11);
+  border-color: hsl(var(--info) / 0.28);
+  color: var(--status-info-text);
 }
 
 .dark .filter-status-progress,
 .legacy-design.dark .filter-status-progress {
-  background: rgba(22, 166, 199, 0.16);
-  border-color: rgba(22, 166, 199, 0.34);
-  color: #38bdf8;
+  background: hsl(var(--info) / 0.16);
+  border-color: hsl(var(--info) / 0.34);
+  color: var(--status-info-text);
 }
 
 .filter-status-done {
-  background: rgba(37, 168, 120, 0.12);
-  border-color: rgba(37, 168, 120, 0.28);
-  color: #167956;
+  background: hsl(var(--success) / 0.12);
+  border-color: hsl(var(--success) / 0.28);
+  color: var(--status-success-text);
 }
 
 .dark .filter-status-done,
 .legacy-design.dark .filter-status-done {
-  background: rgba(37, 168, 120, 0.16);
-  border-color: rgba(37, 168, 120, 0.34);
-  color: #34d399;
+  background: hsl(var(--success) / 0.16);
+  border-color: hsl(var(--success) / 0.34);
+  color: var(--status-success-text);
 }
 
 .filter-status-paused {
-  background: rgba(115, 115, 115, 0.1);
-  border-color: rgba(115, 115, 115, 0.22);
-  color: #525252;
+  background: hsl(var(--muted-foreground) / 0.1);
+  border-color: hsl(var(--muted-foreground) / 0.22);
+  color: var(--text-muted);
 }
 
 .dark .filter-status-paused,
 .legacy-design.dark .filter-status-paused {
-  background: rgba(163, 163, 163, 0.12);
-  border-color: rgba(163, 163, 163, 0.24);
-  color: #a3a3a3;
+  background: hsl(var(--muted-foreground) / 0.12);
+  border-color: hsl(var(--muted-foreground) / 0.24);
+  color: var(--text-muted);
 }
 
 .filter-status-error {
-  background: rgba(239, 68, 68, 0.11);
-  border-color: rgba(239, 68, 68, 0.26);
-  color: #b91c1c;
+  background: hsl(var(--destructive) / 0.11);
+  border-color: hsl(var(--destructive) / 0.26);
+  color: var(--status-danger-text);
 }
 
 .dark .filter-status-error,
 .legacy-design.dark .filter-status-error {
-  background: rgba(239, 68, 68, 0.16);
-  border-color: rgba(239, 68, 68, 0.34);
-  color: #f87171;
+  background: hsl(var(--destructive) / 0.16);
+  border-color: hsl(var(--destructive) / 0.34);
+  color: var(--status-danger-text);
 }

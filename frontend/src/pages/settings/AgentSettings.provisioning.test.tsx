@@ -635,7 +635,7 @@ describe('AgentSettings (provisioning, preflight & updates)', () => {
     render(<AgentSettings />);
     await userEvent.click(
       await screen.findByRole('button', {
-        name: '展开 原生引擎运行时 的检查详情',
+        name: '展开 运行入口 的检查详情',
       })
     );
     await waitFor(() =>
@@ -714,7 +714,7 @@ describe('AgentSettings (provisioning, preflight & updates)', () => {
     );
     await userEvent.click(
       await screen.findByRole('button', {
-        name: '展开 原生引擎运行时 的检查详情',
+        name: '展开 运行入口 的检查详情',
       })
     );
     expect(await screen.findByTitle('0.168.0')).toBeInTheDocument();

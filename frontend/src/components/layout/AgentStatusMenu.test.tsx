@@ -207,9 +207,10 @@ describe('AgentStatusMenu', () => {
     );
 
     const cursorRow = screen.getByRole('listitem', { name: /Cursor/ });
-    expect(
-      within(cursorRow).getByRole('status')
-    ).toHaveAttribute('data-status', 'needs_auth');
+    expect(within(cursorRow).getByRole('status')).toHaveAttribute(
+      'data-status',
+      'needs_auth'
+    );
     expect(within(cursorRow).getByText('待鉴权')).toBeInTheDocument();
 
     const piRow = screen.getByRole('listitem', { name: /Pi/ });
@@ -259,9 +260,13 @@ describe('AgentStatusMenu', () => {
 
     // Column 2: Agent name + "默认" badge right next to it
     expect(claude.children[1]).toHaveTextContent('Claude Code');
-    expect(within(claude.children[1] as HTMLElement).getByText('默认')).toBeInTheDocument();
+    expect(
+      within(claude.children[1] as HTMLElement).getByText('默认')
+    ).toBeInTheDocument();
     expect(codex.children[1]).toHaveTextContent('Codex');
-    expect(within(codex.children[1] as HTMLElement).queryByText('默认')).toBeNull();
+    expect(
+      within(codex.children[1] as HTMLElement).queryByText('默认')
+    ).toBeNull();
 
     // Column 3: Preflight-style "可更新" component to the left of the status badge
     expect(claude.children[2]).toHaveTextContent('可更新');

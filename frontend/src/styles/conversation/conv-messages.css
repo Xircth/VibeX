@@ -531,7 +531,7 @@
 .conv-message-nav-scrub-role {
   flex-shrink: 0;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-none);
   background: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
   font-size: 10px;

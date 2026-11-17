@@ -52,11 +52,7 @@ impl ServerApplicationDomains {
         }
     }
 
-    async fn deliver_outbox_record(
-        &self,
-        record: &PulseOutboxRecord,
-        now: chrono::DateTime<Utc>,
-    ) {
+    async fn deliver_outbox_record(&self, record: &PulseOutboxRecord, now: chrono::DateTime<Utc>) {
         let store = self.pulse_engine.store();
         let now_iso = now.to_rfc3339();
 
@@ -479,10 +475,7 @@ impl ServerApplicationDomains {
             .filter(|s| !s.is_empty())
     }
 
-    async fn deliver_outbox_webhook_post(
-        &self,
-        record: &PulseOutboxRecord,
-    ) -> Result<(), String> {
+    async fn deliver_outbox_webhook_post(&self, record: &PulseOutboxRecord) -> Result<(), String> {
         let destination = extract_outbox_destination(&record.payload);
         if destination.starts_with("http://") || destination.starts_with("https://") {
             let headers = extract_outbox_headers(&record.payload);
@@ -515,10 +508,7 @@ impl ServerApplicationDomains {
         }
     }
 
-    async fn deliver_outbox_reply_channel(
-        &self,
-        record: &PulseOutboxRecord,
-    ) -> Result<(), String> {
+    async fn deliver_outbox_reply_channel(&self, record: &PulseOutboxRecord) -> Result<(), String> {
         let raw_dest = extract_outbox_destination(&record.payload);
         let destination = if raw_dest.is_empty()
             || raw_dest.eq_ignore_ascii_case("auto")
@@ -637,9 +627,7 @@ fn extract_reply_channel_destination(payload: &Value) -> Option<String> {
                 .map(str::to_string)
                 .or_else(|| channel_id.map(|c| c.to_string()));
         }
-        thread_id
-            .or(channel_id)
-            .map(str::to_string)
+        thread_id.or(channel_id).map(str::to_string)
     };
 
     if let Some(rc) = payload
@@ -677,7 +665,9 @@ fn looks_like_github_comment_target(destination: &str) -> bool {
     }
     if let Some((repo, num)) = trimmed.split_once('#') {
         let segs: Vec<&str> = repo.trim().split('/').filter(|s| !s.is_empty()).collect();
-        return segs.len() == 2 && !num.trim().is_empty() && num.trim().chars().all(|c| c.is_ascii_digit());
+        return segs.len() == 2
+            && !num.trim().is_empty()
+            && num.trim().chars().all(|c| c.is_ascii_digit());
     }
     if let Some((repo, sha)) = trimmed.split_once('@') {
         let segs: Vec<&str> = repo.trim().split('/').filter(|s| !s.is_empty()).collect();
@@ -924,9 +914,11 @@ mod tests {
         assert!(looks_like_github_comment_target("acme/dimo@deadbeef"));
         assert!(!looks_like_github_comment_target("space:ops"));
 
-        let (url, ep, repo) =
-            parse_github_comment_destination_with_base("github:acme/dimo#42", "http://127.0.0.1:8888")
-                .expect("pr destination");
+        let (url, ep, repo) = parse_github_comment_destination_with_base(
+            "github:acme/dimo#42",
+            "http://127.0.0.1:8888",
+        )
+        .expect("pr destination");
         assert_eq!(
             url,
             "http://127.0.0.1:8888/repos/acme/dimo/issues/42/comments"

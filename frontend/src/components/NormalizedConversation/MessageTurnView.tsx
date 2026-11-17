@@ -311,7 +311,10 @@ function renderItem(
 }
 
 function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+  if (
+    typeof window === 'undefined' ||
+    typeof window.matchMedia !== 'function'
+  ) {
     return false;
   }
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -361,10 +364,7 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
     >
       <PixelGridLoader size="sm" />
       <span className="conv-shimmer-text">{`${verb}…`}</span>
-      <span
-        ref={elapsedRef}
-        className="conv-streaming-elapsed tabular-nums"
-      >
+      <span ref={elapsedRef} className="conv-streaming-elapsed tabular-nums">
         {formatLoadingElapsed(0)}
       </span>
     </div>

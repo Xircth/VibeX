@@ -327,7 +327,8 @@ async fn non_native_engine_steer_cancels_active_turn_and_restarts_immediately() 
 }
 
 #[tokio::test]
-async fn promoting_third_queued_message_on_non_native_engine_dispatches_msg3_before_msg1_and_msg2() {
+async fn promoting_third_queued_message_on_non_native_engine_dispatches_msg3_before_msg1_and_msg2()
+{
     let fx = SteeringFixture::new(None).await;
     let pool = &fx.ctx.deployment.db().pool;
 
@@ -569,7 +570,7 @@ async fn rpc_steering_unsupported_falls_back_to_interrupt_restart_when_allowed()
 
 #[tokio::test]
 async fn submit_and_dispatch_pre_turn_failure_returns_err_and_cancels_input_without_stranding_queue()
-{
+ {
     let fx = SteeringFixture::new(None).await;
 
     let mut bad_input = fx.start_input("trigger pre-turn failure");

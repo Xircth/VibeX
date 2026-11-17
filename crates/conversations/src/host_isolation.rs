@@ -16,7 +16,7 @@ use agents::{
 };
 use db::models::provider_instance::{
     LOCAL_PROVIDER_INSTANCE_ID, ProviderInstanceRecord, ProviderInstanceStoreError,
-    canonical_provider_agent_id, candidate_provider_agent_ids,
+    candidate_provider_agent_ids, canonical_provider_agent_id,
 };
 use sqlx::SqlitePool;
 
@@ -72,10 +72,7 @@ pub fn isolated_instance_native_dir(
 
 /// Remove local-instance auth, provider-routing, and directory-override env vars
 /// before assembling a custom isolated instance's launch environment.
-pub(crate) fn scrub_local_auth_and_dir_env(
-    agent_id: &AgentId,
-    env: &mut HashMap<String, String>,
-) {
+pub(crate) fn scrub_local_auth_and_dir_env(agent_id: &AgentId, env: &mut HashMap<String, String>) {
     for key in AMBIENT_PROVIDER_CREDENTIAL_ENV_KEYS {
         env.remove(*key);
     }
@@ -504,8 +501,7 @@ pub(crate) async fn apply_provider_instance_launch_env(
                 .or_else(|| env.get("USERPROFILE"))
                 .map(PathBuf::from)
                 .map(|home| home.join(".codex"));
-            if let Err(err) =
-                prepare_codex_shadow_home(source_codex_home.as_deref(), &isolated_dir)
+            if let Err(err) = prepare_codex_shadow_home(source_codex_home.as_deref(), &isolated_dir)
             {
                 tracing::warn!(
                     instance_id = %record.instance_id,
@@ -577,7 +573,10 @@ mod tests {
             ),
             ("ANTHROPIC_API_KEY".to_string(), "sk-local-leak".to_string()),
             ("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string()),
-            ("HTTP_PROXY".to_string(), "http://127.0.0.1:7890".to_string()),
+            (
+                "HTTP_PROXY".to_string(),
+                "http://127.0.0.1:7890".to_string(),
+            ),
         ]);
         let agent_id = AgentId::parse("claude_code").unwrap();
         let selected = apply_provider_instance_launch_env(

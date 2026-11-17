@@ -118,12 +118,7 @@ export function LocalAgentDetectedDialog({
           <Button type="button" variant="ghost" size="sm" onClick={selectAll}>
             {t('onboarding.localAgentsSelectAll')}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={deselectAll}
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={deselectAll}>
             {t('onboarding.localAgentsDeselectAll')}
           </Button>
         </div>

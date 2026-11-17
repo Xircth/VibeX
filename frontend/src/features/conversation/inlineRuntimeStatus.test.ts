@@ -179,7 +179,10 @@ describe('deriveInlineStreamRuntimeStatus', () => {
           message: 'socket closed',
           severity: 'error',
         },
-        latestTurnError: turnError('connection_closed', 'agent_connection_lost'),
+        latestTurnError: turnError(
+          'connection_closed',
+          'agent_connection_lost'
+        ),
         hasLatestTurnErrorRow: true,
         isTurnInFlight: false,
         hasStreamingAssistantRow: false,
@@ -340,7 +343,9 @@ describe('deriveInlineStreamRuntimeStatus', () => {
   });
 
   it('parses retry counts from reconnect progress titles', () => {
-    expect(parseReconnectProgressTitle('会话加载异常，正在重连 3/10 次…')).toEqual({
+    expect(
+      parseReconnectProgressTitle('会话加载异常，正在重连 3/10 次…')
+    ).toEqual({
       attempt: 3,
       maxAttempts: 10,
     });
@@ -351,4 +356,3 @@ describe('deriveInlineStreamRuntimeStatus', () => {
     expect(parseReconnectProgressTitle('正在连接 Agent…')).toBeNull();
   });
 });
-

@@ -299,7 +299,8 @@ describe('SessionCanvasCardNode', () => {
           panelComponent: 'preview',
           panelTitle: 'README.md',
           panelParams: {
-            filePath: 'C:\\Users\\18190\\Documents\\projects\\StallerLab\\README.md',
+            filePath:
+              'C:\\Users\\18190\\Documents\\projects\\StallerLab\\README.md',
           },
         }}
         selected={false}

@@ -145,7 +145,8 @@ pub async fn provider(
 
     let mut last_error = None;
     for url in urls {
-        let client = crate::host::native::local_http::client_for_url(&url, PROVIDER_CATALOG_TIMEOUT)?;
+        let client =
+            crate::host::native::local_http::client_for_url(&url, PROVIDER_CATALOG_TIMEOUT)?;
         match fetch_provider_models(&client, &agent_id, url, api_key).await {
             Ok(models) => {
                 return Ok(AgentModelCatalogView {

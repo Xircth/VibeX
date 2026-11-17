@@ -6,9 +6,8 @@ export function isDockviewApiDisposed(
   api: DockviewApi | null | undefined
 ): boolean {
   if (!api) return true;
-  const component = (
-    api as unknown as { component?: { isDisposed?: boolean } }
-  ).component;
+  const component = (api as unknown as { component?: { isDisposed?: boolean } })
+    .component;
   return component?.isDisposed === true;
 }
 

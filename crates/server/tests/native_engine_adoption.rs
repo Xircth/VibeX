@@ -89,7 +89,8 @@ async fn call(app: Router, command: &str, args: serde_json::Value) -> serde_json
 }
 
 #[test]
-fn claude_code_and_codex_adopt_on_discovery_preflight_and_enable_without_resurrecting_uninstalled() {
+fn claude_code_and_codex_adopt_on_discovery_preflight_and_enable_without_resurrecting_uninstalled()
+{
     // Debug Host bootstrap exceeds the default Windows test-thread stack.
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)

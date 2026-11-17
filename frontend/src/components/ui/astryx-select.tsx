@@ -301,7 +301,9 @@ export function AstryxSelect({
         <span
           className={cn(
             'astryx-select-trigger-label',
-            showSelectedIcon && selected?.icon && 'inline-flex items-center gap-1.5',
+            showSelectedIcon &&
+              selected?.icon &&
+              'inline-flex items-center gap-1.5',
             !selected && 'is-placeholder'
           )}
         >

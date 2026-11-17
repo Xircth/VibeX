@@ -175,22 +175,19 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
     }
   }, [baseUrl]);
 
-  const createTransport = useCallback(
-    (host: string, resolvedToken: string) => {
-      const candidate = new WebTransport({
-        baseUrl: host,
-        token: resolvedToken,
-        onAuthError: (authError) => {
-          clearStoredWebSession();
-          candidate.destroy();
-          setTransport((current) => (current === candidate ? null : current));
-          setError(authError.message || tRef.current('webConnect.authFailed'));
-        },
-      });
-      return candidate;
-    },
-    []
-  );
+  const createTransport = useCallback((host: string, resolvedToken: string) => {
+    const candidate = new WebTransport({
+      baseUrl: host,
+      token: resolvedToken,
+      onAuthError: (authError) => {
+        clearStoredWebSession();
+        candidate.destroy();
+        setTransport((current) => (current === candidate ? null : current));
+        setError(authError.message || tRef.current('webConnect.authFailed'));
+      },
+    });
+    return candidate;
+  }, []);
 
   useEffect(() => {
     const handleDisconnect = () => {

@@ -68,11 +68,7 @@ pub(crate) fn binding_matches_target_instance(
     match binding.continuation_key.as_deref() {
         Some(existing_key) if !binding.working_dir.is_empty() => {
             existing_key
-                == continuation_key(
-                    agent_id.as_str(),
-                    &binding.working_dir,
-                    effective_instance,
-                )
+                == continuation_key(agent_id.as_str(), &binding.working_dir, effective_instance)
         }
         Some(existing_key) => continuation_key_instance_id(existing_key) == effective_instance,
         None => !(effective_instance.is_some() && binding.acp_session_id.is_some()),

@@ -37,12 +37,12 @@ mod start;
 mod steer;
 
 pub use binding::remember_creation_session_controls;
-pub use continuation::continuation_key_instance_id;
 pub use commit::{
     PreparedCheckpointFileChanges, commit_checkpoint_metadata_on_connection,
     finalize_checkpoint_file_changes, prepare_checkpoint_file_changes,
     preview_checkpoint_file_changes,
 };
+pub use continuation::continuation_key_instance_id;
 pub use queue::{
     CreateDelegatedConversation, CreateForkConversation, CreateWorkflowConversation,
     ForkVisibleConversation, create_delegated_conversation, create_fork_conversation,
@@ -241,9 +241,10 @@ pub trait ConversationHost: Send + Sync {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            settings
-                .env
-                .insert("DIMO_PROVIDER_INSTANCE_ID".to_string(), instance_id.to_string());
+            settings.env.insert(
+                "DIMO_PROVIDER_INSTANCE_ID".to_string(),
+                instance_id.to_string(),
+            );
         }
         Ok(settings)
     }
@@ -735,7 +736,6 @@ use self::{
         merge_user_prompt_overrides,
     },
 };
-
 
 #[cfg(test)]
 #[path = "service_tests.rs"]

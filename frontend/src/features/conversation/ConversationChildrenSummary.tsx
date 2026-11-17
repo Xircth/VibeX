@@ -17,13 +17,11 @@ function fetchConversationRelationsDeduplicated(
 ): Promise<ConversationRelationView[]> {
   const existing = inFlightRelationsByConversation.get(conversationId);
   if (existing) return existing;
-  const request = conversationApi
-    .listRelations(conversationId)
-    .finally(() => {
-      if (inFlightRelationsByConversation.get(conversationId) === request) {
-        inFlightRelationsByConversation.delete(conversationId);
-      }
-    });
+  const request = conversationApi.listRelations(conversationId).finally(() => {
+    if (inFlightRelationsByConversation.get(conversationId) === request) {
+      inFlightRelationsByConversation.delete(conversationId);
+    }
+  });
   inFlightRelationsByConversation.set(conversationId, request);
   return request;
 }

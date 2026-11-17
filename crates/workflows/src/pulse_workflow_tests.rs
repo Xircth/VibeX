@@ -1415,4 +1415,3 @@ fn canonical_workflow_examples_deserialize_and_normalize_cleanly() {
             .unwrap_or_else(|err| panic!("failed to normalize example `{slug}`: {err}"));
     }
 }
-

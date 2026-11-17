@@ -243,8 +243,9 @@ impl ConversationAgentBindingRecord {
             .filter(|b| b.agent_id == *agent_id)
             .or(previous);
         let reusable = previous.as_ref().filter(|b| {
-            let is_current_generation =
-                latest_overall.as_ref().is_some_and(|latest| latest.id == b.id);
+            let is_current_generation = latest_overall
+                .as_ref()
+                .is_some_and(|latest| latest.id == b.id);
             let continuation_key_matches = requested_continuation_key.is_none_or(|target_key| {
                 b.continuation_key
                     .as_deref()

@@ -41,8 +41,10 @@ pub use stream_router::{
     format_bounded_diagnostic, prepare_instance_isolation_env,
     prepare_instance_isolation_env_for_keys, truncate_utf8_bytes,
 };
-use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::{
+    io::{AsyncWrite, AsyncWriteExt},
+    sync::Mutex as AsyncMutex,
+};
 use uuid::Uuid;
 
 use crate::conversation::ContentBlock;
@@ -306,11 +308,9 @@ impl EngineStartSpec {
     /// Returns `true` when this launch targets a non-official custom `base_url` / proxy.
     pub fn uses_custom_base_url(&self, kind: NativeEngineKind) -> bool {
         match kind {
-            NativeEngineKind::ClaudeNative => {
-                !self
-                    .auth
-                    .is_official_anthropic_session(&self.env, &self.config_overrides)
-            }
+            NativeEngineKind::ClaudeNative => !self
+                .auth
+                .is_official_anthropic_session(&self.env, &self.config_overrides),
             NativeEngineKind::CodexNative => {
                 if self
                     .config_overrides
@@ -974,7 +974,12 @@ pub fn classify_standard_tool_call(raw_name: &str, input: &Value) -> EngineToolC
                         })
                     })
                 })
-                .or_else(|| input.get("description").and_then(Value::as_str).map(str::to_string))
+                .or_else(|| {
+                    input
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| raw_name.to_string());
             ("execute".to_string(), cmd)
@@ -1234,7 +1239,10 @@ pub trait NativeEngineDriver: Send + Sync + 'static {
     }
 
     /// Lists available models discovered from the native engine runtime.
-    async fn list_models(&self, _handle: &EngineHandle) -> Result<Vec<EngineModelInfo>, EngineError> {
+    async fn list_models(
+        &self,
+        _handle: &EngineHandle,
+    ) -> Result<Vec<EngineModelInfo>, EngineError> {
         Ok(Vec::new())
     }
 

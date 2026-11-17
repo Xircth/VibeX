@@ -497,9 +497,7 @@ mod tests {
                 source_agent: AgentKind::Codex,
                 external_session_id: "codex-1".into(),
                 title: Some("Local Codex".into()),
-                workspace_path: Some(std::path::PathBuf::from(
-                    "/private/Users/mac/Projects/Dimo",
-                )),
+                workspace_path: Some(std::path::PathBuf::from("/private/Users/mac/Projects/Dimo")),
                 message_count: 2,
                 updated_at: None,
             }],

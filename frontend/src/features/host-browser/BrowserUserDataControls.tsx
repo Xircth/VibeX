@@ -79,7 +79,7 @@ export function BrowserCredentialsButton({
           type="button"
           className={cn(
             FIELD_BTN,
-            'relative text-amber-600 hover:text-amber-500 dark:text-amber-400'
+            'relative text-warning hover:text-warning/80'
           )}
           title={t('browserPanel.autofill')}
           aria-label={t('browserPanel.autofill')}
@@ -154,9 +154,9 @@ export function BrowserBookmarksButton({
   const matchedCurrent = useMemo(
     () =>
       normalizedCurrent
-        ? bookmarks.find(
+        ? (bookmarks.find(
             (item) => canonicalHttpUrl(item.url) === normalizedCurrent
-          ) ?? null
+          ) ?? null)
         : null,
     [bookmarks, normalizedCurrent]
   );
@@ -170,15 +170,13 @@ export function BrowserBookmarksButton({
           type="button"
           className={cn(
             FIELD_BTN,
-            isBookmarked && 'text-amber-500 hover:text-amber-400'
+            isBookmarked && 'text-warning hover:text-warning/80'
           )}
           title={t('browserPanel.bookmarks')}
           aria-label={t('browserPanel.bookmarks')}
           disabled={!canToggleCurrent && bookmarks.length === 0}
         >
-          <Star
-            className={cn('h-3.5 w-3.5', isBookmarked && 'fill-current')}
-          />
+          <Star className={cn('h-3.5 w-3.5', isBookmarked && 'fill-current')} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -202,7 +200,7 @@ export function BrowserBookmarksButton({
                 className={cn(
                   'h-3.5 w-3.5 shrink-0',
                   isBookmarked
-                    ? 'fill-amber-400 text-amber-500'
+                    ? 'fill-warning text-warning'
                     : 'text-muted-foreground'
                 )}
               />

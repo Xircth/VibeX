@@ -72,7 +72,8 @@ export function syncSessionAgentInCaches(
             (typeof item.agent_id === 'string' && item.agent_id) ||
             (typeof item.executor === 'string' && item.executor) ||
             '';
-          const agentChanged = normalizeAgentGroupKey(prevAgent) !== targetGroup;
+          const agentChanged =
+            normalizeAgentGroupKey(prevAgent) !== targetGroup;
           const currentInstance =
             typeof item.provider_instance_id === 'string'
               ? item.provider_instance_id
@@ -148,7 +149,10 @@ export function syncSessionAgentInCaches(
               : null;
           const instanceChanged =
             hasInstanceUpdate && currentInstance !== nextInstanceId;
-          if (itemId !== id || (item.agent_id === agentId && !instanceChanged)) {
+          if (
+            itemId !== id ||
+            (item.agent_id === agentId && !instanceChanged)
+          ) {
             return item;
           }
           touched = true;
@@ -192,14 +196,19 @@ export function syncSessionAgentInCaches(
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
-      new CustomEvent<SessionAgentSwitchedDetail>(SESSION_AGENT_SWITCHED_EVENT, {
-        detail: {
-          sessionId: id,
-          agentId,
-          executor,
-          ...(hasInstanceUpdate ? { providerInstanceId: nextInstanceId } : {}),
-        },
-      })
+      new CustomEvent<SessionAgentSwitchedDetail>(
+        SESSION_AGENT_SWITCHED_EVENT,
+        {
+          detail: {
+            sessionId: id,
+            agentId,
+            executor,
+            ...(hasInstanceUpdate
+              ? { providerInstanceId: nextInstanceId }
+              : {}),
+          },
+        }
+      )
     );
   }
 }

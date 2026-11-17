@@ -1354,9 +1354,7 @@ export function updateQuoteTokenAnnotation(
           annotation,
         });
         return (
-          value.slice(0, segment.start) +
-          updatedRaw +
-          value.slice(segment.end)
+          value.slice(0, segment.start) + updatedRaw + value.slice(segment.end)
         );
       }
       seenMatches += 1;

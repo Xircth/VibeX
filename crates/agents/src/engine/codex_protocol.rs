@@ -131,17 +131,17 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
             .or_else(|| item.get("is_default"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let hidden = item
-            .get("hidden")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let hidden = item.get("hidden").and_then(Value::as_bool).unwrap_or(false);
         if hidden && !is_default {
             continue;
         }
         let Some(id) = str_any(item, &["model", "id", "slug"]) else {
             continue;
         };
-        if out.iter().any(|existing: &EngineModelInfo| existing.id == id) {
+        if out
+            .iter()
+            .any(|existing: &EngineModelInfo| existing.id == id)
+        {
             continue;
         }
         let label = str_any(item, &["displayName", "title", "name"]).unwrap_or_else(|| id.clone());
@@ -181,10 +181,10 @@ pub(crate) fn build_codex_turn_policy(
         Some("plan" | "read-only" | "readOnly") => {
             (Some("on-request"), Some(json!({ "type": "readOnly" })))
         }
-        Some("full-access" | "danger-full-access" | "dangerFullAccess" | "bypassPermissions" | "yolo") => (
-            Some("never"),
-            Some(json!({ "type": "dangerFullAccess" })),
-        ),
+        Some(
+            "full-access" | "danger-full-access" | "dangerFullAccess" | "bypassPermissions"
+            | "yolo",
+        ) => (Some("never"), Some(json!({ "type": "dangerFullAccess" }))),
         Some("auto" | "acceptEdits") => (Some("never"), Some(writable_workspace_policy())),
         Some("default" | "on-request") => (Some("on-request"), Some(writable_workspace_policy())),
         _ if !additional_directories.is_empty() => (None, Some(writable_workspace_policy())),
@@ -522,19 +522,19 @@ pub(crate) fn normalize_codex_notification(
                     .to_string(),
             }]
         }
-        "item/reasoning/delta"
-        | "item/reasoning/summaryTextDelta"
-        | "item/reasoning/textDelta" => vec![EngineEvent::ThinkingDelta {
-            prompt_id,
-            session_id,
-            message_id: str_any(params, &["itemId"]),
-            thinking: params
-                .get("delta")
-                .or_else(|| params.get("text"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-        }],
+        "item/reasoning/delta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" => {
+            vec![EngineEvent::ThinkingDelta {
+                prompt_id,
+                session_id,
+                message_id: str_any(params, &["itemId"]),
+                thinking: params
+                    .get("delta")
+                    .or_else(|| params.get("text"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            }]
+        }
         "turn/plan/updated" => {
             let entries: Vec<EnginePlanEntry> = params
                 .get("plan")
@@ -904,7 +904,8 @@ pub(crate) fn serialize_codex_input_items(blocks: &[ContentBlock], mode: PromptM
                         "type": "image",
                         "url": format!("data:{mime_type};base64,{trimmed_data}"),
                     }))
-                } else if let Some(raw_uri) = uri.as_deref().map(str::trim).filter(|s| !s.is_empty())
+                } else if let Some(raw_uri) =
+                    uri.as_deref().map(str::trim).filter(|s| !s.is_empty())
                 {
                     if raw_uri.starts_with("http://")
                         || raw_uri.starts_with("https://")
@@ -947,17 +948,23 @@ pub(super) fn codex_capabilities(engine_id: &str) -> EngineCapabilities {
                 EngineSelectChoice {
                     id: "default".to_string(),
                     label: "Default".to_string(),
-                    description: Some("Workspace-write sandbox with on-request approvals".to_string()),
+                    description: Some(
+                        "Workspace-write sandbox with on-request approvals".to_string(),
+                    ),
                 },
                 EngineSelectChoice {
                     id: "plan".to_string(),
                     label: "Plan".to_string(),
-                    description: Some("Read-only sandbox for planning and code inspection".to_string()),
+                    description: Some(
+                        "Read-only sandbox for planning and code inspection".to_string(),
+                    ),
                 },
                 EngineSelectChoice {
                     id: "full-access".to_string(),
                     label: "Full Access".to_string(),
-                    description: Some("Unrestricted execution without approval prompts".to_string()),
+                    description: Some(
+                        "Unrestricted execution without approval prompts".to_string(),
+                    ),
                 },
             ],
             default_mode_id: "default".to_string(),

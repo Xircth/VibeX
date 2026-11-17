@@ -250,8 +250,7 @@ mod tests {
 
     #[test]
     fn claude_app_bundle_and_nested_windows_install_count() {
-        let root =
-            std::env::temp_dir().join(format!("dimo-desktop-claude-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("dimo-desktop-claude-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let bundle = root.join("Applications").join("Claude.app");
         fs::create_dir_all(&bundle).unwrap();

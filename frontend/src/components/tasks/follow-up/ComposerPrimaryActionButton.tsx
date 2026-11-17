@@ -34,10 +34,7 @@ export function ComposerPrimaryActionButton({
       title={tooltipTitle}
     >
       {pending ? (
-        <Loader2
-          className="h-4 w-4 animate-spin"
-          aria-hidden="true"
-        />
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
       ) : action === 'send' ? (
         <ArrowUp
           className="h-[17px] w-[17px]"

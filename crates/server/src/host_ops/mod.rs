@@ -542,7 +542,12 @@ impl ServerApplicationDomains {
                         .await
                         .filter(|evidence| evidence.path.is_file());
                     let candidate = match cached {
-                        Some(evidence) if evidence.version.as_deref().is_some_and(|v| !v.trim().is_empty()) => {
+                        Some(evidence)
+                            if evidence
+                                .version
+                                .as_deref()
+                                .is_some_and(|v| !v.trim().is_empty()) =>
+                        {
                             Some((evidence.path, evidence.version))
                         }
                         _ => match crate::host::management::discover_profile_acp(&agent_id).await {
@@ -558,14 +563,15 @@ impl ServerApplicationDomains {
                         },
                     };
                     if let Some((path, version)) = candidate {
-                        let _ = services::services::native_engine_adopt::adopt_native_engine_if_needed(
-                            &self.pool,
-                            &agent_id,
-                            &path,
-                            version.as_deref(),
-                            None,
-                        )
-                        .await;
+                        let _ =
+                            services::services::native_engine_adopt::adopt_native_engine_if_needed(
+                                &self.pool,
+                                &agent_id,
+                                &path,
+                                version.as_deref(),
+                                None,
+                            )
+                            .await;
                     }
                 }
                 let mut views =
@@ -3089,12 +3095,13 @@ mod tests {
 
     #[test]
     fn create_session_payloads_accept_camel_and_snake_provider_instance_id() {
-        let project_payload: CreateProjectSessionPayload = application::decode_command_args(json!({
-            "projectId": "11111111-1111-1111-1111-111111111111",
-            "executor": "claude_code",
-            "providerInstanceId": "work-claude"
-        }))
-        .expect("camelCase project session payload");
+        let project_payload: CreateProjectSessionPayload =
+            application::decode_command_args(json!({
+                "projectId": "11111111-1111-1111-1111-111111111111",
+                "executor": "claude_code",
+                "providerInstanceId": "work-claude"
+            }))
+            .expect("camelCase project session payload");
         assert_eq!(
             project_payload.provider_instance_id.as_deref(),
             Some("work-claude")

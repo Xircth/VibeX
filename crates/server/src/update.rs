@@ -59,12 +59,7 @@ pub fn apply_host_upgrade(plan: &HostUpgradePlan) -> Result<PathBuf, HostUpgrade
     } else {
         fs::create_dir_all(&snapshot)?;
     }
-    for name in [
-        "dimo-server",
-        "dimo-mcp",
-        "dimo-server.exe",
-        "dimo-mcp.exe",
-    ] {
+    for name in ["dimo-server", "dimo-mcp", "dimo-server.exe", "dimo-mcp.exe"] {
         let source = plan.release_dir.join(name);
         if source.is_file() {
             fs::copy(source, plan.install_dir.join(name))?;

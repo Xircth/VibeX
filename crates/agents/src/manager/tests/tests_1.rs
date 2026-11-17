@@ -1,6 +1,5 @@
 use super::*;
 
-
 pub(super) fn dummy_runner(
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
 ) -> AgentConnectionRunner {
@@ -123,8 +122,8 @@ async fn acp_tool_call_notifications_preserve_reported_status_and_output() {
 fn structured_acp_diff_becomes_a_file_edit_input_preview() {
     let diff = acp::schema::v1::Diff::new("src/App.tsx", "new line")
         .old_text(Some("old line".to_string()));
-    let preview = acp_tool_input_preview(None, &[ToolCallContent::Diff(diff)], &[])
-        .expect("diff preview");
+    let preview =
+        acp_tool_input_preview(None, &[ToolCallContent::Diff(diff)], &[]).expect("diff preview");
     let value: serde_json::Value = serde_json::from_str(&preview).unwrap();
 
     assert_eq!(value["file_path"], "src/App.tsx");
@@ -240,16 +239,13 @@ fn native_mode_config_option_is_not_replaced_by_legacy_modes() {
             "Mode",
             "agent",
             vec![
-                agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
-                    "agent", "Agent",
-                ),
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new("agent", "Agent"),
             ],
         )
         .category(SessionConfigOptionCategory::Mode),
     ];
 
-    let (options, mode_uses_set_mode) =
-        unify_session_config_options(Some(modes), existing, false);
+    let (options, mode_uses_set_mode) = unify_session_config_options(Some(modes), existing, false);
     assert!(!mode_uses_set_mode);
     assert_eq!(options[0].id.0.as_ref(), "mode");
     if let SessionConfigKind::Select(select) = &options[0].kind {
@@ -752,12 +748,8 @@ async fn session_auto_mode_does_not_upgrade_permission_interception() {
     );
     // Sessions without a tracked auto mode keep interception on.
     assert_eq!(
-        effective_auto_approve_mode(
-            AgentAutoApproveMode::Off,
-            &controls,
-            AgentSessionId::new()
-        )
-        .await,
+        effective_auto_approve_mode(AgentAutoApproveMode::Off, &controls, AgentSessionId::new())
+            .await,
         AgentAutoApproveMode::Off
     );
 }
@@ -822,10 +814,8 @@ fn maps_acp_session_config_options_to_agent_payload() {
             "Model",
             "gpt-5",
             vec![
-                agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
-                    "gpt-5", "GPT-5",
-                )
-                .description(Some("Balanced".to_string())),
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new("gpt-5", "GPT-5")
+                    .description(Some("Balanced".to_string())),
                 agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                     "gpt-5-codex",
                     "GPT-5 Codex",
@@ -1040,11 +1030,7 @@ fn vendor_fallback_keeps_standard_model_and_adds_effort() {
         "model",
         "Model",
         "sonnet",
-        vec![
-            agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
-                "sonnet", "Sonnet",
-            ),
-        ],
+        vec![agent_client_protocol::schema::v1::SessionConfigSelectOption::new("sonnet", "Sonnet")],
     )]);
 
     let (_, config_options, vendor) =
@@ -1114,21 +1100,24 @@ fn vendor_fallback_does_not_duplicate_standard_thought_level() {
 
 #[tokio::test]
 async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
-    use crate::engine::{ClaudeNativeDriver, EngineEvent, EngineHandle, NativeEngineDriver};
-    use crate::manager::runner::native_events::NativeTurnState;
-
-    let collect_emitted_text = |rx: &mut mpsc::UnboundedReceiver<AgentConnectionManagerEvent>| -> Vec<String> {
-        let mut chunks = Vec::new();
-        while let Ok(ev) = rx.try_recv() {
-            if let AgentEvent::MessageChunk {
-                content: AgentContentBlock::Text { text },
-            } = ev.event
-            {
-                chunks.push(text);
-            }
-        }
-        chunks
+    use crate::{
+        engine::{ClaudeNativeDriver, EngineEvent, EngineHandle, NativeEngineDriver},
+        manager::runner::native_events::NativeTurnState,
     };
+
+    let collect_emitted_text =
+        |rx: &mut mpsc::UnboundedReceiver<AgentConnectionManagerEvent>| -> Vec<String> {
+            let mut chunks = Vec::new();
+            while let Ok(ev) = rx.try_recv() {
+                if let AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text { text },
+                } = ev.event
+                {
+                    chunks.push(text);
+                }
+            }
+            chunks
+        };
 
     let driver: Arc<dyn NativeEngineDriver> = Arc::new(ClaudeNativeDriver::new());
     let handle = EngineHandle::for_engine(
@@ -1299,4 +1288,3 @@ async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
         );
     }
 }
-

@@ -466,11 +466,15 @@ export function WorkflowStepExecutionRecords({
             <div className="grid grid-cols-2 gap-1.5">
               <MetricPill
                 label={t('inspector.records.bot.scopeLabel')}
-                value={t(`inspector.bot.scopes.${selectedStep.conversationScope}`)}
+                value={t(
+                  `inspector.bot.scopes.${selectedStep.conversationScope}`
+                )}
               />
               <MetricPill
                 label={t('inspector.records.bot.mailboxLabel')}
-                value={t(`inspector.bot.mailboxOptions.${selectedStep.mailboxPolicy}`)}
+                value={t(
+                  `inspector.bot.mailboxOptions.${selectedStep.mailboxPolicy}`
+                )}
               />
             </div>
             {activeAttempt?.conversationId ? (

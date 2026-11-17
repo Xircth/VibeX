@@ -773,7 +773,9 @@ describe('SessionCanvasView', () => {
 
   it('syncs sibling SessionCanvasView instances and does not overwrite edits when a stale instance unmounts', () => {
     const kanbanApi: { current: SessionCanvasApi | null } = { current: null };
-    const workspaceApi: { current: SessionCanvasApi | null } = { current: null };
+    const workspaceApi: { current: SessionCanvasApi | null } = {
+      current: null,
+    };
     const kanban = renderCanvas(
       <SessionCanvasView
         projectId="p1"
@@ -819,4 +821,3 @@ describe('SessionCanvasView', () => {
     workspace.unmount();
   });
 });
-

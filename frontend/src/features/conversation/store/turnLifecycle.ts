@@ -473,7 +473,8 @@ export function conversationStoreReducer(
                 }
               : entry.sessionGoal,
           asyncTasks:
-            action.controls.async_tasks && action.controls.async_tasks.length > 0
+            action.controls.async_tasks &&
+            action.controls.async_tasks.length > 0
               ? action.controls.async_tasks
               : entry.asyncTasks,
           promptSuggestion:

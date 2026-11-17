@@ -269,10 +269,7 @@ describe('shared raised controls', () => {
   });
 
   it('keeps handwritten selector triggers on the raised material', () => {
-    const selectorFiles = [
-      'components/tasks/follow-up/SessionSelector.tsx',
-      'components/tasks/follow-up/SessionSettingsSummary.tsx',
-    ];
+    const selectorFiles = ['components/tasks/follow-up/SessionSelector.tsx'];
 
     for (const relativePath of selectorFiles) {
       const source = readFileSync(join(srcRoot, relativePath), 'utf8');

@@ -42,9 +42,7 @@
     "icon": "apinebula",
     "website_url": "https://apinebula.ai/",
     "api_key_url": "https://apinebula.ai/VjM74M",
-    "endpoint_candidates": [
-      "https://apinebula.ai/"
-    ],
+    "endpoint_candidates": ["https://apinebula.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://apinebula.ai/",
@@ -56,9 +54,7 @@
     "icon": "aicodemirror",
     "website_url": "https://www.aicodemirror.ai/",
     "api_key_url": "https://www.aicodemirror.ai/register",
-    "endpoint_candidates": [
-      "https://api.aicodemirror.ai/api/claudecode"
-    ],
+    "endpoint_candidates": ["https://api.aicodemirror.ai/api/claudecode"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.aicodemirror.ai/api/claudecode",
@@ -104,10 +100,7 @@
     "icon": "runapi",
     "website_url": "https://runapi.host/",
     "api_key_url": "https://runapi.host/register",
-    "endpoint_candidates": [
-      "https://runapi.host/",
-      "https://runapi.co/"
-    ],
+    "endpoint_candidates": ["https://runapi.host/", "https://runapi.co/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://runapi.host/",
@@ -130,10 +123,7 @@
     "icon": "grooroute",
     "website_url": "https://grooroute.pro/",
     "api_key_url": "https://grooroute.pro/sign-up",
-    "endpoint_candidates": [
-      "https://grooroute.pro/",
-      "https://grooroute.xyz/"
-    ],
+    "endpoint_candidates": ["https://grooroute.pro/", "https://grooroute.xyz/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://grooroute.pro/",
@@ -219,9 +209,7 @@
     "icon": "aicoding",
     "website_url": "https://aicoding.inc/",
     "api_key_url": "https://aicoding.inc/i/CCSWITCH",
-    "endpoint_candidates": [
-      "https://api.aicoding.inc/"
-    ],
+    "endpoint_candidates": ["https://api.aicoding.inc/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.aicoding.inc/",
@@ -266,10 +254,7 @@
     "icon": "88api",
     "website_url": "https://88api.ai/",
     "api_key_url": "https://88api.ai/sign-up",
-    "endpoint_candidates": [
-      "https://api.88api.ai/",
-      "https://88api.ai/"
-    ],
+    "endpoint_candidates": ["https://api.88api.ai/", "https://88api.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.88api.ai/",
@@ -313,9 +298,7 @@
     "icon": "teamorouter",
     "website_url": "https://teamorouter.com/",
     "api_key_url": "https://teamorouter.com/",
-    "endpoint_candidates": [
-      "https://api.teamorouter.com/"
-    ],
+    "endpoint_candidates": ["https://api.teamorouter.com/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.teamorouter.com/",
@@ -327,9 +310,7 @@
     "icon": "ppio",
     "website_url": "https://ppio.com/",
     "api_key_url": "https://ppio.com/activity/ccswitch",
-    "endpoint_candidates": [
-      "https://api.ppio.com/anthropic"
-    ],
+    "endpoint_candidates": ["https://api.ppio.com/anthropic"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.ppio.com/anthropic",
@@ -429,9 +410,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://api.modelverse.cn/"
-    ],
+    "endpoint_candidates": ["https://api.modelverse.cn/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.modelverse.cn/",
@@ -443,9 +422,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://cp.compshare.cn/"
-    ],
+    "endpoint_candidates": ["https://cp.compshare.cn/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cp.compshare.cn/",
@@ -484,9 +461,7 @@
     "icon": "soleapi",
     "website_url": "https://soleapi.com/",
     "api_key_url": "https://soleapi.com/r/ccswitch",
-    "endpoint_candidates": [
-      "https://soleapi.com/"
-    ],
+    "endpoint_candidates": ["https://soleapi.com/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://soleapi.com/",
@@ -498,9 +473,7 @@
     "icon": "micu",
     "website_url": "https://www.micuapi.ai/",
     "api_key_url": "https://www.micuapi.ai/register",
-    "endpoint_candidates": [
-      "https://www.micuapi.ai/"
-    ],
+    "endpoint_candidates": ["https://www.micuapi.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.micuapi.ai/",
@@ -540,9 +513,7 @@
     "icon": "crazyrouter",
     "website_url": "https://www.crazyrouter.com/",
     "api_key_url": "https://www.crazyrouter.com/register",
-    "endpoint_candidates": [
-      "https://cn.crazyrouter.com/"
-    ],
+    "endpoint_candidates": ["https://cn.crazyrouter.com/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cn.crazyrouter.com/",
@@ -554,10 +525,7 @@
     "icon": "dmxapi",
     "website_url": "https://www.dmxapi.cn/",
     "api_key_url": "https://www.dmxapi.cn/",
-    "endpoint_candidates": [
-      "https://www.dmxapi.cn/",
-      "https://api.dmxapi.cn/"
-    ],
+    "endpoint_candidates": ["https://www.dmxapi.cn/", "https://api.dmxapi.cn/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.dmxapi.cn/",
@@ -584,10 +552,7 @@
     "icon": "sudocode-us",
     "website_url": "https://sudocode.us/",
     "api_key_url": "https://sudocode.us/",
-    "endpoint_candidates": [
-      "https://sudocode.us/",
-      "https://sudocode.run/"
-    ],
+    "endpoint_candidates": ["https://sudocode.us/", "https://sudocode.run/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://sudocode.us/",
@@ -652,9 +617,7 @@
     "icon": "aicodewith",
     "website_url": "https://aicodewith.ai/",
     "api_key_url": "https://aicodewith.ai/login",
-    "endpoint_candidates": [
-      "https://api.aicodewith.ai/"
-    ],
+    "endpoint_candidates": ["https://api.aicodewith.ai/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.aicodewith.ai/",
@@ -731,9 +694,7 @@
     "icon": "atlascloud",
     "website_url": "https://www.atlascloud.ai/console/coding-plan",
     "api_key_url": "https://www.atlascloud.ai/console/coding-plan",
-    "endpoint_candidates": [
-      "https://api.atlascloud.ai/"
-    ],
+    "endpoint_candidates": ["https://api.atlascloud.ai/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.atlascloud.ai/",
@@ -765,9 +726,7 @@
     "icon": "baidu",
     "website_url": "https://cloud.baidu.com/product/qianfan_modelbuilder",
     "api_key_url": "https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application",
-    "endpoint_candidates": [
-      "https://qianfan.baidubce.com/anthropic/coding"
-    ],
+    "endpoint_candidates": ["https://qianfan.baidubce.com/anthropic/coding"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://qianfan.baidubce.com/anthropic/coding",
@@ -804,9 +763,7 @@
     "icon": "baseten",
     "website_url": "https://www.baseten.co/",
     "api_key_url": "https://app.baseten.co/settings/api_keys",
-    "endpoint_candidates": [
-      "https://inference.baseten.co/"
-    ],
+    "endpoint_candidates": ["https://inference.baseten.co/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://inference.baseten.co/",
@@ -829,9 +786,7 @@
     "icon": "cherryin",
     "website_url": "https://open.cherryin.ai/",
     "api_key_url": "https://open.cherryin.ai/console/token",
-    "endpoint_candidates": [
-      "https://open.cherryin.net/"
-    ],
+    "endpoint_candidates": ["https://open.cherryin.net/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://open.cherryin.net/",
@@ -876,9 +831,7 @@
     "icon": "deepinfra",
     "website_url": "https://deepinfra.com/",
     "api_key_url": "https://deepinfra.com/dash/api_keys",
-    "endpoint_candidates": [
-      "https://api.deepinfra.com/anthropic"
-    ],
+    "endpoint_candidates": ["https://api.deepinfra.com/anthropic"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.deepinfra.com/anthropic",
@@ -900,9 +853,7 @@
     "icon": "digitalocean",
     "website_url": "https://www.digitalocean.com/products/ai-platform",
     "api_key_url": "https://cloud.digitalocean.com/model-studio/manage-keys",
-    "endpoint_candidates": [
-      "https://inference.do-ai.run/"
-    ],
+    "endpoint_candidates": ["https://inference.do-ai.run/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://inference.do-ai.run/",
@@ -914,9 +865,7 @@
     "icon": "eflowcode",
     "website_url": "https://e-flowcode.cc/",
     "api_key_url": "https://e-flowcode.cc/",
-    "endpoint_candidates": [
-      "https://e-flowcode.cc/"
-    ],
+    "endpoint_candidates": ["https://e-flowcode.cc/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://e-flowcode.cc/",
@@ -928,9 +877,7 @@
     "icon": "fireworks",
     "website_url": "https://fireworks.ai/",
     "api_key_url": "https://app.fireworks.ai/settings/users/api-keys",
-    "endpoint_candidates": [
-      "https://api.fireworks.ai/inference"
-    ],
+    "endpoint_candidates": ["https://api.fireworks.ai/inference"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.fireworks.ai/inference",
@@ -942,9 +889,7 @@
     "icon": "huggingface",
     "website_url": "https://huggingface.co/inference/models",
     "api_key_url": "https://huggingface.co/settings/tokens/new",
-    "endpoint_candidates": [
-      "https://router.huggingface.co/"
-    ],
+    "endpoint_candidates": ["https://router.huggingface.co/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://router.huggingface.co/",
@@ -971,9 +916,7 @@
     "icon": "jiekou",
     "website_url": "https://jiekou.ai/",
     "api_key_url": "https://jiekou.ai/settings/key-management",
-    "endpoint_candidates": [
-      "https://api.jiekou.ai/anthropic"
-    ],
+    "endpoint_candidates": ["https://api.jiekou.ai/anthropic"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.jiekou.ai/anthropic",
@@ -1004,10 +947,7 @@
     "name": "llama.cpp",
     "icon": "llamacpp",
     "website_url": "https://github.com/ggml-org/llama.cpp",
-    "endpoint_candidates": [
-      "http://127.0.0.1:9931/",
-      "http://127.0.0.1:8080/"
-    ],
+    "endpoint_candidates": ["http://127.0.0.1:9931/", "http://127.0.0.1:8080/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "http://127.0.0.1:9931/",
@@ -1018,10 +958,7 @@
     "name": "LM Studio",
     "icon": "lmstudio",
     "website_url": "https://lmstudio.ai/",
-    "endpoint_candidates": [
-      "http://localhost:1234/",
-      "http://127.0.0.1:1234/"
-    ],
+    "endpoint_candidates": ["http://localhost:1234/", "http://127.0.0.1:1234/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "http://localhost:1234/",
@@ -1044,9 +981,7 @@
     "icon": "meta",
     "website_url": "https://dev.meta.ai/",
     "api_key_url": "https://dev.meta.ai/",
-    "endpoint_candidates": [
-      "https://api.meta.ai/"
-    ],
+    "endpoint_candidates": ["https://api.meta.ai/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.meta.ai/",
@@ -1113,9 +1048,7 @@
     "icon": "novita",
     "website_url": "https://novita.ai/",
     "api_key_url": "https://novita.ai/",
-    "endpoint_candidates": [
-      "https://api.novita.ai/anthropic"
-    ],
+    "endpoint_candidates": ["https://api.novita.ai/anthropic"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.novita.ai/anthropic",
@@ -1141,9 +1074,7 @@
     "icon": "ollama",
     "website_url": "https://ollama.com/",
     "api_key_url": "https://ollama.com/settings/keys",
-    "endpoint_candidates": [
-      "https://ollama.com/"
-    ],
+    "endpoint_candidates": ["https://ollama.com/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://ollama.com/",
@@ -1155,9 +1086,7 @@
     "icon": "opencode",
     "website_url": "https://opencode.ai/go",
     "api_key_url": "https://opencode.ai/go",
-    "endpoint_candidates": [
-      "https://opencode.ai/zen/go"
-    ],
+    "endpoint_candidates": ["https://opencode.ai/zen/go"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://opencode.ai/zen/go",
@@ -1170,9 +1099,7 @@
     "icon": "opencode",
     "website_url": "https://opencode.ai/zen",
     "api_key_url": "https://opencode.ai/auth",
-    "endpoint_candidates": [
-      "https://opencode.ai/zen"
-    ],
+    "endpoint_candidates": ["https://opencode.ai/zen"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://opencode.ai/zen",
@@ -1274,9 +1201,7 @@
     "icon": "sambanova",
     "website_url": "https://sambanova.ai/",
     "api_key_url": "https://cloud.sambanova.ai/apis",
-    "endpoint_candidates": [
-      "https://api.sambanova.ai/"
-    ],
+    "endpoint_candidates": ["https://api.sambanova.ai/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.sambanova.ai/",
@@ -1332,9 +1257,7 @@
     "icon": "stepfun",
     "website_url": "https://platform.stepfun.com/step-plan",
     "api_key_url": "https://platform.stepfun.com/interface-key",
-    "endpoint_candidates": [
-      "https://api.stepfun.com/step_plan"
-    ],
+    "endpoint_candidates": ["https://api.stepfun.com/step_plan"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.stepfun.com/step_plan",
@@ -1346,9 +1269,7 @@
     "icon": "stepfun",
     "website_url": "https://platform.stepfun.ai/step-plan",
     "api_key_url": "https://platform.stepfun.ai/interface-key",
-    "endpoint_candidates": [
-      "https://api.stepfun.ai/step_plan"
-    ],
+    "endpoint_candidates": ["https://api.stepfun.ai/step_plan"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.stepfun.ai/step_plan",
@@ -1470,9 +1391,7 @@
     "icon": "therouter",
     "website_url": "https://therouter.ai/",
     "api_key_url": "https://dashboard.therouter.ai/",
-    "endpoint_candidates": [
-      "https://api.therouter.ai/"
-    ],
+    "endpoint_candidates": ["https://api.therouter.ai/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.therouter.ai/",
@@ -1484,9 +1403,7 @@
     "icon": "tokenfactory",
     "website_url": "https://tokenfactory.cn/",
     "api_key_url": "https://console.tokenfactory.cn/login",
-    "endpoint_candidates": [
-      "https://api.tokenfactory.cn/anthropic"
-    ],
+    "endpoint_candidates": ["https://api.tokenfactory.cn/anthropic"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.tokenfactory.cn/anthropic",
@@ -1498,10 +1415,7 @@
     "icon": "tokenflux",
     "website_url": "https://tokenflux.com/",
     "api_key_url": "https://tokenflux.com/keys",
-    "endpoint_candidates": [
-      "https://tokenflux.com/",
-      "https://tokenflux.dev/"
-    ],
+    "endpoint_candidates": ["https://tokenflux.com/", "https://tokenflux.dev/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://tokenflux.com/",
@@ -1543,9 +1457,7 @@
     "icon": "vercel",
     "website_url": "https://vercel.com/ai-gateway",
     "api_key_url": "https://vercel.com/d",
-    "endpoint_candidates": [
-      "https://ai-gateway.vercel.sh/claude-code"
-    ],
+    "endpoint_candidates": ["https://ai-gateway.vercel.sh/claude-code"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://ai-gateway.vercel.sh/claude-code",
@@ -1556,10 +1468,7 @@
     "name": "vLLM",
     "icon": "vllm",
     "website_url": "https://vllm.ai/",
-    "endpoint_candidates": [
-      "http://localhost:8000/",
-      "http://127.0.0.1:8000/"
-    ],
+    "endpoint_candidates": ["http://localhost:8000/", "http://127.0.0.1:8000/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "http://localhost:8000/",
@@ -1671,9 +1580,7 @@
     "icon": "moark",
     "website_url": "https://moark.com/",
     "api_key_url": "https://moark.com/dashboard/tokens",
-    "endpoint_candidates": [
-      "https://moark.com/anthropic"
-    ],
+    "endpoint_candidates": ["https://moark.com/anthropic"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://moark.com/anthropic",

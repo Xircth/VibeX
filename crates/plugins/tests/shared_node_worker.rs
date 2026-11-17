@@ -232,10 +232,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
         .await
         .expect("shared Node process PID");
 
-    let lease_0 = control
-        .activation_lease("dev.dimo.shared-0")
-        .await
-        .unwrap();
+    let lease_0 = control.activation_lease("dev.dimo.shared-0").await.unwrap();
     let first_probe = lease_0
         .invoke("ping.w0", json!({ "step": "baseline" }))
         .await
@@ -306,10 +303,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
     );
 
     // Hot-reload plugin 3 to version 2.0.0 while holding its v1.0.0 lease
-    let old_lease_3 = control
-        .activation_lease("dev.dimo.shared-3")
-        .await
-        .unwrap();
+    let old_lease_3 = control.activation_lease("dev.dimo.shared-3").await.unwrap();
     let v2_dir = tempfile::tempdir().unwrap();
     write_shared_worker_package(v2_dir.path(), 3, "2.0.0", true);
     let v2_package =
@@ -320,10 +314,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
         .unwrap();
     assert_eq!(control.active_worker_process_count().await, 1);
 
-    let new_lease_3 = control
-        .activation_lease("dev.dimo.shared-3")
-        .await
-        .unwrap();
+    let new_lease_3 = control.activation_lease("dev.dimo.shared-3").await.unwrap();
     let v2_res = new_lease_3
         .invoke("ping.w3", json!({ "check": "v2" }))
         .await
@@ -339,10 +330,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
         control.set_enabled(&plugin_id, false).await.unwrap();
     }
     assert_eq!(control.active_worker_process_count().await, 1);
-    let lease_9 = control
-        .activation_lease("dev.dimo.shared-9")
-        .await
-        .unwrap();
+    let lease_9 = control.activation_lease("dev.dimo.shared-9").await.unwrap();
     let res_9 = lease_9
         .invoke("ping.w9", json!({ "remaining": 1 }))
         .await
@@ -419,10 +407,7 @@ async fn failed_candidate_in_shared_runner_does_not_disrupt_healthy_plugins() {
     // Healthy plugin 1 must still be alive on the exact same shared Node PID
     assert_eq!(control.active_worker_process_count().await, 1);
     assert_eq!(control.shared_node_worker_pid().await, Some(shared_pid));
-    let lease_1 = control
-        .activation_lease("dev.dimo.shared-1")
-        .await
-        .unwrap();
+    let lease_1 = control.activation_lease("dev.dimo.shared-1").await.unwrap();
     let res = lease_1
         .invoke("ping.w1", json!({ "alive": true }))
         .await
@@ -695,10 +680,7 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
         .unwrap();
 
     let initial_pid = control.shared_node_worker_pid().await.unwrap();
-    let healthy_lease = control
-        .activation_lease("dev.dimo.shared-1")
-        .await
-        .unwrap();
+    let healthy_lease = control.activation_lease("dev.dimo.shared-1").await.unwrap();
     let faulty_lease = control.activation_lease("dev.dimo.faulty").await.unwrap();
 
     // 1. Trigger async timeout on faulty plugin -> must isolate only faulty slot and keep initial_pid alive!

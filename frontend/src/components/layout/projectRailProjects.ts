@@ -108,7 +108,10 @@ export function projectRailPanelHeight(visibleSlotCount: number): number {
 }
 
 export function formatCompactProjectPath(rawPath?: string | null): string {
-  const normalized = (rawPath ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalized = (rawPath ?? '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
   if (!normalized) {
     return '';
   }
@@ -176,7 +179,8 @@ export function pickDefaultProjectTarget<
 }): string | null {
   const excluded = input.excludeProjectId ?? null;
   const fromOpen = input.openProjectIds.find(
-    (projectId) => projectId !== excluded && Boolean(input.projectsById[projectId])
+    (projectId) =>
+      projectId !== excluded && Boolean(input.projectsById[projectId])
   );
   if (fromOpen) {
     return fromOpen;
@@ -187,4 +191,3 @@ export function pickDefaultProjectTarget<
   );
   return firstImported?.id ?? null;
 }
-

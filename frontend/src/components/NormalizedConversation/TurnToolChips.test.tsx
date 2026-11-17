@@ -85,9 +85,7 @@ describe('TurnToolChips integration in TurnActivity', () => {
       name: '运行 1 个命令、已改 2 个文件',
     });
     expect(header).toHaveAttribute('aria-expanded', 'false');
-    expect(
-      screen.queryByTestId('turn-tool-chip-row')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('turn-tool-chip-row')).not.toBeInTheDocument();
 
     const diffBar = screen.getByTestId('turn-tool-diff-chips');
     const chip = within(diffBar).getByRole('button', {
@@ -170,7 +168,9 @@ describe('TurnToolChips integration in TurnActivity', () => {
       <TurnActivity
         turnId="turn-row-keyboard"
         timestamp="2026-10-12T00:00:00.000Z"
-        items={[makeToolItem(0, 'bash', { command: 'pnpm lint' }, '0 warnings')]}
+        items={[
+          makeToolItem(0, 'bash', { command: 'pnpm lint' }, '0 warnings'),
+        ]}
         attempt={{ id: 'ws-1', container_ref: null } as never}
         task={null}
         isStreaming={true}

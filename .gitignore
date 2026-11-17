@@ -127,6 +127,14 @@ logs/
 
 # Locally cloned third-party skill repositories
 .agents/skills/auto-redbook/
+.agents/skills/bilibili-cli/
+.agents/skills/douyin-creator/
 .agents/skills/geo-optimizer/
 .agents/skills/postiz/
 .agents/skills/video-shotcraft/
+.agents/skills/x-twitter-cli/
+.agents/skills/xhs-director/
+.agents/skills/xhs-operation/
+.agents/skills/xhs-redbook-cli/
+.agents/skills/xhs-topic-strategist/
+.agents/skills/zhihu-multiplatform-cli/

@@ -27,7 +27,8 @@ vi.mock('@/lib/api/pulse', () => ({
 }));
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
   return {
     ...actual,
     backendListen: vi.fn().mockResolvedValue(() => undefined),
@@ -176,9 +177,9 @@ describe('Collaboration Pulse UI (Track F5 / R4)', () => {
 
       expect(screen.getByText('自动化规则提案')).toBeInTheDocument();
       expect(screen.getByLabelText('规则名称')).toBeInTheDocument();
-      expect(screen.getByTestId('pulse-group-dispatch-summary')).toHaveTextContent(
-        '席位：@QA'
-      );
+      expect(
+        screen.getByTestId('pulse-group-dispatch-summary')
+      ).toHaveTextContent('席位：@QA');
       expect(screen.getByTestId('pulse-save-rule-btn')).toHaveTextContent(
         '保存自动化规则'
       );
@@ -189,9 +190,9 @@ describe('Collaboration Pulse UI (Track F5 / R4)', () => {
 
       expect(screen.getByText('Automation Rule Proposal')).toBeInTheDocument();
       expect(screen.getByLabelText('Rule Name')).toBeInTheDocument();
-      expect(screen.getByTestId('pulse-group-dispatch-summary')).toHaveTextContent(
-        'Seat: @QA'
-      );
+      expect(
+        screen.getByTestId('pulse-group-dispatch-summary')
+      ).toHaveTextContent('Seat: @QA');
       expect(screen.getByTestId('pulse-save-rule-btn')).toHaveTextContent(
         'Save Automation Rule'
       );
@@ -233,9 +234,9 @@ describe('Collaboration Pulse UI (Track F5 / R4)', () => {
     await user.click(autoBtn);
 
     // Inline error alert surfaces failure instead of silently swallowing
-    expect(await screen.findByTestId('bot-automations-error')).toHaveTextContent(
-      'Engine lock timeout'
-    );
+    expect(
+      await screen.findByTestId('bot-automations-error')
+    ).toHaveTextContent('Engine lock timeout');
 
     await user.click(screen.getByTestId('bot-automations-retry'));
     await waitFor(() => {

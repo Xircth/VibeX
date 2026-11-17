@@ -819,7 +819,9 @@ export async function reconcileRemoteHostAccount(
     rawHostId || null,
     rawHostId ? `host:${rawHostId}` : null,
     profile?.origin?.trim().replace(/\/+$/, '') || null,
-    profile?.origin ? `origin:${profile.origin.trim().replace(/\/+$/, '')}` : null,
+    profile?.origin
+      ? `origin:${profile.origin.trim().replace(/\/+$/, '')}`
+      : null,
   ];
 
   const remoteTokenRaw = remotePrefs?.[DESKTOP_SHARED_ACCOUNT_TOKEN_KEY];

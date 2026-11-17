@@ -394,16 +394,16 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   };
 
   return (
-      <article
-        ref={articleRef}
-        data-testid={`workflow-node-${data.step.id}`}
-        data-node-category={presentation.category}
-        className={cn(
-          'canvas-node-context-menu workflow-studio-node group relative w-[280px] text-left outline-none',
-          data.selected && 'workflow-node-selected',
-          statusClass(data.stepRun?.status)
-        )}
-      >
+    <article
+      ref={articleRef}
+      data-testid={`workflow-node-${data.step.id}`}
+      data-node-category={presentation.category}
+      className={cn(
+        'canvas-node-context-menu workflow-studio-node group relative w-[280px] text-left outline-none',
+        data.selected && 'workflow-node-selected',
+        statusClass(data.stepRun?.status)
+      )}
+    >
       {hasTargetPort ? (
         <>
           <Handle

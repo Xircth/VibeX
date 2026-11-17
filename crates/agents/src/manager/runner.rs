@@ -501,7 +501,10 @@ impl AgentConnectionRunner {
 
         let outcome = if let Some(driver) = self.resolve_native_engine_driver(mode_env.as_deref()) {
             let engine_id = driver.engine_id().to_string();
-            match self.run_native(&mut cmd_rx, Arc::clone(&ready), driver).await {
+            match self
+                .run_native(&mut cmd_rx, Arc::clone(&ready), driver)
+                .await
+            {
                 Ok(()) => Ok(()),
                 Err(error)
                     if !force_native

@@ -110,8 +110,9 @@ pub async fn open_capability_catalog_fingerprint(
         }
     }
     if let Some(ref custom_instance_id) = instance_id {
-        let candidates =
-            db::models::provider_instance::candidate_provider_agent_ids(launch_lock.agent_id.as_str());
+        let candidates = db::models::provider_instance::candidate_provider_agent_ids(
+            launch_lock.agent_id.as_str(),
+        );
         for candidate in candidates {
             if let Ok(Some(row)) = sqlx::query(
                 r#"SELECT auth_mode, COALESCE(secret_bindings_json, ''), updated_at
@@ -125,7 +126,11 @@ pub async fn open_capability_catalog_fingerprint(
             {
                 digest.update(b"\0provider_instance:");
                 for index in 0..3 {
-                    digest.update(row.try_get::<String, _>(index).unwrap_or_default().as_bytes());
+                    digest.update(
+                        row.try_get::<String, _>(index)
+                            .unwrap_or_default()
+                            .as_bytes(),
+                    );
                     digest.update(b"\0");
                 }
                 break;
@@ -539,8 +544,8 @@ static IN_FLIGHT_CATALOG_REFRESHES: OnceLock<
     Mutex<HashMap<(String, String), CatalogRefreshReceiver>>,
 > = OnceLock::new();
 
-fn in_flight_catalog_refreshes()
--> &'static Mutex<HashMap<(String, String), CatalogRefreshReceiver>> {
+fn in_flight_catalog_refreshes() -> &'static Mutex<HashMap<(String, String), CatalogRefreshReceiver>>
+{
     IN_FLIGHT_CATALOG_REFRESHES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -629,19 +634,20 @@ pub async fn refresh_open_capability_catalog_for_provider_instance(
         CatalogRefreshRegistration::Leader(guard) => guard,
         CatalogRefreshRegistration::Follower(mut rx) => {
             let result = match rx.wait_for(|value| value.is_some()).await {
-                Ok(value) => value
-                    .as_ref()
-                    .expect("wait_for guarantees Some")
-                    .clone(),
+                Ok(value) => value.as_ref().expect("wait_for guarantees Some").clone(),
                 Err(_) => Err(ConversationServiceError::Internal(
                     "capability catalog refresh channel closed".to_string(),
                 )),
             };
             if let Ok(ok) = result {
-                if AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
-                    .await
-                    .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
-                    .is_some()
+                if AgentCapabilityCatalogRecord::find_matching(
+                    pool,
+                    agent_id.as_str(),
+                    &fingerprint,
+                )
+                .await
+                .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
+                .is_some()
                 {
                     return Ok(ok);
                 }
@@ -1202,10 +1208,9 @@ mod tests {
             "DIMO_PROVIDER_INSTANCES_ROOT".to_string(),
             root.path().to_string_lossy().into_owned(),
         );
-        local_launch.env.insert(
-            "DIMO_PROVIDER_INSTANCE_ID".to_string(),
-            "local".to_string(),
-        );
+        local_launch
+            .env
+            .insert("DIMO_PROVIDER_INSTANCE_ID".to_string(), "local".to_string());
 
         let mut custom_launch = local_launch.clone();
         custom_launch.env.insert(

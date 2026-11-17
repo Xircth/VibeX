@@ -540,9 +540,7 @@ mod tests {
             .bind_loopback()
             .await
             .expect("listen");
-        let issued = gateway
-            .issue("dimo-plugin-computer-use", 1)
-            .expect("issue");
+        let issued = gateway.issue("dimo-plugin-computer-use", 1).expect("issue");
         let (status, body) = post_host_call(
             &issued.url,
             &issued.token,

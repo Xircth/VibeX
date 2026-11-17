@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{
     EntryKind, TRANSCRIPT_SCHEMA_VERSION, Transcript, TranscriptEntry, TranscriptHeader,
-    safe_component, transcript_path_in, dimo_acp_transcripts_root,
+    dimo_acp_transcripts_root, safe_component, transcript_path_in,
 };
 
 /// Read one session's transcript. Missing file → empty transcript. Malformed

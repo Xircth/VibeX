@@ -63,7 +63,7 @@ export function renderSafeSearchSnippet(snippet: string): ReactNode[] {
     nodes.push(
       <mark
         key={`mark-${keyIdx++}`}
-        className="rounded-sm bg-amber-500/30 px-0.5 font-medium text-foreground"
+        className="rounded-sm bg-warning/30 px-0.5 font-medium text-foreground"
       >
         {highlighted}
       </mark>
@@ -266,9 +266,7 @@ export function ConversationFindBar({
           aria-pressed={globalMode}
           onClick={() => setGlobalMode((prev) => !prev)}
           data-testid="find-bar-expand-global"
-          title={
-            globalMode ? t('find.collapseGlobal') : t('find.expandGlobal')
-          }
+          title={globalMode ? t('find.collapseGlobal') : t('find.expandGlobal')}
           className={cn(
             'inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
             globalMode

@@ -201,7 +201,10 @@ pub(super) async fn apply_openclaw(
         providers.remove("dimo");
         let key = resolve_openclaw_key(providers, provider);
         let mut entry = Map::new();
-        entry.insert("baseUrl".to_string(), Value::String(provider.api_url.clone()));
+        entry.insert(
+            "baseUrl".to_string(),
+            Value::String(provider.api_url.clone()),
+        );
         let api_key = provider.api_key.trim();
         if !api_key.is_empty() {
             entry.insert("apiKey".to_string(), Value::String(api_key.to_string()));
@@ -300,7 +303,10 @@ pub(super) async fn remove_native_openclaw_provider(
         .and_then(Value::as_object_mut)
         .and_then(|defaults| defaults.get_mut("model"))
         .and_then(Value::as_object_mut)
-        && let Some(primary) = model.get("primary").and_then(Value::as_str).map(str::to_string)
+        && let Some(primary) = model
+            .get("primary")
+            .and_then(Value::as_str)
+            .map(str::to_string)
         && removed_keys
             .iter()
             .any(|key| primary.starts_with(&format!("{key}/")))

@@ -657,4 +657,3 @@ describe('WebServiceSettings', () => {
     );
   });
 });
-

@@ -36,10 +36,11 @@ fn parse_target_agent_id(raw: &str) -> Result<AgentId, ApplicationError> {
     AgentId::parse(trimmed)
         .ok()
         .or_else(|| {
-            AgentKind::from_lenient(trimmed)
-                .and_then(|kind| AgentId::parse(kind.as_str()).ok())
+            AgentKind::from_lenient(trimmed).and_then(|kind| AgentId::parse(kind.as_str()).ok())
         })
-        .ok_or_else(|| ApplicationError::bad_request(format!("unsupported targetEngine: {trimmed}")))
+        .ok_or_else(|| {
+            ApplicationError::bad_request(format!("unsupported targetEngine: {trimmed}"))
+        })
 }
 
 fn map_handoff_error(error: HandoffError) -> ApplicationError {

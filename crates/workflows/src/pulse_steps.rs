@@ -207,7 +207,7 @@ fn evaluate_scalar_condition(
             Some(serde_json::Value::String(text)) => text.contains(needle),
             Some(serde_json::Value::Array(items)) => items.iter().any(|item| match item {
                 serde_json::Value::String(s) => s == needle,
-                other => other.to_string() == *needle,
+                other => serde_json::to_string(other).ok().as_deref() == Some(needle.as_str()),
             }),
             _ => false,
         },

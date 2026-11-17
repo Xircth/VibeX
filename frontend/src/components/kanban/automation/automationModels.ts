@@ -115,10 +115,7 @@ export function stripTemplateNoise(raw: string | null | undefined): string {
     .trim();
 }
 
-const FRIENDLY_EVENT_TYPE_LABELS: Record<
-  string,
-  { zh: string; en: string }
-> = {
+const FRIENDLY_EVENT_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   'github.workflow_run.completed': {
     zh: 'GitHub CI 检查完成时',
     en: 'When GitHub CI finishes',
@@ -494,8 +491,7 @@ export function extractSemanticChain(
     }
     if (step.kind === 'notify') {
       outcomeSummary =
-        stripTemplateNoise(step.title) ||
-        (isZh ? '发送通知给我' : 'Notify me');
+        stripTemplateNoise(step.title) || (isZh ? '发送通知给我' : 'Notify me');
       break;
     }
   }
@@ -545,7 +541,10 @@ function parseStudioFromSummary(
   }
 
   if (linkedRule) {
-    const projected = convertRuleSpecToStudioWorkflow(linkedRule.spec, language);
+    const projected = convertRuleSpecToStudioWorkflow(
+      linkedRule.spec,
+      language
+    );
     return {
       ...projected,
       name: summary.name || projected.name,
@@ -645,7 +644,8 @@ export function unifyAutomationTasks(
       id: def.id,
       workflowId: def.id,
       name: def.name,
-      description: studioDefinition.description ?? linkedRule?.spec.description ?? null,
+      description:
+        studioDefinition.description ?? linkedRule?.spec.description ?? null,
       enabled,
       governanceGroup,
       status,
@@ -714,7 +714,10 @@ export function unifyAutomationTasks(
 
   // Project standalone PulseRules smoothly into unified Workflow tasks
   for (const rule of standaloneRules) {
-    const studioDefinition = convertRuleSpecToStudioWorkflow(rule.spec, language);
+    const studioDefinition = convertRuleSpecToStudioWorkflow(
+      rule.spec,
+      language
+    );
     const matchedInteraction =
       interactions.find((item) => item.ruleId === rule.id) ?? null;
     const isBusy = Boolean(options.busyRuleIds?.includes(rule.id));
@@ -787,8 +790,6 @@ export function buildWebhookCurlSnippet(
     ? ` \\\n  -H "X-Pulse-Signature: ${trimmedSecret}"`
     : '';
   const eventHeader =
-    kind === 'github'
-      ? ' \\\n  -H "X-GitHub-Event: workflow_run"'
-      : '';
+    kind === 'github' ? ' \\\n  -H "X-GitHub-Event: workflow_run"' : '';
   return `curl -X POST "${webhookUrl}" \\\n  -H "Content-Type: application/json"${eventHeader}${headerLine} \\\n  -d '{"eventType":"webhook.test","text":"hello from curl"}'`;
 }

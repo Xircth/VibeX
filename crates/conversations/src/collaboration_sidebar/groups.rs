@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) async fn read_mark(pool: &SqlitePool, thread_id: &str) -> Result<Option<i64>, CollaborationError> {
+pub(super) async fn read_mark(
+    pool: &SqlitePool,
+    thread_id: &str,
+) -> Result<Option<i64>, CollaborationError> {
     sqlx::query_scalar("SELECT last_read_seq FROM collaboration_thread_reads WHERE thread_id = ?")
         .bind(thread_id)
         .fetch_optional(pool)
@@ -60,7 +63,10 @@ pub(super) async fn dm_unread_count_with_read(
         .count() as i64)
 }
 
-pub(super) async fn dm_tail_seq(pool: &SqlitePool, conversation_id: Uuid) -> Result<i64, CollaborationError> {
+pub(super) async fn dm_tail_seq(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, CollaborationError> {
     Ok(dm_last_message(pool, conversation_id)
         .await?
         .and_then(|message| message.seq)

@@ -545,7 +545,11 @@ describe('agentQuestionModel', () => {
             id: 'interaction_1',
             question: '选择风格',
             options: [
-              { id: 'opt-dark', label: '(Recommended) 极夜风', description: '' },
+              {
+                id: 'opt-dark',
+                label: '(Recommended) 极夜风',
+                description: '',
+              },
               { id: 'opt-light', label: '浅色风', description: '' },
             ],
           },

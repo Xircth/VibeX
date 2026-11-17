@@ -293,15 +293,16 @@ async fn dispatch_rate_limit_auto_resume(
     else {
         return;
     };
-    let raw_agent = match db::models::conversation::ConversationAgentBindingRecord::latest_for_conversation(
-        pool,
-        conversation_id,
-    )
-    .await
-    {
-        Ok(Some(binding)) => Some(binding.agent_id.as_str().to_string()),
-        _ => session.executor.clone(),
-    };
+    let raw_agent =
+        match db::models::conversation::ConversationAgentBindingRecord::latest_for_conversation(
+            pool,
+            conversation_id,
+        )
+        .await
+        {
+            Ok(Some(binding)) => Some(binding.agent_id.as_str().to_string()),
+            _ => session.executor.clone(),
+        };
     let Some(raw_agent) = raw_agent else {
         return;
     };

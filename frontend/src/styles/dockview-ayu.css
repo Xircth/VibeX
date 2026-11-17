@@ -518,7 +518,7 @@
   ):not([data-stage-leftmost]):not([data-stage-rightmost]):not(
     [data-stage-topmost]
   ):not([data-stage-bottommost]) {
-  border-radius: 14px;
+  border-radius: var(--radius-container);
   border-top: 1px solid var(--border-subtle);
   border-left: 1px solid var(--border-subtle);
 }
@@ -538,7 +538,7 @@
 }
 
 .workspace-stage-host > .kanban-overlay {
-  border-radius: 14px;
+  border-radius: var(--radius-container);
   border: 1px solid var(--border-subtle);
   overflow: hidden;
   background-color: var(--surface-card-strong);
@@ -546,7 +546,7 @@
 }
 
 .workspace-stage-host > .workspace-stage-creation-overlay {
-  border-radius: 14px;
+  border-radius: var(--radius-container);
   overflow: hidden;
 }
 
@@ -1431,7 +1431,7 @@
   > .dv-drop-target-selection {
   background-color: hsl(var(--primary) / 0.08) !important;
   border: 2px dashed hsl(var(--primary) / 0.64) !important;
-  border-radius: var(--radius, 6px);
+  border-radius: var(--radius);
 }
 
 /* Reset Dockview's per-edge overrides that hide three sides of the border.
@@ -1453,7 +1453,7 @@
   > .dv-drop-target-dropzone
   > .dv-drop-target-selection.dv-drop-target-right {
   border: 2px dashed hsl(var(--primary) / 0.64) !important;
-  border-radius: var(--radius, 6px);
+  border-radius: var(--radius);
   background-color: hsl(var(--primary) / 0.08) !important;
 }
 
@@ -1463,6 +1463,6 @@
   > .dv-drop-target-dropzone
   > .dv-drop-target-selection.dv-drop-target-center {
   border: 2px dashed hsl(var(--primary) / 0.64) !important;
-  border-radius: var(--radius, 6px);
+  border-radius: var(--radius);
   background-color: hsl(var(--primary) / 0.08) !important;
 }

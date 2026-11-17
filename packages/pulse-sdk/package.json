@@ -1,6 +1,6 @@
 {
   "name": "@vibex/pulse-sdk",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "license": "MIT",
   "type": "module",
   "description": "Typed Event SDK, Standard Webhooks verifier, Dual-Primitive builders, REST client, and CLI for VibeX Pulse",

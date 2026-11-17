@@ -1,4 +1,3 @@
-
 function errorSummary(cause: unknown): string {
   if (cause instanceof Error) return cause.message;
   if (typeof cause === 'string') return cause;
@@ -139,65 +138,66 @@ export function OnboardingHistoryImport({
     0
   );
 
-  const scan = useCallback(async (ids: AgentId[]) => {
-    const request = ++generation.current;
-    activeSourceIds.current = ids;
-    setPhase('scanning');
-    setScanState({ completed: [], failed: [], progress: null });
-    setScanErrors([]);
-    setError(null);
-    const found: LocalHistoryScanFolder[] = [];
-    const errors: string[] = [];
-    for (const id of ids) {
-      if (!mounted.current || generation.current !== request) return;
-      setScanState((current) => ({
-        ...current,
-        progress: null,
-        active: id,
-      }));
-      try {
-        const page = await agentsApi.scanLocalHistory(id, (progress) => {
+  const scan = useCallback(
+    async (ids: AgentId[]) => {
+      const request = ++generation.current;
+      activeSourceIds.current = ids;
+      setPhase('scanning');
+      setScanState({ completed: [], failed: [], progress: null });
+      setScanErrors([]);
+      setError(null);
+      const found: LocalHistoryScanFolder[] = [];
+      const errors: string[] = [];
+      for (const id of ids) {
+        if (!mounted.current || generation.current !== request) return;
+        setScanState((current) => ({
+          ...current,
+          progress: null,
+          active: id,
+        }));
+        try {
+          const page = await agentsApi.scanLocalHistory(id, (progress) => {
+            if (mounted.current && generation.current === request)
+              setScanState((current) => ({ ...current, progress }));
+          });
+          found.push(
+            ...page.folders.filter(
+              (folder) => folderImportableKeys(folder).length > 0
+            )
+          );
+        } catch (cause) {
+          errors.push(
+            `${agentLabel(sourceAgents, id)}: ${errorSummary(cause)}`
+          );
           if (mounted.current && generation.current === request)
-            setScanState((current) => ({ ...current, progress }));
-        });
-        found.push(
-          ...page.folders.filter(
-            (folder) => folderImportableKeys(folder).length > 0
-          )
-        );
-      } catch (cause) {
-        errors.push(
-          `${agentLabel(sourceAgents, id)}: ${
-            errorSummary(cause)
-          }`
-        );
-        if (mounted.current && generation.current === request)
-          setScanState((current) => ({
-            ...current,
-            failed: [...current.failed, id],
-          }));
+            setScanState((current) => ({
+              ...current,
+              failed: [...current.failed, id],
+            }));
+        }
+        if (!mounted.current || generation.current !== request) return;
+        setScanState((current) => ({
+          ...current,
+          completed: [...current.completed, id],
+          active: undefined,
+        }));
       }
       if (!mounted.current || generation.current !== request) return;
-      setScanState((current) => ({
-        ...current,
-        completed: [...current.completed, id],
-        active: undefined,
-      }));
-    }
-    if (!mounted.current || generation.current !== request) return;
-    const grouped = groupOnboardingHistory(found);
-    setFolders(grouped);
-    setSelectedSessions(new Set(grouped.flatMap(folderImportableKeys)));
-    setExpandedFolders(
-      new Set(
-        grouped
-          .filter((folder) => folderImportableKeys(folder).length > 1)
-          .map((folder) => folder.path)
-      )
-    );
-    setScanErrors(errors);
-    setPhase('review');
-  }, [sourceAgents]);
+      const grouped = groupOnboardingHistory(found);
+      setFolders(grouped);
+      setSelectedSessions(new Set(grouped.flatMap(folderImportableKeys)));
+      setExpandedFolders(
+        new Set(
+          grouped
+            .filter((folder) => folderImportableKeys(folder).length > 1)
+            .map((folder) => folder.path)
+        )
+      );
+      setScanErrors(errors);
+      setPhase('review');
+    },
+    [sourceAgents]
+  );
 
   const discover = useCallback(async () => {
     const request = ++generation.current;
@@ -280,7 +280,9 @@ export function OnboardingHistoryImport({
         }))
       );
       if (!mounted.current) return;
-      const fullyScanned = scans.every((result) => result.status === 'fulfilled');
+      const fullyScanned = scans.every(
+        (result) => result.status === 'fulfilled'
+      );
       if (fullyScanned) {
         const remaining = scans.flatMap((result) =>
           result.status === 'fulfilled'
@@ -304,8 +306,7 @@ export function OnboardingHistoryImport({
         )
           await onFinish(preparedProjectIds.current);
       } catch (cause) {
-        if (mounted.current)
-          setError(errorSummary(cause));
+        if (mounted.current) setError(errorSummary(cause));
       } finally {
         importInFlight.current = false;
         if (mounted.current) setBusy(false);
@@ -369,8 +370,7 @@ export function OnboardingHistoryImport({
         setSelectedSources(new Set(ids));
         setPhase('sources');
       } catch (cause) {
-        if (mounted.current)
-          setError(errorSummary(cause));
+        if (mounted.current) setError(errorSummary(cause));
       }
     })();
   };
@@ -627,15 +627,22 @@ export function OnboardingHistoryImport({
                     ...new Set(folder.sessions.map((item) => item.agent_id)),
                   ];
                   return (
-                    <li key={folder.path} className="onboarding-history-project">
+                    <li
+                      key={folder.path}
+                      className="onboarding-history-project"
+                    >
                       <div className="onboarding-history-project-head">
                         <Checkbox
                           aria-label={folder.name}
-                          checked={checkedCount === keys.length && keys.length > 0}
+                          checked={
+                            checkedCount === keys.length && keys.length > 0
+                          }
                           aria-checked={
                             mixed ? 'mixed' : checkedCount === keys.length
                           }
-                          className={mixed ? 'onboarding-check-mixed' : undefined}
+                          className={
+                            mixed ? 'onboarding-check-mixed' : undefined
+                          }
                           onCheckedChange={(value) =>
                             toggleSessions(keys, value === true)
                           }
@@ -651,12 +658,17 @@ export function OnboardingHistoryImport({
                           <span className="onboarding-history-project-meta">
                             {agents.map((id) => (
                               <span key={id} className="onboarding-agent-chip">
-                                <AgentTypeIcon agentType={id} className="size-3.5" />
+                                <AgentTypeIcon
+                                  agentType={id}
+                                  className="size-3.5"
+                                />
                                 {agentLabel(sourceAgents, id)}
                               </span>
                             ))}
                             <span className="tabular-nums">
-                              {t('onboarding.sessionCount', { count: keys.length })}
+                              {t('onboarding.sessionCount', {
+                                count: keys.length,
+                              })}
                             </span>
                           </span>
                         </div>
@@ -702,13 +714,17 @@ export function OnboardingHistoryImport({
                                         agentType={session.agent_id}
                                         className="size-3.5"
                                       />
-                                      {agentLabel(sourceAgents, session.agent_id)}
+                                      {agentLabel(
+                                        sourceAgents,
+                                        session.agent_id
+                                      )}
                                     </span>
                                     <time
                                       className="tabular-nums"
                                       dateTime={session.updated_at ?? undefined}
                                     >
-                                      {date ?? t('onboarding.historyDateUnknown')}
+                                      {date ??
+                                        t('onboarding.historyDateUnknown')}
                                     </time>
                                   </label>
                                 </li>
@@ -736,11 +752,9 @@ export function OnboardingHistoryImport({
             <p className="onboarding-history-note">
               {t('onboarding.importContinuity')}
             </p>
-            {job && (importRequested || job.status === 'running' || job.result) ? (
-              <div
-                className="onboarding-import-progress"
-                aria-live="polite"
-              >
+            {job &&
+            (importRequested || job.status === 'running' || job.result) ? (
+              <div className="onboarding-import-progress" aria-live="polite">
                 <div className="onboarding-import-progress-head">
                   <span className="tabular-nums">
                     {job.status === 'running'
@@ -760,7 +774,9 @@ export function OnboardingHistoryImport({
                   ) : null}
                 </div>
                 {job.status === 'running' && job.progress?.title ? (
-                  <p className="onboarding-import-title">{job.progress.title}</p>
+                  <p className="onboarding-import-title">
+                    {job.progress.title}
+                  </p>
                 ) : null}
                 {job.result?.errors.map((message, index) => (
                   <p
@@ -832,10 +848,14 @@ export function OnboardingHistoryImport({
               <Button
                 disabled={running}
                 onClick={() =>
-                  visibleSelection.size ? void importHistory() : void onFinish([])
+                  visibleSelection.size
+                    ? void importHistory()
+                    : void onFinish([])
                 }
               >
-                {running ? <Loader2 className="size-4 motion-safe:animate-spin" /> : null}
+                {running ? (
+                  <Loader2 className="size-4 motion-safe:animate-spin" />
+                ) : null}
                 {t(
                   visibleSelection.size
                     ? 'onboarding.importAndContinue'

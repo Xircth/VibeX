@@ -46,13 +46,17 @@ describe('timelineMemoHelpers', () => {
           tool_use_id: 'todo-1',
           tool_name: 'TodoWrite',
           input_preview: JSON.stringify({
-            todos: [{ content: 'Todo step', status: 'pending', priority: 'low' }],
+            todos: [
+              { content: 'Todo step', status: 'pending', priority: 'low' },
+            ],
           }),
           meta: null,
         },
         { type: 'plan', entries: newerPlan },
       ]),
-      turnRow('turn-3:assistant', 'assistant', [{ type: 'text', text: 'Done' }]),
+      turnRow('turn-3:assistant', 'assistant', [
+        { type: 'text', text: 'Done' },
+      ]),
     ];
 
     expect(getLatestTimelinePlanEntries(timeline)).toEqual(newerPlan);
@@ -67,7 +71,11 @@ describe('timelineMemoHelpers', () => {
           tool_name: 'Plan',
           input_preview: JSON.stringify({
             todos: [
-              { content: 'Audit replay', status: 'completed', priority: 'high' },
+              {
+                content: 'Audit replay',
+                status: 'completed',
+                priority: 'high',
+              },
               { content: 'Run tests', status: 'in_progress' },
             ],
           }),
@@ -102,14 +110,18 @@ describe('timelineMemoHelpers', () => {
           },
         }
       ),
-      turnRow('turn-2:user', 'user', [{ type: 'text', text: '/compact focus' }]),
+      turnRow('turn-2:user', 'user', [
+        { type: 'text', text: '/compact focus' },
+      ]),
       turnRow(
         'acp-assistant-2',
         'assistant',
         [{ type: 'text', text: 'ACP compacted' }],
         'streaming'
       ),
-      turnRow('turn-3:user', 'user', [{ type: 'text', text: 'Normal question' }]),
+      turnRow('turn-3:user', 'user', [
+        { type: 'text', text: 'Normal question' },
+      ]),
       turnRow('turn-3:assistant', 'assistant', [
         { type: 'text', text: 'Normal answer' },
       ]),
@@ -131,10 +143,14 @@ describe('timelineMemoHelpers', () => {
 
   it('extracts copy text cleanly for 0, 1, and multiple text blocks', () => {
     expect(
-      turnCopyText(turnRow('t0', 'assistant', [{ type: 'thinking', text: 'x' }]).turn)
+      turnCopyText(
+        turnRow('t0', 'assistant', [{ type: 'thinking', text: 'x' }]).turn
+      )
     ).toBe('');
     expect(
-      turnCopyText(turnRow('t1', 'assistant', [{ type: 'text', text: '  Single  ' }]).turn)
+      turnCopyText(
+        turnRow('t1', 'assistant', [{ type: 'text', text: '  Single  ' }]).turn
+      )
     ).toBe('Single');
     expect(
       turnCopyText(

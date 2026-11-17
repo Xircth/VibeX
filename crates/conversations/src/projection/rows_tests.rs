@@ -1,632 +1,630 @@
-    use std::str::FromStr;
+use std::str::FromStr;
 
-    use agents::{
-        AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
-        AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
-        conversation::{
-            ContentBlock, ConversationArtifactReference, ConversationDelegation,
-            ConversationDelegationResult, ConversationError, ConversationEvent,
-            ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationInputBlock,
-            ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
-            ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
-            ConversationQuestionResponse, ConversationTimelineRow, ConversationToolCallPatch,
-            ConversationUsage, TurnRole,
-        },
-    };
-    use db::models::{
-        conversation::{
-            ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
-            CreateConversationRecord,
-        },
-        conversation_event::{
-            AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord,
-        },
-        conversation_input::ConversationInputRecord,
-        conversation_relation::ConversationRelationRecord,
-        conversation_snapshot::ConversationProjectionSnapshotRecord,
-        conversation_tool::ConversationToolCallRecord,
-        conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
-        session::Session,
-    };
-    use sqlx::{
-        SqlitePool,
-        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    };
-    use uuid::Uuid;
+use agents::{
+    AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
+    AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
+    conversation::{
+        ContentBlock, ConversationArtifactReference, ConversationDelegation,
+        ConversationDelegationResult, ConversationError, ConversationEvent,
+        ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationInputBlock,
+        ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
+        ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
+        ConversationQuestionResponse, ConversationTimelineRow, ConversationToolCallPatch,
+        ConversationUsage, TurnRole,
+    },
+};
+use db::models::{
+    conversation::{
+        ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
+        CreateConversationRecord,
+    },
+    conversation_event::{AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord},
+    conversation_input::ConversationInputRecord,
+    conversation_relation::ConversationRelationRecord,
+    conversation_snapshot::ConversationProjectionSnapshotRecord,
+    conversation_tool::ConversationToolCallRecord,
+    conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+    session::Session,
+};
+use sqlx::{
+    SqlitePool,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
+use uuid::Uuid;
 
-    use super::{ConversationSessionNotice, side_row};
-    use crate::{
-        CreateDelegatedConversation, create_delegated_conversation,
-        projection::{
-            CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-            ProjectionFold, ProjectionSnapshotState,
-        },
-    };
-    pub(in crate::projection) fn record_of(
-        conversation_id: Uuid,
-        sequence: i64,
-        event: ConversationEvent,
-    ) -> ConversationEventRecord {
-        ConversationEventRecord {
-            id: Uuid::new_v4(),
-            conversation_id,
-            turn_id: None,
-            binding_id: None,
-            connection_id: None,
-            prompt_id: None,
-            sequence,
-            source: "acp".into(),
-            event_kind: "test".into(),
-            event_version: CURRENT_EVENT_VERSION,
-            normalized_json: serde_json::to_string(&event).expect("event json"),
-            raw_json: None,
-            idempotency_key: None,
-            created_at: chrono::Utc::now(),
-        }
+use super::{ConversationSessionNotice, side_row};
+use crate::{
+    CreateDelegatedConversation, create_delegated_conversation,
+    projection::{
+        CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
+        ProjectionFold, ProjectionSnapshotState,
+    },
+};
+pub(in crate::projection) fn record_of(
+    conversation_id: Uuid,
+    sequence: i64,
+    event: ConversationEvent,
+) -> ConversationEventRecord {
+    ConversationEventRecord {
+        id: Uuid::new_v4(),
+        conversation_id,
+        turn_id: None,
+        binding_id: None,
+        connection_id: None,
+        prompt_id: None,
+        sequence,
+        source: "acp".into(),
+        event_kind: "test".into(),
+        event_version: CURRENT_EVENT_VERSION,
+        normalized_json: serde_json::to_string(&event).expect("event json"),
+        raw_json: None,
+        idempotency_key: None,
+        created_at: chrono::Utc::now(),
     }
+}
 
-    pub(in crate::projection) async fn setup_pool() -> SqlitePool {
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")
-            .expect("sqlite options")
-            .foreign_keys(false);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(options)
-            .await
-            .expect("connect memory db");
-        sqlx::migrate!("../db/migrations")
-            .run(&pool)
-            .await
-            .expect("run migrations");
-        sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(&pool)
-            .await
-            .expect("disable foreign keys");
-        pool
-    }
-
-    pub(in crate::projection) async fn setup_temp_pool() -> (tempfile::TempDir, SqlitePool) {
-        let dir = tempfile::tempdir().expect("temp db dir");
-        let options = SqliteConnectOptions::new()
-            .filename(dir.path().join("conversations.sqlite"))
-            .create_if_missing(true)
-            .foreign_keys(false);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(options)
-            .await
-            .expect("connect temp db");
-        sqlx::migrate!("../db/migrations")
-            .run(&pool)
-            .await
-            .expect("run migrations");
-        sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(&pool)
-            .await
-            .expect("disable foreign keys");
-        (dir, pool)
-    }
-
-    pub(in crate::projection) async fn seed_turn(pool: &SqlitePool) -> (Uuid, Uuid) {
-        let conversation_id = Uuid::new_v4();
-        ConversationRecord::create(
-            pool,
-            conversation_id,
-            CreateConversationRecord {
-                workspace_id: Uuid::new_v4(),
-                task_id: None,
-                title: None,
-                initial_prompt: None,
-                status: None,
-                executor: Some("agent"),
-            },
-        )
+pub(in crate::projection) async fn setup_pool() -> SqlitePool {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
         .await
-        .expect("create conversation");
-        let turn = ConversationTurnRecord::create_pending(
-            pool,
-            Uuid::new_v4(),
-            CreateConversationTurn {
-                conversation_id,
-                prompt_id: Some("prompt-1"),
-                text_preview: Some("hello"),
-                input_blocks_json: "[]",
-            },
-        )
+        .expect("connect memory db");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
         .await
-        .expect("create turn");
-        (conversation_id, turn.id)
-    }
-
-    pub(in crate::projection) fn diagnostic_record(
-        conversation_id: Uuid,
-        sequence: i64,
-        event: &ConversationEvent,
-    ) -> ConversationEventRecord {
-        ConversationEventRecord {
-            id: Uuid::new_v4(),
-            conversation_id,
-            turn_id: None,
-            binding_id: None,
-            connection_id: None,
-            prompt_id: None,
-            sequence,
-            source: "acp".into(),
-            event_kind: "raw_diagnostic_recorded".into(),
-            event_version: CURRENT_EVENT_VERSION,
-            normalized_json: serde_json::to_string(event).expect("diagnostic json"),
-            raw_json: None,
-            idempotency_key: None,
-            created_at: chrono::Utc::now(),
-        }
-    }
-
-    pub(in crate::projection) async fn append_event(
-        pool: &SqlitePool,
-        conversation_id: Uuid,
-        turn_id: Option<Uuid>,
-        source: &'static str,
-        event: ConversationEvent,
-        idempotency_key: Option<&'static str>,
-    ) -> ConversationEventRecord {
-        let value = serde_json::to_value(&event).expect("event value");
-        let event_kind = value["kind"].as_str().expect("event kind").to_string();
-        let normalized_json = serde_json::to_string(&event).expect("event json");
-        ConversationEventAppender::append(
-            pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id,
-                binding_id: None,
-                connection_id: Some("connection-1"),
-                prompt_id: Some("prompt-1"),
-                source,
-                event_kind: &event_kind,
-                normalized_json: &normalized_json,
-                raw_json: None,
-                idempotency_key,
-            },
-        )
+        .expect("run migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
         .await
-        .expect("append event")
-    }
+        .expect("disable foreign keys");
+    pool
+}
 
-    pub(in crate::projection) fn test_input_payload(text: &str) -> ConversationInputPayload {
-        ConversationInputPayload {
-            continuation_policy: None,
-            expected_binding_revision: None,
-            agent_id: AgentId::parse("codex").expect("agent id"),
+pub(in crate::projection) async fn setup_temp_pool() -> (tempfile::TempDir, SqlitePool) {
+    let dir = tempfile::tempdir().expect("temp db dir");
+    let options = SqliteConnectOptions::new()
+        .filename(dir.path().join("conversations.sqlite"))
+        .create_if_missing(true)
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("connect temp db");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("run migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .expect("disable foreign keys");
+    (dir, pool)
+}
+
+pub(in crate::projection) async fn seed_turn(pool: &SqlitePool) -> (Uuid, Uuid) {
+    let conversation_id = Uuid::new_v4();
+    ConversationRecord::create(
+        pool,
+        conversation_id,
+        CreateConversationRecord {
             workspace_id: Uuid::new_v4(),
-            executor_profile_id: None,
-            text: text.to_string(),
-            display_text: None,
-            images: Vec::new(),
-            mode_override: None,
-            config_overrides: Vec::new(),
+            task_id: None,
+            title: None,
+            initial_prompt: None,
+            status: None,
+            executor: Some("agent"),
+        },
+    )
+    .await
+    .expect("create conversation");
+    let turn = ConversationTurnRecord::create_pending(
+        pool,
+        Uuid::new_v4(),
+        CreateConversationTurn {
+            conversation_id,
+            prompt_id: Some("prompt-1"),
+            text_preview: Some("hello"),
+            input_blocks_json: "[]",
+        },
+    )
+    .await
+    .expect("create turn");
+    (conversation_id, turn.id)
+}
+
+pub(in crate::projection) fn diagnostic_record(
+    conversation_id: Uuid,
+    sequence: i64,
+    event: &ConversationEvent,
+) -> ConversationEventRecord {
+    ConversationEventRecord {
+        id: Uuid::new_v4(),
+        conversation_id,
+        turn_id: None,
+        binding_id: None,
+        connection_id: None,
+        prompt_id: None,
+        sequence,
+        source: "acp".into(),
+        event_kind: "raw_diagnostic_recorded".into(),
+        event_version: CURRENT_EVENT_VERSION,
+        normalized_json: serde_json::to_string(event).expect("diagnostic json"),
+        raw_json: None,
+        idempotency_key: None,
+        created_at: chrono::Utc::now(),
+    }
+}
+
+pub(in crate::projection) async fn append_event(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    turn_id: Option<Uuid>,
+    source: &'static str,
+    event: ConversationEvent,
+    idempotency_key: Option<&'static str>,
+) -> ConversationEventRecord {
+    let value = serde_json::to_value(&event).expect("event value");
+    let event_kind = value["kind"].as_str().expect("event kind").to_string();
+    let normalized_json = serde_json::to_string(&event).expect("event json");
+    ConversationEventAppender::append(
+        pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id,
+            binding_id: None,
+            connection_id: Some("connection-1"),
+            prompt_id: Some("prompt-1"),
+            source,
+            event_kind: &event_kind,
+            normalized_json: &normalized_json,
+            raw_json: None,
+            idempotency_key,
+        },
+    )
+    .await
+    .expect("append event")
+}
+
+pub(in crate::projection) fn test_input_payload(text: &str) -> ConversationInputPayload {
+    ConversationInputPayload {
+        continuation_policy: None,
+        expected_binding_revision: None,
+        agent_id: AgentId::parse("codex").expect("agent id"),
+        workspace_id: Uuid::new_v4(),
+        executor_profile_id: None,
+        text: text.to_string(),
+        display_text: None,
+        images: Vec::new(),
+        mode_override: None,
+        config_overrides: Vec::new(),
+        workflow_refs: Vec::new(),
+        file_refs: Vec::new(),
+        internal_prompt_contributions: Vec::new(),
+        collaboration_origin: None,
+        provider_instance_id: None,
+    }
+}
+
+pub(in crate::projection) async fn seed_durable_input_turn(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    text: &str,
+) -> (Uuid, Uuid) {
+    let input_id = Uuid::new_v4();
+    let claim_token = Uuid::new_v4();
+    let payload = test_input_payload(text);
+    append_event(
+        pool,
+        conversation_id,
+        None,
+        "user",
+        ConversationEvent::ConversationInput {
+            event: ConversationInputEvent::Submitted {
+                input_id,
+                operation_id: Uuid::new_v4(),
+                revision: 1,
+                sort_key: ConversationInputRecord::next_sort_key(pool, conversation_id)
+                    .await
+                    .expect("sort key"),
+                payload_digest: format!("digest-{input_id}"),
+                payload,
+                principal: serde_json::json!({ "kind": "test" }),
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        pool,
+        conversation_id,
+        None,
+        "system",
+        ConversationEvent::ConversationInput {
+            event: ConversationInputEvent::Claimed {
+                input_id,
+                claim_token,
+                claim_deadline: chrono::Utc::now() + chrono::Duration::seconds(30),
+            },
+        },
+        None,
+    )
+    .await;
+    let turn = ConversationTurnRecord::create_pending(
+        pool,
+        Uuid::new_v4(),
+        CreateConversationTurn {
+            conversation_id,
+            prompt_id: Some("prompt"),
+            text_preview: Some(text),
+            input_blocks_json: "[]",
+        },
+    )
+    .await
+    .expect("create turn");
+    append_event(
+        pool,
+        conversation_id,
+        Some(turn.id),
+        "system",
+        ConversationEvent::ConversationInput {
+            event: ConversationInputEvent::Dispatched {
+                input_id,
+                claim_token,
+                turn_id: turn.id,
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        pool,
+        conversation_id,
+        Some(turn.id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text { text: text.into() }],
             workflow_refs: Vec::new(),
-            file_refs: Vec::new(),
-            internal_prompt_contributions: Vec::new(),
-            collaboration_origin: None,
-            provider_instance_id: None,
-        }
-    }
+        },
+        None,
+    )
+    .await;
+    (input_id, turn.id)
+}
 
-    pub(in crate::projection) async fn seed_durable_input_turn(
-        pool: &SqlitePool,
-        conversation_id: Uuid,
-        text: &str,
-    ) -> (Uuid, Uuid) {
-        let input_id = Uuid::new_v4();
-        let claim_token = Uuid::new_v4();
-        let payload = test_input_payload(text);
-        append_event(
-            pool,
-            conversation_id,
-            None,
-            "user",
-            ConversationEvent::ConversationInput {
-                event: ConversationInputEvent::Submitted {
-                    input_id,
-                    operation_id: Uuid::new_v4(),
-                    revision: 1,
-                    sort_key: ConversationInputRecord::next_sort_key(pool, conversation_id)
-                        .await
-                        .expect("sort key"),
-                    payload_digest: format!("digest-{input_id}"),
-                    payload,
-                    principal: serde_json::json!({ "kind": "test" }),
-                },
+#[tokio::test]
+async fn artifact_revision_event_projects_reference_without_file_bytes() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let artifact_id = Uuid::new_v4();
+
+    let record = append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "host",
+        ConversationEvent::ArtifactRevisionRecorded {
+            artifact: ConversationArtifactReference {
+                artifact_id,
+                workspace_id: Some(Uuid::new_v4()),
+                relative_path: "reports/quarter.xlsx".into(),
+                media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    .into(),
+                content_hash: "a".repeat(64),
+                revision: 1,
+                plugin_id: "builtin.office".into(),
+                plugin_version: "2.0.0".into(),
+                provider_id: "officecli".into(),
+                tool_lock_id: "officecli:test:1.0.140".into(),
             },
-            None,
-        )
-        .await;
-        append_event(
-            pool,
-            conversation_id,
-            None,
-            "system",
-            ConversationEvent::ConversationInput {
-                event: ConversationInputEvent::Claimed {
-                    input_id,
-                    claim_token,
-                    claim_deadline: chrono::Utc::now() + chrono::Duration::seconds(30),
-                },
-            },
-            None,
-        )
-        .await;
-        let turn = ConversationTurnRecord::create_pending(
-            pool,
-            Uuid::new_v4(),
-            CreateConversationTurn {
-                conversation_id,
-                prompt_id: Some("prompt"),
-                text_preview: Some(text),
-                input_blocks_json: "[]",
-            },
-        )
+        },
+        Some("artifact-revision-1"),
+    )
+    .await;
+
+    assert_eq!(record.event_kind, "artifact_revision_recorded");
+    assert!(record.normalized_json.contains(&artifact_id.to_string()));
+    assert!(!record.normalized_json.contains("\"bytes\""));
+    let timeline = ConversationProjector::project(&pool, conversation_id)
         .await
-        .expect("create turn");
-        append_event(
-            pool,
-            conversation_id,
-            Some(turn.id),
-            "system",
-            ConversationEvent::ConversationInput {
-                event: ConversationInputEvent::Dispatched {
-                    input_id,
-                    claim_token,
-                    turn_id: turn.id,
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            pool,
-            conversation_id,
-            Some(turn.id),
-            "user",
-            ConversationEvent::UserTurnCreated {
-                blocks: vec![ConversationInputBlock::Text { text: text.into() }],
-                workflow_refs: Vec::new(),
-            },
-            None,
-        )
-        .await;
-        (input_id, turn.id)
-    }
-
-    #[tokio::test]
-    async fn artifact_revision_event_projects_reference_without_file_bytes() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        let artifact_id = Uuid::new_v4();
-
-        let record = append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "host",
-            ConversationEvent::ArtifactRevisionRecorded {
-                artifact: ConversationArtifactReference {
-                    artifact_id,
-                    workspace_id: Some(Uuid::new_v4()),
-                    relative_path: "reports/quarter.xlsx".into(),
-                    media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        .into(),
-                    content_hash: "a".repeat(64),
-                    revision: 1,
-                    plugin_id: "builtin.office".into(),
-                    plugin_version: "2.0.0".into(),
-                    provider_id: "officecli".into(),
-                    tool_lock_id: "officecli:test:1.0.140".into(),
-                },
-            },
-            Some("artifact-revision-1"),
-        )
-        .await;
-
-        assert_eq!(record.event_kind, "artifact_revision_recorded");
-        assert!(record.normalized_json.contains(&artifact_id.to_string()));
-        assert!(!record.normalized_json.contains("\"bytes\""));
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project artifact event");
-        assert_eq!(timeline.last_sequence, record.sequence);
-        let artifact_row = timeline
-            .rows
-            .iter()
-            .find(|row| {
-                matches!(
-                    &row.row,
-                    ConversationTimelineRow::ArtifactRevision { artifact }
-                        if artifact.artifact_id == artifact_id
-                )
-            })
-            .expect("artifact revision row");
-        assert_eq!(artifact_row.row_id, format!("artifact:{artifact_id}:1"));
-
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "host",
-            ConversationEvent::ArtifactRevisionRecorded {
-                artifact: ConversationArtifactReference {
-                    artifact_id,
-                    workspace_id: Some(Uuid::new_v4()),
-                    relative_path: "reports/quarter.xlsx".into(),
-                    media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        .into(),
-                    content_hash: "b".repeat(64),
-                    revision: 2,
-                    plugin_id: "builtin.office".into(),
-                    plugin_version: "2.0.0".into(),
-                    provider_id: "officecli".into(),
-                    tool_lock_id: "officecli:test:1.0.140".into(),
-                },
-            },
-            Some("artifact-revision-2"),
-        )
-        .await;
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project both artifact revisions");
-        assert_eq!(
-            timeline
-                .rows
-                .iter()
-                .filter(|row| matches!(
-                    &row.row,
-                    ConversationTimelineRow::ArtifactRevision { artifact }
-                        if artifact.artifact_id == artifact_id
-                ))
-                .count(),
-            2
-        );
-    }
-
-    #[tokio::test]
-    async fn artifact_projection_rebuilds_a_v3_snapshot_that_skipped_artifacts() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        let artifact_id = Uuid::new_v4();
-        let record = append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "host",
-            ConversationEvent::ArtifactRevisionRecorded {
-                artifact: ConversationArtifactReference {
-                    artifact_id,
-                    workspace_id: Some(Uuid::new_v4()),
-                    relative_path: "reports/history.pptx".into(),
-                    media_type:
-                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                            .into(),
-                    content_hash: "b".repeat(64),
-                    revision: 1,
-                    plugin_id: "builtin.office".into(),
-                    plugin_version: "2.0.0".into(),
-                    provider_id: "officecli".into(),
-                    tool_lock_id: "officecli:test:1.0.140".into(),
-                },
-            },
-            Some("artifact-v3-snapshot"),
-        )
-        .await;
-
-        let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
-            full_fold: true,
-            turns: Vec::new(),
-            turn_order: Vec::new(),
-            turn_metrics: std::collections::BTreeMap::new(),
-            side_rows: Vec::new(),
-            side_row_turns: std::collections::BTreeMap::new(),
-            last_sequence: record.sequence,
-            auto_permission_approvals: 0,
+        .expect("project artifact event");
+    assert_eq!(timeline.last_sequence, record.sequence);
+    let artifact_row = timeline
+        .rows
+        .iter()
+        .find(|row| {
+            matches!(
+                &row.row,
+                ConversationTimelineRow::ArtifactRevision { artifact }
+                    if artifact.artifact_id == artifact_id
+            )
         })
-        .expect("serialize v3 snapshot");
-        ConversationProjectionSnapshotRecord::upsert(
-            &pool,
-            conversation_id,
-            3,
-            record.sequence,
-            &skipped_artifact_snapshot,
-            0,
-            None,
-        )
-        .await
-        .expect("seed stale v3 snapshot");
+        .expect("artifact revision row");
+    assert_eq!(artifact_row.row_id, format!("artifact:{artifact_id}:1"));
 
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("rebuild artifact projection");
-        assert!(
-            timeline.rows.iter().any(|row| {
-                matches!(
-                    &row.row,
-                    ConversationTimelineRow::ArtifactRevision { artifact }
-                        if artifact.artifact_id == artifact_id
-                )
-            }),
-            "a predecessor v3 snapshot that skipped Artifact events must be rebuilt"
-        );
-    }
-
-    #[tokio::test]
-    async fn unknown_event_renders_placeholder_row_and_timeline_still_loads() {
-        // Acceptance for 批次A: a forward-incompatible event surrounded by normal
-        // events must not break timeline loading — it shows as a single placeholder
-        // row while every other event folds as usual.
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnStarted,
-            None,
-        )
-        .await;
-
-        // A bogus event whose payload no known variant can parse, inserted through the
-        // real append path (idempotency/sequence/side-effects all exercised).
-        ConversationEventAppender::append(
-            &pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: Some("connection-1"),
-                prompt_id: Some("prompt-1"),
-                source: "acp",
-                event_kind: "bogus_kind",
-                normalized_json: r#"{"kind":"bogus_kind","from_the_future":true}"#,
-                raw_json: None,
-                idempotency_key: None,
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "host",
+        ConversationEvent::ArtifactRevisionRecorded {
+            artifact: ConversationArtifactReference {
+                artifact_id,
+                workspace_id: Some(Uuid::new_v4()),
+                relative_path: "reports/quarter.xlsx".into(),
+                media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    .into(),
+                content_hash: "b".repeat(64),
+                revision: 2,
+                plugin_id: "builtin.office".into(),
+                plugin_version: "2.0.0".into(),
+                provider_id: "officecli".into(),
+                tool_lock_id: "officecli:test:1.0.140".into(),
             },
-        )
+        },
+        Some("artifact-revision-2"),
+    )
+    .await;
+    let timeline = ConversationProjector::project(&pool, conversation_id)
         .await
-        .expect("append bogus event");
-
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::AssistantTextDelta {
-                text: "hello".into(),
-                message_id: None,
-            },
-            None,
-        )
-        .await;
-
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("timeline still loads despite the unknown event");
-
-        let placeholders: Vec<_> = timeline
+        .expect("project both artifact revisions");
+    assert_eq!(
+        timeline
             .rows
             .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::SessionNotice { notice }
-                    if notice.title == "部分会话记录无法显示" =>
-                {
-                    Some(notice)
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(placeholders.len(), 1, "exactly one placeholder row");
-        assert_eq!(
-            placeholders[0].message.as_deref(),
-            Some("Dimo 无法读取其中一条历史记录，其余会话内容不受影响。")
-        );
+            .filter(|row| matches!(
+                &row.row,
+                ConversationTimelineRow::ArtifactRevision { artifact }
+                    if artifact.artifact_id == artifact_id
+            ))
+            .count(),
+        2
+    );
+}
 
-        // The normal assistant text still folded through, proving the unknown event
-        // did not abort the rest of the timeline.
-        let has_assistant_text = timeline.rows.iter().any(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. } => turn
-                .blocks
-                .iter()
-                .any(|block| matches!(block, ContentBlock::Text { text } if text == "hello")),
-            _ => false,
-        });
-        assert!(has_assistant_text, "surrounding events still fold");
-    }
+#[tokio::test]
+async fn artifact_projection_rebuilds_a_v3_snapshot_that_skipped_artifacts() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let artifact_id = Uuid::new_v4();
+    let record = append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "host",
+        ConversationEvent::ArtifactRevisionRecorded {
+            artifact: ConversationArtifactReference {
+                artifact_id,
+                workspace_id: Some(Uuid::new_v4()),
+                relative_path: "reports/history.pptx".into(),
+                media_type:
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        .into(),
+                content_hash: "b".repeat(64),
+                revision: 1,
+                plugin_id: "builtin.office".into(),
+                plugin_version: "2.0.0".into(),
+                provider_id: "officecli".into(),
+                tool_lock_id: "officecli:test:1.0.140".into(),
+            },
+        },
+        Some("artifact-v3-snapshot"),
+    )
+    .await;
 
-    #[tokio::test]
-    async fn stale_snapshot_version_replays_events_instead_of_cached_notices() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
+        full_fold: true,
+        turns: Vec::new(),
+        turn_order: Vec::new(),
+        turn_metrics: std::collections::BTreeMap::new(),
+        side_rows: Vec::new(),
+        side_row_turns: std::collections::BTreeMap::new(),
+        last_sequence: record.sequence,
+        auto_permission_approvals: 0,
+    })
+    .expect("serialize v3 snapshot");
+    ConversationProjectionSnapshotRecord::upsert(
+        &pool,
+        conversation_id,
+        3,
+        record.sequence,
+        &skipped_artifact_snapshot,
+        0,
+        None,
+    )
+    .await
+    .expect("seed stale v3 snapshot");
 
-        ConversationEventAppender::append(
-            &pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: Some("connection-1"),
-                prompt_id: Some("prompt-1"),
-                source: "acp",
-                event_kind: "agent_binding_started",
-                normalized_json: r#"{
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("rebuild artifact projection");
+    assert!(
+        timeline.rows.iter().any(|row| {
+            matches!(
+                &row.row,
+                ConversationTimelineRow::ArtifactRevision { artifact }
+                    if artifact.artifact_id == artifact_id
+            )
+        }),
+        "a predecessor v3 snapshot that skipped Artifact events must be rebuilt"
+    );
+}
+
+#[tokio::test]
+async fn unknown_event_renders_placeholder_row_and_timeline_still_loads() {
+    // Acceptance for 批次A: a forward-incompatible event surrounded by normal
+    // events must not break timeline loading — it shows as a single placeholder
+    // row while every other event folds as usual.
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnStarted,
+        None,
+    )
+    .await;
+
+    // A bogus event whose payload no known variant can parse, inserted through the
+    // real append path (idempotency/sequence/side-effects all exercised).
+    ConversationEventAppender::append(
+        &pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: Some("connection-1"),
+            prompt_id: Some("prompt-1"),
+            source: "acp",
+            event_kind: "bogus_kind",
+            normalized_json: r#"{"kind":"bogus_kind","from_the_future":true}"#,
+            raw_json: None,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("append bogus event");
+
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::AssistantTextDelta {
+            text: "hello".into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
+
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("timeline still loads despite the unknown event");
+
+    let placeholders: Vec<_> = timeline
+        .rows
+        .iter()
+        .filter_map(|row| match &row.row {
+            ConversationTimelineRow::SessionNotice { notice }
+                if notice.title == "部分会话记录无法显示" =>
+            {
+                Some(notice)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(placeholders.len(), 1, "exactly one placeholder row");
+    assert_eq!(
+        placeholders[0].message.as_deref(),
+        Some("Dimo 无法读取其中一条历史记录，其余会话内容不受影响。")
+    );
+
+    // The normal assistant text still folded through, proving the unknown event
+    // did not abort the rest of the timeline.
+    let has_assistant_text = timeline.rows.iter().any(|row| match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. } => turn
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ContentBlock::Text { text } if text == "hello")),
+        _ => false,
+    });
+    assert!(has_assistant_text, "surrounding events still fold");
+}
+
+#[tokio::test]
+async fn stale_snapshot_version_replays_events_instead_of_cached_notices() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    ConversationEventAppender::append(
+        &pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: Some("connection-1"),
+            prompt_id: Some("prompt-1"),
+            source: "acp",
+            event_kind: "agent_binding_started",
+            normalized_json: r#"{
                     "kind":"agent_binding_started",
                     "agent_type":"codex",
                     "working_dir":"/tmp/project"
                 }"#,
-                raw_json: None,
-                idempotency_key: None,
-            },
-        )
-        .await
-        .expect("append legacy event");
+            raw_json: None,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("append legacy event");
 
-        let mut stale_fold = ProjectionFold {
-            last_sequence: 1,
-            ..ProjectionFold::default()
-        };
-        stale_fold.side_rows.push(side_row(
-            1,
-            ConversationTimelineRow::SessionNotice {
-                notice: ConversationSessionNotice {
-                    title: "cached stale notice".into(),
-                    message: None,
-                    severity: "warning".into(),
-                    ..Default::default()
-                },
+    let mut stale_fold = ProjectionFold {
+        last_sequence: 1,
+        ..ProjectionFold::default()
+    };
+    stale_fold.side_rows.push(side_row(
+        1,
+        ConversationTimelineRow::SessionNotice {
+            notice: ConversationSessionNotice {
+                title: "cached stale notice".into(),
+                message: None,
+                severity: "warning".into(),
+                ..Default::default()
             },
-        ));
-        let fold_json = serde_json::to_string(&stale_fold.to_snapshot_state())
-            .expect("serialize stale snapshot");
-        ConversationProjectionSnapshotRecord::upsert(
-            &pool,
+        },
+    ));
+    let fold_json =
+        serde_json::to_string(&stale_fold.to_snapshot_state()).expect("serialize stale snapshot");
+    ConversationProjectionSnapshotRecord::upsert(
+        &pool,
+        conversation_id,
+        i64::from(CONVERSATION_PROJECTION_VERSION) - 1,
+        1,
+        &fold_json,
+        0,
+        None,
+    )
+    .await
+    .expect("persist stale snapshot");
+
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("stale snapshot should be rebuilt");
+    assert!(
+        timeline
+            .rows
+            .iter()
+            .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
+    );
+}
+
+#[tokio::test]
+async fn legacy_capability_snapshot_does_not_render_unknown_event_notice() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    ConversationEventAppender::append(
+        &pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
             conversation_id,
-            i64::from(CONVERSATION_PROJECTION_VERSION) - 1,
-            1,
-            &fold_json,
-            0,
-            None,
-        )
-        .await
-        .expect("persist stale snapshot");
-
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("stale snapshot should be rebuilt");
-        assert!(
-            timeline
-                .rows
-                .iter()
-                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
-        );
-    }
-
-    #[tokio::test]
-    async fn legacy_capability_snapshot_does_not_render_unknown_event_notice() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-
-        ConversationEventAppender::append(
-            &pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: Some("connection-1"),
-                prompt_id: Some("prompt-1"),
-                source: "acp",
-                event_kind: "agent_binding_ready",
-                normalized_json: r#"{
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: Some("connection-1"),
+            prompt_id: Some("prompt-1"),
+            source: "acp",
+            event_kind: "agent_binding_ready",
+            normalized_json: r#"{
                     "kind":"agent_binding_ready",
                     "acp_session_id":"legacy-session",
                     "capabilities":{
@@ -644,326 +642,403 @@
                         "available_commands":[]
                     }
                 }"#,
-                raw_json: None,
-                idempotency_key: None,
-            },
-        )
+            raw_json: None,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("append legacy capability snapshot");
+
+    let timeline = ConversationProjector::project(&pool, conversation_id)
         .await
-        .expect("append legacy capability snapshot");
+        .expect("project legacy capability snapshot");
 
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project legacy capability snapshot");
+    assert!(
+        timeline
+            .rows
+            .iter()
+            .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
+        "same-version legacy capabilities should remain readable"
+    );
+}
 
-        assert!(
-            timeline
-                .rows
-                .iter()
-                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
-            "same-version legacy capabilities should remain readable"
-        );
-    }
+#[tokio::test]
+async fn legacy_agent_binding_field_does_not_render_unknown_event_notice() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
 
-    #[tokio::test]
-    async fn legacy_agent_binding_field_does_not_render_unknown_event_notice() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-
-        ConversationEventAppender::append(
-            &pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: Some("connection-1"),
-                prompt_id: Some("prompt-1"),
-                source: "acp",
-                event_kind: "agent_binding_started",
-                normalized_json: r#"{
+    ConversationEventAppender::append(
+        &pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: Some("connection-1"),
+            prompt_id: Some("prompt-1"),
+            source: "acp",
+            event_kind: "agent_binding_started",
+            normalized_json: r#"{
                     "kind":"agent_binding_started",
                     "agent_type":"codex",
                     "working_dir":"/tmp/project"
                 }"#,
-                raw_json: None,
-                idempotency_key: None,
-            },
-        )
+            raw_json: None,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("append legacy agent binding");
+
+    let timeline = ConversationProjector::project(&pool, conversation_id)
         .await
-        .expect("append legacy agent binding");
+        .expect("project legacy agent binding");
 
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project legacy agent binding");
-
-        assert!(
-            timeline
-                .rows
-                .iter()
-                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
-            "renamed same-version fields should remain readable"
-        );
-    }
-
-    #[tokio::test]
-    async fn accepted_steering_splits_the_assistant_bubble() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        let steering_id = Uuid::new_v4();
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnCreated {
-                blocks: vec![ConversationInputBlock::Text {
-                    text: "write it".into(),
-                }],
-                workflow_refs: Vec::new(),
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::AssistantTextDelta {
-                text: "first half".into(),
-                message_id: Some("msg_1".into()),
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::ConversationSteering {
-                event: agents::conversation::ConversationSteeringEvent::Requested {
-                    steering_id,
-                    operation_id: Uuid::new_v4(),
-                    expected_turn_id: turn_id,
-                    payload_digest: "d".into(),
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: "stop".into(),
-                    }],
-                    principal: serde_json::json!({}),
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::ConversationSteering {
-                event: agents::conversation::ConversationSteeringEvent::Accepted {
-                    steering_id,
-                    expected_turn_id: turn_id,
-                    delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
-                    restarted_turn_id: None,
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::AssistantTextDelta {
-                text: "second half".into(),
-                message_id: None,
-            },
-            None,
-        )
-        .await;
-
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project steered turn");
-        let texts: Vec<(TurnRole, String)> = timeline
+    assert!(
+        timeline
             .rows
             .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. } => {
-                    let text = turn.blocks.iter().find_map(|block| match block {
-                        ContentBlock::Text { text } => Some(text.clone()),
-                        _ => None,
-                    })?;
-                    Some((turn.role, text))
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            texts,
-            vec![
-                (TurnRole::User, "write it".into()),
-                (TurnRole::Assistant, "first half".into()),
-                (TurnRole::User, "stop".into()),
-                (TurnRole::Assistant, "second half".into()),
-            ]
-        );
-        let assistant_ids: Vec<String> = timeline
-            .rows
-            .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. }
-                    if turn.role == TurnRole::Assistant =>
-                {
-                    Some(turn.id.clone())
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            assistant_ids,
-            vec![
-                format!("{turn_id}:assistant"),
-                format!("{turn_id}:assistant:2"),
-            ]
-        );
-        let first_agent_id = timeline.rows.iter().find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. }
-                if turn.id == format!("{turn_id}:assistant") =>
-            {
-                turn.agent_message_id.clone()
-            }
-            _ => None,
-        });
-        assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
-    }
+            .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
+        "renamed same-version fields should remain readable"
+    );
+}
 
-    #[tokio::test]
-    async fn submitted_feedback_splits_the_assistant_bubble_like_steering() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        let note_id = Uuid::new_v4();
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnCreated {
-                blocks: vec![ConversationInputBlock::Text {
-                    text: "write it".into(),
-                }],
-                workflow_refs: Vec::new(),
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::AssistantTextDelta {
-                text: "first half".into(),
-                message_id: Some("msg_1".into()),
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserSubmittedFeedback {
-                note_id,
+#[tokio::test]
+async fn accepted_steering_splits_the_assistant_bubble() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let steering_id = Uuid::new_v4();
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "write it".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::AssistantTextDelta {
+            text: "first half".into(),
+            message_id: Some("msg_1".into()),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::ConversationSteering {
+            event: agents::conversation::ConversationSteeringEvent::Requested {
+                steering_id,
                 operation_id: Uuid::new_v4(),
-                text: "stop".into(),
-                turn_id: Some(turn_id),
+                expected_turn_id: turn_id,
+                payload_digest: "d".into(),
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "stop".into(),
+                }],
+                principal: serde_json::json!({}),
             },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::AssistantTextDelta {
-                text: "second half".into(),
-                message_id: None,
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::ConversationSteering {
+            event: agents::conversation::ConversationSteeringEvent::Accepted {
+                steering_id,
+                expected_turn_id: turn_id,
+                delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
+                restarted_turn_id: None,
             },
-            None,
-        )
-        .await;
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::AssistantTextDelta {
+            text: "second half".into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
 
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project feedback turn");
-        let texts: Vec<(TurnRole, String)> = timeline
-            .rows
-            .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. } => {
-                    let text = turn.blocks.iter().find_map(|block| match block {
-                        ContentBlock::Text { text } => Some(text.clone()),
-                        _ => None,
-                    })?;
-                    Some((turn.role, text))
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            texts,
-            vec![
-                (TurnRole::User, "write it".into()),
-                (TurnRole::Assistant, "first half".into()),
-                (TurnRole::User, "stop".into()),
-                (TurnRole::Assistant, "second half".into()),
-            ]
-        );
-        let assistant_ids: Vec<String> = timeline
-            .rows
-            .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. }
-                    if turn.role == TurnRole::Assistant =>
-                {
-                    Some(turn.id.clone())
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            assistant_ids,
-            vec![
-                format!("{turn_id}:assistant"),
-                format!("{turn_id}:assistant:2"),
-            ]
-        );
-        let first_agent_id = timeline.rows.iter().find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. }
-                if turn.id == format!("{turn_id}:assistant") =>
-            {
-                turn.agent_message_id.clone()
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project steered turn");
+    let texts: Vec<(TurnRole, String)> = timeline
+        .rows
+        .iter()
+        .filter_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. } => {
+                let text = turn.blocks.iter().find_map(|block| match block {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })?;
+                Some((turn.role, text))
             }
             _ => None,
-        });
-        assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
-    }
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        vec![
+            (TurnRole::User, "write it".into()),
+            (TurnRole::Assistant, "first half".into()),
+            (TurnRole::User, "stop".into()),
+            (TurnRole::Assistant, "second half".into()),
+        ]
+    );
+    let assistant_ids: Vec<String> = timeline
+        .rows
+        .iter()
+        .filter_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                Some(turn.id.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        assistant_ids,
+        vec![
+            format!("{turn_id}:assistant"),
+            format!("{turn_id}:assistant:2"),
+        ]
+    );
+    let first_agent_id = timeline.rows.iter().find_map(|row| match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. }
+            if turn.id == format!("{turn_id}:assistant") =>
+        {
+            turn.agent_message_id.clone()
+        }
+        _ => None,
+    });
+    assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
+}
 
-    #[tokio::test]
-    async fn turn_interrupted_marks_status_and_phase() {
-        // 批次B / ADR-0001: a TurnInterrupted event is the fourth terminal state. It
-        // must drive the durable turn status to 'interrupted' (side-effect table) and
-        // the projected turn phase to 'interrupted' (so the timeline renders the
-        // 因重启中断 treatment).
+#[tokio::test]
+async fn submitted_feedback_splits_the_assistant_bubble_like_steering() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let note_id = Uuid::new_v4();
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "write it".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::AssistantTextDelta {
+            text: "first half".into(),
+            message_id: Some("msg_1".into()),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserSubmittedFeedback {
+            note_id,
+            operation_id: Uuid::new_v4(),
+            text: "stop".into(),
+            turn_id: Some(turn_id),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::AssistantTextDelta {
+            text: "second half".into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
+
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project feedback turn");
+    let texts: Vec<(TurnRole, String)> = timeline
+        .rows
+        .iter()
+        .filter_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. } => {
+                let text = turn.blocks.iter().find_map(|block| match block {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })?;
+                Some((turn.role, text))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        vec![
+            (TurnRole::User, "write it".into()),
+            (TurnRole::Assistant, "first half".into()),
+            (TurnRole::User, "stop".into()),
+            (TurnRole::Assistant, "second half".into()),
+        ]
+    );
+    let assistant_ids: Vec<String> = timeline
+        .rows
+        .iter()
+        .filter_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                Some(turn.id.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        assistant_ids,
+        vec![
+            format!("{turn_id}:assistant"),
+            format!("{turn_id}:assistant:2"),
+        ]
+    );
+    let first_agent_id = timeline.rows.iter().find_map(|row| match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. }
+            if turn.id == format!("{turn_id}:assistant") =>
+        {
+            turn.agent_message_id.clone()
+        }
+        _ => None,
+    });
+    assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
+}
+
+#[tokio::test]
+async fn turn_interrupted_marks_status_and_phase() {
+    // 批次B / ADR-0001: a TurnInterrupted event is the fourth terminal state. It
+    // must drive the durable turn status to 'interrupted' (side-effect table) and
+    // the projected turn phase to 'interrupted' (so the timeline renders the
+    // 因重启中断 treatment).
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "hello".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnStarted,
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::TurnInterrupted {
+            reason: Some("host restarted".into()),
+        },
+        None,
+    )
+    .await;
+
+    let turn = ConversationTurnRecord::find_by_id(&pool, turn_id)
+        .await
+        .expect("find turn")
+        .expect("turn");
+    assert_eq!(turn.status, "interrupted");
+
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("timeline");
+    let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, phase, .. } if turn.role == TurnRole::User => {
+            Some(phase.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(user_phase.as_deref(), Some("interrupted"));
+}
+
+#[tokio::test]
+async fn failed_and_cancelled_turns_keep_distinct_projected_phases() {
+    for (terminal_event, expected_phase) in [
+        (
+            ConversationEvent::TurnFailed {
+                error: ConversationError {
+                    message: "agent failed".into(),
+                    code: Some("fixture_failure".into()),
+                    raw: None,
+                    kind: Default::default(),
+                    plan_usage: None,
+                },
+            },
+            "failed",
+        ),
+        (
+            ConversationEvent::TurnCancelled {
+                reason: Some("user stopped the turn".into()),
+            },
+            "cancelled",
+        ),
+    ] {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
-
         append_event(
             &pool,
             conversation_id,
@@ -971,7 +1046,7 @@
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text {
-                    text: "hello".into(),
+                    text: "do work".into(),
                 }],
                 workflow_refs: Vec::new(),
             },
@@ -982,8 +1057,11 @@
             &pool,
             conversation_id,
             Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnStarted,
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "working".into(),
+                message_id: None,
+            },
             None,
         )
         .await;
@@ -992,18 +1070,10 @@
             conversation_id,
             Some(turn_id),
             "runtime",
-            ConversationEvent::TurnInterrupted {
-                reason: Some("host restarted".into()),
-            },
+            terminal_event,
             None,
         )
         .await;
-
-        let turn = ConversationTurnRecord::find_by_id(&pool, turn_id)
-            .await
-            .expect("find turn")
-            .expect("turn");
-        assert_eq!(turn.status, "interrupted");
 
         let timeline = ConversationProjector::project(&pool, conversation_id)
             .await
@@ -1012,114 +1082,263 @@
             ConversationTimelineRow::MessageTurn { turn, phase, .. }
                 if turn.role == TurnRole::User =>
             {
-                Some(phase.clone())
+                Some(phase.as_str())
             }
             _ => None,
         });
-        assert_eq!(user_phase.as_deref(), Some("interrupted"));
+        assert_eq!(user_phase, Some(expected_phase));
+        let assistant_metrics = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                Some((turn.duration_ms, turn.completed_at))
+            }
+            _ => None,
+        });
+        assert!(
+            matches!(assistant_metrics, Some((Some(_), Some(_)))),
+            "assistant metrics: {assistant_metrics:?}"
+        );
     }
+}
 
-    #[tokio::test]
-    async fn failed_and_cancelled_turns_keep_distinct_projected_phases() {
-        for (terminal_event, expected_phase) in [
-            (
-                ConversationEvent::TurnFailed {
-                    error: ConversationError {
-                        message: "agent failed".into(),
-                        code: Some("fixture_failure".into()),
-                        raw: None,
-                        kind: Default::default(),
-                        plan_usage: None,
-                    },
-                },
-                "failed",
-            ),
-            (
-                ConversationEvent::TurnCancelled {
-                    reason: Some("user stopped the turn".into()),
-                },
-                "cancelled",
-            ),
-        ] {
-            let pool = setup_pool().await;
-            let (conversation_id, turn_id) = seed_turn(&pool).await;
-            append_event(
-                &pool,
-                conversation_id,
-                Some(turn_id),
-                "user",
-                ConversationEvent::UserTurnCreated {
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: "do work".into(),
-                    }],
-                    workflow_refs: Vec::new(),
-                },
-                None,
-            )
-            .await;
-            append_event(
-                &pool,
-                conversation_id,
-                Some(turn_id),
-                "runtime",
-                ConversationEvent::AssistantTextDelta {
-                    text: "working".into(),
-                    message_id: None,
-                },
-                None,
-            )
-            .await;
-            append_event(
-                &pool,
-                conversation_id,
-                Some(turn_id),
-                "runtime",
-                terminal_event,
-                None,
-            )
-            .await;
+#[tokio::test]
+async fn turn_failure_does_not_keep_error_text_as_an_assistant_message() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let error_text =
+        "Failed to authenticate. API Error: 401 Model deepseek-v4.1-flash is not supported";
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "你是谁".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::AssistantTextDelta {
+            text: error_text.into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::TurnFailed {
+            error: ConversationError {
+                message: format!("Internal error: {error_text}"),
+                code: Some("internal_error".into()),
+                raw: Some(serde_json::json!({
+                    "errorKind": "authentication_failed"
+                })),
+                kind: Default::default(),
+                plan_usage: None,
+            },
+        },
+        None,
+    )
+    .await;
 
-            let timeline = ConversationProjector::project(&pool, conversation_id)
-                .await
-                .expect("timeline");
-            let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, phase, .. }
-                    if turn.role == TurnRole::User =>
-                {
-                    Some(phase.as_str())
-                }
-                _ => None,
-            });
-            assert_eq!(user_phase, Some(expected_phase));
-            let assistant_metrics = timeline.rows.iter().find_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. }
-                    if turn.role == TurnRole::Assistant =>
-                {
-                    Some((turn.duration_ms, turn.completed_at))
-                }
-                _ => None,
-            });
-            assert!(
-                matches!(assistant_metrics, Some((Some(_), Some(_)))),
-                "assistant metrics: {assistant_metrics:?}"
-            );
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("timeline");
+    let assistant_text = timeline.rows.iter().find_map(|row| match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. } if turn.role == TurnRole::Assistant => {
+            Some(
+                turn.blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(""),
+            )
         }
-    }
+        _ => None,
+    });
+    assert_eq!(assistant_text.as_deref(), None);
+    assert!(
+        timeline
+            .rows
+            .iter()
+            .any(|row| matches!(row.row, ConversationTimelineRow::TurnError { .. }))
+    );
+}
 
-    #[tokio::test]
-    async fn turn_failure_does_not_keep_error_text_as_an_assistant_message() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        let error_text =
-            "Failed to authenticate. API Error: 401 Model deepseek-v4.1-flash is not supported";
+#[tokio::test]
+async fn rows_since_returns_only_changed_rows() {
+    // 批次C gap backfill: rows_since returns rows whose revision advanced past the
+    // cursor, so the frontend upserts only what changed.
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    let cutoff = append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::AssistantTextDelta {
+            text: "a".into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
+    // A later terminal event bumps the turn's rows past `cutoff`.
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::TurnCompleted { stop_reason: None },
+        None,
+    )
+    .await;
+
+    let (rows, last_sequence) =
+        ConversationProjector::rows_since(&pool, conversation_id, cutoff.sequence)
+            .await
+            .expect("rows since");
+    assert!(last_sequence > cutoff.sequence);
+    assert!(
+        rows.iter().all(|row| row.revision > cutoff.sequence),
+        "only rows changed after the cursor are returned"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.row_id == format!("{turn_id}:assistant")),
+        "the assistant row (bumped by turn completion) is included"
+    );
+}
+
+#[tokio::test]
+async fn project_open_keeps_the_tail_without_shipping_the_full_row_vec() {
+    let pool = setup_pool().await;
+    let (conversation_id, _) = seed_turn(&pool).await;
+    for index in 0..12 {
+        let turn = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-1"),
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
         append_event(
             &pool,
             conversation_id,
-            Some(turn_id),
+            Some(turn.id),
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text {
-                    text: "你是谁".into(),
+                    text: format!("turn {index}"),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+    }
+    let full = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("full project");
+    let open = ConversationProjector::project_open(&pool, conversation_id, 5)
+        .await
+        .expect("open project");
+    assert!(full.rows.len() > 5);
+    assert_eq!(open.timeline.rows.len(), 5);
+    assert!(open.timeline.truncated_from_start);
+    let decoded_cursor = open
+        .timeline
+        .older_cursor
+        .as_deref()
+        .and_then(crate::projection::decode_timeline_cursor)
+        .expect("opaque keyset older_cursor");
+    assert_eq!(decoded_cursor.row_id, open.timeline.rows[0].row_id);
+    assert_eq!(
+        open.timeline.rows.last().map(|row| row.row_id.as_str()),
+        full.rows.last().map(|row| row.row_id.as_str())
+    );
+    let page = ConversationProjector::project_timeline_page(
+        &pool,
+        conversation_id,
+        open.timeline.older_cursor.as_deref(),
+        None,
+        None,
+        3,
+    )
+    .await
+    .expect("keyset page");
+    assert_eq!(page.rows.len(), 3);
+    assert_eq!(
+        page.rows.last().unwrap().row_id,
+        full.rows[full.rows.len() - 6].row_id
+    );
+    let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
+        .await
+        .expect("window");
+    assert_eq!(window.total_rows, full.rows.len());
+    assert_eq!(window.rows.len(), 3);
+    assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
+}
+
+#[tokio::test]
+async fn project_open_and_row_window_read_materialized_rows_without_fold_json() {
+    let pool = setup_pool().await;
+    let (conversation_id, _) = seed_turn(&pool).await;
+    for index in 0..12 {
+        let turn = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-1"),
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn.id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: format!("turn {index}"),
                 }],
                 workflow_refs: Vec::new(),
             },
@@ -1129,295 +1348,75 @@
         append_event(
             &pool,
             conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::AssistantTextDelta {
-                text: error_text.into(),
-                message_id: None,
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::TurnFailed {
-                error: ConversationError {
-                    message: format!("Internal error: {error_text}"),
-                    code: Some("internal_error".into()),
-                    raw: Some(serde_json::json!({
-                        "errorKind": "authentication_failed"
-                    })),
-                    kind: Default::default(),
-                    plan_usage: None,
-                },
-            },
-            None,
-        )
-        .await;
-
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("timeline");
-        let assistant_text = timeline.rows.iter().find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. }
-                if turn.role == TurnRole::Assistant =>
-            {
-                Some(
-                    turn.blocks
-                        .iter()
-                        .filter_map(|block| match block {
-                            ContentBlock::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(""),
-                )
-            }
-            _ => None,
-        });
-        assert_eq!(assistant_text.as_deref(), None);
-        assert!(
-            timeline
-                .rows
-                .iter()
-                .any(|row| matches!(row.row, ConversationTimelineRow::TurnError { .. }))
-        );
-    }
-
-    #[tokio::test]
-    async fn rows_since_returns_only_changed_rows() {
-        // 批次C gap backfill: rows_since returns rows whose revision advanced past the
-        // cursor, so the frontend upserts only what changed.
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnCreated {
-                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
-                workflow_refs: Vec::new(),
-            },
-            None,
-        )
-        .await;
-        let cutoff = append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::AssistantTextDelta {
-                text: "a".into(),
-                message_id: None,
-            },
-            None,
-        )
-        .await;
-        // A later terminal event bumps the turn's rows past `cutoff`.
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
+            Some(turn.id),
             "runtime",
             ConversationEvent::TurnCompleted { stop_reason: None },
             None,
         )
         .await;
-
-        let (rows, last_sequence) =
-            ConversationProjector::rows_since(&pool, conversation_id, cutoff.sequence)
-                .await
-                .expect("rows since");
-        assert!(last_sequence > cutoff.sequence);
-        assert!(
-            rows.iter().all(|row| row.revision > cutoff.sequence),
-            "only rows changed after the cursor are returned"
-        );
-        assert!(
-            rows.iter()
-                .any(|row| row.row_id == format!("{turn_id}:assistant")),
-            "the assistant row (bumped by turn completion) is included"
-        );
     }
 
-    #[tokio::test]
-    async fn project_open_keeps_the_tail_without_shipping_the_full_row_vec() {
-        let pool = setup_pool().await;
-        let (conversation_id, _) = seed_turn(&pool).await;
-        for index in 0..12 {
-            let turn = ConversationTurnRecord::create_pending(
-                &pool,
-                Uuid::new_v4(),
-                CreateConversationTurn {
-                    conversation_id,
-                    prompt_id: Some("prompt-1"),
-                    text_preview: Some("hello"),
-                    input_blocks_json: "[]",
-                },
-            )
-            .await
-            .expect("create turn");
-            append_event(
-                &pool,
-                conversation_id,
-                Some(turn.id),
-                "user",
-                ConversationEvent::UserTurnCreated {
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: format!("turn {index}"),
-                    }],
-                    workflow_refs: Vec::new(),
-                },
-                None,
-            )
-            .await;
-        }
-        let full = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("full project");
-        let open = ConversationProjector::project_open(&pool, conversation_id, 5)
-            .await
-            .expect("open project");
-        assert!(full.rows.len() > 5);
-        assert_eq!(open.timeline.rows.len(), 5);
-        assert!(open.timeline.truncated_from_start);
-        let decoded_cursor = open
-            .timeline
-            .older_cursor
-            .as_deref()
-            .and_then(crate::projection::decode_timeline_cursor)
-            .expect("opaque keyset older_cursor");
-        assert_eq!(decoded_cursor.row_id, open.timeline.rows[0].row_id);
-        assert_eq!(
-            open.timeline.rows.last().map(|row| row.row_id.as_str()),
-            full.rows.last().map(|row| row.row_id.as_str())
-        );
-        let page = ConversationProjector::project_timeline_page(
-            &pool,
-            conversation_id,
-            open.timeline.older_cursor.as_deref(),
-            None,
-            None,
-            3,
-        )
+    let full = ConversationProjector::project(&pool, conversation_id)
         .await
-        .expect("keyset page");
-        assert_eq!(page.rows.len(), 3);
-        assert_eq!(page.rows.last().unwrap().row_id, full.rows[full.rows.len() - 6].row_id);
-        let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
-            .await
-            .expect("window");
-        assert_eq!(window.total_rows, full.rows.len());
-        assert_eq!(window.rows.len(), 3);
-        assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
-    }
-
-    #[tokio::test]
-    async fn project_open_and_row_window_read_materialized_rows_without_fold_json() {
-        let pool = setup_pool().await;
-        let (conversation_id, _) = seed_turn(&pool).await;
-        for index in 0..12 {
-            let turn = ConversationTurnRecord::create_pending(
-                &pool,
-                Uuid::new_v4(),
-                CreateConversationTurn {
-                    conversation_id,
-                    prompt_id: Some("prompt-1"),
-                    text_preview: Some("hello"),
-                    input_blocks_json: "[]",
-                },
-            )
-            .await
-            .expect("create turn");
-            append_event(
-                &pool,
-                conversation_id,
-                Some(turn.id),
-                "user",
-                ConversationEvent::UserTurnCreated {
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: format!("turn {index}"),
-                    }],
-                    workflow_refs: Vec::new(),
-                },
-                None,
-            )
-            .await;
-            append_event(
-                &pool,
-                conversation_id,
-                Some(turn.id),
-                "runtime",
-                ConversationEvent::TurnCompleted { stop_reason: None },
-                None,
-            )
-            .await;
-        }
-
-        let full = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("full project");
-        let snapshot = ConversationProjectionSnapshotRecord::find(&pool, conversation_id)
-            .await
-            .expect("load snapshot")
-            .expect("snapshot after settle");
-        assert!(
-            snapshot.total_rows > 5,
-            "settle must persist open-window metadata"
-        );
-        let blank = serde_json::to_string(&ProjectionSnapshotState {
-            last_sequence: snapshot.last_sequence,
-            ..ProjectionSnapshotState::default()
-        })
-        .expect("blank fold");
-        sqlx::query(
-            "UPDATE conversation_projection_snapshots SET fold_json = ? WHERE conversation_id = ?",
-        )
-        .bind(&blank)
-        .bind(conversation_id)
-        .execute(&pool)
+        .expect("full project");
+    let snapshot = ConversationProjectionSnapshotRecord::find(&pool, conversation_id)
         .await
-        .expect("wipe fold json");
+        .expect("load snapshot")
+        .expect("snapshot after settle");
+    assert!(
+        snapshot.total_rows > 5,
+        "settle must persist open-window metadata"
+    );
+    let blank = serde_json::to_string(&ProjectionSnapshotState {
+        last_sequence: snapshot.last_sequence,
+        ..ProjectionSnapshotState::default()
+    })
+    .expect("blank fold");
+    sqlx::query(
+        "UPDATE conversation_projection_snapshots SET fold_json = ? WHERE conversation_id = ?",
+    )
+    .bind(&blank)
+    .bind(conversation_id)
+    .execute(&pool)
+    .await
+    .expect("wipe fold json");
 
-        let open = ConversationProjector::project_open(&pool, conversation_id, 5)
-            .await
-            .expect("open from row table");
-        assert_eq!(open.timeline.rows.len(), 5);
-        assert!(open.timeline.truncated_from_start);
-        assert_eq!(
-            open.timeline.rows.last().map(|row| row.row_id.as_str()),
-            full.rows.last().map(|row| row.row_id.as_str())
-        );
-        let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
-            .await
-            .expect("window from row table");
-        assert_eq!(window.total_rows, full.rows.len());
-        assert_eq!(window.rows.len(), 3);
-        assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
-        let (changed, last_sequence) = ConversationProjector::rows_since(&pool, conversation_id, 0)
-            .await
-            .expect("rows since from row table");
-        assert_eq!(last_sequence, snapshot.last_sequence);
-        assert_eq!(changed.len(), full.rows.len());
-    }
+    let open = ConversationProjector::project_open(&pool, conversation_id, 5)
+        .await
+        .expect("open from row table");
+    assert_eq!(open.timeline.rows.len(), 5);
+    assert!(open.timeline.truncated_from_start);
+    assert_eq!(
+        open.timeline.rows.last().map(|row| row.row_id.as_str()),
+        full.rows.last().map(|row| row.row_id.as_str())
+    );
+    let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
+        .await
+        .expect("window from row table");
+    assert_eq!(window.total_rows, full.rows.len());
+    assert_eq!(window.rows.len(), 3);
+    assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
+    let (changed, last_sequence) = ConversationProjector::rows_since(&pool, conversation_id, 0)
+        .await
+        .expect("rows since from row table");
+    assert_eq!(last_sequence, snapshot.last_sequence);
+    assert_eq!(changed.len(), full.rows.len());
+}
 
-    #[tokio::test]
-    async fn model_consistency_mismatch_raw_diagnostic_does_not_leak_session_notice() {
-        let payload = serde_json::json!({
-            "kind": "model_consistency_mismatch",
-            "requestedModel": "sonnet",
-            "servedModel": "claude-opus-5-5"
-        });
-        assert!(super::diagnostic_session_notice("model_consistency_mismatch", Some(&payload)).is_none());
+#[tokio::test]
+async fn model_consistency_mismatch_raw_diagnostic_does_not_leak_session_notice() {
+    let payload = serde_json::json!({
+        "kind": "model_consistency_mismatch",
+        "requestedModel": "sonnet",
+        "servedModel": "claude-opus-5-5"
+    });
+    assert!(
+        super::diagnostic_session_notice("model_consistency_mismatch", Some(&payload)).is_none()
+    );
 
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        ConversationEventAppender::append(
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    ConversationEventAppender::append(
             &pool,
             AppendConversationEvent {
                 id: Uuid::new_v4(),
@@ -1436,10 +1435,10 @@
         .await
         .expect("append diagnostic");
 
-        let timeline = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project timeline");
-        assert!(
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project timeline");
+    assert!(
             !timeline.rows.iter().any(|row| matches!(
                 &row.row,
                 ConversationTimelineRow::SessionNotice { notice }
@@ -1447,384 +1446,279 @@
             )),
             "legacy model_consistency_mismatch diagnostic must not surface raw notice"
         );
+}
+
+#[tokio::test]
+async fn user_turn_projects_streaming_while_in_flight_and_settles_on_turn_completed() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "ping".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+
+    let open_rows = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project open turn")
+        .rows;
+    let user_row_id = format!("{turn_id}:user");
+    let open_user = open_rows
+        .iter()
+        .find(|row| row.row_id == user_row_id)
+        .expect("user row present");
+    let open_revision = open_user.revision;
+    match &open_user.row {
+        ConversationTimelineRow::MessageTurn { phase, .. } => {
+            assert_eq!(phase, "streaming");
+        }
+        other => panic!("expected user message_turn row, got {other:?}"),
     }
 
-    #[tokio::test]
-    async fn user_turn_projects_streaming_while_in_flight_and_settles_on_turn_completed() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::TurnCompleted { stop_reason: None },
+        None,
+    )
+    .await;
 
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnCreated {
-                blocks: vec![ConversationInputBlock::Text {
-                    text: "ping".into(),
-                }],
-                workflow_refs: Vec::new(),
-            },
-            None,
-        )
-        .await;
-
-        let open_rows = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project open turn")
-            .rows;
-        let user_row_id = format!("{turn_id}:user");
-        let open_user = open_rows
-            .iter()
-            .find(|row| row.row_id == user_row_id)
-            .expect("user row present");
-        let open_revision = open_user.revision;
-        match &open_user.row {
-            ConversationTimelineRow::MessageTurn { phase, .. } => {
-                assert_eq!(phase, "streaming");
-            }
-            other => panic!("expected user message_turn row, got {other:?}"),
+    let settled_rows = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project settled turn")
+        .rows;
+    let settled_user = settled_rows
+        .iter()
+        .find(|row| row.row_id == user_row_id)
+        .expect("settled user row present");
+    assert!(
+        settled_user.revision > open_revision,
+        "settling user row must bump revision so delta subscribers receive phase='settled'"
+    );
+    match &settled_user.row {
+        ConversationTimelineRow::MessageTurn { phase, .. } => {
+            assert_eq!(phase, "settled");
         }
+        other => panic!("expected user message_turn row, got {other:?}"),
+    }
+}
 
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::TurnCompleted { stop_reason: None },
-            None,
-        )
-        .await;
+#[tokio::test]
+async fn agent_handoff_diagnostic_projects_inline_host_note_and_model_consistency_diagnostic_is_suppressed()
+ {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
 
-        let settled_rows = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project settled turn")
-            .rows;
-        let settled_user = settled_rows
-            .iter()
-            .find(|row| row.row_id == user_row_id)
-            .expect("settled user row present");
-        assert!(
-            settled_user.revision > open_revision,
-            "settling user row must bump revision so delta subscribers receive phase='settled'"
-        );
-        match &settled_user.row {
-            ConversationTimelineRow::MessageTurn { phase, .. } => {
-                assert_eq!(phase, "settled");
-            }
-            other => panic!("expected user message_turn row, got {other:?}"),
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "hello".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::TurnCompleted { stop_reason: None },
+        None,
+    )
+    .await;
+
+    // 1. `model_consistency_mismatch` raw diagnostic must NOT leak as "未识别的会话更新"
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::RawDiagnosticRecorded {
+            label: "model_consistency_mismatch".into(),
+            payload: Some(serde_json::json!({
+                "sessionUpdate": "model_consistency_mismatch",
+                "requestedModel": "claude-opus-4-6",
+                "effectiveModel": "gpt-5.4",
+            })),
+        },
+        None,
+    )
+    .await;
+
+    // 2. `agent_handoff` raw diagnostic projects durable inline host note keyed by turn boundary
+    append_event(
+        &pool,
+        conversation_id,
+        None,
+        "host",
+        ConversationEvent::RawDiagnosticRecorded {
+            label: "agent_handoff".into(),
+            payload: Some(serde_json::json!({
+                "afterTurnId": turn_id.to_string(),
+                "fromAgent": "claude_code",
+                "fromModel": "claude-opus-4-6",
+                "toAgent": "codex",
+                "handoffTokens": 2200,
+                "switchedAt": "2026-11-15T12:00:00Z",
+            })),
+        },
+        None,
+    )
+    .await;
+
+    let rows = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project handoff")
+        .rows;
+    assert!(
+        !rows.iter().any(|row| matches!(
+            &row.row,
+            ConversationTimelineRow::SessionNotice { notice }
+                if notice.title.contains("未识别的会话更新")
+        )),
+        "model_consistency_mismatch and agent_handoff must never leak as unrecognized session updates"
+    );
+
+    let expected_row_id = format!("host-note:agent-handoff:after:{turn_id}");
+    let handoff_row = rows
+        .iter()
+        .find(|row| row.row_id == expected_row_id)
+        .expect("inline agent handoff host note projected");
+    match &handoff_row.row {
+        ConversationTimelineRow::SessionNotice { notice } => {
+            assert_eq!(
+                notice.announcement_id.as_deref(),
+                Some(expected_row_id.as_str())
+            );
+            let parsed: serde_json::Value =
+                serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
+            assert_eq!(parsed["fromAgent"], "claude_code");
+            assert_eq!(parsed["toAgent"], "codex");
+            assert_eq!(parsed["handoffTokens"], 2200);
         }
+        other => panic!("expected session_notice row, got {other:?}"),
     }
 
-    #[tokio::test]
-    async fn agent_handoff_diagnostic_projects_inline_host_note_and_model_consistency_diagnostic_is_suppressed() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
+    // 3. Switching back to the same source agent before sending a new turn removes the row
+    append_event(
+        &pool,
+        conversation_id,
+        None,
+        "host",
+        ConversationEvent::RawDiagnosticRecorded {
+            label: "agent_handoff".into(),
+            payload: Some(serde_json::json!({
+                "afterTurnId": turn_id.to_string(),
+                "fromAgent": "claude_code",
+                "toAgent": "claude_code",
+                "switchedAt": "2026-11-15T12:01:00Z",
+            })),
+        },
+        None,
+    )
+    .await;
 
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::UserTurnCreated {
-                blocks: vec![ConversationInputBlock::Text {
-                    text: "hello".into(),
-                }],
-                workflow_refs: Vec::new(),
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::TurnCompleted { stop_reason: None },
-            None,
-        )
-        .await;
-
-        // 1. `model_consistency_mismatch` raw diagnostic must NOT leak as "未识别的会话更新"
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::RawDiagnosticRecorded {
-                label: "model_consistency_mismatch".into(),
-                payload: Some(serde_json::json!({
-                    "sessionUpdate": "model_consistency_mismatch",
-                    "requestedModel": "claude-opus-4-6",
-                    "effectiveModel": "gpt-5.4",
-                })),
-            },
-            None,
-        )
-        .await;
-
-        // 2. `agent_handoff` raw diagnostic projects durable inline host note keyed by turn boundary
-        append_event(
-            &pool,
-            conversation_id,
-            None,
-            "host",
-            ConversationEvent::RawDiagnosticRecorded {
-                label: "agent_handoff".into(),
-                payload: Some(serde_json::json!({
-                    "afterTurnId": turn_id.to_string(),
-                    "fromAgent": "claude_code",
-                    "fromModel": "claude-opus-4-6",
-                    "toAgent": "codex",
-                    "handoffTokens": 2200,
-                    "switchedAt": "2026-11-15T12:00:00Z",
-                })),
-            },
-            None,
-        )
-        .await;
-
-        let rows = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project handoff")
-            .rows;
-        assert!(
-            !rows.iter().any(|row| matches!(
-                &row.row,
-                ConversationTimelineRow::SessionNotice { notice }
-                    if notice.title.contains("未识别的会话更新")
-            )),
-            "model_consistency_mismatch and agent_handoff must never leak as unrecognized session updates"
-        );
-
-        let expected_row_id = format!("host-note:agent-handoff:after:{turn_id}");
-        let handoff_row = rows
+    let rows_after_revert = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project reverted handoff")
+        .rows;
+    assert!(
+        rows_after_revert
             .iter()
-            .find(|row| row.row_id == expected_row_id)
-            .expect("inline agent handoff host note projected");
-        match &handoff_row.row {
-            ConversationTimelineRow::SessionNotice { notice } => {
-                assert_eq!(
-                    notice.announcement_id.as_deref(),
-                    Some(expected_row_id.as_str())
-                );
-                let parsed: serde_json::Value =
-                    serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
-                assert_eq!(parsed["fromAgent"], "claude_code");
-                assert_eq!(parsed["toAgent"], "codex");
-                assert_eq!(parsed["handoffTokens"], 2200);
-            }
-            other => panic!("expected session_notice row, got {other:?}"),
+            .all(|row| row.row_id != expected_row_id),
+        "reverting to source agent before any new turn must delete the boundary handoff row"
+    );
+
+    // 4. Same-agent fork handoff keeps the inline Fork交接 divider
+    append_event(
+        &pool,
+        conversation_id,
+        None,
+        "host",
+        ConversationEvent::RawDiagnosticRecorded {
+            label: "agent_handoff".into(),
+            payload: Some(serde_json::json!({
+                "handoffKind": "fork",
+                "afterTurnId": turn_id.to_string(),
+                "fromAgent": "codex",
+                "toAgent": "codex",
+                "handoffTokens": 420,
+            })),
+        },
+        None,
+    )
+    .await;
+    let rows_after_fork = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("project same-agent fork handoff")
+        .rows;
+    let fork_row = rows_after_fork
+        .iter()
+        .find(|row| row.row_id == expected_row_id)
+        .expect("same-agent fork handoff notice must remain projected");
+    match &fork_row.row {
+        ConversationTimelineRow::SessionNotice { notice } => {
+            assert_eq!(notice.title, "Fork交接");
+            let parsed: serde_json::Value =
+                serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
+            assert_eq!(parsed["handoffKind"], "fork");
+            assert_eq!(parsed["fromAgent"], "codex");
+            assert_eq!(parsed["toAgent"], "codex");
         }
-
-        // 3. Switching back to the same source agent before sending a new turn removes the row
-        append_event(
-            &pool,
-            conversation_id,
-            None,
-            "host",
-            ConversationEvent::RawDiagnosticRecorded {
-                label: "agent_handoff".into(),
-                payload: Some(serde_json::json!({
-                    "afterTurnId": turn_id.to_string(),
-                    "fromAgent": "claude_code",
-                    "toAgent": "claude_code",
-                    "switchedAt": "2026-11-15T12:01:00Z",
-                })),
-            },
-            None,
-        )
-        .await;
-
-        let rows_after_revert = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project reverted handoff")
-            .rows;
-        assert!(
-            rows_after_revert
-                .iter()
-                .all(|row| row.row_id != expected_row_id),
-            "reverting to source agent before any new turn must delete the boundary handoff row"
-        );
-
-        // 4. Same-agent fork handoff keeps the inline Fork交接 divider
-        append_event(
-            &pool,
-            conversation_id,
-            None,
-            "host",
-            ConversationEvent::RawDiagnosticRecorded {
-                label: "agent_handoff".into(),
-                payload: Some(serde_json::json!({
-                    "handoffKind": "fork",
-                    "afterTurnId": turn_id.to_string(),
-                    "fromAgent": "codex",
-                    "toAgent": "codex",
-                    "handoffTokens": 420,
-                })),
-            },
-            None,
-        )
-        .await;
-        let rows_after_fork = ConversationProjector::project(&pool, conversation_id)
-            .await
-            .expect("project same-agent fork handoff")
-            .rows;
-        let fork_row = rows_after_fork
-            .iter()
-            .find(|row| row.row_id == expected_row_id)
-            .expect("same-agent fork handoff notice must remain projected");
-        match &fork_row.row {
-            ConversationTimelineRow::SessionNotice { notice } => {
-                assert_eq!(notice.title, "Fork交接");
-                let parsed: serde_json::Value =
-                    serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
-                assert_eq!(parsed["handoffKind"], "fork");
-                assert_eq!(parsed["fromAgent"], "codex");
-                assert_eq!(parsed["toAgent"], "codex");
-            }
-            other => panic!("expected session_notice row, got {other:?}"),
-        }
+        other => panic!("expected session_notice row, got {other:?}"),
     }
+}
 
-    #[tokio::test]
-    async fn project_open_truncated_window_retains_slot_zero_notices_and_inline_handoff_order() {
-        let pool = setup_pool().await;
-        let (conversation_id, first_turn_id) = seed_turn(&pool).await;
+#[tokio::test]
+async fn project_open_truncated_window_retains_slot_zero_notices_and_inline_handoff_order() {
+    let pool = setup_pool().await;
+    let (conversation_id, first_turn_id) = seed_turn(&pool).await;
 
-        let mut last_turn_id = first_turn_id;
-        for idx in 1..=12 {
-            let tid = if idx == 1 {
-                first_turn_id
-            } else {
-                let created = ConversationTurnRecord::create_pending(
-                    &pool,
-                    Uuid::new_v4(),
-                    CreateConversationTurn {
-                        conversation_id,
-                        prompt_id: Some("p"),
-                        text_preview: Some("turn"),
-                        input_blocks_json: "[]",
-                    },
-                )
-                .await
-                .expect("create turn");
-                created.id
-            };
-            append_event(
+    let mut last_turn_id = first_turn_id;
+    for idx in 1..=12 {
+        let tid = if idx == 1 {
+            first_turn_id
+        } else {
+            let created = ConversationTurnRecord::create_pending(
                 &pool,
-                conversation_id,
-                Some(tid),
-                "user",
-                ConversationEvent::UserTurnCreated {
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: format!("user-{idx}"),
-                    }],
-                    workflow_refs: Vec::new(),
-                },
-                None,
-            )
-            .await;
-            append_event(
-                &pool,
-                conversation_id,
-                Some(tid),
-                "acp",
-                ConversationEvent::AssistantTextDelta {
-                    text: format!("assistant-{idx}"),
-                    message_id: None,
-                },
-                None,
-            )
-            .await;
-            append_event(
-                &pool,
-                conversation_id,
-                Some(tid),
-                "runtime",
-                ConversationEvent::TurnCompleted { stop_reason: None },
-                None,
-            )
-            .await;
-            if idx == 11 {
-                // Handoff after turn 11 (within newest 16-row open window)
-                append_event(
-                    &pool,
+                Uuid::new_v4(),
+                CreateConversationTurn {
                     conversation_id,
-                    None,
-                    "host",
-                    ConversationEvent::RawDiagnosticRecorded {
-                        label: "agent_handoff".into(),
-                        payload: Some(serde_json::json!({
-                            "afterTurnId": tid.to_string(),
-                            "fromAgent": "claude_code",
-                            "toAgent": "codex",
-                        })),
-                    },
-                    None,
-                )
-                .await;
-            }
-            last_turn_id = tid;
-        }
-
-        // Emit a session-level binding load failure notice (slot 0) after 25+ rows exist
-        append_event(
-            &pool,
-            conversation_id,
-            None,
-            "runtime",
-            ConversationEvent::AgentBindingLoadFailed {
-                reason: agents::conversation::SessionLoadFailureReason::ResourceNotFound,
-            },
-            None,
-        )
-        .await;
-
-        let open = ConversationProjector::project_open(&pool, conversation_id, 16)
+                    prompt_id: Some("p"),
+                    text_preview: Some("turn"),
+                    input_blocks_json: "[]",
+                },
+            )
             .await
-            .expect("project_open");
-        assert!(open.timeline.truncated_from_start);
-        assert!(
-            open.timeline
-                .rows
-                .iter()
-                .any(|row| row.row_id == crate::projection::AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID),
-            "truncated >16-row open window must retain active slot-0 binding load failure notice"
-        );
-
-        let handoff_pos = open
-            .timeline
-            .rows
-            .iter()
-            .position(|row| row.row_id.starts_with("host-note:agent-handoff:after:"))
-            .expect("recent inline agent handoff must stay in the newest 16-row window");
-        let last_user_pos = open
-            .timeline
-            .rows
-            .iter()
-            .position(|row| row.row_id == format!("{last_turn_id}:user"))
-            .expect("turn 12 user row in tail");
-        assert!(
-            handoff_pos < last_user_pos,
-            "inline handoff after turn 11 must appear immediately before turn 12 user row"
-        );
-    }
-
-    #[tokio::test]
-    async fn steered_turn_does_not_double_count_usage_and_preserves_reported_context_used() {
-        let pool = setup_pool().await;
-        let (conversation_id, turn_id) = seed_turn(&pool).await;
-        let steering_id = Uuid::new_v4();
-
+            .expect("create turn");
+            created.id
+        };
         append_event(
             &pool,
             conversation_id,
-            Some(turn_id),
+            Some(tid),
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text {
-                    text: "start".into(),
+                    text: format!("user-{idx}"),
                 }],
                 workflow_refs: Vec::new(),
             },
@@ -1834,10 +1728,10 @@
         append_event(
             &pool,
             conversation_id,
-            Some(turn_id),
+            Some(tid),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "before steer".into(),
+                text: format!("assistant-{idx}"),
                 message_id: None,
             },
             None,
@@ -1846,114 +1740,220 @@
         append_event(
             &pool,
             conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::UsageUpdated {
-                usage: ConversationUsage {
-                    input_tokens: 100,
-                    output_tokens: 20,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: 0,
-                    context_used: Some(42_000),
-                    context_window_max: Some(200_000),
-                    ..Default::default()
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "user",
-            ConversationEvent::ConversationSteering {
-                event: agents::ConversationSteeringEvent::Requested {
-                    steering_id,
-                    operation_id: Uuid::new_v4(),
-                    expected_turn_id: turn_id,
-                    payload_digest: "d".into(),
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: "steer mid-turn".into(),
-                    }],
-                    principal: serde_json::json!({}),
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::ConversationSteering {
-                event: agents::ConversationSteeringEvent::Accepted {
-                    steering_id,
-                    expected_turn_id: turn_id,
-                    delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
-                    restarted_turn_id: None,
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::AssistantTextDelta {
-                text: "after steer".into(),
-                message_id: None,
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
-            "acp",
-            ConversationEvent::UsageUpdated {
-                usage: ConversationUsage {
-                    input_tokens: 100,
-                    output_tokens: 50,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: 0,
-                    context_used: Some(45_000),
-                    context_window_max: Some(200_000),
-                    ..Default::default()
-                },
-            },
-            None,
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            Some(turn_id),
+            Some(tid),
             "runtime",
             ConversationEvent::TurnCompleted { stop_reason: None },
             None,
         )
         .await;
-
-        let open = ConversationProjector::project_open(&pool, conversation_id, 50)
-            .await
-            .expect("project_open");
-        let stats = open.session_stats.expect("session_stats");
-        assert_eq!(
-            stats.total_tokens,
-            Some(150),
-            "cumulative turn usage across steering split must equal 150, not 120 + 150 = 270"
-        );
-        assert_eq!(
-            stats.context_window_used_tokens,
-            Some(45_000),
-            "explicit context_used occupancy must not be overwritten with raw token sum"
-        );
+        if idx == 11 {
+            // Handoff after turn 11 (within newest 16-row open window)
+            append_event(
+                &pool,
+                conversation_id,
+                None,
+                "host",
+                ConversationEvent::RawDiagnosticRecorded {
+                    label: "agent_handoff".into(),
+                    payload: Some(serde_json::json!({
+                        "afterTurnId": tid.to_string(),
+                        "fromAgent": "claude_code",
+                        "toAgent": "codex",
+                    })),
+                },
+                None,
+            )
+            .await;
+        }
+        last_turn_id = tid;
     }
+
+    // Emit a session-level binding load failure notice (slot 0) after 25+ rows exist
+    append_event(
+        &pool,
+        conversation_id,
+        None,
+        "runtime",
+        ConversationEvent::AgentBindingLoadFailed {
+            reason: agents::conversation::SessionLoadFailureReason::ResourceNotFound,
+        },
+        None,
+    )
+    .await;
+
+    let open = ConversationProjector::project_open(&pool, conversation_id, 16)
+        .await
+        .expect("project_open");
+    assert!(open.timeline.truncated_from_start);
+    assert!(
+        open.timeline
+            .rows
+            .iter()
+            .any(|row| row.row_id == crate::projection::AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID),
+        "truncated >16-row open window must retain active slot-0 binding load failure notice"
+    );
+
+    let handoff_pos = open
+        .timeline
+        .rows
+        .iter()
+        .position(|row| row.row_id.starts_with("host-note:agent-handoff:after:"))
+        .expect("recent inline agent handoff must stay in the newest 16-row window");
+    let last_user_pos = open
+        .timeline
+        .rows
+        .iter()
+        .position(|row| row.row_id == format!("{last_turn_id}:user"))
+        .expect("turn 12 user row in tail");
+    assert!(
+        handoff_pos < last_user_pos,
+        "inline handoff after turn 11 must appear immediately before turn 12 user row"
+    );
+}
+
+#[tokio::test]
+async fn steered_turn_does_not_double_count_usage_and_preserves_reported_context_used() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+    let steering_id = Uuid::new_v4();
+
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "start".into(),
+            }],
+            workflow_refs: Vec::new(),
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::AssistantTextDelta {
+            text: "before steer".into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::UsageUpdated {
+            usage: ConversationUsage {
+                input_tokens: 100,
+                output_tokens: 20,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                context_used: Some(42_000),
+                context_window_max: Some(200_000),
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "user",
+        ConversationEvent::ConversationSteering {
+            event: agents::ConversationSteeringEvent::Requested {
+                steering_id,
+                operation_id: Uuid::new_v4(),
+                expected_turn_id: turn_id,
+                payload_digest: "d".into(),
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "steer mid-turn".into(),
+                }],
+                principal: serde_json::json!({}),
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::ConversationSteering {
+            event: agents::ConversationSteeringEvent::Accepted {
+                steering_id,
+                expected_turn_id: turn_id,
+                delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
+                restarted_turn_id: None,
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::AssistantTextDelta {
+            text: "after steer".into(),
+            message_id: None,
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::UsageUpdated {
+            usage: ConversationUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                context_used: Some(45_000),
+                context_window_max: Some(200_000),
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::TurnCompleted { stop_reason: None },
+        None,
+    )
+    .await;
+
+    let open = ConversationProjector::project_open(&pool, conversation_id, 50)
+        .await
+        .expect("project_open");
+    let stats = open.session_stats.expect("session_stats");
+    assert_eq!(
+        stats.total_tokens,
+        Some(150),
+        "cumulative turn usage across steering split must equal 150, not 120 + 150 = 270"
+    );
+    assert_eq!(
+        stats.context_window_used_tokens,
+        Some(45_000),
+        "explicit context_used occupancy must not be overwritten with raw token sum"
+    );
+}
 
 #[path = "rows_tests_interactions.rs"]
 mod interactions;

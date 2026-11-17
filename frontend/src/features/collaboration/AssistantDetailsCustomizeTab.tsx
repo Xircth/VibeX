@@ -125,8 +125,14 @@ export function AssistantDetailsCustomizeTab({
       }
       setAgentId((prev) => {
         if (
-          prev.trim().toLowerCase().replace(/[-_\s]+/g, '') !==
-          detail.agentId!.trim().toLowerCase().replace(/[-_\s]+/g, '')
+          prev
+            .trim()
+            .toLowerCase()
+            .replace(/[-_\s]+/g, '') !==
+          detail
+            .agentId!.trim()
+            .toLowerCase()
+            .replace(/[-_\s]+/g, '')
         ) {
           setModeId('');
           setConfigValues({});
@@ -181,7 +187,9 @@ export function AssistantDetailsCustomizeTab({
 
   const agentName = agentId ? getAgentName(agentId) : '';
   const effectiveWorkspaceId =
-    propWorkspaceId ?? worktree?.activeWorktreeId ?? (memberWorkspaceId || null);
+    propWorkspaceId ??
+    worktree?.activeWorktreeId ??
+    (memberWorkspaceId || null);
   const [activeSection, setActiveSection] = useState<
     'customize' | 'automations'
   >('customize');

@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "agents"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agent-client-protocol",
  "api-types",
@@ -240,7 +240,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "api-types"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "application"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "artifacts",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "artifacts"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -473,7 +473,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "automation"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "async-trait",
@@ -702,7 +702,7 @@ dependencies = [
 
 [[package]]
 name = "browser-host"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "conversations"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "async-trait",
@@ -1376,7 +1376,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "api-types",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "delegation"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "async-trait",
@@ -1421,7 +1421,7 @@ dependencies = [
 
 [[package]]
 name = "delegation-proto"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "deployment"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "dimo"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "anyhow",
@@ -1626,7 +1626,7 @@ dependencies = [
 
 [[package]]
 name = "dimo-mcp"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "delegation-proto",
  "reqwest 0.12.28",
@@ -1653,7 +1653,7 @@ dependencies = [
 
 [[package]]
 name = "dimo-workflow-mcp"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "utils",
 ]
@@ -1949,7 +1949,7 @@ dependencies = [
 
 [[package]]
 name = "executors"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "api-types",
  "chrono",
@@ -2508,7 +2508,7 @@ dependencies = [
 
 [[package]]
 name = "git"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "git2",
@@ -3560,7 +3560,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "local-deployment"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "anyhow",
@@ -4741,7 +4741,7 @@ dependencies = [
 
 [[package]]
 name = "plugins"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -4985,7 +4985,7 @@ dependencies = [
 
 [[package]]
 name = "pulse"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "api-types",
  "base64 0.22.1",
@@ -5237,7 +5237,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "remote-protocol"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "schemars 1.2.1",
  "serde",
@@ -5328,7 +5328,7 @@ dependencies = [
 
 [[package]]
 name = "review"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5979,7 +5979,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "anyhow",
@@ -6040,7 +6040,7 @@ dependencies = [
 
 [[package]]
 name = "services"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "agents",
  "anyhow",
@@ -7535,7 +7535,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tool-runtime"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "fs2",
@@ -7954,7 +7954,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utils"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "axum",
  "bytes",
@@ -9093,7 +9093,7 @@ dependencies = [
 
 [[package]]
 name = "workflows"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "api-types",
  "chrono",

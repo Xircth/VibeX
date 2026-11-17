@@ -33,7 +33,10 @@ pub(super) struct MappedConversationEventRecord {
 
 pub(super) fn is_terminal_tool_status(status: Option<&str>) -> bool {
     matches!(
-        status.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        status
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
         Some("completed" | "failed" | "cancelled" | "canceled" | "done" | "error")
     )
 }
@@ -439,11 +442,8 @@ pub(super) fn map_agent_event(
                 commands: commands.clone(),
             })
         }
-        AgentEvent::SessionInfoUpdated { patch } => {
-            normalize_session_info_patch(patch).map(|normalized| {
-                ConversationEvent::AgentSessionInfoUpdated { patch: normalized }
-            })
-        }
+        AgentEvent::SessionInfoUpdated { patch } => normalize_session_info_patch(patch)
+            .map(|normalized| ConversationEvent::AgentSessionInfoUpdated { patch: normalized }),
         AgentEvent::SessionLoadFailed { reason } => {
             Some(ConversationEvent::AgentBindingLoadFailed {
                 reason: reason.clone(),
@@ -899,8 +899,9 @@ mod tests {
                 assert!(
                     patch["modelConsistencyWarning"]["message"]
                         .as_str()
-                        .is_some_and(|m| m.contains("claude-opus-4-6")
-                            && m.contains("claude-sonnet-4-5"))
+                        .is_some_and(
+                            |m| m.contains("claude-opus-4-6") && m.contains("claude-sonnet-4-5")
+                        )
                 );
                 assert_eq!(patch["rateLimits"]["status"], "rejected");
                 assert_eq!(patch["cacheStatus"]["ttl"], "5m");

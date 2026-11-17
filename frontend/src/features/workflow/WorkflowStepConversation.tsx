@@ -103,7 +103,11 @@ export function WorkflowStepConversation({
       .finally(() => setRespondingId(null));
   };
 
-  if (canEmbedSessionSurface && stepRun?.workspaceId && stepRun?.conversationId) {
+  if (
+    canEmbedSessionSurface &&
+    stepRun?.workspaceId &&
+    stepRun?.conversationId
+  ) {
     return (
       <div
         data-testid="workflow-step-embedded-session"

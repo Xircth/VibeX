@@ -62,9 +62,7 @@ pub fn take_pending_model_router_import() -> Option<PendingModelRouterImport> {
 
 pub fn is_dimo_scheme(scheme: &str) -> bool {
     let normalized = scheme.to_ascii_lowercase();
-    normalized == "dimo"
-        || normalized == "dimo-dev"
-        || normalized.starts_with("dimo-dev-")
+    normalized == "dimo" || normalized == "dimo-dev" || normalized.starts_with("dimo-dev-")
 }
 
 pub fn parse_model_router_import(url: &url::Url) -> Option<(String, Option<String>)> {

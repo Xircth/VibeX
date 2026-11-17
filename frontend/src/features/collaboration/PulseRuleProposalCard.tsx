@@ -279,9 +279,7 @@ export function PulseRuleProposalCard({
       onSaved?.(saved);
     } catch (err) {
       setSaveError(
-        err instanceof Error
-          ? err.message
-          : t('pulseProposal.errSavePulseRule')
+        err instanceof Error ? err.message : t('pulseProposal.errSavePulseRule')
       );
     } finally {
       setSaving(false);
@@ -324,9 +322,7 @@ export function PulseRuleProposalCard({
                 key={mode}
                 type="button"
                 data-testid={`pulse-proposal-mode-${mode}`}
-                onClick={() =>
-                  setSpec((prev) => ({ ...prev, evalMode: mode }))
-                }
+                onClick={() => setSpec((prev) => ({ ...prev, evalMode: mode }))}
                 className={cn(
                   'rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
                   spec.evalMode === mode

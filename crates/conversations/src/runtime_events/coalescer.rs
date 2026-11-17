@@ -648,7 +648,8 @@ impl StreamingThrottleCoalescer {
         if self.buffer_bytes >= MAX_COALESCED_BYTES
             || conv_bytes >= MAX_COALESCED_BYTES
             || elapsed >= IDLE_FLUSH_CEILING
-            || (elapsed >= MIN_BOUNDARY_FLUSH && self.scan_state.is_at_safe_boundary(conversation_id))
+            || (elapsed >= MIN_BOUNDARY_FLUSH
+                && self.scan_state.is_at_safe_boundary(conversation_id))
         {
             return self.flush_conversation_at(conversation_id, now);
         }

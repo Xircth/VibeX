@@ -118,7 +118,8 @@ export function AgentDetail({
   focusDiagnostics = false,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
-  const effectiveAuthentication = authenticationOverride ?? agent.authentication;
+  const effectiveAuthentication =
+    authenticationOverride ?? agent.authentication;
   const nativeEngine = isNativeEngineAgent(agent);
   const [disableDialogOpen, setDisableDialogOpen] = useState(false);
   const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
@@ -364,251 +365,260 @@ export function AgentDetail({
           aria-labelledby="agent-preflight-heading"
           className="agent-preflight-surface"
         >
-        <AgentSectionHeading
-          headingId="agent-preflight-heading"
-          title={t('agents.preflightTitle')}
-          description={t(
-            nativeEngine
-              ? 'agents.preflightDescriptionNative'
-              : 'agents.preflightDescription'
-          )}
-          expanded={preflightExpanded}
-          onToggle={() => setPreflightExpanded((current) => !current)}
-          summary={preflightSummary(
-            t,
-            i18n.language,
-            items,
-            preflight?.checked_at
-          )}
-        >
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {onEnvironmentDiagnostics ? (
-              <Button
-                key="env-diagnostics"
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={busy}
-                onClick={onEnvironmentDiagnostics}
-              >
-                <Stethoscope
-                  aria-hidden="true"
-                  className="mr-1.5 h-3.5 w-3.5"
-                />
-                {t('agents.environmentDiagnosticsAction')}
-              </Button>
-            ) : null}
-            {needsInstall ? (
-              <div
-                key="install-acp"
-                ref={installPopoverRef}
-                className="relative"
-              >
+          <AgentSectionHeading
+            headingId="agent-preflight-heading"
+            title={t('agents.preflightTitle')}
+            description={t(
+              nativeEngine
+                ? 'agents.preflightDescriptionNative'
+                : 'agents.preflightDescription'
+            )}
+            expanded={preflightExpanded}
+            onToggle={() => setPreflightExpanded((current) => !current)}
+            summary={preflightSummary(
+              t,
+              i18n.language,
+              items,
+              preflight?.checked_at
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {onEnvironmentDiagnostics ? (
                 <Button
+                  key="env-diagnostics"
                   size="sm"
                   variant="outline"
                   className="h-8"
-                  aria-expanded={installPopoverStep !== null}
-                  aria-haspopup="menu"
+                  disabled={busy}
+                  onClick={onEnvironmentDiagnostics}
+                >
+                  <Stethoscope
+                    aria-hidden="true"
+                    className="mr-1.5 h-3.5 w-3.5"
+                  />
+                  {t('agents.environmentDiagnosticsAction')}
+                </Button>
+              ) : null}
+              {needsInstall ? (
+                <div
+                  key="install-acp"
+                  ref={installPopoverRef}
+                  className="relative"
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    aria-expanded={installPopoverStep !== null}
+                    aria-haspopup="menu"
+                    disabled={busy || agent.retired}
+                    onClick={() =>
+                      setInstallPopoverStep((current) =>
+                        current === null ? 'menu' : null
+                      )
+                    }
+                  >
+                    <Download
+                      aria-hidden="true"
+                      className="mr-1.5 h-3.5 w-3.5"
+                    />
+                    {t(
+                      nativeEngine
+                        ? 'agents.installNativeRuntime'
+                        : 'agents.installRuntimeAcp'
+                    )}
+                  </Button>
+                  {installPopoverStep === 'menu' ? (
+                    <div
+                      key="install-menu"
+                      data-floating-layer="popover"
+                      className={cn(
+                        PRODUCT_MENU_CONTENT_CLASS,
+                        'tahoe-popover absolute right-0 top-full z-50 mt-1.5 min-w-[8.5rem] p-1 shadow-md'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className={cn(
+                          PRODUCT_MENU_ITEM_CLASS,
+                          'w-full whitespace-nowrap px-2.5 py-1.5'
+                        )}
+                        onClick={() => {
+                          setInstallPopoverStep(null);
+                          onInstall();
+                        }}
+                      >
+                        {t('agents.installLatestVersion')}
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          PRODUCT_MENU_ITEM_CLASS,
+                          'w-full whitespace-nowrap px-2.5 py-1.5'
+                        )}
+                        onClick={() => setInstallPopoverStep('custom_version')}
+                      >
+                        {t('agents.specifyVersion')}
+                      </button>
+                    </div>
+                  ) : installPopoverStep === 'custom_version' ? (
+                    <form
+                      key="install-custom-version"
+                      data-floating-layer="popover"
+                      className="tahoe-popover absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border border-border bg-popover p-2.5 text-popover-foreground shadow-md"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (busy || agent.retired || !customVersionValid)
+                          return;
+                        setInstallPopoverStep(null);
+                        onInstallVersion?.({
+                          acpVersion: customVersion.trim(),
+                        });
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          aria-label={t('agents.customVersionLabel')}
+                          aria-invalid={Boolean(
+                            customVersion && !customVersionValid
+                          )}
+                          autoComplete="off"
+                          autoFocus
+                          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary"
+                          disabled={busy || agent.retired}
+                          placeholder={
+                            updateCheck?.acp_available ??
+                            (nativeEngine
+                              ? updateCheck?.runtime_available
+                              : null) ??
+                            updateCheck?.available_version ??
+                            agent.runtime_version ??
+                            agent.acp_version ??
+                            t('agents.customVersionPlaceholder')
+                          }
+                          spellCheck={false}
+                          value={customVersion}
+                          onChange={(event) =>
+                            setCustomVersion(event.target.value)
+                          }
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          disabled={
+                            busy || agent.retired || !customVersionValid
+                          }
+                        >
+                          {t('common:confirm')}
+                        </Button>
+                      </div>
+                      {customVersionValid ? null : customVersion ? (
+                        <p
+                          role="alert"
+                          className="mt-1.5 text-xs text-destructive"
+                        >
+                          {t('agents.customVersionInvalid')}
+                        </p>
+                      ) : null}
+                      {specifiedCompatibilityWarning ? (
+                        <p
+                          role="status"
+                          className="mt-1.5 text-xs text-warning"
+                        >
+                          {specifiedCompatibilityWarning}
+                        </p>
+                      ) : null}
+                    </form>
+                  ) : null}
+                </div>
+              ) : needsRepair ? (
+                <Button
+                  key="repair-acp"
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
                   disabled={busy || agent.retired}
+                  onClick={onRepair}
+                >
+                  <Wrench aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                  {t('agents.repairInstallation')}
+                </Button>
+              ) : null}
+              {externalInstallUrl ? (
+                <Button
+                  key="external-install-guide"
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
                   onClick={() =>
-                    setInstallPopoverStep((current) =>
-                      current === null ? 'menu' : null
+                    window.open(
+                      externalInstallUrl,
+                      '_blank',
+                      'noopener,noreferrer'
                     )
                   }
                 >
-                  <Download aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                  {t(
-                    nativeEngine
-                      ? 'agents.installNativeRuntime'
-                      : 'agents.installRuntimeAcp'
-                  )}
+                  <ExternalLink
+                    aria-hidden="true"
+                    className="mr-1.5 h-3.5 w-3.5"
+                  />
+                  {t('agents.officialInstallGuide', '官方安装指南')}
                 </Button>
-                {installPopoverStep === 'menu' ? (
-                  <div
-                    key="install-menu"
-                    data-floating-layer="popover"
-                    className={cn(
-                      PRODUCT_MENU_CONTENT_CLASS,
-                      'tahoe-popover absolute right-0 top-full z-50 mt-1.5 min-w-[8.5rem] p-1 shadow-md'
-                    )}
-                  >
-                    <button
-                      type="button"
-                      className={cn(
-                        PRODUCT_MENU_ITEM_CLASS,
-                        'w-full whitespace-nowrap px-2.5 py-1.5'
-                      )}
-                      onClick={() => {
-                        setInstallPopoverStep(null);
-                        onInstall();
-                      }}
-                    >
-                      {t('agents.installLatestVersion')}
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        PRODUCT_MENU_ITEM_CLASS,
-                        'w-full whitespace-nowrap px-2.5 py-1.5'
-                      )}
-                      onClick={() => setInstallPopoverStep('custom_version')}
-                    >
-                      {t('agents.specifyVersion')}
-                    </button>
-                  </div>
-                ) : installPopoverStep === 'custom_version' ? (
-                  <form
-                    key="install-custom-version"
-                    data-floating-layer="popover"
-                    className="tahoe-popover absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border border-border bg-popover p-2.5 text-popover-foreground shadow-md"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (busy || agent.retired || !customVersionValid) return;
-                      setInstallPopoverStep(null);
-                      onInstallVersion?.({
-                        acpVersion: customVersion.trim(),
-                      });
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        aria-label={t('agents.customVersionLabel')}
-                        aria-invalid={Boolean(
-                          customVersion && !customVersionValid
-                        )}
-                        autoComplete="off"
-                        autoFocus
-                        className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary"
-                        disabled={busy || agent.retired}
-                        placeholder={
-                          updateCheck?.acp_available ??
-                          (nativeEngine
-                            ? updateCheck?.runtime_available
-                            : null) ??
-                          updateCheck?.available_version ??
-                          agent.runtime_version ??
-                          agent.acp_version ??
-                          t('agents.customVersionPlaceholder')
-                        }
-                        spellCheck={false}
-                        value={customVersion}
-                        onChange={(event) =>
-                          setCustomVersion(event.target.value)
-                        }
-                      />
-                      <Button
-                        type="submit"
-                        size="sm"
-                        className="h-8 shrink-0"
-                        disabled={busy || agent.retired || !customVersionValid}
-                      >
-                        {t('common:confirm')}
-                      </Button>
-                    </div>
-                    {customVersionValid ? null : customVersion ? (
-                      <p
-                        role="alert"
-                        className="mt-1.5 text-xs text-destructive"
-                      >
-                        {t('agents.customVersionInvalid')}
-                      </p>
-                    ) : null}
-                    {specifiedCompatibilityWarning ? (
-                      <p role="status" className="mt-1.5 text-xs text-warning">
-                        {specifiedCompatibilityWarning}
-                      </p>
-                    ) : null}
-                  </form>
-                ) : null}
-              </div>
-            ) : needsRepair ? (
+              ) : null}
               <Button
-                key="repair-acp"
+                key="check-now"
                 size="sm"
                 variant="outline"
                 className="h-8"
-                disabled={busy || agent.retired}
-                onClick={onRepair}
+                disabled={checking || busy}
+                onClick={onPreflight}
               >
-                <Wrench aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                {t('agents.repairInstallation')}
+                {checking ? (
+                  <Loader2
+                    key="loading"
+                    aria-hidden="true"
+                    className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                  />
+                ) : (
+                  <RefreshCw
+                    key="refresh"
+                    aria-hidden="true"
+                    className="mr-1.5 h-3.5 w-3.5"
+                  />
+                )}
+                {t('agents.checkNow')}
               </Button>
-            ) : null}
-            {externalInstallUrl ? (
-              <Button
-                key="external-install-guide"
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={() =>
-                  window.open(
-                    externalInstallUrl,
-                    '_blank',
-                    'noopener,noreferrer'
-                  )
-                }
-              >
-                <ExternalLink
-                  aria-hidden="true"
-                  className="mr-1.5 h-3.5 w-3.5"
-                />
-                {t('agents.officialInstallGuide', '官方安装指南')}
-              </Button>
-            ) : null}
-            <Button
-              key="check-now"
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={checking || busy}
-              onClick={onPreflight}
-            >
-              {checking ? (
-                <Loader2
-                  key="loading"
-                  aria-hidden="true"
-                  className="mr-1.5 h-3.5 w-3.5 animate-spin"
-                />
-              ) : (
-                <RefreshCw
-                  key="refresh"
-                  aria-hidden="true"
-                  className="mr-1.5 h-3.5 w-3.5"
-                />
-              )}
-              {t('agents.checkNow')}
-            </Button>
-          </div>
-        </AgentSectionHeading>
+            </div>
+          </AgentSectionHeading>
 
-        {operation ? (
-          <AgentOperationProgress
-            nativeEngine={nativeEngine}
-            operation={operation}
-            onCancel={onCancelOperation}
-          />
-        ) : null}
+          {operation ? (
+            <AgentOperationProgress
+              nativeEngine={nativeEngine}
+              operation={operation}
+              onCancel={onCancelOperation}
+            />
+          ) : null}
 
-        {preflightExpanded ? (
-          <div id="agent-preflight-heading-body">
-            <ul className="agent-preflight-grid">
-              {items.map((item) => (
-                <AgentPreflightCard
-                  key={item.id}
-                  item={item}
-                  busy={busy}
-                  nativeEngine={nativeEngine}
-                  onUpdate={
-                    onUpdatePreflightItem
-                      ? () => onUpdatePreflightItem(item.id)
-                      : undefined
-                  }
-                />
-              ))}
-            </ul>
-          </div>
-        ) : null}
+          {preflightExpanded ? (
+            <div id="agent-preflight-heading-body">
+              <ul className="agent-preflight-grid">
+                {items.map((item) => (
+                  <AgentPreflightCard
+                    key={item.id}
+                    item={item}
+                    busy={busy}
+                    nativeEngine={nativeEngine}
+                    onUpdate={
+                      onUpdatePreflightItem
+                        ? () => onUpdatePreflightItem(item.id)
+                        : undefined
+                    }
+                  />
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

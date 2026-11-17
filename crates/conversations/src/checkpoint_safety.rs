@@ -765,15 +765,9 @@ mod tests {
             RollbackSafetyReport::Unsafe { .. }
         ));
 
-        ConversationTurnRecord::mark_completed(
-            pool,
-            sibling_turn.id,
-            Some("end_turn"),
-            None,
-            None,
-        )
-        .await
-        .expect("complete sibling turn");
+        ConversationTurnRecord::mark_completed(pool, sibling_turn.id, Some("end_turn"), None, None)
+            .await
+            .expect("complete sibling turn");
 
         // Acquire active lease -> second caller blocked & verify_safety returns Unsafe.
         let guard = CheckpointRollbackSafety::acquire_rollback_lease(pool, ws_id, "holder-1")

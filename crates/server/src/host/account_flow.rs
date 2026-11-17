@@ -105,8 +105,15 @@ pub async fn prepare_management_launch(
     assignments: &[String],
     result_path: Option<&Path>,
 ) -> std::io::Result<String> {
-    prepare_management_launch_for_instance(agent_id, None, action_id, command, assignments, result_path)
-        .await
+    prepare_management_launch_for_instance(
+        agent_id,
+        None,
+        action_id,
+        command,
+        assignments,
+        result_path,
+    )
+    .await
 }
 
 #[cfg_attr(not(windows), allow(unused_variables))]

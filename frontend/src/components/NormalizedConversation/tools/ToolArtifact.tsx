@@ -157,8 +157,7 @@ export function ToolCodeSnippet({
     [allLines, isTruncated, showAllLines]
   );
   const visibleContent = useMemo(
-    () =>
-      isTruncated && !showAllLines ? visibleLines.join('\n') : content,
+    () => (isTruncated && !showAllLines ? visibleLines.join('\n') : content),
     [content, isTruncated, showAllLines, visibleLines]
   );
   const codeLanguage = normalizeShikiLanguage(

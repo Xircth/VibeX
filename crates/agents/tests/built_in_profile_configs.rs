@@ -1,6 +1,4 @@
-use agents::{
-    AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, NativeConfigSurface,
-};
+use agents::{AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, NativeConfigSurface};
 use api_types::AgentSettingsFeature;
 
 fn native_field<'a>(

@@ -271,7 +271,11 @@ export function normalizeRollbackSafetyReport(
           : true;
     return { status: 'safe', engineSupportsRevert: supports };
   }
-  if ('Unsafe' in record && record.Unsafe && typeof record.Unsafe === 'object') {
+  if (
+    'Unsafe' in record &&
+    record.Unsafe &&
+    typeof record.Unsafe === 'object'
+  ) {
     const inner = record.Unsafe as Record<string, unknown>;
     return {
       status: 'unsafe',

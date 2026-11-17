@@ -1261,7 +1261,9 @@ fn claude_project_path_from_file(file: &Path, agent_type: AgentKind) -> Option<P
 /// and path separators (`\`) with `-`. On POSIX the leading `/` is also
 /// encoded as `-`, so `/home/user/projects` becomes `-home-user-projects`.
 fn decode_claude_project_dir(encoded: &str) -> PathBuf {
-    if encoded.len() >= 2 && encoded.as_bytes()[1] == b'-' && encoded.as_bytes()[0].is_ascii_alphabetic()
+    if encoded.len() >= 2
+        && encoded.as_bytes()[1] == b'-'
+        && encoded.as_bytes()[0].is_ascii_alphabetic()
     {
         // Windows-style: "C--Users-18190-Documents-projects-Dimo"
         // Drive letter + "--" → "C:\" then "-" → "\"
@@ -4296,7 +4298,10 @@ mod tests {
         );
         let path = claude_project_path_from_file(file, AgentKind::ClaudeCode)
             .expect("should extract project path");
-        assert_eq!(path, PathBuf::from(r"C:\Users\18190\Documents\projects\Dimo"));
+        assert_eq!(
+            path,
+            PathBuf::from(r"C:\Users\18190\Documents\projects\Dimo")
+        );
     }
 
     #[test]

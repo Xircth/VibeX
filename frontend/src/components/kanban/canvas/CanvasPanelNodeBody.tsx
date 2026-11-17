@@ -34,7 +34,9 @@ export const CanvasPanelNodeBody = memo(function CanvasPanelNodeBody({
   const updateMetaRef = useRef(updatePanelNodeMeta);
   updateMetaRef.current = updatePanelNodeMeta;
 
-  const titleListenersRef = useRef(new Set<(event: { title: string }) => void>());
+  const titleListenersRef = useRef(
+    new Set<(event: { title: string }) => void>()
+  );
   const paramListenersRef = useRef(
     new Set<(params: Record<string, unknown>) => void>()
   );

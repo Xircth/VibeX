@@ -68,8 +68,8 @@ export const ScheduledMessages = memo(function ScheduledMessages({
   const [creating, setCreating] = useState(false);
   const [temporalKind, setTemporalKind] = useState<TemporalPresetKind>('cron');
   const [cronExpr, setCronExpr] = useState('0 9 * * 1-5');
-  const [fireAt, setFireAt] = useState(
-    () => new Date(Date.now() + 3_600_000).toISOString()
+  const [fireAt, setFireAt] = useState(() =>
+    new Date(Date.now() + 3_600_000).toISOString()
   );
   const [everySeconds, setEverySeconds] = useState('600');
   const [slaSeconds, setSlaSeconds] = useState('1800');

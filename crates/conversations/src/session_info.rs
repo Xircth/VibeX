@@ -111,7 +111,8 @@ pub async fn read_history_page(
         return Err(sqlx::Error::Protocol("text_offset requires item_id".into()));
     }
     let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await;
-    let mut turns = crate::ConversationProjector::project_turns_summary(pool, conversation_id).await?;
+    let mut turns =
+        crate::ConversationProjector::project_turns_summary(pool, conversation_id).await?;
     if turns.is_empty()
         && let Some(segment_turns) = crate::transcript_segments::read_in(
             pool,

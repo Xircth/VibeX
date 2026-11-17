@@ -619,7 +619,11 @@ impl ConversationTimelineRowRecord {
             }
             results.extend(query.fetch_all(pool).await?);
         }
-        results.sort_by(|a, b| a.sort_index.cmp(&b.sort_index).then(a.row_id.cmp(&b.row_id)));
+        results.sort_by(|a, b| {
+            a.sort_index
+                .cmp(&b.sort_index)
+                .then(a.row_id.cmp(&b.row_id))
+        });
         Ok(results)
     }
 
@@ -651,7 +655,11 @@ impl ConversationTimelineRowRecord {
             }
             results.extend(query.fetch_all(pool).await?);
         }
-        results.sort_by(|a, b| a.sort_index.cmp(&b.sort_index).then(a.row_id.cmp(&b.row_id)));
+        results.sort_by(|a, b| {
+            a.sort_index
+                .cmp(&b.sort_index)
+                .then(a.row_id.cmp(&b.row_id))
+        });
         Ok(results)
     }
 
@@ -769,14 +777,10 @@ mod tests {
         );
 
         // Soft-delete perm:req-1 at sequence 6.
-        let affected = ConversationTimelineRowRecord::soft_delete_row(
-            db.writer(),
-            cid,
-            "perm:req-1",
-            6,
-        )
-        .await
-        .expect("soft delete perm");
+        let affected =
+            ConversationTimelineRowRecord::soft_delete_row(db.writer(), cid, "perm:req-1", 6)
+                .await
+                .expect("soft delete perm");
         assert_eq!(affected, 1);
 
         // Active count excludes tombstones.

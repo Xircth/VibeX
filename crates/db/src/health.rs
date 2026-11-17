@@ -315,12 +315,14 @@ mod tests {
         let task_id = uuid::Uuid::new_v4();
         let conv_id = uuid::Uuid::new_v4();
         let ws_id = uuid::Uuid::new_v4();
-        sqlx::query("INSERT INTO projects (id, name, root_path, hidden) VALUES (?, 'Health Project', ?, 0)")
-            .bind(project_id)
-            .bind(dir.path().to_string_lossy().to_string())
-            .execute(db.writer().as_pool())
-            .await
-            .expect("insert project");
+        sqlx::query(
+            "INSERT INTO projects (id, name, root_path, hidden) VALUES (?, 'Health Project', ?, 0)",
+        )
+        .bind(project_id)
+        .bind(dir.path().to_string_lossy().to_string())
+        .execute(db.writer().as_pool())
+        .await
+        .expect("insert project");
         sqlx::query("INSERT INTO tasks (id, project_id, title, status) VALUES (?, ?, 'Health Task', 'todo')")
             .bind(task_id)
             .bind(project_id)

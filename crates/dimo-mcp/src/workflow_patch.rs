@@ -199,7 +199,11 @@ pub fn execute_workflow_graph_patch(args: &Value, workspace_root: Option<&Path>)
             Ok(s) => format!("{s}\n"),
             Err(err) => {
                 return error_result(
-                    vec![violation("definition", "serialization_error", &err.to_string())],
+                    vec![violation(
+                        "definition",
+                        "serialization_error",
+                        &err.to_string(),
+                    )],
                     &err.to_string(),
                     Some(definition),
                 );
@@ -236,11 +240,7 @@ pub fn execute_workflow_graph_patch(args: &Value, workspace_root: Option<&Path>)
     Value::Object(out)
 }
 
-pub(crate) fn error_result(
-    violations: Vec<Value>,
-    text: &str,
-    definition: Option<Value>,
-) -> Value {
+pub(crate) fn error_result(violations: Vec<Value>, text: &str, definition: Option<Value>) -> Value {
     let mut out = Map::new();
     out.insert("isError".into(), json!(true));
     out.insert("valid".into(), json!(false));
@@ -292,10 +292,7 @@ fn apply_single_operation(
     match op_name {
         "apply_preset" => {
             let preset = str_prop(op_obj, &["preset"]).unwrap_or("").trim();
-            let params = op_obj
-                .get("params")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
+            let params = op_obj.get("params").cloned().unwrap_or_else(|| json!({}));
             match build_preset_workflow(preset, &params) {
                 Ok(scaffolded) => *def = scaffolded,
                 Err(msg) => violations.push(violation(
@@ -885,7 +882,7 @@ pub fn validate_dual_primitive_workflow(def: &Value, violations: &mut Vec<Value>
                         "empty_loop_body",
                         "bounded_loop requires a non-empty bodyStepIds array.",
                     )),
-                    Some(body) if body.is_empty() => violations.push(violation(
+                    Some([]) => violations.push(violation(
                         &format!("{base}.bodyStepIds"),
                         "empty_loop_body",
                         "bounded_loop requires at least one step in bodyStepIds.",
@@ -943,7 +940,7 @@ pub fn validate_dual_primitive_workflow(def: &Value, violations: &mut Vec<Value>
                         "empty_event_types",
                         "wait_for_event requires a non-empty eventTypes array.",
                     )),
-                    Some(evts) if evts.is_empty() => violations.push(violation(
+                    Some([]) => violations.push(violation(
                         &format!("{base}.eventTypes"),
                         "empty_event_types",
                         "wait_for_event requires at least one eventType.",
@@ -1021,8 +1018,7 @@ pub fn validate_dual_primitive_workflow(def: &Value, violations: &mut Vec<Value>
         }
     }
 
-    let mut in_degree: BTreeMap<String, usize> =
-        known_ids.iter().map(|k| (k.clone(), 0)).collect();
+    let mut in_degree: BTreeMap<String, usize> = known_ids.iter().map(|k| (k.clone(), 0)).collect();
     for targets in adj.values() {
         for target in targets {
             if let Some(deg) = in_degree.get_mut(target) {
@@ -1032,7 +1028,8 @@ pub fn validate_dual_primitive_workflow(def: &Value, violations: &mut Vec<Value>
     }
     let mut queue: Vec<String> = in_degree
         .iter()
-        .filter_map(|(k, deg)| (*deg == 0).then(|| k.clone()))
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(k, _)| k.clone())
         .collect();
     let mut visited = 0usize;
     while let Some(node) = queue.pop() {
@@ -1117,9 +1114,7 @@ pub(crate) fn resolve_safe_source_path(
         (home.join(".dimo").join("workflows"), stripped)
     } else {
         if Path::new(relative).is_absolute() {
-            return Err(
-                "path must be project-relative or under ~/.dimo/workflows/".to_string()
-            );
+            return Err("path must be project-relative or under ~/.dimo/workflows/".to_string());
         }
         let base = match workspace_root {
             Some(p) => p.to_path_buf(),

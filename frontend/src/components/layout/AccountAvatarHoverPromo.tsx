@@ -1,17 +1,5 @@
-import {
-  ArrowRight,
-  Gift,
-  Mic,
-  Smartphone,
-  Sparkles,
-  X,
-} from 'lucide-react';
-import {
-  useEffect,
-  useLayoutEffect,
-  useState,
-  type RefObject,
-} from 'react';
+import { ArrowRight, Gift, Mic, Smartphone, Sparkles, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -42,9 +30,7 @@ const DEFAULT_ANCHOR_POSITION: AnchorPosition = {
   bottom: 42,
 };
 
-function computeAnchorPosition(
-  triggerEl: HTMLElement | null
-): AnchorPosition {
+function computeAnchorPosition(triggerEl: HTMLElement | null): AnchorPosition {
   if (!triggerEl || typeof window === 'undefined') {
     return DEFAULT_ANCHOR_POSITION;
   }
@@ -154,7 +140,7 @@ export function AccountAvatarHoverPromo({
         left: `${position.left}px`,
         bottom: `${position.bottom}px`,
       }}
-      className="fixed z-40 w-[356px] max-w-[calc(100vw-24px)] overflow-hidden rounded-[14px] border border-border/85 bg-popover text-popover-foreground shadow-[0_20px_48px_-12px_rgba(0,0,0,0.34),0_6px_16px_-4px_rgba(0,0,0,0.16)]"
+      className="fixed z-40 w-[356px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl border border-border/85 bg-popover text-popover-foreground shadow-[0_20px_48px_-12px_rgba(0,0,0,0.34),0_6px_16px_-4px_rgba(0,0,0,0.16)]"
     >
       <div
         className="relative px-[15px] pt-[15px] pb-[6px]"
@@ -168,14 +154,17 @@ export function AccountAvatarHoverPromo({
             <img
               src={dimoLogo}
               alt="Dimo Logo"
-              className="h-6 w-6 shrink-0 rounded-[5px] object-contain"
+              className="h-6 w-6 shrink-0 rounded-sm object-contain"
             />
             <div className="flex min-w-0 flex-wrap items-center gap-[7px]">
               <h4 className="m-0 text-[13.5px] font-semibold leading-[1.25] tracking-[-0.01em] text-foreground">
                 {title}
               </h4>
               <span className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-[7px] py-[2px] text-[10.5px] font-semibold leading-[1.2] text-primary">
-                <Gift className="h-[11px] w-[11px] shrink-0" aria-hidden="true" />
+                <Gift
+                  className="h-[11px] w-[11px] shrink-0"
+                  aria-hidden="true"
+                />
                 <span>
                   {t('settings:accountMenu.hoverPromoBadge', {
                     defaultValue: '享邀请好礼',
@@ -189,7 +178,7 @@ export function AccountAvatarHoverPromo({
             onClick={onDismiss}
             title={closeLabel}
             aria-label={closeLabel}
-            className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] text-muted-foreground transition-colors hover:bg-secondary/85 hover:text-foreground"
+            className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary/85 hover:text-foreground"
           >
             <X className="h-[13px] w-[13px]" />
           </button>
@@ -209,7 +198,7 @@ export function AccountAvatarHoverPromo({
           return (
             <div
               key={feature.key}
-              className="flex items-center gap-2.5 rounded-[9px] border border-border/50 bg-secondary/45 px-2.5 py-[7px] transition-colors hover:border-border/85 hover:bg-secondary/75"
+              className="flex items-center gap-2.5 rounded-md border border-border/50 bg-secondary/45 px-2.5 py-[7px] transition-colors hover:border-border/85 hover:bg-secondary/75"
             >
               <span
                 aria-hidden="true"
@@ -234,7 +223,7 @@ export function AccountAvatarHoverPromo({
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-[7px] px-2 py-[5px] text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="rounded-sm px-2 py-[5px] text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           {t('settings:accountMenu.hoverPromoLater', {
             defaultValue: '暂不登录',
@@ -245,14 +234,17 @@ export function AccountAvatarHoverPromo({
           variant="primary"
           size="xs"
           onClick={onSignIn}
-          className="h-7 gap-1.5 rounded-[8px] px-3 text-xs font-semibold shadow-sm"
+          className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold shadow-sm"
         >
           <span>
             {t('settings:accountMenu.hoverPromoCta', {
               defaultValue: '立即登录',
             })}
           </span>
-          <ArrowRight className="h-[13px] w-[13px] shrink-0" aria-hidden="true" />
+          <ArrowRight
+            className="h-[13px] w-[13px] shrink-0"
+            aria-hidden="true"
+          />
         </Button>
       </div>
     </aside>,

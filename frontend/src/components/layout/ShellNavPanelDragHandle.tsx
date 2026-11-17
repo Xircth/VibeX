@@ -66,9 +66,7 @@ export function ShellNavPanelDragHandle({
     []
   );
 
-  const handlePointerDown = (
-    event: React.PointerEvent<HTMLButtonElement>
-  ) => {
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -93,12 +91,12 @@ export function ShellNavPanelDragHandle({
             width: groupRect.width,
             height: groupRect.height,
           }
-        : fallbackDock ?? {
+        : (fallbackDock ?? {
             x: Math.max(0, initialPoint.x - 180),
             y: Math.max(0, initialPoint.y - 18),
             width: 200,
             height: 480,
-          });
+          }));
 
     let anchorPoint: Point = initialPoint;
     let isDraggingNow = false;
@@ -257,8 +255,7 @@ export function ShellNavPanelDragHandle({
           if (approachingHorizontalSwap || approachingVerticalSwap) {
             const swapPreview: ShellNavDropTarget = {
               side: candidate.side,
-              zone:
-                candidate.box.x >= currentSourceBox.x ? 'right' : 'left',
+              zone: candidate.box.x >= currentSourceBox.x ? 'right' : 'left',
               targetPanelId: candidate.panelId,
               containerBox: candidate.box,
               ghostBox: candidate.box,

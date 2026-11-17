@@ -267,7 +267,9 @@ impl RegisteredCommand {
             | Self::WorkflowRuns
             | Self::WorkflowSteps
             | Self::WorkflowEvents => "workflow.read",
-            Self::WorkflowPublish | Self::WorkflowValidate | Self::WorkflowDelete => "workflow.write",
+            Self::WorkflowPublish | Self::WorkflowValidate | Self::WorkflowDelete => {
+                "workflow.write"
+            }
             Self::WorkflowStart
             | Self::WorkflowDebug
             | Self::WorkflowCompleteStep

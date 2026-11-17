@@ -205,7 +205,9 @@ export class TauriTransport implements BackendTransport {
               }
               if (!dirty) {
                 if (isWorkflowRun) {
-                  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+                  let timer:
+                    | ReturnType<typeof globalThis.setTimeout>
+                    | undefined;
                   try {
                     await Promise.race([
                       new Promise<void>((resolve) => {

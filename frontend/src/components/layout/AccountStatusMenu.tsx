@@ -70,10 +70,7 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key !== null &&
-        event.key !== ACCOUNT_AVATAR_HOVER_INTRO_KEY
-      ) {
+      if (event.key !== null && event.key !== ACCOUNT_AVATAR_HOVER_INTRO_KEY) {
         return;
       }
       if (hasSeenAccountAvatarHoverIntro()) {
@@ -213,135 +210,135 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
           data-testid="account-status-menu-content"
           className="w-60 rounded-xl border border-border bg-popover p-1.5 text-xs text-popover-foreground shadow-lg"
         >
-        <button
-          type="button"
-          data-testid="account-status-menu-profile"
-          onClick={() => openPath('/settings/account')}
-          onMouseEnter={() => preloadSettingsPath('/settings/account')}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent/70"
-        >
-          <span
-            aria-hidden="true"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-foreground"
+          <button
+            type="button"
+            data-testid="account-status-menu-profile"
+            onClick={() => openPath('/settings/account')}
+            onMouseEnter={() => preloadSettingsPath('/settings/account')}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent/70"
           >
-            {isSignedIn && avatarLabel ? (
-              avatarLabel
-            ) : (
-              <User className="h-4 w-4 text-muted-foreground" />
-            )}
-          </span>
-          <span className="min-w-0 flex-1">
-            {isSignedIn && user ? (
-              <>
-                <span className="block truncate text-xs font-semibold text-foreground">
-                  {displayName}
-                </span>
-                {user.email ? (
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {user.email}
+            <span
+              aria-hidden="true"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-foreground"
+            >
+              {isSignedIn && avatarLabel ? (
+                avatarLabel
+              ) : (
+                <User className="h-4 w-4 text-muted-foreground" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              {isSignedIn && user ? (
+                <>
+                  <span className="block truncate text-xs font-semibold text-foreground">
+                    {displayName}
                   </span>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <span className="block truncate text-xs font-semibold text-foreground">
-                  {t('accountMenu.signIn')}
-                </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {t('accountMenu.signInHint')}
-                </span>
-              </>
-            )}
-          </span>
-          <ChevronRight
-            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-        </button>
-
-        <div className="my-1 h-px bg-border/60" role="separator" />
-
-        <div className="space-y-0.5">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                data-testid={`account-status-menu-item-${item.key}`}
-                onClick={() => openPath(item.path)}
-                onMouseEnter={() => preloadSettingsPath(item.path)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground"
-              >
-                <Icon
-                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="my-1 h-px bg-border/60" role="separator" />
-
-        <div className="space-y-0.5">
-          <button
-            type="button"
-            data-testid="account-status-menu-item-changelog"
-            onClick={handleOpenChangelog}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground"
-          >
-            <FileText
-              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <span className="min-w-0 flex-1 truncate">
-              {t('accountMenu.changelog')}
+                  {user.email ? (
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {user.email}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <span className="block truncate text-xs font-semibold text-foreground">
+                    {t('accountMenu.signIn')}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {t('accountMenu.signInHint')}
+                  </span>
+                </>
+              )}
             </span>
-            <ExternalLink
-              className="h-3 w-3 shrink-0 text-muted-foreground"
+            <ChevronRight
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
             />
           </button>
 
-          <button
-            type="button"
-            data-testid="account-status-menu-item-getting-started"
-            onClick={handleGettingStarted}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground"
-          >
-            <Compass
-              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <span className="min-w-0 flex-1 truncate">
-              {t('accountMenu.gettingStarted')}
-            </span>
-          </button>
-        </div>
+          <div className="my-1 h-px bg-border/60" role="separator" />
 
-        {isSignedIn ? (
-          <>
-            <div className="my-1 h-px bg-border/60" role="separator" />
+          <div className="space-y-0.5">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  data-testid={`account-status-menu-item-${item.key}`}
+                  onClick={() => openPath(item.path)}
+                  onMouseEnter={() => preloadSettingsPath(item.path)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground"
+                >
+                  <Icon
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="my-1 h-px bg-border/60" role="separator" />
+
+          <div className="space-y-0.5">
             <button
               type="button"
-              data-testid="account-status-menu-item-sign-out"
-              disabled={signingOut}
-              onClick={() => void handleSignOut()}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground disabled:opacity-50"
+              data-testid="account-status-menu-item-changelog"
+              onClick={handleOpenChangelog}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground"
             >
-              <LogOut
+              <FileText
                 className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
               <span className="min-w-0 flex-1 truncate">
-                {t('accountMenu.signOut')}
+                {t('accountMenu.changelog')}
+              </span>
+              <ExternalLink
+                className="h-3 w-3 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            </button>
+
+            <button
+              type="button"
+              data-testid="account-status-menu-item-getting-started"
+              onClick={handleGettingStarted}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground"
+            >
+              <Compass
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate">
+                {t('accountMenu.gettingStarted')}
               </span>
             </button>
-          </>
-        ) : null}
-      </PopoverContent>
+          </div>
+
+          {isSignedIn ? (
+            <>
+              <div className="my-1 h-px bg-border/60" role="separator" />
+              <button
+                type="button"
+                data-testid="account-status-menu-item-sign-out"
+                disabled={signingOut}
+                onClick={() => void handleSignOut()}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground/90 transition-colors hover:bg-accent/70 hover:text-foreground disabled:opacity-50"
+              >
+                <LogOut
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate">
+                  {t('accountMenu.signOut')}
+                </span>
+              </button>
+            </>
+          ) : null}
+        </PopoverContent>
       </Popover>
       <AccountAvatarHoverPromo
         open={!isSignedIn && promoOpen}

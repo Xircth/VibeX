@@ -82,8 +82,7 @@ async fn next_delayed_input_sleep(pool: &SqlitePool) -> std::time::Duration {
     let Some(raw) = next_deliver_at else {
         return IDLE_POLL_INTERVAL;
     };
-    let Ok(deliver_at) = DateTime::parse_from_rfc3339(&raw).map(|dt| dt.with_timezone(&Utc))
-    else {
+    let Ok(deliver_at) = DateTime::parse_from_rfc3339(&raw).map(|dt| dt.with_timezone(&Utc)) else {
         return std::time::Duration::from_secs(5);
     };
     let remaining = deliver_at.signed_duration_since(Utc::now());

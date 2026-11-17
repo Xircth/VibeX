@@ -68,7 +68,10 @@ where
         .route("/rules/{id}", delete(handle_delete_rule::<R>))
         .route("/events", get(handle_list_events::<R>))
         .route("/subscriptions", post(handle_subscribe_thread::<R>))
-        .route("/subscriptions/{id}", delete(handle_unsubscribe_thread::<R>))
+        .route(
+            "/subscriptions/{id}",
+            delete(handle_unsubscribe_thread::<R>),
+        )
         .route(
             "/candidates/{candidate_id}/promote",
             post(handle_promote_candidate::<R>),

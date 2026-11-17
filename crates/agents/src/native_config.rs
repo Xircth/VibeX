@@ -1217,11 +1217,7 @@ fn finalize_kimi_shape(
         return Ok(());
     };
 
-    set_value_at_path(
-        document,
-        &["models", "dimo", "model"],
-        Value::String(model),
-    )?;
+    set_value_at_path(document, &["models", "dimo", "model"], Value::String(model))?;
     set_value_at_path(
         document,
         &["models", "dimo", "provider"],

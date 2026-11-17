@@ -369,9 +369,8 @@ async fn probe_version(
         .ok_or_else(|| anyhow::anyhow!("version probe missing stderr"))?;
     let mut guard = KillGroupOnDrop(Some(child));
 
-    let (status, stdout_bytes, stderr_bytes) = tokio::time::timeout(
-        LOCAL_RUNTIME_VERSION_TIMEOUT,
-        async {
+    let (status, stdout_bytes, stderr_bytes) =
+        tokio::time::timeout(LOCAL_RUNTIME_VERSION_TIMEOUT, async {
             let child_ref = guard.0.as_mut().expect("active probe child");
             let read_out = async {
                 let mut buf = Vec::new();
@@ -384,10 +383,9 @@ async fn probe_version(
                 Ok::<Vec<u8>, std::io::Error>(buf)
             };
             tokio::try_join!(child_ref.wait(), read_out, read_err)
-        },
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("external Runtime version probe timed out"))??;
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("external Runtime version probe timed out"))??;
     let _ = guard.0.take();
 
     if !status.success() {

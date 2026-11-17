@@ -157,11 +157,7 @@ export function coerceAndValidateFormValues(
 
     if (field.enumOptions && field.enumOptions.length > 0) {
       const strVal =
-        typeof raw === 'string'
-          ? raw
-          : raw === undefined
-            ? ''
-            : String(raw);
+        typeof raw === 'string' ? raw : raw === undefined ? '' : String(raw);
       if (!strVal) {
         if (field.required) {
           return {
@@ -271,13 +267,13 @@ export function PulseInteractionCard({
   labels?: PulseInteractionLabels;
   className?: string;
 }) {
-  const { t, i18n: activeI18n } = useTranslation('panels');
+  const { t } = useTranslation('panels');
   const formFields = useMemo(
     () =>
       interaction.kind === 'ask_form'
         ? extractTypedFormFields(interaction.formSchema)
         : [],
-    [interaction.formSchema, interaction.kind, activeI18n.language]
+    [interaction.formSchema, interaction.kind]
   );
 
   const [note, setNote] = useState('');

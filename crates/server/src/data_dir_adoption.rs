@@ -253,8 +253,8 @@ fn move_into_target_with_decision(
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "data".to_string());
-            let staging =
-                target_dir.with_file_name(format!(".{target_name}.adopting-{}", std::process::id()));
+            let staging = target_dir
+                .with_file_name(format!(".{target_name}.adopting-{}", std::process::id()));
             if staging.exists() {
                 let _ = std::fs::remove_dir_all(&staging);
             }

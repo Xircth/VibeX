@@ -18,6 +18,7 @@ import { botsPanelManifest } from './bots';
 import { collaborationSpacePanelManifest } from './collaborationSpace';
 import { terminalPanelManifest } from './terminal';
 import { welcomePanelManifest } from './welcome';
+import { workflowStudioPanelManifest } from './workflowStudio';
 
 /**
  * Every builtin Dockview panel, one manifest each, in the order
@@ -42,6 +43,7 @@ const panelManifests = [
   sessionListPanelManifest,
   botsPanelManifest,
   collaborationSpacePanelManifest,
+  workflowStudioPanelManifest,
 ] as const;
 
 export type BuiltinPanelManifestId = (typeof panelManifests)[number]['id'];

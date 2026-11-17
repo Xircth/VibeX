@@ -717,9 +717,13 @@ describe('Bilingual zh-CN/en Localization & Semantic Node Presentation', () => {
     );
     const rtGroup = roundTripped.steps.find((s) => s.id === 'n-group');
     expect(rtGroup?.kind === 'group_stage' ? rtGroup.rounds : null).toBe(3);
-    expect(rtGroup?.kind === 'group_stage' ? rtGroup.quorumCount : null).toBe(2);
+    expect(rtGroup?.kind === 'group_stage' ? rtGroup.quorumCount : null).toBe(
+      2
+    );
     const rtGate = roundTripped.steps.find((s) => s.id === 'n-gate');
-    expect(rtGate?.kind === 'user_gate' ? rtGate.severity : null).toBe('urgent');
+    expect(rtGate?.kind === 'user_gate' ? rtGate.severity : null).toBe(
+      'urgent'
+    );
 
     try {
       await act(async () => {
@@ -781,9 +785,9 @@ describe('Bilingual zh-CN/en Localization & Semantic Node Presentation', () => {
       expect(screen.getByTestId('inspector-tab-info')).toHaveTextContent(
         'Overview'
       );
-      expect(screen.getByTestId('inspector-tab-conversation')).toHaveTextContent(
-        'Records'
-      );
+      expect(
+        screen.getByTestId('inspector-tab-conversation')
+      ).toHaveTextContent('Records');
 
       // Switch live to zh-CN
       await act(async () => {
@@ -809,7 +813,9 @@ describe('Bilingual zh-CN/en Localization & Semantic Node Presentation', () => {
         ).toHaveTextContent(badge);
       }
       expect(
-        within(screen.getByTestId('workflow-node-n-loop')).getByText('最多 4 轮')
+        within(screen.getByTestId('workflow-node-n-loop')).getByText(
+          '最多 4 轮'
+        )
       ).toBeInTheDocument();
       expect(screen.getByTestId('inspector-tab-info')).toHaveTextContent(
         '节点概览'
@@ -1085,11 +1091,15 @@ describe('Workflow Studio 5-Point UI/UX Optimization', () => {
     const { container } = render(<Harness />);
 
     // Multi-point handles on step-b: dual Left (target, target:secondary), dual Right (source, source:secondary), Top (target:top), Bottom (source:bottom)
-    expect(screen.getByTestId('workflow-port-step-b-target')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-port-step-b-target')
+    ).toBeInTheDocument();
     expect(
       screen.getByTestId('workflow-port-step-b-target:secondary')
     ).toHaveClass('workflow-port-connected');
-    expect(screen.getByTestId('workflow-port-step-b-source')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-port-step-b-source')
+    ).toBeInTheDocument();
     expect(
       screen.getByTestId('workflow-port-step-b-source:secondary')
     ).toBeInTheDocument();
@@ -1324,9 +1334,7 @@ describe('Docked Edge-Connected Inspector Node & Workspace Canvas Parity', () =>
     expect(inspX).toBe(stepX + 280 + 48);
     expect(inspY).toBe(stepY);
 
-    const inspectorEdge = container.querySelector(
-      '.workflow-inspector-edge'
-    );
+    const inspectorEdge = container.querySelector('.workflow-inspector-edge');
     expect(inspectorEdge).toBeInTheDocument();
 
     const pane = container.querySelector('.react-flow__pane');
@@ -1376,4 +1384,3 @@ describe('Docked Edge-Connected Inspector Node & Workspace Canvas Parity', () =>
     expect(selectBtn).toHaveAttribute('aria-pressed', 'false');
   });
 });
-

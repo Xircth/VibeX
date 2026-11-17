@@ -99,7 +99,9 @@ describe('BasicGuideOverlay', () => {
     expect(
       screen.queryByRole('complementary', { name: '基础引导' })
     ).toBeNull();
-    expect(document.querySelector('.basic-guide-panel__stack--framed')).toBeNull();
+    expect(
+      document.querySelector('.basic-guide-panel__stack--framed')
+    ).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
 
     const skip = screen.getByRole('button', { name: '跳过基础引导' });
@@ -235,12 +237,14 @@ describe('BasicGuideOverlay', () => {
     const user = userEvent.setup();
     const targets: Array<
       [
-        | 'toolbar-host-selector'
-        | 'project-switcher'
-        | 'rail-session-list'
-        | 'rail-bots'
-        | 'rail-file-tree'
-        | 'rail-git',
+        (
+          | 'toolbar-host-selector'
+          | 'project-switcher'
+          | 'rail-session-list'
+          | 'rail-bots'
+          | 'rail-file-tree'
+          | 'rail-git'
+        ),
         string,
         { left: number; top: number; width: number; height: number },
       ]
@@ -260,11 +264,7 @@ describe('BasicGuideOverlay', () => {
         '会话列表',
         { left: 8, top: 64, width: 28, height: 28 },
       ],
-      [
-        'rail-bots',
-        'Bot 助手',
-        { left: 8, top: 96, width: 28, height: 28 },
-      ],
+      ['rail-bots', 'Bot 助手', { left: 8, top: 96, width: 28, height: 28 }],
       [
         'rail-file-tree',
         '文件树',

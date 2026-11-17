@@ -15,7 +15,9 @@ export type NativeEngineAgentHint =
 
 const NATIVE_ENGINE_AGENT_IDS = new Set(['claude_code', 'codex']);
 
-export function isNativeEngineAgent(agentOrId?: NativeEngineAgentHint): boolean {
+export function isNativeEngineAgent(
+  agentOrId?: NativeEngineAgentHint
+): boolean {
   if (!agentOrId) return false;
   if (typeof agentOrId === 'string') {
     return NATIVE_ENGINE_AGENT_IDS.has(agentOrId);

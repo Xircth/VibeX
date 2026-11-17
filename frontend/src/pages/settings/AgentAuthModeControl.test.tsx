@@ -843,8 +843,7 @@ describe('AgentAuthModeControl', () => {
               label: '登录 ChatGPT',
               kind: 'login' as const,
               available: false,
-              unavailable_reason:
-                '未找到 `codex`；请重新安装或修复此 Agent。',
+              unavailable_reason: '未找到 `codex`；请重新安装或修复此 Agent。',
             },
           ],
         }}

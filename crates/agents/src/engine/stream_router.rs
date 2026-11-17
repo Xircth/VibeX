@@ -260,8 +260,9 @@ impl TurnRouteFilter {
                 _ => true,
             },
             TurnRouteFilter::ClaudePrompt { prompt_id, .. } => match event {
-                EngineEvent::RateLimitsUpdated { .. }
-                | EngineEvent::CacheStatusUpdated { .. } => true,
+                EngineEvent::RateLimitsUpdated { .. } | EngineEvent::CacheStatusUpdated { .. } => {
+                    true
+                }
                 EngineEvent::TurnStarted { prompt_id: pid, .. }
                 | EngineEvent::AssistantTextDelta { prompt_id: pid, .. }
                 | EngineEvent::ThinkingDelta { prompt_id: pid, .. }
@@ -404,7 +405,8 @@ impl TurnEventRouter {
         };
         for sub in drained {
             let (prompt_id, session_id) = sub.filter.fallback_ids();
-            let message = format_bounded_diagnostic(reason, Some(stderr_tail), Some(sub.stderr_mark));
+            let message =
+                format_bounded_diagnostic(reason, Some(stderr_tail), Some(sub.stderr_mark));
             let _ = sub.tx.send(EngineEvent::TurnError {
                 prompt_id,
                 session_id,
@@ -506,7 +508,8 @@ impl Stream for TurnEventStream {
                         stop_reason,
                         served_model,
                     } => {
-                        if !self.saw_output && !self.stderr_tail.since(self.stderr_mark).is_empty() {
+                        if !self.saw_output && !self.stderr_tail.since(self.stderr_mark).is_empty()
+                        {
                             EngineEvent::TurnError {
                                 prompt_id,
                                 session_id,

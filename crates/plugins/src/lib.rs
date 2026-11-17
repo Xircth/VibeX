@@ -108,7 +108,7 @@ pub use language_runtimes::{
     LanguageRuntimeLock, PLUGIN_WORKER_CPYTHON_VERSION, plugin_worker_cpython_lock,
 };
 pub use manifest::{
-    ActionId, ArtifactIntent, ConsoleBinding, Distribution, MANIFEST_DIRS, MANIFEST_DIR,
+    ActionId, ArtifactIntent, ConsoleBinding, Distribution, MANIFEST_DIR, MANIFEST_DIRS,
     ManifestSource, PRE_RENAME_MANIFEST_DIR, PluginAction, PluginId, PluginManifest,
     PluginMembership, PromptBlock, SkillDeclaration, SkillId, SkillSource, ToolDependency, ToolId,
     ToolKind, existing_manifest_path, manifest_candidates, manifest_path,

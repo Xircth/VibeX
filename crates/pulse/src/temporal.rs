@@ -295,7 +295,10 @@ impl InactivitySlaTracker {
                 r.enabled
                     && !r.draft_only
                     && r.spec.eval_mode != PulseEvalMode::Off
-                    && matches!(r.spec.temporal, Some(PulseTemporalSpec::InactivitySla { .. }))
+                    && matches!(
+                        r.spec.temporal,
+                        Some(PulseTemporalSpec::InactivitySla { .. })
+                    )
             })
             .map(|r| r.id.as_str())
             .collect();

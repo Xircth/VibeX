@@ -948,7 +948,7 @@ pub fn validate_dual_primitive_workflow(def: &Json, violations: &mut Vec<Json>) 
                         "empty_loop_body",
                         "bounded_loop requires a non-empty bodyStepIds array.",
                     )),
-                    Some(body) if body.is_empty() => violations.push(violation(
+                    Some([]) => violations.push(violation(
                         &format!("{base}.bodyStepIds"),
                         "empty_loop_body",
                         "bounded_loop requires at least one step in bodyStepIds.",
@@ -1006,7 +1006,7 @@ pub fn validate_dual_primitive_workflow(def: &Json, violations: &mut Vec<Json>) 
                         "empty_event_types",
                         "wait_for_event requires a non-empty eventTypes array.",
                     )),
-                    Some(evts) if evts.is_empty() => violations.push(violation(
+                    Some([]) => violations.push(violation(
                         &format!("{base}.eventTypes"),
                         "empty_event_types",
                         "wait_for_event requires at least one eventType.",
@@ -1095,7 +1095,8 @@ pub fn validate_dual_primitive_workflow(def: &Json, violations: &mut Vec<Json>) 
     }
     let mut queue: Vec<String> = in_degree
         .iter()
-        .filter_map(|(k, deg)| (*deg == 0).then(|| k.clone()))
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(k, _)| k.clone())
         .collect();
     let mut visited = 0usize;
     while let Some(node) = queue.pop() {

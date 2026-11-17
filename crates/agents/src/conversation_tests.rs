@@ -345,8 +345,7 @@ fn extracts_and_strips_internal_messages_across_streaming_chunks() {
             continue;
         }
         let partial = &full[..split];
-        let res =
-            extract_and_strip_internal_messages(partial, Some(conv_id), Some(turn_id), true);
+        let res = extract_and_strip_internal_messages(partial, Some(conv_id), Some(turn_id), true);
         assert!(
             res.visible_text.starts_with(&prev_visible),
             "visible_text must be monotonically append-only during streaming: prev={prev_visible:?}, next={:?} at split={split}",
@@ -360,8 +359,7 @@ fn extracts_and_strips_internal_messages_across_streaming_chunks() {
         prev_visible = res.visible_text;
     }
 
-    let final_res =
-        extract_and_strip_internal_messages(full, Some(conv_id), Some(turn_id), false);
+    let final_res = extract_and_strip_internal_messages(full, Some(conv_id), Some(turn_id), false);
     assert_eq!(final_res.visible_text, "Hello user! World!\n\nDone.");
     assert_eq!(final_res.captured.len(), 3);
     assert_eq!(final_res.captured[0].plugin_id, "token-guard");
@@ -393,12 +391,8 @@ fn extracts_and_strips_internal_messages_handles_multibyte_utf8_streaming_chunks
 
     // Exact crash reproduction: 27-byte string where `27 - 22 = 5` falls inside '个' (bytes 3..6).
     let exact_crash_chunk = "这个报错是模型 ID ";
-    let crash_res = extract_and_strip_internal_messages(
-        exact_crash_chunk,
-        Some(conv_id),
-        Some(turn_id),
-        true,
-    );
+    let crash_res =
+        extract_and_strip_internal_messages(exact_crash_chunk, Some(conv_id), Some(turn_id), true);
     assert_eq!(crash_res.visible_text, exact_crash_chunk);
     assert!(!crash_res.has_pending_tail);
     assert!(crash_res.captured.is_empty());
@@ -411,8 +405,7 @@ fn extracts_and_strips_internal_messages_handles_multibyte_utf8_streaming_chunks
             continue;
         }
         let partial = &full[..split];
-        let res =
-            extract_and_strip_internal_messages(partial, Some(conv_id), Some(turn_id), true);
+        let res = extract_and_strip_internal_messages(partial, Some(conv_id), Some(turn_id), true);
         assert!(
             res.visible_text.starts_with(&prev_visible),
             "visible_text must be monotonically append-only during UTF-8 streaming: prev={prev_visible:?}, next={:?} at split={split}",
@@ -426,8 +419,7 @@ fn extracts_and_strips_internal_messages_handles_multibyte_utf8_streaming_chunks
         prev_visible = res.visible_text;
     }
 
-    let final_res =
-        extract_and_strip_internal_messages(full, Some(conv_id), Some(turn_id), false);
+    let final_res = extract_and_strip_internal_messages(full, Some(conv_id), Some(turn_id), false);
     assert_eq!(
         final_res.visible_text,
         "这个报错是模型 ID 配置有误导致的。请检查配置：\n\n修复完成！"

@@ -17,7 +17,9 @@ const QUOTE_HEADER_BASE = ':quote';
 const QUOTE_HEADER_PREFIX = ':quote|';
 const MAX_ANCHOR_CONTEXT_CHARS = 20;
 
-function normalizeNonNegativeInt(value: number | undefined): number | undefined {
+function normalizeNonNegativeInt(
+  value: number | undefined
+): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return undefined;
   }

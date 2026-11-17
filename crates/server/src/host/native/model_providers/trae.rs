@@ -34,7 +34,10 @@ pub(super) async fn apply_trae(
     if api_key.is_empty() {
         dimo.remove("api_key");
     } else {
-        dimo.insert("api_key".to_string(), toml::Value::String(api_key.to_string()));
+        dimo.insert(
+            "api_key".to_string(),
+            toml::Value::String(api_key.to_string()),
+        );
     }
     dimo.insert(
         "wire_api".to_string(),

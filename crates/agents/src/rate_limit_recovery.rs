@@ -130,15 +130,15 @@ impl UsageLimitRecovery {
     ///   `rate_limit.error.resets.at` in RFC3339/ISO-8601 or epoch seconds/ms)
     pub fn parse_reset_at(engine_id: &str, event: &Value) -> Option<DateTime<Utc>> {
         let normalized_engine = engine_id.trim().to_ascii_lowercase();
-        if normalized_engine.contains("codex") {
-            if let Some(dt) = parse_codex_reset_at(event) {
-                return Some(dt);
-            }
+        if normalized_engine.contains("codex")
+            && let Some(dt) = parse_codex_reset_at(event)
+        {
+            return Some(dt);
         }
-        if normalized_engine.contains("claude") {
-            if let Some(dt) = parse_claude_reset_at(event) {
-                return Some(dt);
-            }
+        if normalized_engine.contains("claude")
+            && let Some(dt) = parse_claude_reset_at(event)
+        {
+            return Some(dt);
         }
         parse_claude_reset_at(event).or_else(|| parse_codex_reset_at(event))
     }
@@ -212,17 +212,17 @@ impl UsageLimitRecovery {
         });
 
         let abort_handle = join_handle.abort_handle();
-        if let Ok(mut map) = self.sessions.write() {
-            if let Some(prev) = map.insert(
+        if let Ok(mut map) = self.sessions.write()
+            && let Some(prev) = map.insert(
                 session_id,
                 SessionWaitEntry {
                     state: state.clone(),
                     abort_handle: Some(abort_handle),
                 },
-            ) && let Some(prev_abort) = prev.abort_handle
-            {
-                prev_abort.abort();
-            }
+            )
+            && let Some(prev_abort) = prev.abort_handle
+        {
+            prev_abort.abort();
         }
 
         let _ = self.event_tx.send(RateLimitRecoveryEvent::RateLimited {

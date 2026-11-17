@@ -247,6 +247,7 @@ impl PulseEngine {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_rule_with_draft(
         &self,
         id: Option<String>,
@@ -336,7 +337,8 @@ impl PulseEngine {
         let verified = if secret.is_empty() {
             if !allow_unsigned {
                 let err = WebhookVerifyError::InvalidSecret;
-                let reason = "webhook source has no signing secret configured (and allowUnsigned is false)";
+                let reason =
+                    "webhook source has no signing secret configured (and allowUnsigned is false)";
                 let _ = self
                     .store
                     .increment_source_rejected(source_id, Some(reason), &now_iso)

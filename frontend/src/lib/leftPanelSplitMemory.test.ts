@@ -12,7 +12,7 @@ describe('left panel split memory', () => {
 
   it('returns defaults when nothing is stored', () => {
     expect(readLeftPanelSplitMemory()).toEqual({
-      stackRatio: 0.62,
+      stackRatio: 0.5,
       rowRatio: 0.5,
     });
   });

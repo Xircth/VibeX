@@ -391,12 +391,11 @@ async fn submit_is_idempotent_and_rejects_operation_payload_conflicts() {
     .expect("create conversation");
     let operation_id = Uuid::new_v4();
     let control = ConversationInputControl::new(pool.clone());
-    let original_payload: ConversationInputPayload =
-        serde_json::from_value(serde_json::json!({
-            "agentId": "codex", "workspaceId": Uuid::new_v4(), "text": "hello",
-            "continuationPolicy": "portable", "expectedBindingRevision": 0
-        }))
-        .unwrap();
+    let original_payload: ConversationInputPayload = serde_json::from_value(serde_json::json!({
+        "agentId": "codex", "workspaceId": Uuid::new_v4(), "text": "hello",
+        "continuationPolicy": "portable", "expectedBindingRevision": 0
+    }))
+    .unwrap();
 
     let first = control
         .submit(SubmitConversationInput {
@@ -520,13 +519,12 @@ async fn oversized_input_is_rejected_before_it_reaches_the_event_log() {
         error,
         ConversationInputControlError::InputTooLarge { .. }
     ));
-    let events: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?",
-    )
-    .bind(conversation_id)
-    .fetch_one(&pool)
-    .await
-    .expect("count events");
+    let events: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?")
+            .bind(conversation_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count events");
     assert_eq!(events, 0);
 }
 
@@ -681,7 +679,10 @@ async fn promote_to_front_and_submit_at_front_place_target_before_existing_queue
         .into_iter()
         .map(|view| view.id)
         .collect();
-    assert_eq!(ordered_ids, vec![front_direct.id, third.id, first.id, second.id]);
+    assert_eq!(
+        ordered_ids,
+        vec![front_direct.id, third.id, first.id, second.id]
+    );
 }
 
 #[tokio::test]

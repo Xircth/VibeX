@@ -904,8 +904,7 @@ async fn inflight_first_turn_load_does_not_duplicate_user_prompt_when_acp_sessio
     .await
     .expect("bind external session id");
 
-    let mut header =
-        TranscriptHeader::new("codex", &external_sid, "/workspace", 1_700_000_000_000);
+    let mut header = TranscriptHeader::new("codex", &external_sid, "/workspace", 1_700_000_000_000);
     if acp_transcript::has_entries_in(&root, "codex", &simple_sid) {
         header.continues_from = Some(simple_sid.clone());
     }

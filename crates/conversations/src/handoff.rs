@@ -349,7 +349,7 @@ impl DeterministicHandoffService {
         }
 
         let target = target_engine.trim();
-        let mut token_budget = ((byte_budget / 4).max(1)).min(DEFAULT_HANDOFF_TOKEN_BUDGET);
+        let mut token_budget = (byte_budget / 4).clamp(1, DEFAULT_HANDOFF_TOKEN_BUDGET);
         loop {
             let ctx = pack_candidates(
                 &source_engine,
@@ -664,6 +664,7 @@ impl DeterministicHandoffService {
         target_provider_instance_id: Option<&str>,
     ) -> Result<EngineHandoffConfirmation, HandoffError> {
         use std::collections::BTreeSet;
+
         use db::models::{
             conversation::ConversationAgentBindingRecord,
             conversation_turn::ConversationTurnRecord,
@@ -732,7 +733,8 @@ impl DeterministicHandoffService {
             other => HandoffError::InvalidTargetInstance(other.to_string()),
         })?;
 
-        let instance_switched = !agent_switched && prev_effective_instance != next_effective_instance;
+        let instance_switched =
+            !agent_switched && prev_effective_instance != next_effective_instance;
         let switched = agent_switched || instance_switched;
 
         if switched {
@@ -772,15 +774,14 @@ impl DeterministicHandoffService {
             None
         };
 
-        let mut previous_model = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT model FROM sessions WHERE id = ?",
-        )
-        .bind(conversation_id)
-        .fetch_optional(pool)
-        .await?
-        .flatten()
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty());
+        let mut previous_model =
+            sqlx::query_scalar::<_, Option<String>>("SELECT model FROM sessions WHERE id = ?")
+                .bind(conversation_id)
+                .fetch_optional(pool)
+                .await?
+                .flatten()
+                .map(|m| m.trim().to_string())
+                .filter(|m| !m.is_empty());
         if previous_model.is_none() && handoff_boundary.is_some() {
             previous_model = sqlx::query_scalar::<_, Option<String>>(
                 "SELECT model FROM conversation_usage_snapshots WHERE conversation_id = ?",

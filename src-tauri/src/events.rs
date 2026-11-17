@@ -7,9 +7,7 @@ use conversations::{
     ConversationAgentEventRecorder, ConversationEventSink, RecordedConversationBatch,
     WorkspaceSessionsChanged,
 };
-use db::models::{
-    conversation::ConversationRecord, session::Session, workspace::Workspace,
-};
+use db::models::{conversation::ConversationRecord, session::Session, workspace::Workspace};
 use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -50,8 +48,6 @@ impl ConversationEventSink for TauriEventSink {
         crate::host_bus::bus().emit("workspace-sessions-changed", payload);
     }
 }
-
-
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]

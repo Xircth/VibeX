@@ -2,13 +2,7 @@ import { lazy, Suspense, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Text } from '@astryxdesign/core/Text';
-import {
-  PanelRight,
-  RefreshCw,
-  Sparkles,
-  Webhook,
-  Zap,
-} from 'lucide-react';
+import { PanelRight, RefreshCw, Sparkles, Webhook, Zap } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -208,7 +202,10 @@ export function AutomationPageShell({
                   className="h-7 w-7 shrink-0"
                 >
                   <RefreshCw
-                    className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')}
+                    className={cn(
+                      'h-3.5 w-3.5',
+                      isRefreshing && 'animate-spin'
+                    )}
                   />
                 </Button>
               </TooltipTrigger>
@@ -333,4 +330,3 @@ export function AutomationPageShell({
     </TooltipProvider>
   );
 }
-

@@ -58,7 +58,12 @@ export function deepJsonEqual(left: unknown, right: unknown): boolean {
   ) {
     return Math.abs(left - right) <= Number.EPSILON;
   }
-  if (left === null || right === null || left === undefined || right === undefined) {
+  if (
+    left === null ||
+    right === null ||
+    left === undefined ||
+    right === undefined
+  ) {
     return false;
   }
   if (Array.isArray(left) || Array.isArray(right)) {
@@ -852,9 +857,7 @@ function resolveTemplateToken(key: string, envelope: EventEnvelope): string {
 
   const pointer = key.startsWith('/')
     ? key
-    : `/${key
-        .replace(/^payload\./, '')
-        .replace(/\./g, '/')}`;
+    : `/${key.replace(/^payload\./, '').replace(/\./g, '/')}`;
 
   const fromPayload = resolveJsonPointer(envelope.payload, pointer);
   const resolved =
@@ -916,7 +919,10 @@ export function evaluatePulseRuleLocally(
   const filter: GateFilterAst = spec.filter;
   const unmatchedConditions: number[] = [];
 
-  if (envelope.actor.isSelf || envelope.trace.hopCount > DEFAULT_MAX_HOP_COUNT) {
+  if (
+    envelope.actor.isSelf ||
+    envelope.trace.hopCount > DEFAULT_MAX_HOP_COUNT
+  ) {
     return {
       valid: violations.length === 0,
       matched: false,

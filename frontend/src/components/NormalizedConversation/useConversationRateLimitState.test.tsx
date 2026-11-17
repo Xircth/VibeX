@@ -207,7 +207,9 @@ describe('useConversationRateLimitState', () => {
       await screen.findByTestId('rate-limit-recovery-banner');
 
       const emitEvent = (payload: unknown) => {
-        for (const handler of handlers.get('conversation-rate-limit:conv-rl-1') ?? []) {
+        for (const handler of handlers.get(
+          'conversation-rate-limit:conv-rl-1'
+        ) ?? []) {
           handler(payload);
         }
       };
@@ -219,7 +221,9 @@ describe('useConversationRateLimitState', () => {
           kind: 'rate_limit_cancelled',
         });
       });
-      expect(screen.getByTestId('rate-limit-recovery-banner')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('rate-limit-recovery-banner')
+      ).toBeInTheDocument();
 
       // Apply live rate_limit_updated from backend RateLimitState shape
       await act(async () => {
@@ -237,10 +241,9 @@ describe('useConversationRateLimitState', () => {
         });
       });
 
-      expect(screen.getByTestId('rate-limit-auto-resume-switch')).toHaveAttribute(
-        'data-state',
-        'unchecked'
-      );
+      expect(
+        screen.getByTestId('rate-limit-auto-resume-switch')
+      ).toHaveAttribute('data-state', 'unchecked');
 
       // Clear when rate_limit_auto_resume fires even though sideRows still has the old notice
       await act(async () => {
@@ -267,7 +270,9 @@ describe('useConversationRateLimitState', () => {
           },
         });
       });
-      expect(screen.getByTestId('rate-limit-recovery-banner')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('rate-limit-recovery-banner')
+      ).toBeInTheDocument();
 
       // Clear when rate_limit_cancelled fires
       await act(async () => {

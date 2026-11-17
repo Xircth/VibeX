@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[tokio::test]
 async fn async_task_and_prompt_suggestion_ext_notifications_route_to_session_controls() {
     let session_id = AgentSessionId::new();
@@ -182,8 +181,7 @@ async fn in_memory_goal_control_orchestration_respects_claude_and_codex_rules() 
 }
 
 #[tokio::test]
-async fn antigravity_synthetic_turn_error_and_cancel_chunks_are_not_emitted_as_assistant_prose()
-{
+async fn antigravity_synthetic_turn_error_and_cancel_chunks_are_not_emitted_as_assistant_prose() {
     let session_id = AgentSessionId::new();
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
     let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
@@ -697,8 +695,7 @@ async fn omp_session_controls_advertise_yolo_mode_and_toggle_effective_auto_appr
     )]));
 
     assert_eq!(
-        effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id)
-            .await,
+        effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id).await,
         AgentAutoApproveMode::Off
     );
 
@@ -709,8 +706,7 @@ async fn omp_session_controls_advertise_yolo_mode_and_toggle_effective_auto_appr
         .unwrap()
         .omp_yolo_mode = true;
     assert_eq!(
-        effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id)
-            .await,
+        effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id).await,
         AgentAutoApproveMode::Yolo
     );
 
@@ -721,8 +717,7 @@ async fn omp_session_controls_advertise_yolo_mode_and_toggle_effective_auto_appr
         .unwrap()
         .omp_yolo_mode = false;
     assert_eq!(
-        effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id)
-            .await,
+        effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id).await,
         AgentAutoApproveMode::Off
     );
 }
@@ -999,7 +994,9 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
         .expect("launch env");
     assert_ne!(
-        env_from_cmd.get("CLAUDE_CODE_EXECUTABLE").map(String::as_str),
+        env_from_cmd
+            .get("CLAUDE_CODE_EXECUTABLE")
+            .map(String::as_str),
         Some(cmd_shim.to_string_lossy().as_ref()),
         "Windows .cmd batch shim must never be injected into CLAUDE_CODE_EXECUTABLE"
     );
@@ -1014,13 +1011,21 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
         && std::env::var_os("DIMO_CLAUDE_PATH").is_none()
     {
         assert_eq!(
-            env_with_sibling.get("CLAUDE_CODE_EXECUTABLE").map(PathBuf::from),
-            Some(workspace_utils::process::prefer_direct_spawn_executable(&sibling_exe))
+            env_with_sibling
+                .get("CLAUDE_CODE_EXECUTABLE")
+                .map(PathBuf::from),
+            Some(workspace_utils::process::prefer_direct_spawn_executable(
+                &sibling_exe
+            ))
         );
     }
 
     // 3. Direct native binary (`claude.exe` / `claude`) still populates `CLAUDE_CODE_EXECUTABLE`.
-    let standalone_bin = bin_dir.join(if cfg!(windows) { "claude.exe" } else { "claude" });
+    let standalone_bin = bin_dir.join(if cfg!(windows) {
+        "claude.exe"
+    } else {
+        "claude"
+    });
     std::fs::write(&standalone_bin, b"MZ").unwrap();
     let (env_from_bin, _) = make_runner(standalone_bin.clone())
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
@@ -1029,9 +1034,12 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
         && std::env::var_os("DIMO_CLAUDE_PATH").is_none()
     {
         assert_eq!(
-            env_from_bin.get("CLAUDE_CODE_EXECUTABLE").map(PathBuf::from),
-            Some(workspace_utils::process::prefer_direct_spawn_executable(&standalone_bin))
+            env_from_bin
+                .get("CLAUDE_CODE_EXECUTABLE")
+                .map(PathBuf::from),
+            Some(workspace_utils::process::prefer_direct_spawn_executable(
+                &standalone_bin
+            ))
         );
     }
 }
-

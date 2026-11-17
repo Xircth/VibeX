@@ -99,7 +99,7 @@
 .conv-pixel-cell {
   width: var(--conv-pixel-cell);
   height: var(--conv-pixel-cell);
-  border-radius: 1px;
+  border-radius: 0;
   background: var(--conv-tool-icon);
   animation: conv-pixel-on 650ms ease-in-out infinite;
 }

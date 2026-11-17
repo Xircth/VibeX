@@ -406,7 +406,8 @@ impl ProjectionFold {
                 ConversationAgentConnectionStatus::Connecting
                 | ConversationAgentConnectionStatus::Recovering => {
                     if let Some(tid) = latest_turn_id {
-                        side_row_turns.insert(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(), tid);
+                        side_row_turns
+                            .insert(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(), tid);
                     }
                     upsert_stable_notice(
                         side_rows,
@@ -567,12 +568,7 @@ impl ProjectionFold {
                         }
                         AgentHandoffRowAction::Remove { row_id } => {
                             side_row_turns.remove(&row_id);
-                            remove_side_row(
-                                side_rows,
-                                deleted_rows,
-                                &row_id,
-                                record.sequence,
-                            );
+                            remove_side_row(side_rows, deleted_rows, &row_id, record.sequence);
                         }
                     }
                 } else if let Some(notice) = host_note_notice(&label, payload.as_ref()) {
@@ -590,7 +586,8 @@ impl ProjectionFold {
                         == Some(agents::SESSION_RECONNECT_PROGRESS_KIND)
                 {
                     if let Some(tid) = latest_turn_id {
-                        side_row_turns.insert(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(), tid);
+                        side_row_turns
+                            .insert(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(), tid);
                     }
                     let (attempt, max) = reconnect_attempt_from_payload(payload.as_ref());
                     upsert_stable_notice(
@@ -612,7 +609,8 @@ impl ProjectionFold {
                         == Some(agents::SESSION_CONNECT_ERROR_KIND)
                 {
                     if let Some(tid) = latest_turn_id {
-                        side_row_turns.insert(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID.into(), tid);
+                        side_row_turns
+                            .insert(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID.into(), tid);
                     }
                     let message = payload
                         .as_ref()
@@ -1077,7 +1075,6 @@ fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
         .and_then(serde_json::Value::as_str)?;
     Some(format!("{reason}: {requested}"))
 }
-
 
 #[cfg(test)]
 #[path = "rows_tests.rs"]

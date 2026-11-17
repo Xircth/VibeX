@@ -443,7 +443,12 @@ export function ensureDockviewSessionPanel(
     const existingRightGroup = getRightGroup(api);
     if (existingRightGroup && existingRightGroup.panels.length === 0) {
       if (existingRightGroup.api.isVisible) {
-        setColumnVisible(api, getLayoutArrangement(), existingRightGroup, false);
+        setColumnVisible(
+          api,
+          getLayoutArrangement(),
+          existingRightGroup,
+          false
+        );
       }
     }
     normalizeGroupIds(api);

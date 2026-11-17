@@ -160,7 +160,9 @@ pub async fn set_enabled(
         .get_mut(Value::String("modelRoles".to_string()))
         .and_then(Value::as_mapping_mut)
         && let Some(Value::String(role)) = roles.get(Value::String("default".to_string()))
-        && keys.iter().any(|candidate| role.starts_with(&format!("{candidate}/")))
+        && keys
+            .iter()
+            .any(|candidate| role.starts_with(&format!("{candidate}/")))
     {
         roles.remove(Value::String("default".to_string()));
     }
@@ -193,7 +195,9 @@ fn add_disabled_provider(config: &mut Mapping, key: &str) {
     if !config.get(&disabled_key).is_some_and(Value::is_sequence) {
         config.insert(disabled_key.clone(), Value::Sequence(Vec::new()));
     }
-    if let Some(seq) = config.get_mut(&disabled_key).and_then(Value::as_sequence_mut)
+    if let Some(seq) = config
+        .get_mut(&disabled_key)
+        .and_then(Value::as_sequence_mut)
         && !seq.iter().any(|entry| entry.as_str() == Some(key))
     {
         seq.push(Value::String(key.to_string()));
@@ -202,14 +206,13 @@ fn add_disabled_provider(config: &mut Mapping, key: &str) {
 
 fn remove_disabled_provider(config: &mut Mapping, keys: &[&str]) {
     let disabled_key = Value::String("disabledProviders".to_string());
-    let Some(seq) = config.get_mut(&disabled_key).and_then(Value::as_sequence_mut) else {
+    let Some(seq) = config
+        .get_mut(&disabled_key)
+        .and_then(Value::as_sequence_mut)
+    else {
         return;
     };
-    seq.retain(|entry| {
-        entry
-            .as_str()
-            .is_none_or(|value| !keys.contains(&value))
-    });
+    seq.retain(|entry| entry.as_str().is_none_or(|value| !keys.contains(&value)));
     if seq.is_empty() {
         config.remove(&disabled_key);
     }

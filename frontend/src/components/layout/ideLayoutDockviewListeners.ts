@@ -444,8 +444,7 @@ export function attachDockviewWorkspaceListeners(
   });
 
   const columnWidthRebalance = installEditorColumnWidthRebalance(api, {
-    shouldRebalance: () =>
-      !isResettingRef.current && !isInternalAnchorSync,
+    shouldRebalance: () => !isResettingRef.current && !isInternalAnchorSync,
   });
 
   let layoutPersistIdleHandle: number | null = null;

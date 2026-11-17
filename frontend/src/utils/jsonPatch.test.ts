@@ -106,4 +106,3 @@ describe('applyUpsertPatch', () => {
     expect(next.entries['c.ts']?.content.newContent).toBe('new-c');
   });
 });
-

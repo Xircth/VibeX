@@ -29,7 +29,9 @@ function toIsoTimestamp(value: unknown): string | null {
   return null;
 }
 
-function readResetTimestamp(record: Record<string, unknown> | null | undefined): string | null {
+function readResetTimestamp(
+  record: Record<string, unknown> | null | undefined
+): string | null {
   if (!record) return null;
   const primary =
     record.primary && typeof record.primary === 'object'
@@ -63,9 +65,7 @@ function isRecordRateLimited(nested: Record<string, unknown>): boolean {
     nested.isRateLimited ?? nested.is_rate_limited ?? nested.active;
   if (typeof explicit === 'boolean') return explicit;
   const status =
-    typeof nested.status === 'string'
-      ? nested.status.trim().toLowerCase()
-      : '';
+    typeof nested.status === 'string' ? nested.status.trim().toLowerCase() : '';
   if (
     status === 'rejected' ||
     status === 'rate_limited' ||
@@ -93,7 +93,11 @@ function isRecordRateLimited(nested: Record<string, unknown>): boolean {
   }
   for (const key of ['primary', 'secondary']) {
     const win = nested[key];
-    if (win && typeof win === 'object' && isRecordRateLimited(win as Record<string, unknown>)) {
+    if (
+      win &&
+      typeof win === 'object' &&
+      isRecordRateLimited(win as Record<string, unknown>)
+    ) {
       return true;
     }
   }
@@ -308,8 +312,7 @@ export function deriveRateLimitIndicatorState(params: {
     const delayMs = retry.delay_ms != null ? Number(retry.delay_ms) : 0;
     const sinceMs = Date.parse(req.since);
     const baseMs = Number.isFinite(sinceMs) ? sinceMs : Date.now();
-    const resetAt =
-      delayMs > 0 ? new Date(baseMs + delayMs).toISOString() : '';
+    const resetAt = delayMs > 0 ? new Date(baseMs + delayMs).toISOString() : '';
     return {
       key: `retry:${entry.row_id}:${req.since}`,
       state: {
@@ -433,39 +436,42 @@ export function useConversationRateLimitState(params: {
     let active = true;
     let unlisten: (() => void) | undefined;
 
-    backendListen<unknown>(conversationRateLimitChannel(sessionId), (payload) => {
-      if (!active) return;
-      const parsed = parseRateLimitLifecycleEvent(
-        payload,
-        sessionId,
-        engineLabel
-      );
-      if (!parsed) return;
-      if (parsed.type === 'cleared') {
-        setOverride({
+    backendListen<unknown>(
+      conversationRateLimitChannel(sessionId),
+      (payload) => {
+        if (!active) return;
+        const parsed = parseRateLimitLifecycleEvent(
+          payload,
           sessionId,
-          status: 'cleared',
-          derivedKey: derivedRef.current?.key ?? null,
-        });
-        return;
-      }
-      setOverride((current) => {
-        if (
-          parsed.type === 'updated' &&
-          current?.sessionId === sessionId &&
-          current.status === 'cleared' &&
-          current.derivedKey === (derivedRef.current?.key ?? null)
-        ) {
-          return current;
+          engineLabel
+        );
+        if (!parsed) return;
+        if (parsed.type === 'cleared') {
+          setOverride({
+            sessionId,
+            status: 'cleared',
+            derivedKey: derivedRef.current?.key ?? null,
+          });
+          return;
         }
-        return {
-          sessionId,
-          status: 'active',
-          state: parsed.state,
-          derivedKey: derivedRef.current?.key ?? null,
-        };
-      });
-    })
+        setOverride((current) => {
+          if (
+            parsed.type === 'updated' &&
+            current?.sessionId === sessionId &&
+            current.status === 'cleared' &&
+            current.derivedKey === (derivedRef.current?.key ?? null)
+          ) {
+            return current;
+          }
+          return {
+            sessionId,
+            status: 'active',
+            state: parsed.state,
+            derivedKey: derivedRef.current?.key ?? null,
+          };
+        });
+      }
+    )
       .then((unsubscribe) => {
         if (!active) {
           unsubscribe();

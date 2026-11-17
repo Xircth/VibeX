@@ -1688,7 +1688,12 @@ describe('useConversationTimeline', () => {
     act(() => {
       listeners[0]?.({
         ...batch(
-          [{ op: 'upsert', row: assistantRow('t1', 'Completed during open race', 3n) }],
+          [
+            {
+              op: 'upsert',
+              row: assistantRow('t1', 'Completed during open race', 3n),
+            },
+          ],
           3n
         ),
         previous_sequence: 2n,
@@ -1954,4 +1959,3 @@ describe('useConversationTimeline', () => {
     );
   });
 });
-

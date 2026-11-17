@@ -324,8 +324,7 @@ impl ConversationInputControl {
             {
                 return Err(ConversationInputControlError::StateConflict { input_id });
             }
-            let _ =
-                cancel_delayed_input_if_exists(&self.pool, conversation_id, input_id).await?;
+            let _ = cancel_delayed_input_if_exists(&self.pool, conversation_id, input_id).await?;
             return self
                 .submit_at_front(SubmitConversationInput {
                     conversation_id,

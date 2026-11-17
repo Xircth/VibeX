@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import i18n, { NAMESPACES, resources } from './index';
+import i18n, { loadLocaleBundle, NAMESPACES } from './index';
 import { SUPPORTED_LANGUAGES } from '@/lib/uiLanguage';
 
 /** Recursively collect the leaf key paths of a nested resource object. */
@@ -12,9 +12,10 @@ function keyPaths(obj: unknown, prefix = ''): string[] {
 }
 
 describe('i18n resources', () => {
-  it('registers both supported languages', () => {
+  it('registers both supported languages', async () => {
     for (const lang of SUPPORTED_LANGUAGES) {
-      expect(resources[lang]).toBeDefined();
+      const bundle = await loadLocaleBundle(lang);
+      expect(bundle).toBeDefined();
     }
   });
 
@@ -23,9 +24,13 @@ describe('i18n resources', () => {
   // the progressive-migration invariant: converted screens stay fully bilingual.
   it.each(NAMESPACES)(
     'has identical key sets across languages for "%s"',
-    (ns) => {
-      const zh = keyPaths(resources['zh-CN'][ns]).sort();
-      const en = keyPaths(resources.en[ns]).sort();
+    async (ns) => {
+      const [zhBundle, enBundle] = await Promise.all([
+        loadLocaleBundle('zh-CN'),
+        loadLocaleBundle('en'),
+      ]);
+      const zh = keyPaths(zhBundle[ns]).sort();
+      const en = keyPaths(enBundle[ns]).sort();
       expect(en).toEqual(zh);
     }
   );

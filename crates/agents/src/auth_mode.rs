@@ -2197,7 +2197,8 @@ mod tests {
     }
 
     #[test]
-    fn grok_custom_auth_mode_preserves_xai_api_key_while_subscription_and_model_provider_scrub_it() {
+    fn grok_custom_auth_mode_preserves_xai_api_key_while_subscription_and_model_provider_scrub_it()
+    {
         let grok = AgentId::parse("grok").unwrap();
 
         let mut custom_env = HashMap::from([

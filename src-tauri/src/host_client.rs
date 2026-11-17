@@ -273,10 +273,7 @@ impl HostClientRuntime {
         let response = client
             .post(format!("{origin}/api/v1/call/apply_host_upgrade"))
             .bearer_auth(token)
-            .header(
-                "x-dimo-protocol-version",
-                remote_protocol::PROTOCOL_VERSION,
-            )
+            .header("x-dimo-protocol-version", remote_protocol::PROTOCOL_VERSION)
             .json(&serde_json::json!({
                 "operation_id": OperationId::new(),
                 "args": {}
@@ -1290,10 +1287,7 @@ async fn redeem(
 ) -> Result<DeviceCredentialParts, AppError> {
     let response = client
         .post(format!("{origin}/api/v1/auth/pairings/redeem"))
-        .header(
-            "x-dimo-protocol-version",
-            remote_protocol::PROTOCOL_VERSION,
-        )
+        .header("x-dimo-protocol-version", remote_protocol::PROTOCOL_VERSION)
         .json(&RedeemPairingRequest {
             pairing_token: pairing_token.to_string(),
             device_name: device_name.to_string(),
@@ -1333,10 +1327,7 @@ async fn fetch_capabilities(
     let response = client
         .get(format!("{origin}/api/v1/capabilities"))
         .bearer_auth(token)
-        .header(
-            "x-dimo-protocol-version",
-            remote_protocol::PROTOCOL_VERSION,
-        )
+        .header("x-dimo-protocol-version", remote_protocol::PROTOCOL_VERSION)
         .send()
         .await
         .map_err(reachability)?;
@@ -1367,10 +1358,7 @@ async fn revoke_remote_device(
     let response = client
         .delete(format!("{origin}/api/v1/auth/devices/{device_id}"))
         .bearer_auth(token)
-        .header(
-            "x-dimo-protocol-version",
-            remote_protocol::PROTOCOL_VERSION,
-        )
+        .header("x-dimo-protocol-version", remote_protocol::PROTOCOL_VERSION)
         .send()
         .await
         .map_err(reachability)?;

@@ -76,8 +76,7 @@ export function useAgentProviderInstances({
 
   const supportsInstances = supportsAgentInstances(selectedAgentId);
   const canonicalAgentId = useMemo(
-    () =>
-      selectedAgentId ? canonicalProviderAgentId(selectedAgentId) : null,
+    () => (selectedAgentId ? canonicalProviderAgentId(selectedAgentId) : null),
     [selectedAgentId]
   );
 
@@ -117,8 +116,7 @@ export function useAgentProviderInstances({
     : LOCAL_PROVIDER_INSTANCE_ID;
 
   const selectedCustomInstance = useMemo(
-    () =>
-      instances.find((item) => item.instanceId === rawSelectedId) ?? null,
+    () => instances.find((item) => item.instanceId === rawSelectedId) ?? null,
     [instances, rawSelectedId]
   );
 
@@ -232,13 +230,7 @@ export function useAgentProviderInstances({
         setMutating(false);
       }
     },
-    [
-      canonicalAgentId,
-      invalidateInstanceQueries,
-      reload,
-      supportsInstances,
-      t,
-    ]
+    [canonicalAgentId, invalidateInstanceQueries, reload, supportsInstances, t]
   );
 
   const setDefaultInstance = useCallback(
@@ -269,13 +261,7 @@ export function useAgentProviderInstances({
         setMutating(false);
       }
     },
-    [
-      canonicalAgentId,
-      invalidateInstanceQueries,
-      reload,
-      supportsInstances,
-      t,
-    ]
+    [canonicalAgentId, invalidateInstanceQueries, reload, supportsInstances, t]
   );
 
   const deleteInstance = useCallback(
@@ -314,13 +300,7 @@ export function useAgentProviderInstances({
         setMutating(false);
       }
     },
-    [
-      canonicalAgentId,
-      invalidateInstanceQueries,
-      reload,
-      supportsInstances,
-      t,
-    ]
+    [canonicalAgentId, invalidateInstanceQueries, reload, supportsInstances, t]
   );
 
   return {

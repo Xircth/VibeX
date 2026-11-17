@@ -366,7 +366,8 @@ pub async fn search_conversations_with_offset(
     let title_rows = title_q.fetch_all(&mut *conn).await?;
 
     let mut hits: Vec<ConversationSearchHit> = Vec::with_capacity(total_needed);
-    let mut index_by_conv: std::collections::HashMap<Uuid, usize> = std::collections::HashMap::new();
+    let mut index_by_conv: std::collections::HashMap<Uuid, usize> =
+        std::collections::HashMap::new();
     for row in title_rows {
         let conversation_id: Uuid = row.try_get("conversation_id")?;
         if let std::collections::hash_map::Entry::Vacant(entry) =
@@ -658,9 +659,15 @@ mod integration_tests {
         let other = seed(&pool, ws, Some("其他事项")).await;
         let mut conn = pool.acquire().await.unwrap();
 
-        upsert_fts_row_on_conn(&mut conn, other, "turn-1:assistant", "assistant", "定位到空指针异常原因")
-            .await
-            .unwrap();
+        upsert_fts_row_on_conn(
+            &mut conn,
+            other,
+            "turn-1:assistant",
+            "assistant",
+            "定位到空指针异常原因",
+        )
+        .await
+        .unwrap();
 
         let hits = search_conversations(&mut conn, "修复登录", None, 10)
             .await

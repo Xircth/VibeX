@@ -266,7 +266,7 @@ export function DatabaseHealthSection({
                   {showFragmentationAdvisory ? (
                     <span
                       data-testid="db-fragmentation-advisory"
-                      className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+                      className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning"
                     >
                       <AlertTriangle className="h-3 w-3" />
                       <span>

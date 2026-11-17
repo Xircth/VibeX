@@ -70,9 +70,7 @@ describe('shouldConfirmResendCheckpoint', () => {
 describe('ResendCheckpointDialog', () => {
   it('renders one bounded dialog material without a nested glass renderer', async () => {
     const { container } = render(
-      <HotkeysProvider
-        initiallyActiveScopes={['dialog', 'kanban', 'projects']}
-      >
+      <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
         <NiceModal.Provider>
           <Dialog
             id="resend-checkpoint-test"
@@ -94,9 +92,7 @@ describe('ResendCheckpointDialog', () => {
 
   it('renders Safe state with restore button enabled and engine memory rewind description', async () => {
     render(
-      <HotkeysProvider
-        initiallyActiveScopes={['dialog', 'kanban', 'projects']}
-      >
+      <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
         <NiceModal.Provider>
           <Dialog
             id="resend-checkpoint-safe"
@@ -120,9 +116,7 @@ describe('ResendCheckpointDialog', () => {
 
   it('renders Degraded state with explicit file-only continuation notice and enabled restore button', async () => {
     render(
-      <HotkeysProvider
-        initiallyActiveScopes={['dialog', 'kanban', 'projects']}
-      >
+      <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
         <NiceModal.Provider>
           <Dialog
             id="resend-checkpoint-degraded"
@@ -177,9 +171,7 @@ describe('ResendCheckpointDialog', () => {
     }
 
     render(
-      <HotkeysProvider
-        initiallyActiveScopes={['dialog', 'kanban', 'projects']}
-      >
+      <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
         <NiceModal.Provider>
           <TriggerHarness />
         </NiceModal.Provider>

@@ -60,7 +60,12 @@ gsap.registerPlugin(useGSAP);
 
 const AGENT_LIST_TIMEOUT_MS = 4_000;
 
-type FirstRunStep = 'intro' | 'configure' | 'history' | 'appearance' | 'projects';
+type FirstRunStep =
+  | 'intro'
+  | 'configure'
+  | 'history'
+  | 'appearance'
+  | 'projects';
 
 function rejectAfter<T>(
   promise: Promise<T>,

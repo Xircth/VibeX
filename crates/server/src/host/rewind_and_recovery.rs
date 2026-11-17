@@ -81,12 +81,9 @@ pub(crate) async fn check_rollback_safety(
 
     if report.is_safe_or_degraded()
         && input.restore_files.unwrap_or(false)
-        && let Some(ordinal) = input
-            .ordinal
-            .or_else(|| checkpoint_key.parse::<i64>().ok())
+        && let Some(ordinal) = input.ordinal.or_else(|| checkpoint_key.parse::<i64>().ok())
     {
-        let service =
-            conversations::ConversationSessionService::new(domains.conversations.clone());
+        let service = conversations::ConversationSessionService::new(domains.conversations.clone());
         if let Err(preflight_err) = service
             .preflight_rewind(input.conversation_id, ordinal, true)
             .await
@@ -138,7 +135,10 @@ pub(crate) async fn cancel_rate_limit_wait(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let input: RateLimitCancelWaitArgs = parse(unwrap_request(args))?;
-    if domains.rate_limit_recovery.cancel_wait(input.conversation_id) {
+    if domains
+        .rate_limit_recovery
+        .cancel_wait(input.conversation_id)
+    {
         domains.events.emit(
             format!("conversation-rate-limit:{}", input.conversation_id),
             json!({

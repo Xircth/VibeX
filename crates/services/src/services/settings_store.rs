@@ -128,16 +128,15 @@ async fn read_document_unlocked(path: &Path) -> Result<serde_json::Value, Settin
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(serde_json::json!({}));
             }
-            Err(error)
-                if attempt < READ_RETRY_DELAYS_MS.len() && is_transient_read_io_error(&error) =>
-            {
-                tokio::time::sleep(std::time::Duration::from_millis(
-                    READ_RETRY_DELAYS_MS[attempt],
-                ))
-                .await;
-                continue;
+            Err(error) => {
+                if let Some(&delay_ms) = READ_RETRY_DELAYS_MS.get(attempt)
+                    && is_transient_read_io_error(&error)
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    continue;
+                }
+                return Err(SettingsStoreError::Io(error));
             }
-            Err(error) => return Err(SettingsStoreError::Io(error)),
         };
 
         match serde_json::from_str::<serde_json::Value>(&raw) {

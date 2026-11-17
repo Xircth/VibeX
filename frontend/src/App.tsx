@@ -29,7 +29,6 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { ThemeMode } from 'shared/types';
 
-import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog';
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
@@ -51,10 +50,6 @@ import { useTauriClient } from '@/lib/desktopShell';
 import { useRemoteHostReleaseUpdateToast } from '@/hooks/useRemoteHostReleaseUpdateToast';
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
 import { useProviderBindConfirmations } from '@/hooks/useProviderBindConfirmations';
-import {
-  AccountHostConfigSyncBridge,
-  AccountSavedHostsSyncBridge,
-} from '@/features/model-router';
 import {
   SequenceIndicator,
   SequenceTrackerProvider,
@@ -82,18 +77,34 @@ const MainAppRoutes = lazy(() =>
     default: module.MainAppRoutes,
   }))
 );
+const AccountHostConfigSyncBridge = lazy(() =>
+  import('@/features/model-router/accountHostConfigs').then((module) => ({
+    default: module.AccountHostConfigSyncBridge,
+  }))
+);
+const AccountSavedHostsSyncBridge = lazy(() =>
+  import('@/features/model-router/accountSavedHosts').then((module) => ({
+    default: module.AccountSavedHostsSyncBridge,
+  }))
+);
+const BasicGuideOverlay = lazy(() =>
+  import('@/features/basic-guide/BasicGuideOverlay').then((module) => ({
+    default: module.BasicGuideOverlay,
+  }))
+);
 
 import { AppContextMenuHost } from '@/components/context-menu';
+import { BasicGuideProvider } from '@/features/basic-guide/BasicGuideProvider';
+import { useOptionalBasicGuide } from '@/features/basic-guide/BasicGuideContext';
 import {
-  BasicGuideOverlay,
-  BasicGuideProvider,
   completeStep1,
-  readBasicGuide,
   skipBasicGuide,
   startBasicGuide,
-  useOptionalBasicGuide,
+} from '@/features/basic-guide/basicGuideState';
+import {
+  readBasicGuide,
   writeBasicGuide,
-} from '@/features/basic-guide';
+} from '@/features/basic-guide/basicGuideStorage';
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();
@@ -147,7 +158,8 @@ function MainAppContent({ children }: { children: ReactNode }) {
       const baseConfig =
         configRef.current ??
         (await configApi.getConfig().then((info) => info.config));
-      if (!baseConfig) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
+      if (!baseConfig)
+        throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
       const saved = await configApi.saveConfig({
         ...baseConfig,
         editor,
@@ -268,6 +280,9 @@ function MainAppContent({ children }: { children: ReactNode }) {
           const info = await crashReportsApi.list();
           const newest = info.reports[0];
           if (!newest) return;
+          const { CrashReportDialog } = await import(
+            '@/components/dialogs/global/CrashReportDialog'
+          );
           await CrashReportDialog.show({
             reportId: newest.id,
             repository: info.repository,
@@ -384,7 +399,9 @@ function AppContent() {
             <AppContextMenuHost>
               <BasicGuideProvider>
                 <MainAppContent>{routes}</MainAppContent>
-                <BasicGuideOverlay />
+                <Suspense fallback={null}>
+                  <BasicGuideOverlay />
+                </Suspense>
               </BasicGuideProvider>
             </AppContextMenuHost>
             <SequenceIndicator />
@@ -415,10 +432,10 @@ function PluginContributionBridge() {
   usePluginContributionCatalogSync();
   useProviderBindConfirmations();
   return (
-    <>
+    <Suspense fallback={null}>
       <AccountHostConfigSyncBridge />
       <AccountSavedHostsSyncBridge />
-    </>
+    </Suspense>
   );
 }
 

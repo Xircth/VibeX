@@ -146,8 +146,7 @@ pub async fn export_conversation_bundle(
     let bindings =
         ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
     let turns = ConversationTurnRecord::list_for_conversation(pool, conversation_id).await?;
-    let events =
-        ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
+    let events = ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
     let transcript_turns = crate::transcript_segments::read_in(
         pool,
         &agents::acp_transcript::dimo_acp_transcripts_root(),
@@ -239,7 +238,6 @@ pub async fn export_conversation_bundle(
         destination_path: destination_path.map(str::to_string),
     })
 }
-
 
 pub async fn import_conversation_bundle(
     pool: &SqlitePool,

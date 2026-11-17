@@ -1,8 +1,4 @@
-import {
-  useCallback,
-  useContext,
-  useRef,
-} from 'react';
+import { useCallback, useContext, useRef } from 'react';
 import { QueryClientContext } from '@tanstack/react-query';
 import type { ExecutorProfileId } from 'shared/types';
 import { toast } from '@/components/ui/toast';

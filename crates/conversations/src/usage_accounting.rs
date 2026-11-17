@@ -219,7 +219,14 @@ fn merge_usage_snapshot(
     usage: &ConversationUsage,
     occurred_at: chrono::DateTime<chrono::Utc>,
 ) -> ConversationUsageSnapshotRecord {
-    merge_usage_snapshot_with_prev(existing, conversation_id, sequence, usage, None, occurred_at)
+    merge_usage_snapshot_with_prev(
+        existing,
+        conversation_id,
+        sequence,
+        usage,
+        None,
+        occurred_at,
+    )
 }
 
 fn merge_usage_snapshot_with_prev(

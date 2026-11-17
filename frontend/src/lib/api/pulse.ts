@@ -120,11 +120,7 @@ export type GroupDispatchMode =
   | { type: 'moderator_triage'; moderatorMemberId: string }
   | { type: 'broadcast_log_only' };
 
-export type UserInteractionKind =
-  | 'notify'
-  | 'approval'
-  | 'ask_form'
-  | 'digest';
+export type UserInteractionKind = 'notify' | 'approval' | 'ask_form' | 'digest';
 
 export type UserInteractionSeverity = 'info' | 'warning' | 'urgent';
 
@@ -231,10 +227,7 @@ export type PulseTaskLifecycleState =
   | 'publishing'
   | 'published';
 
-export type PulseTaskKind =
-  | 'fast_task'
-  | 'reusable_rule'
-  | 'workflow_trigger';
+export type PulseTaskKind = 'fast_task' | 'reusable_rule' | 'workflow_trigger';
 
 export type PulseTaskMeta = {
   taskKind?: PulseTaskKind | null;

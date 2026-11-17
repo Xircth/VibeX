@@ -39,7 +39,9 @@ import {
 } from './workflowSourceApi';
 
 function serializeDefinition(
-  definition: StudioWorkflowDefinition | ReturnType<typeof toBackendWorkflowDefinition>
+  definition:
+    | StudioWorkflowDefinition
+    | ReturnType<typeof toBackendWorkflowDefinition>
 ) {
   return JSON.stringify(
     definition,
@@ -480,7 +482,11 @@ export function WorkflowArtifactStudio({
       onPauseStep={(stepId) => {
         if (!run) return;
         void workflowApi
-          .pauseStep(run.id, stepId, t('studio.auditReasons.pauseStepConversation'))
+          .pauseStep(
+            run.id,
+            stepId,
+            t('studio.auditReasons.pauseStepConversation')
+          )
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))

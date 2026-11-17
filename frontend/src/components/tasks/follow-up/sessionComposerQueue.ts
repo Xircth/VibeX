@@ -1,4 +1,8 @@
-import type { ConversationInputPayload, ConversationInputView, ExecutorProfileId } from 'shared/types';
+import type {
+  ConversationInputPayload,
+  ConversationInputView,
+  ExecutorProfileId,
+} from 'shared/types';
 import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
 export const QUEUE_STATUS_QUERY_KEY = 'conversation-inputs';

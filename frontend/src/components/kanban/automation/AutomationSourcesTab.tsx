@@ -152,9 +152,7 @@ export function AutomationSourcesTab({
 
   const templateItems = useMemo(() => {
     const connectedKinds = new Set(connectedSources.map((src) => src.kind));
-    return SOURCE_TEMPLATE_KINDS.filter(
-      (tpl) => !connectedKinds.has(tpl.kind)
-    );
+    return SOURCE_TEMPLATE_KINDS.filter((tpl) => !connectedKinds.has(tpl.kind));
   }, [connectedSources]);
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(() =>
@@ -422,7 +420,7 @@ export function AutomationSourcesTab({
       chips.push({
         key: 'connected',
         label: t('pulseDeck.workbench.sources.sourcesHeader'),
-        dot: '#25a878',
+        dot: 'hsl(var(--success))',
         count: connectedSources.length,
         testId: 'sources-connected-group-header',
       });
@@ -431,7 +429,7 @@ export function AutomationSourcesTab({
       chips.push({
         key: 'template',
         label: t('pulseDeck.workbench.sources.templatesHeader'),
-        dot: '#16a6c7',
+        dot: 'hsl(var(--info))',
         count: templateItems.length,
         testId: 'sources-templates-group-header',
       });
@@ -476,10 +474,7 @@ export function AutomationSourcesTab({
           hydrateFromSource(src);
         },
         cells: [
-          <span
-            key="source"
-            className="truncate font-medium text-foreground"
-          >
+          <span key="source" className="truncate font-medium text-foreground">
             {src.title}
           </span>,
           <div

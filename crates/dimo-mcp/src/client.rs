@@ -86,14 +86,20 @@ impl HostCallError {
             .get("error_code")
             .and_then(serde_json::Value::as_str)
             .or_else(|| body.get("code").and_then(serde_json::Value::as_str))
-            .or_else(|| body.pointer("/error/code").and_then(serde_json::Value::as_str))
+            .or_else(|| {
+                body.pointer("/error/code")
+                    .and_then(serde_json::Value::as_str)
+            })
             .unwrap_or(default_code)
             .to_string();
 
         let message = body
             .get("message")
             .and_then(serde_json::Value::as_str)
-            .or_else(|| body.pointer("/error/message").and_then(serde_json::Value::as_str))
+            .or_else(|| {
+                body.pointer("/error/message")
+                    .and_then(serde_json::Value::as_str)
+            })
             .or_else(|| body.get("error").and_then(serde_json::Value::as_str))
             .or_else(|| body.get("text").and_then(serde_json::Value::as_str))
             .map(str::to_string)
@@ -119,7 +125,10 @@ impl HostCallError {
         }
         obj.insert("message".into(), serde_json::json!(self.message));
         obj.insert("text".into(), serde_json::json!(self.message));
-        obj.insert("violations".into(), serde_json::Value::Array(self.violations));
+        obj.insert(
+            "violations".into(),
+            serde_json::Value::Array(self.violations),
+        );
         serde_json::Value::Object(obj)
     }
 }

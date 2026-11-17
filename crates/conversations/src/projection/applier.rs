@@ -99,10 +99,9 @@ impl BatchConversationEvent {
     fn estimated_bytes(&self) -> usize {
         self.normalized_json.len()
             + self.raw_json.as_deref().map_or(0, str::len)
-            + self
-                .checkpoint_update
-                .as_ref()
-                .map_or(0, |cp| cp.after_snapshot_json.len() + cp.diff_summary_json.len())
+            + self.checkpoint_update.as_ref().map_or(0, |cp| {
+                cp.after_snapshot_json.len() + cp.diff_summary_json.len()
+            })
     }
 }
 
@@ -285,8 +284,7 @@ impl ConversationEventAppender {
                             item.turn_id,
                         )
                         .await?;
-                        let record =
-                            insert_conversation_event(&mut conn, item.as_append()).await?;
+                        let record = insert_conversation_event(&mut conn, item.as_append()).await?;
                         let mut candidate = match touched_states.remove(&record.conversation_id) {
                             Some(in_batch) => in_batch,
                             None => {
@@ -1107,13 +1105,9 @@ impl ConversationProjector {
             0,
         )
         .await?;
-        let drop_input_ids = Self::durable_inputs_undone_by_truncate(
-            conn,
-            conversation_id,
-            ordinal,
-            &input_events,
-        )
-        .await?;
+        let drop_input_ids =
+            Self::durable_inputs_undone_by_truncate(conn, conversation_id, ordinal, &input_events)
+                .await?;
 
         let cut_sequence: Option<i64> = sqlx::query_scalar(
             r#"SELECT MIN(events.sequence)
@@ -1146,13 +1140,14 @@ impl ConversationProjector {
         .await?;
 
         let min_sort_index = ordinal.max(1) * SORT_INDEX_SLOT_SPAN;
-        let mut deleted_row_ids = ConversationTimelineRowRecord::soft_delete_from_sort_index_on_conn(
-            conn,
-            conversation_id,
-            min_sort_index,
-            deleted_sequence,
-        )
-        .await?;
+        let mut deleted_row_ids =
+            ConversationTimelineRowRecord::soft_delete_from_sort_index_on_conn(
+                conn,
+                conversation_id,
+                min_sort_index,
+                deleted_sequence,
+            )
+            .await?;
 
         if let Some(cut_seq) = cut_sequence {
             let side_deleted: Vec<String> = sqlx::query_scalar(
@@ -1334,7 +1329,6 @@ fn require_input_projection(
 fn projection_conflict(message: String) -> sqlx::Error {
     sqlx::Error::Protocol(message)
 }
-
 
 #[cfg(test)]
 #[path = "applier_tests.rs"]

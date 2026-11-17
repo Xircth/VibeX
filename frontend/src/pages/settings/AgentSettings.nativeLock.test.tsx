@@ -180,7 +180,10 @@ describe('AgentSettings native engine lock gating', () => {
           local_runtime: { path, version },
           active_operation: null,
           rollback_available: false,
-          settings_features: ['authentication_mode', 'reusable_model_providers'],
+          settings_features: [
+            'authentication_mode',
+            'reusable_model_providers',
+          ],
         },
       ]);
       api.preflight.mockResolvedValue({
@@ -294,7 +297,10 @@ describe('AgentSettings native engine lock gating', () => {
           local_runtime: local_runtime ?? null,
           active_operation: null,
           rollback_available: false,
-          settings_features: ['authentication_mode', 'reusable_model_providers'],
+          settings_features: [
+            'authentication_mode',
+            'reusable_model_providers',
+          ],
         },
       ]);
       api.preflight.mockResolvedValue({

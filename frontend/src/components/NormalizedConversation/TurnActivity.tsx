@@ -76,10 +76,7 @@ import { fileReadLocation, resolveToolFilePath } from './tools/FileToolCard';
 import { ToolCallTarget } from './tools/ToolCallTarget';
 import { listDirPath } from './tools/toolDirListing';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
-import {
-  useExpandable,
-  useExpandableItems,
-} from '@/stores/useExpandableStore';
+import { useExpandable, useExpandableItems } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
 import { ThinkingEntry } from './ThinkingEntry';
 import {

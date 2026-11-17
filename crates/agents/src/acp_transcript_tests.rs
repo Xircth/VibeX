@@ -255,8 +255,7 @@ fn continuation_walk_survives_a_cycle_and_a_missing_link() {
 
     // Pointing at a transcript the user deleted degrades to "no prefix",
     // never to an error or an empty result.
-    let orphan =
-        TranscriptHeader::new("custom:goose", "orphan", "/repo", 2).continuing("deleted");
+    let orphan = TranscriptHeader::new("custom:goose", "orphan", "/repo", 2).continuing("deleted");
     append_line_in(
         &root,
         "goose",
@@ -472,8 +471,7 @@ async fn header_is_written_once_per_session() {
     a.await.unwrap();
     b.await.unwrap();
 
-    let raw =
-        std::fs::read_to_string(transcript_path_in(&root, "goose", "s3").unwrap()).unwrap();
+    let raw = std::fs::read_to_string(transcript_path_in(&root, "goose", "s3").unwrap()).unwrap();
     assert_eq!(
         raw.lines()
             .filter(|l| parse_header_line(l).is_some())
@@ -952,8 +950,7 @@ async fn flush_and_replace_operate_synchronously_through_the_writer_thread() {
     replace_in(&root, "goose", "flush-test", replacement)
         .await
         .unwrap();
-    let after_replace =
-        project_turns(&read_transcript_in(&root, "goose", "flush-test").entries);
+    let after_replace = project_turns(&read_transcript_in(&root, "goose", "flush-test").entries);
     assert_eq!(after_replace.len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1175,7 +1172,6 @@ async fn a_prompt_is_on_disk_before_its_ack_resolves() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
-
 
 #[tokio::test]
 async fn online_jsonl_writes_are_disabled_by_default_while_preserving_replay_gate() {

@@ -1388,9 +1388,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         newGroup.element?.setAttribute('data-session-dock', 'true');
       }
       if (direction === 'left' || direction === 'right') {
-        rebalanceZoneColumnsAfterGroupAdded(dockviewApi, preSnapshot, newGroup, {
-          donorGroup: panel.group,
-        });
+        rebalanceZoneColumnsAfterGroupAdded(
+          dockviewApi,
+          preSnapshot,
+          newGroup,
+          {
+            donorGroup: panel.group,
+          }
+        );
       }
 
       const host = (

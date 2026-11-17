@@ -17,7 +17,10 @@ describe('useExpandableStore revision tracking', () => {
       processRev: useProcessExpandableRevision(),
       toolCard: useExpandable('command-tool-entry:tool-1', false),
       processFold: useExpandable('process:turn-1:0', false),
-      group: useExpandableGroup(['command-tool-entry:tool-2', 'process:turn-2:0']),
+      group: useExpandableGroup([
+        'command-tool-entry:tool-2',
+        'process:turn-2:0',
+      ]),
     }));
 
     expect(result.current.rev).toBe(initialRev);

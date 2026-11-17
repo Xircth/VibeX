@@ -61,7 +61,9 @@ export function usePendingForkHandoff(
 
   const getSnapshot = useCallback(() => {
     if (!sessionId || !currentPendingFork) return null;
-    return currentPendingFork.sessionId === sessionId ? currentPendingFork : null;
+    return currentPendingFork.sessionId === sessionId
+      ? currentPendingFork
+      : null;
   }, [sessionId]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

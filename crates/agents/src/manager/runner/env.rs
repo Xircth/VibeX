@@ -41,8 +41,7 @@ pub(in crate::manager) fn merged_agent_env(
     merge_agent_env(configured_env, forwarded_proxy_env())
 }
 
-pub(in crate::manager) const DEFAULT_NO_PROXY: &str =
-    "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal";
+pub(in crate::manager) const DEFAULT_NO_PROXY: &str = "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal";
 
 pub(in crate::manager) fn forwarded_proxy_env() -> Vec<(String, String)> {
     let mut from_process: Vec<(String, String)> = std::env::vars()

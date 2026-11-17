@@ -419,16 +419,13 @@ impl OsSecretBackend {
 fn dpapi_protect(plaintext: &[u8]) -> Result<Vec<u8>, SecretResolutionError> {
     use windows_sys::Win32::{
         Foundation::LocalFree,
-        Security::Cryptography::{
-            CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
-        },
+        Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData},
     };
 
-    let cb_data =
-        u32::try_from(plaintext.len()).map_err(|_| SecretError::KeychainWriteFailed {
-            key_id: String::new(),
-            reason: "secret payload exceeds u32::MAX bytes".to_string(),
-        })?;
+    let cb_data = u32::try_from(plaintext.len()).map_err(|_| SecretError::KeychainWriteFailed {
+        key_id: String::new(),
+        reason: "secret payload exceeds u32::MAX bytes".to_string(),
+    })?;
     let in_blob = CRYPT_INTEGER_BLOB {
         cbData: cb_data,
         pbData: plaintext.as_ptr().cast_mut(),
@@ -483,11 +480,10 @@ fn dpapi_unprotect(ciphertext: &[u8]) -> Result<Vec<u8>, SecretResolutionError> 
         },
     };
 
-    let cb_data =
-        u32::try_from(ciphertext.len()).map_err(|_| SecretError::KeychainReadFailed {
-            key_id: String::new(),
-            reason: "DPAPI ciphertext exceeds u32::MAX bytes".to_string(),
-        })?;
+    let cb_data = u32::try_from(ciphertext.len()).map_err(|_| SecretError::KeychainReadFailed {
+        key_id: String::new(),
+        reason: "DPAPI ciphertext exceeds u32::MAX bytes".to_string(),
+    })?;
     let in_blob = CRYPT_INTEGER_BLOB {
         cbData: cb_data,
         pbData: ciphertext.as_ptr().cast_mut(),
@@ -706,13 +702,14 @@ impl SecretBackend for OsSecretBackend {
             if let Some(mut stdin) = child.stdin.take() {
                 let _ = stdin.write_all(trimmed_secret.as_bytes()).await;
             }
-            let out = child
-                .wait_with_output()
-                .await
-                .map_err(|err| SecretError::KeychainWriteFailed {
-                    key_id: trimmed_id.to_string(),
-                    reason: err.to_string(),
-                })?;
+            let out =
+                child
+                    .wait_with_output()
+                    .await
+                    .map_err(|err| SecretError::KeychainWriteFailed {
+                        key_id: trimmed_id.to_string(),
+                        reason: err.to_string(),
+                    })?;
             if !out.status.success() {
                 return Err(SecretError::KeychainWriteFailed {
                     key_id: trimmed_id.to_string(),

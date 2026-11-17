@@ -225,10 +225,7 @@ export function popComposerDraftStash(
   }
 
   const popped = current[index] ?? null;
-  const remaining = [
-    ...current.slice(0, index),
-    ...current.slice(index + 1),
-  ];
+  const remaining = [...current.slice(0, index), ...current.slice(index + 1)];
   const persisted = persistComposerDraftStash(scopeId, remaining);
   return { popped, items: persisted };
 }

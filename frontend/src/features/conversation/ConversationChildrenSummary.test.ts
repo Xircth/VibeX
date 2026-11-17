@@ -67,4 +67,3 @@ describe('summarizeConversationChildren', () => {
     expect(areConversationRelationsEqual(left, changed)).toBe(false);
   });
 });
-

@@ -1450,15 +1450,9 @@ async fn delete_rejects_the_in_use_provider_and_the_last_remaining_provider() {
         .unwrap_err();
     assert!(in_use.contains("无法删除正在使用的供应商"));
 
-    let view = delete(
-        &store_path,
-        &home,
-        &environment,
-        agent_id.clone(),
-        &dimo_id,
-    )
-    .await
-    .unwrap();
+    let view = delete(&store_path, &home, &environment, agent_id.clone(), &dimo_id)
+        .await
+        .unwrap();
     assert_eq!(view.providers.len(), 1);
     assert_eq!(view.bound_provider_id.as_deref(), Some("custom"));
     assert!(
@@ -2817,13 +2811,21 @@ async fn switching_codex_from_structured_catalog_to_plain_model_cleans_dimo_cata
         .unwrap()
         .id
         .clone();
-    bind(&store_path, &home, &environment, agent_id.clone(), Some(structured_id))
-        .await
-        .unwrap();
+    bind(
+        &store_path,
+        &home,
+        &environment,
+        agent_id.clone(),
+        Some(structured_id),
+    )
+    .await
+    .unwrap();
 
     assert!(codex_home.join(CODEX_CATALOG_FILE).exists());
     assert!(codex_home.join(CODEX_SOURCE_FILE).exists());
-    let config_before = read_toml_table(&codex_home.join("config.toml")).await.unwrap();
+    let config_before = read_toml_table(&codex_home.join("config.toml"))
+        .await
+        .unwrap();
     assert_eq!(
         config_before
             .get("model_catalog_json")
@@ -2857,7 +2859,9 @@ async fn switching_codex_from_structured_catalog_to_plain_model_cleans_dimo_cata
         .await
         .unwrap();
 
-    let config_after = read_toml_table(&codex_home.join("config.toml")).await.unwrap();
+    let config_after = read_toml_table(&codex_home.join("config.toml"))
+        .await
+        .unwrap();
     assert!(
         config_after.get("model_catalog_json").is_none(),
         "stale model_catalog_json must be removed when switching to plain model"
@@ -2913,7 +2917,8 @@ async fn keyless_provider_saves_and_codex_preserves_chatgpt_oauth_auth_json() {
         .unwrap();
     let dimo = config["model_providers"]["dimo"].as_table().unwrap();
     assert_eq!(
-        dimo.get("requires_openai_auth").and_then(toml::Value::as_bool),
+        dimo.get("requires_openai_auth")
+            .and_then(toml::Value::as_bool),
         Some(false)
     );
     assert!(dimo.get("experimental_bearer_token").is_none());
@@ -2956,7 +2961,13 @@ async fn multi_enable_agents_allow_enabling_and_disabling_multiple_providers() {
     )
     .await
     .unwrap();
-    let omp_a_id = omp_a.providers.iter().find(|p| p.name == "OMP A").unwrap().id.clone();
+    let omp_a_id = omp_a
+        .providers
+        .iter()
+        .find(|p| p.name == "OMP A")
+        .unwrap()
+        .id
+        .clone();
     let omp_b = save(
         &store_path,
         &home,
@@ -2972,22 +2983,63 @@ async fn multi_enable_agents_allow_enabling_and_disabling_multiple_providers() {
     )
     .await
     .unwrap();
-    let omp_b_id = omp_b.providers.iter().find(|p| p.name == "OMP B").unwrap().id.clone();
+    let omp_b_id = omp_b
+        .providers
+        .iter()
+        .find(|p| p.name == "OMP B")
+        .unwrap()
+        .id
+        .clone();
     assert!(omp_b.multi_enable);
 
-    bind_with_mode(&store_path, &home, &environment, omp.clone(), Some(omp_a_id.clone()), Some(true))
-        .await
-        .unwrap();
-    let both = bind_with_mode(&store_path, &home, &environment, omp.clone(), Some(omp_b_id.clone()), Some(true))
-        .await
-        .unwrap();
+    bind_with_mode(
+        &store_path,
+        &home,
+        &environment,
+        omp.clone(),
+        Some(omp_a_id.clone()),
+        Some(true),
+    )
+    .await
+    .unwrap();
+    let both = bind_with_mode(
+        &store_path,
+        &home,
+        &environment,
+        omp.clone(),
+        Some(omp_b_id.clone()),
+        Some(true),
+    )
+    .await
+    .unwrap();
     assert_eq!(both.providers.iter().filter(|p| p.bound).count(), 2);
 
-    let after_disable = bind_with_mode(&store_path, &home, &environment, omp.clone(), Some(omp_b_id.clone()), Some(false))
-        .await
-        .unwrap();
-    assert!(after_disable.providers.iter().find(|p| p.id == omp_a_id).unwrap().bound);
-    assert!(!after_disable.providers.iter().find(|p| p.id == omp_b_id).unwrap().bound);
+    let after_disable = bind_with_mode(
+        &store_path,
+        &home,
+        &environment,
+        omp.clone(),
+        Some(omp_b_id.clone()),
+        Some(false),
+    )
+    .await
+    .unwrap();
+    assert!(
+        after_disable
+            .providers
+            .iter()
+            .find(|p| p.id == omp_a_id)
+            .unwrap()
+            .bound
+    );
+    assert!(
+        !after_disable
+            .providers
+            .iter()
+            .find(|p| p.id == omp_b_id)
+            .unwrap()
+            .bound
+    );
 
     // 2. OpenClaw multi-enable + disable
     let openclaw = AgentId::parse("openclaw").unwrap();
@@ -3006,7 +3058,13 @@ async fn multi_enable_agents_allow_enabling_and_disabling_multiple_providers() {
     )
     .await
     .unwrap();
-    let oc_a_id = oc_a.providers.iter().find(|p| p.name == "OpenClaw A").unwrap().id.clone();
+    let oc_a_id = oc_a
+        .providers
+        .iter()
+        .find(|p| p.name == "OpenClaw A")
+        .unwrap()
+        .id
+        .clone();
     let oc_b = save(
         &store_path,
         &home,
@@ -3022,22 +3080,63 @@ async fn multi_enable_agents_allow_enabling_and_disabling_multiple_providers() {
     )
     .await
     .unwrap();
-    let oc_b_id = oc_b.providers.iter().find(|p| p.name == "OpenClaw B").unwrap().id.clone();
+    let oc_b_id = oc_b
+        .providers
+        .iter()
+        .find(|p| p.name == "OpenClaw B")
+        .unwrap()
+        .id
+        .clone();
     assert!(oc_b.multi_enable);
 
-    bind_with_mode(&store_path, &home, &environment, openclaw.clone(), Some(oc_a_id.clone()), Some(true))
-        .await
-        .unwrap();
-    let oc_both = bind_with_mode(&store_path, &home, &environment, openclaw.clone(), Some(oc_b_id.clone()), Some(true))
-        .await
-        .unwrap();
+    bind_with_mode(
+        &store_path,
+        &home,
+        &environment,
+        openclaw.clone(),
+        Some(oc_a_id.clone()),
+        Some(true),
+    )
+    .await
+    .unwrap();
+    let oc_both = bind_with_mode(
+        &store_path,
+        &home,
+        &environment,
+        openclaw.clone(),
+        Some(oc_b_id.clone()),
+        Some(true),
+    )
+    .await
+    .unwrap();
     assert_eq!(oc_both.providers.iter().filter(|p| p.bound).count(), 2);
 
-    let oc_after_disable = bind_with_mode(&store_path, &home, &environment, openclaw, Some(oc_a_id.clone()), Some(false))
-        .await
-        .unwrap();
-    assert!(!oc_after_disable.providers.iter().find(|p| p.id == oc_a_id).unwrap().bound);
-    assert!(oc_after_disable.providers.iter().find(|p| p.id == oc_b_id).unwrap().bound);
+    let oc_after_disable = bind_with_mode(
+        &store_path,
+        &home,
+        &environment,
+        openclaw,
+        Some(oc_a_id.clone()),
+        Some(false),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !oc_after_disable
+            .providers
+            .iter()
+            .find(|p| p.id == oc_a_id)
+            .unwrap()
+            .bound
+    );
+    assert!(
+        oc_after_disable
+            .providers
+            .iter()
+            .find(|p| p.id == oc_b_id)
+            .unwrap()
+            .bound
+    );
 }
 
 #[tokio::test]

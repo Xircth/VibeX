@@ -147,9 +147,9 @@ describe('AgentDetail', () => {
         getComputedStyle(screen.getByRole('button', { name: '立即检查' }))
           .minHeight
       ).toBe('2rem');
-      expect(
-        getComputedStyle(screen.getByText('运行入口')).overflowWrap
-      ).toBe('anywhere');
+      expect(getComputedStyle(screen.getByText('运行入口')).overflowWrap).toBe(
+        'anywhere'
+      );
       expect(
         getComputedStyle(within(runtimeResult).getByTitle('0.169.0')).whiteSpace
       ).toBe('normal');
@@ -319,9 +319,7 @@ describe('AgentDetail', () => {
     expect(
       screen.queryByRole('listitem', { name: 'ACP 适配器 检查结果' })
     ).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: '回滚上一版本' })
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: '回滚上一版本' })).toBeNull();
     const runtimeEntries = screen.getAllByRole('listitem', {
       name: '运行入口 检查结果',
     });
@@ -424,9 +422,9 @@ describe('AgentDetail', () => {
     expect(
       collapseButton.closest('.agent-section-heading-actions')
     ).not.toBeNull();
-    expect(
-      collapseButton.closest('.agent-section-heading-subrow')
-    ).toBe(preflightSubrow);
+    expect(collapseButton.closest('.agent-section-heading-subrow')).toBe(
+      preflightSubrow
+    );
     const checkNow = screen.getByRole('button', { name: '立即检查' });
     const diagnostics = screen.getByRole('button', { name: '环境诊断' });
     const repair = screen.getByRole('button', { name: '修复安装' });

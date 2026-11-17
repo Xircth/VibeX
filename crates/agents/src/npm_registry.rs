@@ -722,19 +722,13 @@ mod tests {
                 serde_json::to_vec(&metadata).unwrap(),
             ),
             (
-                "https://registry.npmjs.org/@openai/codex/-/codex-0.169.0.tgz"
-                    .to_string(),
+                "https://registry.npmjs.org/@openai/codex/-/codex-0.169.0.tgz".to_string(),
                 tarball,
             ),
         ])));
 
-        let outcome = verify_npm_component_file(
-            &fetcher,
-            "@openai/codex",
-            "0.169.0",
-            &disk_sha256,
-        )
-        .await;
+        let outcome =
+            verify_npm_component_file(&fetcher, "@openai/codex", "0.169.0", &disk_sha256).await;
         assert_eq!(outcome, NpmVerificationOutcome::Verified);
     }
 
@@ -914,10 +908,7 @@ mod tests {
         let fetched = overlay_npx_latest_versions(&mut plan, &fetcher).await;
         assert_eq!(fetched, ["combined_runtime"]);
         assert_eq!(plan.components[0].version, "0.170.0");
-        assert_eq!(
-            plan.components[0].resolved_source,
-            "@openai/codex@0.170.0"
-        );
+        assert_eq!(plan.components[0].resolved_source, "@openai/codex@0.170.0");
     }
 
     #[test]

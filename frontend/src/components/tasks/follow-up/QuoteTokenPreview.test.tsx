@@ -33,9 +33,9 @@ describe('QuoteTokenPreview & quote anchor jump', () => {
       />
     );
 
-    expect(screen.getByTestId('quote-token-preview-annotation')).toHaveTextContent(
-      'session may be null'
-    );
+    expect(
+      screen.getByTestId('quote-token-preview-annotation')
+    ).toHaveTextContent('session may be null');
 
     fireEvent.click(screen.getByTestId('quote-token-jump-source'));
     expect(onJumpToSource).toHaveBeenCalledTimes(1);

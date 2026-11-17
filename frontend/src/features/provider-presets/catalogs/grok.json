@@ -22,9 +22,7 @@
     "icon": "apinebula",
     "website_url": "https://apinebula.ai/",
     "api_key_url": "https://apinebula.ai/VjM74M",
-    "endpoint_candidates": [
-      "https://apinebula.ai/v1"
-    ],
+    "endpoint_candidates": ["https://apinebula.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://apinebula.ai/v1",
@@ -50,9 +48,7 @@
     "icon": "pateway",
     "website_url": "https://pateway.ai/",
     "api_key_url": "https://pateway.ai/",
-    "endpoint_candidates": [
-      "https://api.pateway.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.pateway.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.pateway.ai/v1",
@@ -75,9 +71,7 @@
     "icon": "fenno",
     "website_url": "https://api.fenno.ai/",
     "api_key_url": "https://api.fenno.ai/register",
-    "endpoint_candidates": [
-      "https://api.fenno.ai/"
-    ],
+    "endpoint_candidates": ["https://api.fenno.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.fenno.ai/",
@@ -89,10 +83,7 @@
     "icon": "runapi",
     "website_url": "https://runapi.host/",
     "api_key_url": "https://runapi.host/register",
-    "endpoint_candidates": [
-      "https://runapi.host/v1",
-      "https://runapi.co/v1"
-    ],
+    "endpoint_candidates": ["https://runapi.host/v1", "https://runapi.co/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://runapi.host/v1",
@@ -197,9 +188,7 @@
     "icon": "subrouter",
     "website_url": "https://subrouter.ai/",
     "api_key_url": "https://subrouter.ai/register",
-    "endpoint_candidates": [
-      "https://subrouter.ai/v1"
-    ],
+    "endpoint_candidates": ["https://subrouter.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://subrouter.ai/v1",
@@ -211,10 +200,7 @@
     "icon": "88api",
     "website_url": "https://88api.ai/",
     "api_key_url": "https://88api.ai/sign-up",
-    "endpoint_candidates": [
-      "https://api.88api.ai/v1",
-      "https://88api.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.88api.ai/v1", "https://88api.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.88api.ai/v1",
@@ -258,9 +244,7 @@
     "icon": "teamorouter",
     "website_url": "https://teamorouter.com/",
     "api_key_url": "https://teamorouter.com/",
-    "endpoint_candidates": [
-      "https://api.teamorouter.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.teamorouter.com/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.teamorouter.com/v1",
@@ -283,9 +267,7 @@
     "icon": "a6api",
     "website_url": "https://www.a6api.vip/",
     "api_key_url": "https://a6api.vip/register",
-    "endpoint_candidates": [
-      "https://api.a6api.vip/v1"
-    ],
+    "endpoint_candidates": ["https://api.a6api.vip/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.a6api.vip/v1",
@@ -297,9 +279,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://api.modelverse.cn/v1"
-    ],
+    "endpoint_candidates": ["https://api.modelverse.cn/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.modelverse.cn/v1",
@@ -311,9 +291,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://cp.compshare.cn/v1"
-    ],
+    "endpoint_candidates": ["https://cp.compshare.cn/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cp.compshare.cn/v1",
@@ -325,9 +303,7 @@
     "icon": "ccsub",
     "website_url": "https://www.ccsub.net/",
     "api_key_url": "https://www.ccsub.net/register",
-    "endpoint_candidates": [
-      "https://www.ccsub.net/v1"
-    ],
+    "endpoint_candidates": ["https://www.ccsub.net/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.ccsub.net/v1",
@@ -355,9 +331,7 @@
     "icon": "soleapi",
     "website_url": "https://soleapi.com/",
     "api_key_url": "https://soleapi.com/r/ccswitch",
-    "endpoint_candidates": [
-      "https://soleapi.com/v1"
-    ],
+    "endpoint_candidates": ["https://soleapi.com/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://soleapi.com/v1",
@@ -369,9 +343,7 @@
     "icon": "micu",
     "website_url": "https://www.micuapi.ai/",
     "api_key_url": "https://www.micuapi.ai/register",
-    "endpoint_candidates": [
-      "https://www.micuapi.ai/v1"
-    ],
+    "endpoint_candidates": ["https://www.micuapi.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.micuapi.ai/v1",
@@ -411,9 +383,7 @@
     "icon": "crazyrouter",
     "website_url": "https://www.crazyrouter.com/",
     "api_key_url": "https://www.crazyrouter.com/register",
-    "endpoint_candidates": [
-      "https://cn.crazyrouter.com/v1"
-    ],
+    "endpoint_candidates": ["https://cn.crazyrouter.com/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cn.crazyrouter.com/v1",
@@ -424,9 +394,7 @@
     "name": "DMXAPI",
     "icon": "dmxapi",
     "website_url": "https://www.dmxapi.cn/",
-    "endpoint_candidates": [
-      "https://www.dmxapi.cn/v1"
-    ],
+    "endpoint_candidates": ["https://www.dmxapi.cn/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.dmxapi.cn/v1",
@@ -530,9 +498,7 @@
     "icon": "amux",
     "website_url": "https://amux.ai/",
     "api_key_url": "https://amux.ai/",
-    "endpoint_candidates": [
-      "https://api.amux.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.amux.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.amux.ai/v1",
@@ -555,9 +521,7 @@
     "icon": "cherryin",
     "website_url": "https://open.cherryin.ai/",
     "api_key_url": "https://open.cherryin.ai/console/token",
-    "endpoint_candidates": [
-      "https://open.cherryin.net/v1"
-    ],
+    "endpoint_candidates": ["https://open.cherryin.net/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://open.cherryin.net/v1",
@@ -569,9 +533,7 @@
     "icon": "code0",
     "website_url": "https://code0.ai/",
     "api_key_url": "https://code0.ai/agent/register/B2XHxGjGmRvqgznY",
-    "endpoint_candidates": [
-      "https://code0.ai/v1"
-    ],
+    "endpoint_candidates": ["https://code0.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://code0.ai/v1",
@@ -583,9 +545,7 @@
     "icon": "eflowcode",
     "website_url": "https://e-flowcode.cc/",
     "api_key_url": "https://e-flowcode.cc/",
-    "endpoint_candidates": [
-      "https://e-flowcode.cc/v1"
-    ],
+    "endpoint_candidates": ["https://e-flowcode.cc/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://e-flowcode.cc/v1",
@@ -623,9 +583,7 @@
     "icon": "pipellm",
     "website_url": "https://code.pipellm.ai/",
     "api_key_url": "https://code.pipellm.ai/login",
-    "endpoint_candidates": [
-      "https://cc-api.pipellm.ai/v1"
-    ],
+    "endpoint_candidates": ["https://cc-api.pipellm.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://cc-api.pipellm.ai/v1",
@@ -681,9 +639,7 @@
     "icon": "therouter",
     "website_url": "https://therouter.ai/",
     "api_key_url": "https://dashboard.therouter.ai/",
-    "endpoint_candidates": [
-      "https://api.therouter.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.therouter.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.therouter.ai/v1",
@@ -727,9 +683,7 @@
     "icon": "xai",
     "website_url": "https://x.ai/api",
     "api_key_url": "https://console.x.ai/",
-    "endpoint_candidates": [
-      "https://api.x.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.x.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.x.ai/v1",

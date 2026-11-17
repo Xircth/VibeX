@@ -287,7 +287,8 @@ export function coalescePendingRowOpBatches(
       const prevSeq = toBigIntSeq(prev.last_sequence, 0n);
       mergedBatches[mergedBatches.length - 1] = {
         ...prev,
-        last_sequence: nextSeq > prevSeq ? batch.last_sequence : prev.last_sequence,
+        last_sequence:
+          nextSeq > prevSeq ? batch.last_sequence : prev.last_sequence,
         ops: [...prev.ops, ...batch.ops],
       };
       continue;

@@ -743,7 +743,10 @@ pub fn subscribe_runtime_events() -> tokio::sync::broadcast::Receiver<RuntimeEve
 
 fn is_terminal_tool_call_status(status: Option<&str>) -> bool {
     matches!(
-        status.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        status
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
         Some("completed" | "failed" | "cancelled" | "canceled" | "done" | "error")
     )
 }

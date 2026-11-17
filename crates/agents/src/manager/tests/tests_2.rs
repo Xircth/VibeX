@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn vendor_low_effort_is_merged_into_standard_reasoning_effort() {
     let meta = serde_json::json!({
@@ -164,9 +163,8 @@ fn matches_model_override_to_acp_model_category_choices() {
         .category(Some(SessionConfigOptionCategory::Model)),
     ];
 
-    let selection =
-        find_config_override_selection(&options, "model", &serde_json::json!("sonnet"))
-            .expect("sonnet should match ACP model choices");
+    let selection = find_config_override_selection(&options, "model", &serde_json::json!("sonnet"))
+        .expect("sonnet should match ACP model choices");
 
     assert_eq!(selection.config_id, "preferred-model");
     assert_eq!(
@@ -212,9 +210,7 @@ fn exact_codex_full_access_mode_wins_over_agent_prefix() {
                     "read-only",
                     "Read-only",
                 ),
-                agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
-                    "agent", "Agent",
-                ),
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new("agent", "Agent"),
                 agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                     "agent-full-access",
                     "Agent (full access)",
@@ -224,12 +220,9 @@ fn exact_codex_full_access_mode_wins_over_agent_prefix() {
         .category(Some(SessionConfigOptionCategory::Mode)),
     ];
 
-    let selection = find_config_override_selection(
-        &options,
-        "mode",
-        &serde_json::json!("agent-full-access"),
-    )
-    .expect("Codex full access should match an advertised choice");
+    let selection =
+        find_config_override_selection(&options, "mode", &serde_json::json!("agent-full-access"))
+            .expect("Codex full access should match an advertised choice");
 
     assert_eq!(
         selection.event_value,
@@ -246,9 +239,7 @@ fn derived_session_modes_follow_a_mode_config_option_current_value() {
             "Mode",
             "agent",
             vec![
-                agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
-                    "agent", "Agent",
-                ),
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new("agent", "Agent"),
                 agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                     "agent-full-access",
                     "Agent (full access)",
@@ -466,13 +457,17 @@ fn detected_system_proxy_fills_agent_proxy_env() {
         env.iter()
             .find(|(key, _)| key == "NO_PROXY")
             .map(|(_, value)| value.as_str()),
-        Some("localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
+        Some(
+            "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal"
+        )
     );
     assert_eq!(
         env.iter()
             .find(|(key, _)| key == "no_proxy")
             .map(|(_, value)| value.as_str()),
-        Some("localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
+        Some(
+            "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal"
+        )
     );
     assert!(proxy_url_env_present(&env));
 }
@@ -491,13 +486,17 @@ fn ensure_no_proxy_loopback_preserves_custom_hosts_and_adds_loopback() {
         env.iter()
             .find(|(key, _)| key == "NO_PROXY")
             .map(|(_, value)| value.as_str()),
-        Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
+        Some(
+            "corp.internal,10.0.0.1,localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal"
+        )
     );
     assert_eq!(
         env.iter()
             .find(|(key, _)| key == "no_proxy")
             .map(|(_, value)| value.as_str()),
-        Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal")
+        Some(
+            "corp.internal,10.0.0.1,localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,.local,.internal"
+        )
     );
 }
 
@@ -806,12 +805,9 @@ async fn session_prep_times_out_when_the_agent_never_replies() {
 
 #[tokio::test]
 async fn process_death_wins_over_simultaneous_acp_success() {
-    let stop = wait_for_acp_or_process_death(
-        async { Ok::<(), ()>(()) },
-        std::future::pending(),
-        async {},
-    )
-    .await;
+    let stop =
+        wait_for_acp_or_process_death(async { Ok::<(), ()>(()) }, std::future::pending(), async {})
+            .await;
     // Stdout EOF no longer outranks a live protocol loop: a pipe stall
     // must not kill a Prompting connection. The quiet-Ok-while-in-flight
     // case is still a connection_closed via resolve_acp_process_stop.
@@ -926,8 +922,7 @@ fn acp_transport_failure_during_a_turn_is_connection_closed() {
 
 #[test]
 fn handshake_timeout_stays_an_internal_turn_error() {
-    let error =
-        AgentError::Runtime(format_handshake_timeout_error(Duration::from_secs(5), None));
+    let error = AgentError::Runtime(format_handshake_timeout_error(Duration::from_secs(5), None));
     let event = turn_error_event_from_connection_failure(&error);
     assert!(event.message.contains("ACP handshake timed out"));
     assert_eq!(event.code.as_deref(), Some("internal_error"));
@@ -951,9 +946,7 @@ fn session_load_errors_classify_by_real_acp_code() {
         SessionLoadFailureReason::Other { .. }
     ));
     // Auth is code-only: message text must not classify as auth.
-    assert!(
-        classify_session_load_failure_fragments("Authentication required", "sid").is_none()
-    );
+    assert!(classify_session_load_failure_fragments("Authentication required", "sid").is_none());
 }
 
 #[test]
@@ -967,17 +960,11 @@ fn session_load_failure_fragments_lock_codeg_arms() {
             if recovery_command.as_deref() == Some("codex unarchive abc")
     ));
     assert!(matches!(
-        classify_session_load_failure_fragments(
-            "thread xyz already has an active writer",
-            "xyz"
-        ),
+        classify_session_load_failure_fragments("thread xyz already has an active writer", "xyz"),
         Some(SessionLoadFailureReason::SessionBusy)
     ));
     assert!(matches!(
-        classify_session_load_failure_fragments(
-            "Claude Code process exited with code 1",
-            "sid"
-        ),
+        classify_session_load_failure_fragments("Claude Code process exited with code 1", "sid"),
         Some(SessionLoadFailureReason::SessionUnavailable)
     ));
     assert!(matches!(
@@ -988,9 +975,7 @@ fn session_load_failure_fragments_lock_codeg_arms() {
         classify_session_load_failure_fragments("Session not found", "sid"),
         Some(SessionLoadFailureReason::SessionUnavailable)
     ));
-    assert!(
-        classify_session_load_failure_fragments("Authentication required", "sid").is_none()
-    );
+    assert!(classify_session_load_failure_fragments("Authentication required", "sid").is_none());
     assert!(classify_session_load_failure_fragments("Method not found", "sid").is_none());
     assert!(matches!(
         classify_session_load_failure_fragments(
@@ -1126,8 +1111,7 @@ fn session_load_failure_decision_table_matches_d3() {
         SessionLoadFailureAction::Banner(SessionLoadFailureReason::SessionBusy)
     );
     let permission_denied = r#"Permission denied.: { "detail": "拒绝访问。 (os error 5)", "code": "FS_PERMISSION_DENIED" }"#;
-    let classified_permission =
-        classify_session_load_failure_fragments(permission_denied, "sid");
+    let classified_permission = classify_session_load_failure_fragments(permission_denied, "sid");
     assert_eq!(
         decide_session_load_failure(
             &grok,

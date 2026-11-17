@@ -128,7 +128,10 @@ fn build_permission_details(
     details.insert("title".to_string(), Value::String(cls.title));
     details.insert("toolName".to_string(), Value::String(tool_name.to_string()));
     if !permission_id.is_empty() {
-        details.insert("toolCallId".to_string(), Value::String(permission_id.to_string()));
+        details.insert(
+            "toolCallId".to_string(),
+            Value::String(permission_id.to_string()),
+        );
     }
     details.insert("rawInput".to_string(), input.clone());
     details.insert("input".to_string(), input.clone());
@@ -316,7 +319,10 @@ impl AgentConnectionRunner {
                 } else {
                     None
                 };
-                if !text_already_streamed && (!same_message_id || unstreamed_suffix.is_some()) && !text.is_empty() {
+                if !text_already_streamed
+                    && (!same_message_id || unstreamed_suffix.is_some())
+                    && !text.is_empty()
+                {
                     let emit_text = unstreamed_suffix.unwrap_or(text);
                     if !emit_text.is_empty() {
                         if let (Some(prev), Some(curr)) =
@@ -369,11 +375,8 @@ impl AgentConnectionRunner {
                 let id = tool_use_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 turn_state.tool_names.insert(id.clone(), tool_name.clone());
                 turn_state.running_tool_calls.insert(id.clone());
-                let cls = driver.classify_tool_call(
-                    &tool_name,
-                    &input,
-                    parent_tool_use_id.as_deref(),
-                );
+                let cls =
+                    driver.classify_tool_call(&tool_name, &input, parent_tool_use_id.as_deref());
                 let frame_meta = cls.meta.as_ref().and_then(Value::as_object).cloned();
                 let meta = self
                     .fold_air_tool_meta(&id, frame_meta, true)
@@ -679,7 +682,9 @@ impl AgentConnectionRunner {
                                 .respond_question(&handle, &request_id, encoded, false)
                                 .await;
                         }
-                        Ok(AgentElicitationResponse::Decline | AgentElicitationResponse::Cancel)
+                        Ok(
+                            AgentElicitationResponse::Decline | AgentElicitationResponse::Cancel,
+                        )
                         | Err(_) => {
                             let _ = driver
                                 .respond_question(&handle, &request_id, json!({}), true)
@@ -727,10 +732,8 @@ impl AgentConnectionRunner {
                     let no = output_tokens.or(prev.output_tokens);
                     let ncr = cache_read_tokens.or(prev.cache_read_tokens);
                     let ncw = cache_write_tokens.or(prev.cache_write_tokens);
-                    let sum = ni.unwrap_or(0)
-                        + no.unwrap_or(0)
-                        + ncr.unwrap_or(0)
-                        + ncw.unwrap_or(0);
+                    let sum =
+                        ni.unwrap_or(0) + no.unwrap_or(0) + ncr.unwrap_or(0) + ncw.unwrap_or(0);
                     let used = context_used.unwrap_or(if prev.used > 0 { prev.used } else { sum });
                     (ni, no, ncr, ncw, used)
                 } else {
@@ -752,10 +755,8 @@ impl AgentConnectionRunner {
                             cache_write_tokens,
                         )
                     };
-                    let sum = ni.unwrap_or(0)
-                        + no.unwrap_or(0)
-                        + ncr.unwrap_or(0)
-                        + ncw.unwrap_or(0);
+                    let sum =
+                        ni.unwrap_or(0) + no.unwrap_or(0) + ncr.unwrap_or(0) + ncw.unwrap_or(0);
                     let used = context_used.unwrap_or(if sum > 0 { sum } else { prev.used });
                     (ni, no, ncr, ncw, used)
                 };
@@ -857,8 +858,8 @@ impl AgentConnectionRunner {
             } => {
                 let target_id = parent_tool_use_id.unwrap_or(subagent_id);
                 turn_state.running_tool_calls.remove(&target_id);
-                let failed = status.eq_ignore_ascii_case("failed")
-                    || status.eq_ignore_ascii_case("error");
+                let failed =
+                    status.eq_ignore_ascii_case("failed") || status.eq_ignore_ascii_case("error");
                 let meta = match summary.as_deref().filter(|s| !s.trim().is_empty()) {
                     Some(text) => self
                         .append_subagent_chunk(&target_id, "text", text)
@@ -937,20 +938,15 @@ impl AgentConnectionRunner {
             } => {
                 if driver.capabilities().records_idle_compaction_activity {
                     let cache = driver.cache_status(handle);
-                    let tier = parse_cache_tier(
-                        cache
-                            .as_ref()
-                            .and_then(|c| c.cache_ttl_tier.as_deref()),
-                    );
-                    let expires = cache
-                        .and_then(|c| c.prompt_cache_expires_at)
-                        .or_else(|| {
-                            crate::idle_compaction::IdleCompaction::synthesize_cache_expiry(
-                                Utc::now(),
-                                tier,
-                                handle.official_session,
-                            )
-                        });
+                    let tier =
+                        parse_cache_tier(cache.as_ref().and_then(|c| c.cache_ttl_tier.as_deref()));
+                    let expires = cache.and_then(|c| c.prompt_cache_expires_at).or_else(|| {
+                        crate::idle_compaction::IdleCompaction::synthesize_cache_expiry(
+                            Utc::now(),
+                            tier,
+                            handle.official_session,
+                        )
+                    });
                     self.idle_compaction.record_session_activity(
                         session_id.0,
                         Utc::now(),
@@ -1032,12 +1028,8 @@ impl AgentConnectionRunner {
             }
             EngineEvent::TurnError { message, .. } => {
                 self.cancel_pending_interactions(session_id).await;
-                self.fail_active_turn(
-                    session_id,
-                    prompt_id,
-                    classify_native_turn_error(message),
-                )
-                .await;
+                self.fail_active_turn(session_id, prompt_id, classify_native_turn_error(message))
+                    .await;
                 true
             }
             _ => false,

@@ -68,8 +68,7 @@ pub struct OfficialPluginRecord {
 
 fn catalog() -> &'static OfficialPluginCatalog {
     static CATALOG: OnceLock<OfficialPluginCatalog> = OnceLock::new();
-    CATALOG
-        .get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("dimo-plugin.json must parse"))
+    CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("dimo-plugin.json must parse"))
 }
 
 pub fn official_plugin_catalog() -> &'static OfficialPluginCatalog {

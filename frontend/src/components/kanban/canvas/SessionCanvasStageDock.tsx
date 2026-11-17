@@ -401,7 +401,9 @@ export function SessionCanvasStageDock({
               <div
                 key={entry.id}
                 data-testid={`canvas-stage-item-${entry.id}`}
-                data-stage-fold={align === 'left' ? 'inward-right' : 'inward-left'}
+                data-stage-fold={
+                  align === 'left' ? 'inward-right' : 'inward-left'
+                }
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
                 onWheel={(event) => event.stopPropagation()}

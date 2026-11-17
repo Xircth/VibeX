@@ -1557,7 +1557,9 @@ describe('HostBrowserPanel', () => {
       expect(backendCall).toHaveBeenCalledWith(
         'plugin_invoke_contribution',
         expect.objectContaining({
-          input: expect.objectContaining({ operation: 'userdata.history.list' }),
+          input: expect.objectContaining({
+            operation: 'userdata.history.list',
+          }),
         })
       )
     );

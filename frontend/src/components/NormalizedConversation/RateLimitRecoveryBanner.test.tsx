@@ -148,9 +148,12 @@ describe('RateLimitRecoveryBanner', () => {
       await act(async () => {
         fireEvent.click(screen.getByTestId('rate-limit-save-prompt-btn'));
       });
-      expect(screen.getByTestId('rate-limit-prompt-editor')).toBeInTheDocument();
       expect(
-        (screen.getByTestId('rate-limit-prompt-input') as HTMLInputElement).value
+        screen.getByTestId('rate-limit-prompt-editor')
+      ).toBeInTheDocument();
+      expect(
+        (screen.getByTestId('rate-limit-prompt-input') as HTMLInputElement)
+          .value
       ).toBe('Unsaved custom prompt');
       expect(toastErrorSpy).toHaveBeenCalledTimes(2);
 

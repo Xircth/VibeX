@@ -53,16 +53,17 @@ impl ConversationSessionService {
             provider_instance_id,
         );
         let result: Result<(), sqlx::Error> = async {
-            let binding = ConversationAgentBindingRecord::prepare_native_session_with_continuation_key(
-                pool,
-                conversation_id,
-                agent_id,
-                &effective_working_dir,
-                native_id,
-                &connection_id.to_string(),
-                Some(&key),
-            )
-            .await?;
+            let binding =
+                ConversationAgentBindingRecord::prepare_native_session_with_continuation_key(
+                    pool,
+                    conversation_id,
+                    agent_id,
+                    &effective_working_dir,
+                    native_id,
+                    &connection_id.to_string(),
+                    Some(&key),
+                )
+                .await?;
             ConversationAgentBindingRecord::activate(pool, conversation_id, binding.id).await
         }
         .await;
@@ -186,23 +187,21 @@ impl ConversationSessionService {
                 | agents::AgentError::AcpSessionNotBound,
             ) => {
                 let mut controls = self
-                    .persist_offline_session_controls_selection(
-                        conversation_id,
-                        None,
-                        &overrides,
-                    )
+                    .persist_offline_session_controls_selection(conversation_id, None, &overrides)
                     .await?;
                 for ovr in &overrides {
                     if !controls.config_options.iter().any(|opt| opt.key == ovr.key) {
-                        controls.config_options.push(agents::AgentSessionConfigOption {
-                            key: ovr.key.clone(),
-                            label: ovr.key.clone(),
-                            description: None,
-                            category: None,
-                            value: Some(serde_json::Value::String(ovr.value.clone())),
-                            choices: Vec::new(),
-                            dependency: None,
-                        });
+                        controls
+                            .config_options
+                            .push(agents::AgentSessionConfigOption {
+                                key: ovr.key.clone(),
+                                label: ovr.key.clone(),
+                                description: None,
+                                category: None,
+                                value: Some(serde_json::Value::String(ovr.value.clone())),
+                                choices: Vec::new(),
+                                dependency: None,
+                            });
                     }
                 }
                 self.append_event(
@@ -238,12 +237,13 @@ impl ConversationSessionService {
         let agent_id = match persisted_session.agent_id.clone() {
             Some(agent_id) => agent_id,
             None => {
-                let resolved = resolve_agent_id_from_executor(persisted_session.executor.as_deref())
-                    .ok_or_else(|| {
-                        ConversationServiceError::BadRequest(format!(
-                            "Conversation {conversation_id} has no supported coding agent"
-                        ))
-                    })?;
+                let resolved =
+                    resolve_agent_id_from_executor(persisted_session.executor.as_deref())
+                        .ok_or_else(|| {
+                            ConversationServiceError::BadRequest(format!(
+                                "Conversation {conversation_id} has no supported coding agent"
+                            ))
+                        })?;
                 let _ = Session::update_agent_metadata(
                     pool,
                     conversation_id,
@@ -609,12 +609,9 @@ impl ConversationSessionService {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
             });
-        let effective_instance = crate::resolve_effective_provider_instance_id(
-            pool,
-            &agent_id,
-            requested_or_session,
-        )
-        .await?;
+        let effective_instance =
+            crate::resolve_effective_provider_instance_id(pool, &agent_id, requested_or_session)
+                .await?;
         let launch_instance_id = effective_instance
             .as_deref()
             .unwrap_or(db::models::provider_instance::LOCAL_PROVIDER_INSTANCE_ID);
@@ -1380,8 +1377,9 @@ async fn ensure_conversation_binding_for_controls(
             resolved
         }
     };
-    let target_instance =
-        db::models::session::normalize_provider_instance_id(session.provider_instance_id.as_deref());
+    let target_instance = db::models::session::normalize_provider_instance_id(
+        session.provider_instance_id.as_deref(),
+    );
     if ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
         .await?
         .is_some_and(|latest| {
@@ -1398,11 +1396,8 @@ async fn ensure_conversation_binding_for_controls(
         .external_session_id
         .filter(|id| !is_placeholder_acp_session_id(id));
     let restored = acp_session_id.is_some();
-    let continuation_key = super::continuation::continuation_key(
-        agent_id.as_str(),
-        "",
-        target_instance.as_deref(),
-    );
+    let continuation_key =
+        super::continuation::continuation_key(agent_id.as_str(), "", target_instance.as_deref());
     // A missing binding shows agent mentions. Recording an empty MCP list would
     // look like a session that started before delegation was delivered and hide
     // them (ADR-0065). This row does not decide which servers the process gets.

@@ -28,7 +28,8 @@ export function countFileChangeDiff(change: FileChange): {
 } {
   if (change.action === 'write') {
     return {
-      additions: change.content.length > 0 ? change.content.split(/\r?\n/).length : 0,
+      additions:
+        change.content.length > 0 ? change.content.split(/\r?\n/).length : 0,
       deletions: 0,
     };
   }
@@ -180,7 +181,12 @@ export function extractBatchDiffChips(
         const delta = countFileChangeDiff(change);
         acc.additions += delta.additions;
         acc.deletions += delta.deletions;
-        appendPreviewLines(acc.previewLines, change, displayPath, workspacePath);
+        appendPreviewLines(
+          acc.previewLines,
+          change,
+          displayPath,
+          workspacePath
+        );
       }
     }
   }

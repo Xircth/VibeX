@@ -117,17 +117,14 @@ function summarizeBranchRow(
   entries: readonly CapturedGroupGeometry[],
   depth: number
 ): Array<{ group: DockviewGroup; width: number }> {
-  const directLeaf = entries.find(
-    (item) => item.location.length === depth + 1
-  );
+  const directLeaf = entries.find((item) => item.location.length === depth + 1);
   if (directLeaf) {
     return [{ group: directLeaf.group, width: directLeaf.width }];
   }
 
   const preferredRowEntry =
-    entries.find(
-      (item) => item.kind === 'editor' || item.kind === 'session'
-    ) ?? entries[0]!;
+    entries.find((item) => item.kind === 'editor' || item.kind === 'session') ??
+    entries[0]!;
   const vSlot = preferredRowEntry.location[depth + 1]!;
   const rowEntries = entries.filter(
     (item) => item.location[depth + 1] === vSlot
@@ -245,9 +242,7 @@ function summarizeHorizontalBranchGeometries(
 
 function groupMinimumWidth(group: DockviewGroup): number {
   const min = (group as { minimumWidth?: number }).minimumWidth;
-  return typeof min === 'number' && Number.isFinite(min) && min > 0
-    ? min
-    : 100;
+  return typeof min === 'number' && Number.isFinite(min) && min > 0 ? min : 100;
 }
 
 function branchMinimumWidth(branch: BranchGeometrySummary): number {
@@ -277,7 +272,10 @@ function borrowDeficitFromBranches(
   const candidates = branches
     .map((branch) => ({
       branch,
-      slack: Math.max(0, (targets.get(branch) ?? 0) - branchMinimumWidth(branch)),
+      slack: Math.max(
+        0,
+        (targets.get(branch) ?? 0) - branchMinimumWidth(branch)
+      ),
     }))
     .filter((item) => item.slack > 0)
     .sort((a, b) => b.slack - a.slack);
@@ -406,15 +404,13 @@ function rebalanceHorizontalSplitAtPrefix(
         // Brand-new zone column (e.g. creating group-left or group-right):
         // honor its initial width and absorb from editor/Zone B columns,
         // keeping existing shellNav and session columns untouched.
-        const needed = Math.max(
-          branchMinimumWidth(newBranch),
-          newBranch.width
-        );
+        const needed = Math.max(branchMinimumWidth(newBranch), newBranch.width);
         targets.set(newBranch, needed);
         let remaining = needed;
         remaining = borrowDeficitFromBranches(
           liveBranches.filter(
-            (lb) => lb !== newBranch && matchedSnap.has(lb) && lb.kind === 'editor'
+            (lb) =>
+              lb !== newBranch && matchedSnap.has(lb) && lb.kind === 'editor'
           ),
           targets,
           remaining
@@ -445,12 +441,9 @@ function rebalanceHorizontalSplitAtPrefix(
       const donorFromOption = options.donorGroup
         ? sameKindMatched.find((lb) => lb.groups.has(options.donorGroup!))
         : undefined;
-      const leftNeighbor =
-        newIdx > 0 ? liveBranches[newIdx - 1] : undefined;
+      const leftNeighbor = newIdx > 0 ? liveBranches[newIdx - 1] : undefined;
       const rightNeighbor =
-        newIdx + 1 < liveBranches.length
-          ? liveBranches[newIdx + 1]
-          : undefined;
+        newIdx + 1 < liveBranches.length ? liveBranches[newIdx + 1] : undefined;
       const adjacentDonor =
         (leftNeighbor && sameKindMatched.includes(leftNeighbor)
           ? leftNeighbor
@@ -838,10 +831,7 @@ export function installEditorColumnWidthRebalance(
     targetGroup?: DockviewGroup;
     position?: string;
   } | null = null;
-  const groupDisposables = new Map<
-    DockviewGroup,
-    Array<{ dispose(): void }>
-  >();
+  const groupDisposables = new Map<DockviewGroup, Array<{ dispose(): void }>>();
 
   const scheduleSnapshotRefresh = () => {
     if (refreshQueued || disposed) return;

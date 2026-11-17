@@ -40,7 +40,10 @@ function HandoffHarness({
   currentExecutor: string;
   currentProviderInstanceId?: string | null;
   onApply: (profile: ExecutorProfileId | null) => void;
-  onApplyInstance?: (instanceId: string | null, targetAgentId?: string | null) => void;
+  onApplyInstance?: (
+    instanceId: string | null,
+    targetAgentId?: string | null
+  ) => void;
   resolveTargetInstanceIdForAgent?: (agentId: string) => string | null;
 }) {
   const controller = useComposerEngineHandoff({
@@ -731,4 +734,3 @@ describe('ComposerEngineHandoffControl', () => {
     });
   });
 });
-

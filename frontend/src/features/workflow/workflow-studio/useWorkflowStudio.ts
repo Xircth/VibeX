@@ -202,7 +202,9 @@ export function useWorkflowStudio<
   const nextStepId = useCallback(
     (prefix = 'step') => {
       let ordinal = definition.steps.length + 1;
-      while (definition.steps.some((step) => step.id === `${prefix}-${ordinal}`))
+      while (
+        definition.steps.some((step) => step.id === `${prefix}-${ordinal}`)
+      )
         ordinal += 1;
       return `${prefix}-${ordinal}`;
     },

@@ -87,7 +87,10 @@ where
                 }
                 let body_slice = &buf[header_end..(header_end + content_len).min(buf.len())];
                 let parsed: Value = serde_json::from_slice(body_slice).unwrap_or(Value::Null);
-                let command = path.strip_prefix("/api/v1/call/").unwrap_or(path).to_string();
+                let command = path
+                    .strip_prefix("/api/v1/call/")
+                    .unwrap_or(path)
+                    .to_string();
                 let args = parsed.get("args").cloned().unwrap_or(Value::Null);
                 recorded_inner
                     .lock()
@@ -147,7 +150,10 @@ fn superagent_companion_announces_unified_server_and_all_tool_groups() {
     assert!(names.contains(&"get_session_info"));
     assert!(names.contains(&"list_spaces"));
     for pulse_name in PULSE_TOOL_NAMES {
-        assert!(names.contains(&pulse_name), "missing pulse tool {pulse_name}");
+        assert!(
+            names.contains(pulse_name),
+            "missing pulse tool {pulse_name}"
+        );
     }
     for wf_name in [
         "workflow_source_read",
@@ -342,7 +348,10 @@ async fn workflow_source_and_control_tools_bridge_to_host_and_preserve_x_dimo_he
                 }
             }),
         ),
-        "workflow_steps" => (200, json!({ "data": [{ "stepId": "s1", "status": "completed" }] })),
+        "workflow_steps" => (
+            200,
+            json!({ "data": [{ "stepId": "s1", "status": "completed" }] }),
+        ),
         "workflow_events" => (
             200,
             json!({ "data": [{ "sequence": 1, "kind": "run_completed" }] }),
@@ -420,7 +429,11 @@ async fn workflow_source_and_control_tools_bridge_to_host_and_preserve_x_dimo_he
     assert_eq!(inspected["events"][0]["kind"], "run_completed");
 
     let calls = recorded.lock().unwrap().clone();
-    assert!(calls.iter().all(|(_, _, proto)| proto.as_deref() == Some("1.0")));
+    assert!(
+        calls
+            .iter()
+            .all(|(_, _, proto)| proto.as_deref() == Some("1.0"))
+    );
     assert!(calls.iter().any(|(cmd, _, _)| cmd == "workflow_validate"));
     assert!(calls.iter().any(|(cmd, _, _)| cmd == "workflow_publish"));
     assert!(calls.iter().any(|(cmd, _, _)| cmd == "workflow_show"));

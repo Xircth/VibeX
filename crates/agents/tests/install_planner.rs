@@ -925,7 +925,8 @@ fn adapter_backed_identity_version_is_not_the_registry_lock_version() {
         uv_verified: true,
         python_verified: true,
     };
-    for agent_id in ["pi"] {
+    {
+        let agent_id = "pi";
         let plan = planner
             .plan(InstallPlanningInput {
                 agent_id: AgentId::parse(agent_id).unwrap(),

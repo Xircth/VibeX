@@ -11,11 +11,7 @@ import {
 } from './account';
 
 export function useAccountToken(): string | null {
-  return useSyncExternalStore(
-    subscribeAccountToken,
-    accountToken,
-    () => null
-  );
+  return useSyncExternalStore(subscribeAccountToken, accountToken, () => null);
 }
 
 export function resolveAccountDisplayName(
@@ -219,8 +215,7 @@ export function useDimoAccount() {
     }
   }, []);
 
-  const overview =
-    token && state.token === token ? state.overview : null;
+  const overview = token && state.token === token ? state.overview : null;
   const isLoading =
     Boolean(token) && (state.isLoading || (state.token !== token && !overview));
 

@@ -134,7 +134,9 @@ mod tests {
         let activity = activity_for_event(&AgentEvent::PromptAccepted {
             prompt_id: AgentPromptId::new(),
         });
-        assert_eq!(activity, Some(RequestActivity::phase(RequestPhase::WaitingAgent)));
+        assert_eq!(
+            activity,
+            Some(RequestActivity::phase(RequestPhase::WaitingAgent))
+        );
     }
 }
-

@@ -113,7 +113,10 @@ describe('ConversationSelectionToolbar', () => {
             data-message-id="turn-9:assistant"
             data-block-index="1"
           >
-            <p> Prefix context:<span>validate token expiry</span> after refresh</p>
+            <p>
+              {' '}
+              Prefix context:<span>validate token expiry</span> after refresh
+            </p>
           </div>
         </div>
         <ConversationSelectionToolbar
@@ -148,7 +151,9 @@ describe('ConversationSelectionToolbar', () => {
     const insertedArg = (
       insertToken.mock.calls as unknown as Array<[{ value: string }]>
     )[0]?.[0];
-    const [parsed] = getSessionComposerStructuredTokens(insertedArg?.value ?? '');
+    const [parsed] = getSessionComposerStructuredTokens(
+      insertedArg?.value ?? ''
+    );
     expect(parsed).toMatchObject({
       kind: 'quote',
       value: 'validate token expiry',

@@ -56,7 +56,7 @@ export function FilterStatusPill({
     <span
       data-testid={testId}
       className={cn(
-        'inline-flex h-[23px] shrink-0 items-center whitespace-nowrap rounded-[8px] border px-[7px] text-[12.5px] font-medium',
+        'inline-flex h-[23px] shrink-0 items-center whitespace-nowrap rounded-md border px-[7px] text-[12.5px] font-medium',
         TONE_CLASS[tone],
         className
       )}
@@ -139,7 +139,7 @@ export function FilterTable<FilterKey extends string = string>({
               <span>{f.label}</span>
               <span
                 className={cn(
-                  'rounded-[4px] px-1 text-[10.5px] tabular-nums',
+                  'rounded-none px-1 text-[10.5px] tabular-nums',
                   active
                     ? 'bg-muted text-muted-foreground'
                     : 'text-muted-foreground/75'
@@ -169,7 +169,8 @@ export function FilterTable<FilterKey extends string = string>({
                 key={col.key}
                 className={cn(
                   'px-3 py-2',
-                  idx < columns.length - 1 && 'border-r border-[var(--grid-line)]',
+                  idx < columns.length - 1 &&
+                    'border-r border-[var(--grid-line)]',
                   col.align === 'right' && 'text-right'
                 )}
               >

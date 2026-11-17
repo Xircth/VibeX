@@ -324,17 +324,19 @@ impl ProjectionFold {
                         })
                     };
                     if append_delta.is_some() || output_preview.is_some() || terminal {
-                        let existing_result = turn.assistant.blocks.iter_mut().find_map(|block| {
-                            match block {
-                                ContentBlock::ToolResult {
-                                    tool_use_id: Some(id),
-                                    output_preview,
-                                    is_error,
-                                    ..
-                                } if *id == call_id => Some((output_preview, is_error)),
-                                _ => None,
-                            }
-                        });
+                        let existing_result =
+                            turn.assistant
+                                .blocks
+                                .iter_mut()
+                                .find_map(|block| match block {
+                                    ContentBlock::ToolResult {
+                                        tool_use_id: Some(id),
+                                        output_preview,
+                                        is_error,
+                                        ..
+                                    } if *id == call_id => Some((output_preview, is_error)),
+                                    _ => None,
+                                });
                         match existing_result {
                             Some((existing_output, existing_error)) => {
                                 if settle_read {
@@ -512,8 +514,10 @@ impl ProjectionFold {
                         ensure_turn(turns, turn_order, expected_turn_id, record);
                         let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
                         apply_accepted_steering(turn, steering_id, record);
-                        touched_turn_rows =
-                            Some(TouchedTurnRows::ChangedAt(expected_turn_id, record.sequence));
+                        touched_turn_rows = Some(TouchedTurnRows::ChangedAt(
+                            expected_turn_id,
+                            record.sequence,
+                        ));
                     }
                 }
                 agents::ConversationSteeringEvent::Rejected {
@@ -671,8 +675,20 @@ pub(super) fn ensure_turn(
         turn_id,
         ProjectedTurn {
             turn_id,
-            user: new_message_turn(format!("{turn_id}:user"), TurnRole::User, Vec::new(), record.created_at, None),
-            assistant: new_message_turn(format!("{turn_id}:assistant"), TurnRole::Assistant, Vec::new(), record.created_at, None),
+            user: new_message_turn(
+                format!("{turn_id}:user"),
+                TurnRole::User,
+                Vec::new(),
+                record.created_at,
+                None,
+            ),
+            assistant: new_message_turn(
+                format!("{turn_id}:assistant"),
+                TurnRole::Assistant,
+                Vec::new(),
+                record.created_at,
+                None,
+            ),
             prefix_segments: Vec::new(),
             prefix_segment_revisions: Vec::new(),
             pending_steering: None,
@@ -951,9 +967,15 @@ fn extract_tool_output_append(
         .as_ref()
         .and_then(serde_json::Value::as_object)
         .is_some_and(|m| {
-            ["raw_output_append", "rawOutputAppend", "append", "delta", "terminalOutputDelta"]
-                .iter()
-                .any(|k| m.get(*k).and_then(serde_json::Value::as_bool) == Some(true))
+            [
+                "raw_output_append",
+                "rawOutputAppend",
+                "append",
+                "delta",
+                "terminalOutputDelta",
+            ]
+            .iter()
+            .any(|k| m.get(*k).and_then(serde_json::Value::as_bool) == Some(true))
         });
     if tool_call.raw_output.is_none() || meta_append {
         tool_call.raw_output_append.clone().or_else(|| {
@@ -974,49 +996,127 @@ fn apply_session_info_patch(
 ) {
     let Some(obj) = patch.as_object() else { return };
     let notice = |title: &str, message: Option<String>, severity: &str, id: String| {
-        ConversationSessionNotice { title: title.into(), message, severity: severity.into(), announcement_id: Some(id), ..Default::default() }
+        ConversationSessionNotice {
+            title: title.into(),
+            message,
+            severity: severity.into(),
+            announcement_id: Some(id),
+            ..Default::default()
+        }
     };
-    match obj.get("autoCompactionInProgress").and_then(|v| v.as_bool()) {
+    match obj
+        .get("autoCompactionInProgress")
+        .and_then(|v| v.as_bool())
+    {
         Some(true) => upsert_stable_notice(
             side_rows,
             "notice:context-compaction",
             record.sequence,
-            notice("Compacting conversation context…", obj.get("trigger").and_then(|v| v.as_str()).map(|t| format!("Trigger: {t}")), "info", "context_compaction".into()),
+            notice(
+                "Compacting conversation context…",
+                obj.get("trigger")
+                    .and_then(|v| v.as_str())
+                    .map(|t| format!("Trigger: {t}")),
+                "info",
+                "context_compaction".into(),
+            ),
         ),
-        Some(false) => remove_side_row(side_rows, deleted_rows, "notice:context-compaction", record.sequence),
+        Some(false) => remove_side_row(
+            side_rows,
+            deleted_rows,
+            "notice:context-compaction",
+            record.sequence,
+        ),
         None => {}
     }
     if let Some(warn) = obj.get("modelConsistencyWarning") {
         if warn.is_null() {
-            remove_side_row(side_rows, deleted_rows, "notice:model-consistency-warning", record.sequence);
+            remove_side_row(
+                side_rows,
+                deleted_rows,
+                "notice:model-consistency-warning",
+                record.sequence,
+            );
         } else {
             let msg = warn.as_str().map(str::to_owned).or_else(|| {
                 let w = warn.as_object()?;
-                w.get("message").and_then(|v| v.as_str()).map(str::to_owned).or_else(|| {
-                    let req = w.get("requestedModel").or_else(|| w.get("requested_model"))?.as_str()?;
-                    let srv = w.get("servedModel").or_else(|| w.get("served_model"))?.as_str()?;
-                    Some(format!("Requested model `{req}`, but provider served `{srv}`."))
-                })
+                w.get("message")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        let req = w
+                            .get("requestedModel")
+                            .or_else(|| w.get("requested_model"))?
+                            .as_str()?;
+                        let srv = w
+                            .get("servedModel")
+                            .or_else(|| w.get("served_model"))?
+                            .as_str()?;
+                        Some(format!(
+                            "Requested model `{req}`, but provider served `{srv}`."
+                        ))
+                    })
             });
-            upsert_stable_notice(side_rows, "notice:model-consistency-warning", record.sequence, notice("Model consistency warning", msg, "warning", "model_consistency_warning".into()));
+            upsert_stable_notice(
+                side_rows,
+                "notice:model-consistency-warning",
+                record.sequence,
+                notice(
+                    "Model consistency warning",
+                    msg,
+                    "warning",
+                    "model_consistency_warning".into(),
+                ),
+            );
         }
     }
     if let Some(rl) = obj.get("rateLimits").and_then(|v| v.as_object()) {
         let win = rl.get("primary").and_then(|v| v.as_object()).unwrap_or(rl);
-        let reset = rl.get("resetAt").or_else(|| rl.get("resetsAt")).or_else(|| win.get("resetsAt")).or_else(|| win.get("resetAt"));
+        let reset = rl
+            .get("resetAt")
+            .or_else(|| rl.get("resetsAt"))
+            .or_else(|| win.get("resetsAt"))
+            .or_else(|| win.get("resetAt"));
         let status = rl.get("status").and_then(|v| v.as_str()).unwrap_or("");
         let zero_quota = rl.get("requestsRemaining").and_then(|v| v.as_i64()) == Some(0)
             || rl.get("tokensRemaining").and_then(|v| v.as_i64()) == Some(0);
-        let full_util = rl.get("utilization").and_then(|v| v.as_f64()).is_some_and(|u| (0.9999..=1.05).contains(&u) || u >= 100.0)
-            || win.get("usedPercent").and_then(|v| v.as_f64()).is_some_and(|u| u >= 100.0);
-        let limited = rl.get("isRateLimited").and_then(|v| v.as_bool()).unwrap_or_else(|| {
-            matches!(status, "rejected" | "rate_limited" | "exceeded" | "limited") || ((zero_quota || full_util) && reset.is_some())
-        });
+        let full_util = rl
+            .get("utilization")
+            .and_then(|v| v.as_f64())
+            .is_some_and(|u| (0.9999..=1.05).contains(&u) || u >= 100.0)
+            || win
+                .get("usedPercent")
+                .and_then(|v| v.as_f64())
+                .is_some_and(|u| u >= 100.0);
+        let limited = rl
+            .get("isRateLimited")
+            .and_then(|v| v.as_bool())
+            .unwrap_or_else(|| {
+                matches!(status, "rejected" | "rate_limited" | "exceeded" | "limited")
+                    || ((zero_quota || full_util) && reset.is_some())
+            });
         if limited {
             let meta = serde_json::json!({ "kind": "rate_limit", "isRateLimited": true, "limitedAt": record.created_at.to_rfc3339(), "resetAt": reset });
-            upsert_stable_notice(side_rows, "notice:rate-limit", record.sequence, notice("Rate limit reached", rl.get("message").and_then(|v| v.as_str()).map(str::to_owned), "warning", meta.to_string()));
+            upsert_stable_notice(
+                side_rows,
+                "notice:rate-limit",
+                record.sequence,
+                notice(
+                    "Rate limit reached",
+                    rl.get("message")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned),
+                    "warning",
+                    meta.to_string(),
+                ),
+            );
         } else {
-            remove_side_row(side_rows, deleted_rows, "notice:rate-limit", record.sequence);
+            remove_side_row(
+                side_rows,
+                deleted_rows,
+                "notice:rate-limit",
+                record.sequence,
+            );
         }
     }
 }
@@ -1480,31 +1580,76 @@ mod tests {
     #[test]
     fn conversation_projection_fixtures_are_present_and_parse() {
         let fixtures = [
-            ("happy-path", include_str!("../../../db/fixtures/conversation-projection/happy-path.json")),
-            ("no-assistant-output-error", include_str!("../../../db/fixtures/conversation-projection/no-assistant-output-error.json")),
-            ("permission-blocked", include_str!("../../../db/fixtures/conversation-projection/permission-blocked.json")),
-            ("tool-heavy", include_str!("../../../db/fixtures/conversation-projection/tool-heavy.json")),
-            ("terminal", include_str!("../../../db/fixtures/conversation-projection/terminal.json")),
-            ("file-change", include_str!("../../../db/fixtures/conversation-projection/file-change.json")),
+            (
+                "happy-path",
+                include_str!("../../../db/fixtures/conversation-projection/happy-path.json"),
+            ),
+            (
+                "no-assistant-output-error",
+                include_str!(
+                    "../../../db/fixtures/conversation-projection/no-assistant-output-error.json"
+                ),
+            ),
+            (
+                "permission-blocked",
+                include_str!(
+                    "../../../db/fixtures/conversation-projection/permission-blocked.json"
+                ),
+            ),
+            (
+                "tool-heavy",
+                include_str!("../../../db/fixtures/conversation-projection/tool-heavy.json"),
+            ),
+            (
+                "terminal",
+                include_str!("../../../db/fixtures/conversation-projection/terminal.json"),
+            ),
+            (
+                "file-change",
+                include_str!("../../../db/fixtures/conversation-projection/file-change.json"),
+            ),
         ];
         for (expected_name, raw) in fixtures {
             let value: serde_json::Value = serde_json::from_str(raw).expect("fixture json");
             assert_eq!(value["name"], expected_name);
             assert_eq!(value["projectionVersion"], CONVERSATION_PROJECTION_VERSION);
             assert!(value["events"].as_array().is_some_and(|e| !e.is_empty()));
-            assert!(value["expectedTimeline"].as_array().is_some_and(|r| !r.is_empty()));
+            assert!(
+                value["expectedTimeline"]
+                    .as_array()
+                    .is_some_and(|r| !r.is_empty())
+            );
         }
     }
 
     #[test]
     fn occupancy_update_keeps_reported_protocol_buckets() {
-        let existing = TurnUsage { input_tokens: 20, output_tokens: 10, cache_read_input_tokens: 70, ..Default::default() };
+        let existing = TurnUsage {
+            input_tokens: 20,
+            output_tokens: 10,
+            cache_read_input_tokens: 70,
+            ..Default::default()
+        };
         let merged = merge_reported_turn_usage(
             Some(existing),
-            &ConversationUsage { context_used: Some(12_000), context_window_max: Some(200_000), ..Default::default() },
+            &ConversationUsage {
+                context_used: Some(12_000),
+                context_window_max: Some(200_000),
+                ..Default::default()
+            },
         );
-        assert_eq!((merged.input_tokens, merged.output_tokens, merged.cache_read_input_tokens), (20, 10, 70));
-        assert_eq!((merged.context_used, merged.context_window_max), (Some(12_000), Some(200_000)));
+        assert_eq!(
+            (
+                merged.input_tokens,
+                merged.output_tokens,
+                merged.cache_read_input_tokens
+            ),
+            (20, 10, 70)
+        );
+        assert_eq!(
+            (merged.context_used, merged.context_window_max),
+            (Some(12_000), Some(200_000))
+        );
     }
 
     #[test]
@@ -1519,10 +1664,17 @@ mod tests {
         let patch = |raw_output_append: Option<&str>, raw_output: Option<serde_json::Value>| {
             ConversationEvent::ToolCallUpsert {
                 tool_call: ConversationToolCallPatch {
-                    tool_call_id: "c1".into(), title: Some("Bash".into()), kind: Some("execute".into()),
-                    status: Some("in_progress".into()), raw_input: None, raw_output,
+                    tool_call_id: "c1".into(),
+                    title: Some("Bash".into()),
+                    kind: Some("execute".into()),
+                    status: Some("in_progress".into()),
+                    raw_input: None,
+                    raw_output,
                     raw_output_append: raw_output_append.map(str::to_owned),
-                    content: None, locations: None, metadata: None, images: Vec::new(),
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
                 },
             }
         };
@@ -1536,23 +1688,51 @@ mod tests {
         let info_off = ConversationEvent::AgentSessionInfoUpdated {
             patch: serde_json::json!({ "autoCompactionInProgress": false, "rateLimits": { "isRateLimited": false } }),
         };
-        let timeline = ConversationProjector::project_records(cid, &[
-            with_turn(1, &patch(Some("chunk-1\n"), None)),
-            with_turn(2, &patch(Some("chunk-2\n"), None)),
-            diagnostic_record(cid, 3, &info_on),
-        ]).expect("projection succeeds");
-        assert!(timeline.rows.iter().any(|r| r.row_id == "notice:context-compaction"));
-        assert!(timeline.rows.iter().any(|r| r.row_id == "notice:model-consistency-warning"));
-        assert!(timeline.rows.iter().any(|r| r.row_id == "notice:rate-limit"));
+        let timeline = ConversationProjector::project_records(
+            cid,
+            &[
+                with_turn(1, &patch(Some("chunk-1\n"), None)),
+                with_turn(2, &patch(Some("chunk-2\n"), None)),
+                diagnostic_record(cid, 3, &info_on),
+            ],
+        )
+        .expect("projection succeeds");
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .any(|r| r.row_id == "notice:context-compaction")
+        );
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .any(|r| r.row_id == "notice:model-consistency-warning")
+        );
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .any(|r| r.row_id == "notice:rate-limit")
+        );
         let output = timeline.rows.iter().find_map(|r| match &r.row {
-            ConversationTimelineRow::MessageTurn { turn, .. } => turn.blocks.iter().find_map(|b| match b {
-                ContentBlock::ToolResult { output_preview, .. } => output_preview.clone(),
-                _ => None,
-            }),
+            ConversationTimelineRow::MessageTurn { turn, .. } => {
+                turn.blocks.iter().find_map(|b| match b {
+                    ContentBlock::ToolResult { output_preview, .. } => output_preview.clone(),
+                    _ => None,
+                })
+            }
             _ => None,
         });
         assert_eq!(output.as_deref(), Some("chunk-1\nchunk-2\n"));
-        let cleared = ConversationProjector::project_records(cid, &[diagnostic_record(cid, 1, &info_on), diagnostic_record(cid, 2, &info_off)]).expect("clears");
+        let cleared = ConversationProjector::project_records(
+            cid,
+            &[
+                diagnostic_record(cid, 1, &info_on),
+                diagnostic_record(cid, 2, &info_off),
+            ],
+        )
+        .expect("clears");
         assert!(!cleared.rows.iter().any(|r| r.row_id == "notice:context-compaction" || r.row_id == "notice:rate-limit"));
     }
 

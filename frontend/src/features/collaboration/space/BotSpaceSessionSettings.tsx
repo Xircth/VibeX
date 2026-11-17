@@ -426,12 +426,13 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
       return;
     }
     backgroundRefreshAgent.current = refreshScopeKey;
-    void (selectedProviderInstanceId
-      ? agentsApi.refreshCapabilityCatalog(
-          effectiveAgentId,
-          selectedProviderInstanceId
-        )
-      : agentsApi.refreshCapabilityCatalog(effectiveAgentId)
+    void (
+      selectedProviderInstanceId
+        ? agentsApi.refreshCapabilityCatalog(
+            effectiveAgentId,
+            selectedProviderInstanceId
+          )
+        : agentsApi.refreshCapabilityCatalog(effectiveAgentId)
     )
       .then(async (refreshed) => {
         if (!refreshed) return;

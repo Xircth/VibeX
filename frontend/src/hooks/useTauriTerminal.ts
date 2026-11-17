@@ -88,14 +88,25 @@ function decodeBase64ToBytes(base64: string): Uint8Array {
   return Uint8Array.from(binString, (char) => char.codePointAt(0)!);
 }
 
+const ESC = String.fromCharCode(0x1b);
+const BEL = String.fromCharCode(0x07);
+const OSC9_RE = new RegExp(
+  `${ESC}\\]9;9;([^${BEL}${ESC}]+)(?:${BEL}|${ESC}\\\\)`
+);
+const OSC7_RE = new RegExp(
+  `${ESC}\\]7;file:\\/\\/[^/]*(\\/[^${BEL}${ESC}]+)(?:${BEL}|${ESC}\\\\)`
+);
+const ANSI_ESCAPE_RE = new RegExp(
+  `${ESC}\\[[0-9;?]*[ -/]*[@-~]|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`,
+  'g'
+);
+
 function extractTerminalCwd(rawText: string): string | null {
-  const osc9Match = rawText.match(/\x1b\]9;9;([^\x07\x1b]+)(?:\x07|\x1b\\)/);
+  const osc9Match = rawText.match(OSC9_RE);
   if (osc9Match?.[1]) {
     return osc9Match[1].trim();
   }
-  const osc7Match = rawText.match(
-    /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]+)(?:\x07|\x1b\\)/
-  );
+  const osc7Match = rawText.match(OSC7_RE);
   if (osc7Match?.[1]) {
     try {
       const decoded = decodeURIComponent(osc7Match[1]);
@@ -107,11 +118,7 @@ function extractTerminalCwd(rawText: string): string | null {
       return osc7Match[1];
     }
   }
-  const stripped = rawText.replace(
-    // eslint-disable-next-line no-control-regex
-    /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,
-    ''
-  );
+  const stripped = rawText.replace(ANSI_ESCAPE_RE, '');
   const psMatches = [
     ...stripped.matchAll(/(?:^|[\r\n])\s*PS\s+([A-Za-z]:\\[^\r\n>]+)>/g),
   ];

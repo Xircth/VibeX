@@ -34,9 +34,13 @@ describe('COLLABORATION_PREVIEW_COMPONENTS', () => {
     );
 
     try {
-      expect('plugin:acme.demo/custom-preview' in COLLABORATION_PREVIEW_COMPONENTS).toBe(true);
       expect(
-        typeof COLLABORATION_PREVIEW_COMPONENTS['plugin:acme.demo/custom-preview']
+        'plugin:acme.demo/custom-preview' in COLLABORATION_PREVIEW_COMPONENTS
+      ).toBe(true);
+      expect(
+        typeof COLLABORATION_PREVIEW_COMPONENTS[
+          'plugin:acme.demo/custom-preview'
+        ]
       ).toBe('function');
     } finally {
       dispose();

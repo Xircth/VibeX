@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { WorktreeProvider } from '@/contexts/WorktreeContext';

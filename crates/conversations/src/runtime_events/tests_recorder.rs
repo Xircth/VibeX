@@ -538,6 +538,7 @@ async fn resilient_agent_event_loop_recovers_after_panic_and_keeps_receiver_aliv
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
     use tokio::sync::mpsc;
 
     let pool = setup_pool().await;
@@ -658,12 +659,14 @@ async fn streaming_100_message_chunks_caches_active_turn_and_persists_coalesced_
     assert_eq!(flushed.events.len(), 1);
     assert_eq!(recorder.turn_db_lookups, 1);
 
-    let batches = publisher.persisted_batches.lock().unwrap();
-    assert_eq!(batches.len(), 1);
-    assert_eq!(batches[0].len(), 1);
-    assert_eq!(batches[0][0].conversation_id, conversation_id);
-    assert_eq!(batches[0][0].turn_id, Some(turn_id));
-    assert_eq!(batches[0][0].event_kind, "assistant_text_delta");
+    {
+        let batches = publisher.persisted_batches.lock().unwrap();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 1);
+        assert_eq!(batches[0][0].conversation_id, conversation_id);
+        assert_eq!(batches[0][0].turn_id, Some(turn_id));
+        assert_eq!(batches[0][0].event_kind, "assistant_text_delta");
+    }
 
     // Verify durable persistence in `conversation_events` AND materialized timeline rows!
     let open = crate::ConversationProjector::project_open(&pool, conversation_id, 16)

@@ -259,6 +259,7 @@ pub fn build_direct_reflex_workflow(
 }
 
 /// 2. `SuperagentRouter` (inspired by `dsh-superagent-prototype`):
+///
 /// persistent `Bot` router (`FixedPrimary`, `FifoSerial`) -> `ConditionBranch`
 /// -> parallel fresh `Session` specialists (`WriteIsolated` / `ReadOnlyShared`) -> `Bot` synthesizer.
 pub fn build_superagent_router_workflow(
@@ -395,6 +396,7 @@ pub fn build_superagent_router_workflow(
 }
 
 /// 3. `HybridPipeline`:
+///
 /// fresh `Session` reproduce/fix (`WriteIsolated`) -> `GroupStage` `@reviewer` seat review
 /// -> `UserGate` merge approval (`Approval`) -> `OutboxAction`.
 pub fn build_hybrid_pipeline_workflow(
@@ -505,6 +507,7 @@ pub fn build_hybrid_pipeline_workflow(
 }
 
 /// 4. `EventSaga`:
+///
 /// `Session` or `Bot` initial action -> `WaitForEvent` correlating on `thread_key`
 /// with SLA `timeout_seconds` -> follow-up `Session` or `Bot` step.
 pub fn build_event_saga_workflow(
@@ -583,6 +586,7 @@ pub fn build_event_saga_workflow(
 }
 
 /// 5. `WindowAggregator`:
+///
 /// scheduled/windowed event digest -> `Bot` memory-preserving summarizer
 /// (`FixedPrimary`, `CoalesceBatch`) -> `UserGate` digest notify.
 pub fn build_window_aggregator_workflow(

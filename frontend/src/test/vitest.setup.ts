@@ -2,8 +2,14 @@ import '@testing-library/jest-dom/vitest';
 // Initialize the i18n runtime so components using useTranslation render real
 // strings instead of raw keys. Tests use a deterministic Chinese locale even
 // though production now derives its initial locale from the host system.
-import i18n from '@/i18n';
+import i18n, { ensureLanguageLoaded, i18nReady } from '@/i18n';
+import { SUPPORTED_LANGUAGES } from '@/lib/uiLanguage';
 import './LiquidGlassMock';
+
+await i18nReady;
+await Promise.all(
+  SUPPORTED_LANGUAGES.map((lang) => ensureLanguageLoaded(lang))
+);
 
 const localStorageStore = new Map<string, string>();
 const localStorageMock: Storage = {

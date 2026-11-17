@@ -281,7 +281,9 @@ describe('Semantic WorkflowStudio Canvas & Simple 2-Tab Node Side Card', () => {
     // 4. Group Stage node shows human space display name + tabular-nums rounds badge
     const groupNode = screen.getByTestId('workflow-node-council-stage');
     expect(within(groupNode).getByText('研发架构评审群')).toBeInTheDocument();
-    expect(within(groupNode).getByText('最多 2 轮')).toHaveClass('tabular-nums');
+    expect(within(groupNode).getByText('最多 2 轮')).toHaveClass(
+      'tabular-nums'
+    );
 
     // 5. Flow Control BoundedLoop node shows tabular-nums max rounds badge
     const controlNode = screen.getByTestId('workflow-node-review-loop');
@@ -1189,7 +1191,10 @@ describe('Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () 
     ];
 
     const indexed = indexWorkflowEventsByStepId(events);
-    expect(indexed.get('triage-bot')?.map((e) => e.id)).toEqual(['ev-1', 'ev-2']);
+    expect(indexed.get('triage-bot')?.map((e) => e.id)).toEqual([
+      'ev-1',
+      'ev-2',
+    ]);
     expect(indexed.get('coder-session')?.map((e) => e.id)).toEqual(['ev-3']);
 
     const nodes = layoutNodes(
@@ -1717,4 +1722,3 @@ describe('Customized Real-Data Execution Records & DockPanel Wiring', () => {
     });
   });
 });
-

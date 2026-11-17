@@ -81,7 +81,6 @@ export function isPanelCanvasNode(node: SessionCanvasNode): boolean {
   );
 }
 
-
 export interface CanvasRect {
   id: string;
   x: number;
@@ -402,10 +401,7 @@ export function placedCanvasSessionIds(
   const ids: string[] = [];
   const seen = new Set<string>();
   const sessionNodes = nodes
-    .filter(
-      (node) =>
-        node.kind !== 'group' && node.sessionId.length > 0
-    )
+    .filter((node) => node.kind !== 'group' && node.sessionId.length > 0)
     .sort(
       (left, right) =>
         left.createdAt - right.createdAt || left.id.localeCompare(right.id)

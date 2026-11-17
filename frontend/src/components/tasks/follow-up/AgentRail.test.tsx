@@ -1,4 +1,9 @@
-import { render, screen, fireEvent, type RenderOptions } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  type RenderOptions,
+} from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -46,10 +51,7 @@ function mockAgents(overrides?: Partial<SelectableAgent>[]): SelectableAgent[] {
     : base;
 }
 
-function renderRail(
-  ui: React.ReactNode,
-  options?: RenderOptions
-) {
+function renderRail(ui: React.ReactNode, options?: RenderOptions) {
   return render(<TooltipProvider>{ui}</TooltipProvider>, options);
 }
 

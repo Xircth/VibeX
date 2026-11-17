@@ -70,16 +70,14 @@ async fn has_sqlite_recorded_history(
         .await
         .ok()
         .flatten()
-        .or(
-            sqlx::query_scalar::<_, Uuid>(
-                "SELECT id FROM sessions WHERE external_session_id = ? LIMIT 1",
-            )
-            .bind(acp_session_id.trim())
-            .fetch_optional(read_pool)
-            .await
-            .ok()
-            .flatten(),
-        ),
+        .or(sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM sessions WHERE external_session_id = ? LIMIT 1",
+        )
+        .bind(acp_session_id.trim())
+        .fetch_optional(read_pool)
+        .await
+        .ok()
+        .flatten()),
         None => None,
     };
 
@@ -176,12 +174,11 @@ async fn load_legacy_turns_outside_tx(
     {
         for binding in bindings.iter().rev() {
             if let Some(acp_sid) = binding.acp_session_id.as_deref()
-                && let Some(turns) =
-                    crate::jsonl_history::flush_and_read_existing_transcript_turns(
-                        conversation_id,
-                        Some(acp_sid),
-                    )
-                    .await
+                && let Some(turns) = crate::jsonl_history::flush_and_read_existing_transcript_turns(
+                    conversation_id,
+                    Some(acp_sid),
+                )
+                .await
                 && !turns.is_empty()
             {
                 return Some(turns);
@@ -193,7 +190,12 @@ async fn load_legacy_turns_outside_tx(
         .agent_id
         .as_ref()
         .and_then(|id| AgentKind::from_lenient(id.as_str()))
-        .or_else(|| session.executor.as_deref().and_then(AgentKind::from_lenient));
+        .or_else(|| {
+            session
+                .executor
+                .as_deref()
+                .and_then(AgentKind::from_lenient)
+        });
     if let (Some(kind), Some(external)) = (kind, session.external_session_id.as_deref())
         && let Ok(Some(detail)) = load_import_conversation_detail(kind, external, None)
         && !detail.turns.is_empty()
@@ -295,12 +297,8 @@ pub fn spawn_legacy_jsonl_backfill_worker(
             if remaining <= 0 {
                 return;
             }
-            match backfill_next_legacy_batch(
-                &read_pool,
-                &write_pool,
-                DEFAULT_BACKGROUND_BATCH_SIZE,
-            )
-            .await
+            match backfill_next_legacy_batch(&read_pool, &write_pool, DEFAULT_BACKGROUND_BATCH_SIZE)
+                .await
             {
                 Ok(0) => return,
                 Ok(_) => tokio::time::sleep(BACKGROUND_YIELD_INTERVAL).await,
@@ -469,9 +467,7 @@ async fn synthesize_legacy_events_on_connection(
 
         let mut synthesized: Vec<(&'static str, ConversationEvent)> = Vec::new();
 
-        if !has_user_created
-            && let Some(user_turn) = round.user_turn
-        {
+        if !has_user_created && let Some(user_turn) = round.user_turn {
             let blocks = input_blocks_from_content_blocks(&user_turn.blocks);
             if !blocks.is_empty() {
                 synthesized.push((
@@ -848,9 +844,14 @@ mod tests {
         .await
         .expect("create conversation");
 
-        Session::update_agent_metadata(writer, conversation_id, Some(&external_sid), Some(&agent_id))
-            .await
-            .expect("bind external session id");
+        Session::update_agent_metadata(
+            writer,
+            conversation_id,
+            Some(&external_sid),
+            Some(&agent_id),
+        )
+        .await
+        .expect("bind external session id");
 
         ConversationTurnRecord::create_pending(
             writer,
@@ -996,7 +997,11 @@ mod tests {
                     .iter()
                     .filter(|b| matches!(b, ContentBlock::Text { .. }))
                     .collect();
-                assert_eq!(text_blocks.len(), 1, "assistant text must not duplicate after tool call");
+                assert_eq!(
+                    text_blocks.len(),
+                    1,
+                    "assistant text must not duplicate after tool call"
+                );
                 assert!(turn.blocks.iter().any(|b| {
                     matches!(b, ContentBlock::Text { text } if text.contains("QuartzNebula99"))
                 }));
@@ -1007,10 +1012,7 @@ mod tests {
             }
             other => panic!("expected assistant MessageTurn, got {other:?}"),
         }
-        assert_eq!(
-            open.session_stats.and_then(|s| s.total_tokens),
-            Some(165)
-        );
+        assert_eq!(open.session_stats.and_then(|s| s.total_tokens), Some(165));
 
         // Row-level trigram FTS5 search on ReadPool finds the backfilled assistant reply!
         let mut read_conn = db.reader().acquire().await.expect("acquire read conn");

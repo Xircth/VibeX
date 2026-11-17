@@ -209,7 +209,10 @@ export const ActionBar = memo(function ActionBar({
         disabled={!isEditable}
         dropdownAlign="end"
         agentIcon={
-          showProfileControls || persona || sessionConfigOptions.length > 0 || Boolean(sessionModes?.modes?.length)
+          showProfileControls ||
+          persona ||
+          sessionConfigOptions.length > 0 ||
+          Boolean(sessionModes?.modes?.length)
             ? currentAgentId
             : null
         }
@@ -217,7 +220,9 @@ export const ActionBar = memo(function ActionBar({
         agentIconDark={currentAgentIcons?.iconDark ?? null}
         agentIconSvg={currentAgentIcons?.iconSvg ?? null}
         agentRail={agentRail}
-        providerInstanceConfig={showProfileControls ? providerInstanceConfig : null}
+        providerInstanceConfig={
+          showProfileControls ? providerInstanceConfig : null
+        }
         controlsLoading={sessionControlsLoading}
       />
 

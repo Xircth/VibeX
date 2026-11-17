@@ -344,39 +344,39 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
 
     expect(conversationSvc?.isDependencyGraphReady()).toBe(true);
     expect(agentRuntimeSvc?.isDependencyGraphReady()).toBe(true);
-    expect(
-      serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')
-    ).toBe(true);
-    expect(
-      serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')
-    ).toBe(true);
+    expect(serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')).toBe(
+      true
+    );
+    expect(serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')).toBe(
+      true
+    );
 
     // Unload dimo.core.llm-providers -> agent-runtime's injected sub-scope tears down
     unloadPluginRuntime('dimo.core.llm-providers');
     expect(agentRuntimeSvc?.isDependencyGraphReady()).toBe(false);
-    expect(
-      serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')
-    ).toBe(false);
+    expect(serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')).toBe(
+      false
+    );
 
     // Reload dimo.core.llm-providers -> agent-runtime's injected sub-scope automatically recovers
     await loadCoreFoundationPlugin('dimo.core.llm-providers');
     expect(agentRuntimeSvc?.isDependencyGraphReady()).toBe(true);
-    expect(
-      serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')
-    ).toBe(true);
+    expect(serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')).toBe(
+      true
+    );
 
     // Unload dimo.core.session -> conversation's injected sub-scope tears down
     unloadPluginRuntime('dimo.core.session');
     expect(conversationSvc?.isDependencyGraphReady()).toBe(false);
-    expect(
-      serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')
-    ).toBe(false);
+    expect(serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')).toBe(
+      false
+    );
 
     // Reload dimo.core.session -> conversation's injected sub-scope automatically recovers
     await loadCoreFoundationPlugin('dimo.core.session');
     expect(conversationSvc?.isDependencyGraphReady()).toBe(true);
-    expect(
-      serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')
-    ).toBe(true);
+    expect(serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')).toBe(
+      true
+    );
   });
 });

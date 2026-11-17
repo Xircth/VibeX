@@ -383,22 +383,21 @@ async fn dump_e2e_diagnostics(
     wire_log_file: &Path,
     cwd_log_file: &Path,
 ) -> String {
-    let run_row: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, status FROM workflow_runs WHERE id = ?",
+    let run_row: Option<(Uuid, String)> =
+        sqlx::query_as("SELECT id, status FROM workflow_runs WHERE id = ?")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or_else(|e| Some((Uuid::nil(), e.to_string())));
+    type StepDiagRow = (String, String, Option<Uuid>, Option<Uuid>, Option<String>);
+    let steps: Vec<StepDiagRow> = sqlx::query_as(
+        "SELECT step_id, status, conversation_id, turn_id, execution_evidence_json
+             FROM workflow_step_runs WHERE run_id = ? ORDER BY attempt ASC",
     )
     .bind(run_id)
-    .fetch_optional(pool)
+    .fetch_all(pool)
     .await
-    .unwrap_or_else(|e| Some((Uuid::nil(), e.to_string())));
-    let steps: Vec<(String, String, Option<Uuid>, Option<Uuid>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT step_id, status, conversation_id, turn_id, execution_evidence_json
-             FROM workflow_step_runs WHERE run_id = ? ORDER BY attempt ASC",
-        )
-        .bind(run_id)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_else(|e| vec![("err".into(), e.to_string(), None, None, None)]);
+    .unwrap_or_else(|e| vec![("err".into(), e.to_string(), None, None, None)]);
     let events: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT sequence, event_kind, payload_json FROM workflow_events WHERE run_id = ? ORDER BY sequence ASC",
     )
@@ -412,12 +411,11 @@ async fn dump_e2e_diagnostics(
     .fetch_all(pool)
     .await
     .unwrap_or_else(|e| vec![(Uuid::nil(), e.to_string(), None)]);
-    let conv_inputs: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, status FROM conversation_inputs ORDER BY created_at ASC",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_else(|e| vec![(Uuid::nil(), e.to_string())]);
+    let conv_inputs: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, status FROM conversation_inputs ORDER BY created_at ASC")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_else(|e| vec![(Uuid::nil(), e.to_string())]);
     let conv_events: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT sequence, event_kind, normalized_json FROM conversation_events ORDER BY sequence ASC",
     )
@@ -520,13 +518,14 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
                             .get("authorization")
                             .and_then(|v| v.to_str().ok())
                             .map(str::to_string);
-                        comments.lock().expect("lock pr comments").push(
-                            RecordedGithubComment {
+                        comments
+                            .lock()
+                            .expect("lock pr comments")
+                            .push(RecordedGithubComment {
                                 endpoint: format!("/repos/{owner}/{repo}/issues/{number}/comments"),
                                 authorization: auth,
                                 body: payload["body"].as_str().unwrap_or("").to_string(),
-                            },
-                        );
+                            });
                         (StatusCode::CREATED, Json(json!({ "id": 1001 })))
                     }
                 },
@@ -617,14 +616,10 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
     )
     .await
     .expect("create workspace");
-    let repo = ProjectRepo::add_repo_to_project(
-        pool,
-        project_id,
-        &repo_dir.to_string_lossy(),
-        "dimo",
-    )
-    .await
-    .expect("add repo to project");
+    let repo =
+        ProjectRepo::add_repo_to_project(pool, project_id, &repo_dir.to_string_lossy(), "dimo")
+            .await
+            .expect("add repo to project");
     WorkspaceRepo::create_many(
         pool,
         workspace.id,
@@ -733,7 +728,10 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
         }),
     )
     .await;
-    assert_eq!(source["publicWebhookPath"], "/api/pulse/webhooks/src-gh-ci-e2e");
+    assert_eq!(
+        source["publicWebhookPath"],
+        "/api/pulse/webhooks/src-gh-ci-e2e"
+    );
 
     let example_def: Value = serde_json::from_str(include_str!(
         "../../../examples/workflows/github-ci-autofix.dimo-workflow.json"
@@ -801,7 +799,10 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
         .fetch_one(pool)
         .await
         .unwrap();
-    assert_eq!(runs_after_success, 0, "success conclusion should not match rule");
+    assert_eq!(
+        runs_after_success, 0,
+        "success conclusion should not match rule"
+    );
 
     // 5b. Case 1 — Failure webhook with invalid non-JSON assistant output -> isolated worktree + `invalid_structured_output` + 0 comments
     std::fs::write(&reply_file, "Not valid JSON prose output").expect("write invalid reply");
@@ -855,11 +856,8 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
     );
 
     // 5c. Case 2 — PR #42 failure webhook with valid structured JSON -> PR issue comment delivered
-    std::fs::write(
-        &reply_file,
-        r#"{"summary":"修复缺失导出并补齐单测"}"#,
-    )
-    .expect("write PR summary reply");
+    std::fs::write(&reply_file, r#"{"summary":"修复缺失导出并补齐单测"}"#)
+        .expect("write PR summary reply");
     let (status, resp2) = post_github_workflow_run_webhook(
         router.clone(),
         "src-gh-ci-e2e",
@@ -914,11 +912,8 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
     assert_eq!(sub_count, 1, "diagnose-and-fix should subscribe PR thread");
 
     // 5d. Case 3 — Commit-only failure webhook (`pull_requests: []`, `head_sha`) -> commit comment delivered
-    std::fs::write(
-        &reply_file,
-        r#"{"summary":"修复 main 提交 lint 问题"}"#,
-    )
-    .expect("write commit summary reply");
+    std::fs::write(&reply_file, r#"{"summary":"修复 main 提交 lint 问题"}"#)
+        .expect("write commit summary reply");
     let commit_sha = "deadbeef1234567890abcdef";
     let (status, resp3) = post_github_workflow_run_webhook(
         router.clone(),

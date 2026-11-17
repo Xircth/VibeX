@@ -107,7 +107,10 @@ pub async fn invalidate_engine_caches_for_agent(agent_id: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::atomic::{AtomicUsize, Ordering}};
+    use std::{
+        collections::HashMap,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use async_trait::async_trait;
     use futures::stream;
@@ -262,7 +265,11 @@ mod tests {
         assert_eq!(codex.kind(), Some(NativeEngineKind::CodexNative));
 
         let opencode = registry
-            .resolve_driver_for_agent("builtin:opencode", EngineRuntimePreference::NativeFirst, None)
+            .resolve_driver_for_agent(
+                "builtin:opencode",
+                EngineRuntimePreference::NativeFirst,
+                None,
+            )
             .expect("pluggable third driver resolved without runner enum changes");
         assert_eq!(opencode.engine_id(), "opencode-native");
         assert_eq!(opencode.kind(), None);
@@ -323,7 +330,10 @@ mod tests {
         assert_eq!(codex_tool.title, "git status");
         assert!(codex_tool.meta.is_none());
 
-        let entries = vec![("q_0".to_string(), vec!["web".to_string(), "cli".to_string()])];
+        let entries = vec![(
+            "q_0".to_string(),
+            vec!["web".to_string(), "cli".to_string()],
+        )];
         let keys = vec![("q_0".to_string(), "Target platform?".to_string())];
         assert_eq!(
             claude.encode_question_answers(&entries, &keys),

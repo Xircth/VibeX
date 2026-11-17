@@ -87,7 +87,7 @@ describe('Astryx SegmentedControl chrome', () => {
       'var(--surface-thumb)'
     );
     expect(controlDecls['border-radius']).toBe(
-      'var(--_segmented-control-radius)'
+      'var(--_radius-segmented-control)'
     );
     expect(controlDecls['border-radius']).not.toBe('999px');
 
@@ -99,9 +99,7 @@ describe('Astryx SegmentedControl chrome', () => {
     expect(itemDecls.color).toBe(
       'var(--color-text-secondary, var(--text-muted))'
     );
-    expect(itemDecls['border-radius']).toContain(
-      '--_segmented-control-radius'
-    );
+    expect(itemDecls['border-radius']).toContain('--_radius-segmented-control');
     expect(itemDecls['box-shadow']).toBe('none');
 
     expect(smItemDecls.height).toBe('calc(var(--size-element-sm, 28px) - 6px)');

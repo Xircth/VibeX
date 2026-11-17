@@ -216,7 +216,8 @@ const AgentTimelineConversation = forwardRef<
     () => selectableAgents.filter(isEnabledInstalledAgent),
     [selectableAgents]
   );
-  const usesComposerStatusDock = useOptionalConversationStatus()?.enabled ?? false;
+  const usesComposerStatusDock =
+    useOptionalConversationStatus()?.enabled ?? false;
   const { hidePersonaHostNotes } = useSessionSurfaceChrome();
   const timeline = conversation.timeline;
   const isTurnInFlight = useMemo(

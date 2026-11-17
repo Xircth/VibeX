@@ -102,4 +102,3 @@ export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
     </DropdownMenu>
   );
 }
-

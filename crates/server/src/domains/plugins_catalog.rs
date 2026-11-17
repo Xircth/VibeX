@@ -166,7 +166,10 @@ impl ServerApplicationDomains {
         Ok(json!({ "plugins": plugin_values, "runtimes": runtime_values }))
     }
 
-    pub(super) async fn plugin_product_detail(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_product_detail(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginIdentityArgs = parse(args)?;
         let plugin = self
             .plugin_control_plane()
@@ -177,9 +180,8 @@ impl ServerApplicationDomains {
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
         let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
             .unwrap_or_else(|_| plugin.package.clone());
-        let detail = normalize_product_detail_readme(
-            refreshed.product_detail().map_err(internal_error)?,
-        );
+        let detail =
+            normalize_product_detail_readme(refreshed.product_detail().map_err(internal_error)?);
         serialize(detail)
     }
 
@@ -214,9 +216,8 @@ impl ServerApplicationDomains {
                 .await?;
             self.apply_default_plugin_mcp_projections(&plugin).await?;
         }
-        let detail = normalize_product_detail_readme(
-            refreshed.product_detail().map_err(internal_error)?,
-        );
+        let detail =
+            normalize_product_detail_readme(refreshed.product_detail().map_err(internal_error)?);
         serialize(detail)
     }
 
@@ -230,7 +231,10 @@ impl ServerApplicationDomains {
         serialize(catalog)
     }
 
-    pub(super) async fn provider_catalog_list(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn provider_catalog_list(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         struct ProviderCatalogListArgs {
             #[serde(alias = "agentId")]
@@ -267,7 +271,10 @@ impl ServerApplicationDomains {
         serialize(listed)
     }
 
-    pub(super) async fn plugin_resolve_file_opener(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_resolve_file_opener(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: ResolveFileOpenerArgs = parse(args)?;
         serialize(
             self.plugin_control_plane()
@@ -301,7 +308,10 @@ impl ServerApplicationDomains {
         }))
     }
 
-    pub(super) async fn plugin_control_set_enabled(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_control_set_enabled(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginEnabledArgs = parse(args)?;
         if args.plugin_id == plugins::HOST_MULTI_AGENT_ID {
             return self.set_host_collaboration_enabled(args.enabled).await;
@@ -418,7 +428,10 @@ impl ServerApplicationDomains {
         )
     }
 
-    pub(super) async fn plugin_control_install_runtime(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_control_install_runtime(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginRuntimeArgs = parse(args)?;
         let control_plane = self.plugin_control_plane().await?;
         let plugin = control_plane
@@ -693,7 +706,10 @@ impl ServerApplicationDomains {
         Ok(plugin_control_item(&imported.plugin))
     }
 
-    pub(super) async fn plugin_resolve_provider_bind(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_resolve_provider_bind(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct BindArgs {
@@ -707,7 +723,10 @@ impl ServerApplicationDomains {
         ))
     }
 
-    pub(super) async fn plugin_control_import_cli(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_control_import_cli(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct ImportCliArgs {

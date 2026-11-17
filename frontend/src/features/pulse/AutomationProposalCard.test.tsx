@@ -246,9 +246,15 @@ describe('PulseEvalModeControl & AutomationProposalCard', () => {
           'Ephemeral Session · Fresh Context'
         )
       ).toBeVisible();
-      expect(screen.getByRole('group', { name: 'Evaluation mode' })).toBeVisible();
-      expect(screen.getByRole('button', { name: /Test Sample/i })).toBeVisible();
-      expect(screen.getByRole('button', { name: /Save \/ Enable/i })).toBeVisible();
+      expect(
+        screen.getByRole('group', { name: 'Evaluation mode' })
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: /Test Sample/i })
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: /Save \/ Enable/i })
+      ).toBeVisible();
     } finally {
       await act(async () => {
         await i18n.changeLanguage('zh-CN');

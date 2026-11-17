@@ -360,7 +360,9 @@ export function WorkspaceTabAddMenu({
               };
               const targetSessionId =
                 activeParams.sessionId?.trim() ||
-                (activePanel ? extractSessionIdFromPanelId(activePanel.id) : null);
+                (activePanel
+                  ? extractSessionIdFromPanelId(activePanel.id)
+                  : null);
               const targetWorkspaceId =
                 activeParams.workspaceId?.trim() ||
                 worktree?.activeWorktreeId ||

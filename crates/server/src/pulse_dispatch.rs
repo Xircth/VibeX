@@ -69,7 +69,9 @@ impl ServerApplicationDomains {
         // and deduplicate cleanly within the same event dispatch plan.
         let mut ordered_actions: Vec<&PulseDispatchAction> = plan.actions.iter().collect();
         ordered_actions.sort_by_key(|action| match action {
-            PulseDispatchAction::SpawnOrSendSession { rule_id, .. } => usize::from(rule_id.is_none()),
+            PulseDispatchAction::SpawnOrSendSession { rule_id, .. } => {
+                usize::from(rule_id.is_none())
+            }
             _ => 0,
         });
 
@@ -89,9 +91,14 @@ impl ServerApplicationDomains {
             .await
             {
                 if let Some(rule_id) = action_rule_id(action) {
-                    rule_errors.entry(rule_id.to_string()).or_insert_with(|| error.clone());
+                    rule_errors
+                        .entry(rule_id.to_string())
+                        .or_insert_with(|| error.clone());
                 }
-                tracing::debug!(?error, "Pulse dispatch action completed in best-effort mode");
+                tracing::debug!(
+                    ?error,
+                    "Pulse dispatch action completed in best-effort mode"
+                );
             }
         }
 
@@ -646,26 +653,22 @@ impl ServerApplicationDomains {
                 BotConversationScope::FixedPrimary => None,
                 BotConversationScope::PerThreadTopic => peeked.thread_key.as_deref(),
             };
-            let bot_session = match resolve_pulse_bot_session(
-                &self.pool,
-                member_id,
-                topic_key,
-                workspace.id,
-            )
-            .await
-            {
-                Ok(session) => session,
-                Err(err) => {
-                    if let Ok(Some(claimed)) = self
-                        .pulse_engine
-                        .claim_next_bot_turn(member_id, Utc::now())
-                        .await
-                    {
-                        let _ = store.fail_bot_turn(&claimed.primary.id).await;
+            let bot_session =
+                match resolve_pulse_bot_session(&self.pool, member_id, topic_key, workspace.id)
+                    .await
+                {
+                    Ok(session) => session,
+                    Err(err) => {
+                        if let Ok(Some(claimed)) = self
+                            .pulse_engine
+                            .claim_next_bot_turn(member_id, Utc::now())
+                            .await
+                        {
+                            let _ = store.fail_bot_turn(&claimed.primary.id).await;
+                        }
+                        return Err(err.to_string());
                     }
-                    return Err(err.to_string());
-                }
-            };
+                };
 
             if find_active_turn_id(&self.pool, bot_session.conversation_id)
                 .await
@@ -806,7 +809,8 @@ impl ServerApplicationDomains {
                         if !is_busy && !in_flight_convs.is_empty() {
                             let tag = format!("Pulse · {}", rule.id);
                             for &conv_id in &in_flight_convs {
-                                if let Ok(Some(sess)) = Session::find_by_id(&self.pool, conv_id).await
+                                if let Ok(Some(sess)) =
+                                    Session::find_by_id(&self.pool, conv_id).await
                                     && sess.name.as_deref() == Some(tag.as_str())
                                 {
                                     is_busy = true;

@@ -473,10 +473,7 @@ export function AgentSettingsDetailSections({
             onToggle={() => setNativePluginsExpanded((current) => !current)}
             summary={t('settings:agents.pluginCount', { count: pluginCount })}
           >
-            <PiPluginManager
-              onChanged={onPreflight}
-              onCount={setPluginCount}
-            />
+            <PiPluginManager onChanged={onPreflight} onCount={setPluginCount} />
           </CollapsibleSettingsSection>
         ) : nativePluginEcosystem ? (
           <CollapsibleSettingsSection

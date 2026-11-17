@@ -64,7 +64,12 @@ async fn codex_native_driver_streams_deltas_resumes_steers_with_real_turn_id_and
                         .as_str()
                         .unwrap_or("thr-1")
                         .to_string();
-                    reply(&mut w, &id, json!({ "turn": { "id": "codex-turn-real-7" } })).await;
+                    reply(
+                        &mut w,
+                        &id,
+                        json!({ "turn": { "id": "codex-turn-real-7" } }),
+                    )
+                    .await;
                     let thr = json!({ "threadId": tid });
                     let msg = json!({ "threadId": tid, "itemId": "msg-1", "delta": "Hello Codex" });
                     let cmd =
@@ -274,7 +279,11 @@ async fn codex_server_cache_key_tracks_codex_home_config_and_invalidate_clears_c
     let codex_home = tmp.path().join(".codex");
     std::fs::create_dir_all(&codex_home).expect("mkdir");
     std::fs::write(codex_home.join("config.toml"), "model = \"gpt-5.3\"\n").expect("write config");
-    std::fs::write(codex_home.join("auth.json"), "{\"OPENAI_API_KEY\":\"sk-1\"}").expect("write auth");
+    std::fs::write(
+        codex_home.join("auth.json"),
+        "{\"OPENAI_API_KEY\":\"sk-1\"}",
+    )
+    .expect("write auth");
 
     let mut spec = test_start_spec();
     spec.env.insert(
@@ -290,14 +299,22 @@ async fn codex_server_cache_key_tracks_codex_home_config_and_invalidate_clears_c
         "editing CODEX_HOME/config.toml must change CodexServerCacheKey"
     );
 
-    std::fs::write(codex_home.join("auth.json"), "{\"OPENAI_API_KEY\":\"sk-2\"}").expect("update auth");
+    std::fs::write(
+        codex_home.join("auth.json"),
+        "{\"OPENAI_API_KEY\":\"sk-2\"}",
+    )
+    .expect("update auth");
     let key3 = CodexServerCacheKey::from_spec(&spec);
     assert_ne!(
         key2, key3,
         "editing CODEX_HOME/auth.json must change CodexServerCacheKey"
     );
 
-    std::fs::write(codex_home.join("dimo-model-catalog.json"), "{\"models\":[]}").expect("write catalog");
+    std::fs::write(
+        codex_home.join("dimo-model-catalog.json"),
+        "{\"models\":[]}",
+    )
+    .expect("write catalog");
     let key4 = CodexServerCacheKey::from_spec(&spec);
     assert_ne!(
         key3, key4,
@@ -483,4 +500,3 @@ fn codex_token_usage_subtracts_cached_input_and_separates_total_spend_from_last_
         other => panic!("expected UsageUpdated, got {other:?}"),
     }
 }
-

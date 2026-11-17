@@ -226,7 +226,10 @@ export function AgentSettings() {
       setUpdateCheck(null);
       setChecking(false);
       void Promise.allSettled([
-        agentManagementApi.readConfig(selectedAgentId, activeProviderInstanceId),
+        agentManagementApi.readConfig(
+          selectedAgentId,
+          activeProviderInstanceId
+        ),
         agentManagementApi.actions(selectedAgentId, activeProviderInstanceId),
       ]).then(([configResult, actionsResult]) => {
         if (!active) return;
@@ -1079,7 +1082,13 @@ export function AgentSettings() {
     } finally {
       setCheckingUpdate(false);
     }
-  }, [applyBackgroundUpdateCheck, preflight, selectedAgent, selectedAgentId, t]);
+  }, [
+    applyBackgroundUpdateCheck,
+    preflight,
+    selectedAgent,
+    selectedAgentId,
+    t,
+  ]);
 
   const applyUpdate = useCallback(async () => {
     if (
@@ -1438,7 +1447,9 @@ export function AgentSettings() {
           setPluginCount={setPluginCount}
           onDirtySource={setDirtySource}
           onNotifyAuthenticationChanged={notifyAuthenticationChanged}
-          onRunManagementAction={(actionId) => void runManagementAction(actionId)}
+          onRunManagementAction={(actionId) =>
+            void runManagementAction(actionId)
+          }
           onSaveConfig={saveConfig}
           onSaveConfigFile={(request) => void saveConfigFile(request)}
           onReloadConflict={() => void reloadConflict()}

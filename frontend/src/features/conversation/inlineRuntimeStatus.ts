@@ -90,7 +90,10 @@ export function isConnectionSupersededByTurnError(
 ): boolean {
   if (!hasLatestTurnErrorRow || !latestTurnError) return false;
   if (CONNECTION_ERROR_TURN_KINDS.has(latestTurnError.kind)) return true;
-  if (latestTurnError.code && CONNECTION_ERROR_TURN_CODES.has(latestTurnError.code)) {
+  if (
+    latestTurnError.code &&
+    CONNECTION_ERROR_TURN_CODES.has(latestTurnError.code)
+  ) {
     return true;
   }
   return false;

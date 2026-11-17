@@ -76,12 +76,7 @@ describe('marketplace search', () => {
     office.displayName = 'Dimo Office';
     office.summary = 'Office files';
     expect(
-      listingMatchesSearch(
-        office,
-        '办公套件',
-        '办公套件',
-        '在 Dimo 中预览文档'
-      )
+      listingMatchesSearch(office, '办公套件', '办公套件', '在 Dimo 中预览文档')
     ).toBe(true);
     expect(
       listingMatchesSearch(office, 'office', '办公套件', '在 Dimo 中预览文档')

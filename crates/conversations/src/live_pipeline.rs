@@ -17,8 +17,10 @@
 //! The sink only sees the finished [`ConversationRowOpBatch`] and the optional
 //! [`WorkspaceSessionsChanged`] notification.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use agents::conversation::{
     ConversationEvent, ConversationPromptSuggestion, ConversationRowOp, ConversationRowOpBatch,
@@ -128,10 +130,7 @@ impl ConversationLivePipeline {
 
     /// Drop locks for conversations no longer in the projector cache, unless
     /// another task holds a reference (strong_count > 1 means someone is waiting).
-    fn prune_conversation_locks(
-        &self,
-        active: &HashMap<Uuid, CachedRowProjector>,
-    ) {
+    fn prune_conversation_locks(&self, active: &HashMap<Uuid, CachedRowProjector>) {
         let mut map = self
             .conversation_locks
             .lock()
@@ -298,9 +297,7 @@ impl ConversationLivePipeline {
             let previous_sequence = entry.last_emitted_sequence;
             for item in &new_records {
                 match entry.apply_persisted(item) {
-                    Ok(Some(record_ops)) => {
-                        extend_coalesced_row_ops(&mut ops, record_ops)
-                    }
+                    Ok(Some(record_ops)) => extend_coalesced_row_ops(&mut ops, record_ops),
                     Ok(None) => {}
                     Err(error) => {
                         tracing::warn!(sequence = item.sequence, %error, "row-op emit: fold failed");
@@ -322,9 +319,9 @@ impl ConversationLivePipeline {
 
         // Emit the batch if we have anything worth sending.
         if let Some((previous_sequence, last_sequence)) = should_emit {
-            let emit_global =
-                should_emit_global(&ops, &control, queue_changed);
-            let immediate_barrier = is_immediate_barrier(&new_records, &ops, &control, queue_changed);
+            let emit_global = should_emit_global(&ops, &control, queue_changed);
+            let immediate_barrier =
+                is_immediate_barrier(&new_records, &ops, &control, queue_changed);
             let is_streaming = !immediate_barrier && is_streaming_batch(&new_records, &ops);
             let batch = ConversationRowOpBatch {
                 conversation_id,
@@ -463,9 +460,13 @@ impl ConversationLivePipeline {
                 continue;
             }
             if rec.sequence > prev_seq + 1
-                && let Ok(mid_gap) =
-                    ConversationEventRecord::events_since(&self.pool, conversation_id, prev_seq, 2000)
-                        .await
+                && let Ok(mid_gap) = ConversationEventRecord::events_since(
+                    &self.pool,
+                    conversation_id,
+                    prev_seq,
+                    2000,
+                )
+                .await
             {
                 for gap in mid_gap {
                     if gap.sequence < rec.sequence && gap.sequence > prev_seq {
@@ -540,7 +541,8 @@ impl ConversationLivePipeline {
 
         if let Some((previous_sequence, last_sequence)) = should_emit {
             let emit_global = should_emit_global(&ops, &control, queue_changed);
-            let immediate_barrier = is_immediate_barrier(&new_records, &ops, &control, queue_changed);
+            let immediate_barrier =
+                is_immediate_barrier(&new_records, &ops, &control, queue_changed);
             let is_streaming = !immediate_barrier && is_streaming_batch(&new_records, &ops);
             let batch = ConversationRowOpBatch {
                 conversation_id,
@@ -722,9 +724,7 @@ fn is_streaming_batch(records: &[ConversationEventRecord], ops: &[ConversationRo
 ///
 /// These are not timeline rows — they ride along in the batch so the frontend
 /// can update session metadata without a separate channel.
-fn extract_session_control_state(
-    records: &[ConversationEventRecord],
-) -> SessionControlState {
+fn extract_session_control_state(records: &[ConversationEventRecord]) -> SessionControlState {
     let mut state = SessionControlState::default();
 
     for record in records {
@@ -787,7 +787,8 @@ fn should_emit_global(
     control: &SessionControlState,
     queue_changed: bool,
 ) -> bool {
-    !ops.iter().all(|op| matches!(op, ConversationRowOp::AppendText { .. }))
+    !ops.iter()
+        .all(|op| matches!(op, ConversationRowOp::AppendText { .. }))
         || !control.is_empty()
         || queue_changed
 }
@@ -809,19 +810,16 @@ const WORKBENCH_EVENT_KINDS: &[&str] = &[
 
 /// Check if any record in the batch affects the workbench.
 fn is_workbench_changed(records: &[ConversationEventRecord]) -> bool {
-    records.iter().any(|record| {
-        WORKBENCH_EVENT_KINDS.contains(&record.event_kind.as_str())
-    })
+    records
+        .iter()
+        .any(|record| WORKBENCH_EVENT_KINDS.contains(&record.event_kind.as_str()))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use std::sync::Arc;
+    use std::{str::FromStr, sync::Arc};
 
-    use agents::conversation::{
-        ConversationEvent, ConversationInputBlock, ConversationRowOpBatch,
-    };
+    use agents::conversation::{ConversationEvent, ConversationInputBlock, ConversationRowOpBatch};
     use db::models::{
         conversation_event::{AppendConversationEvent, ConversationEventRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
@@ -929,11 +927,7 @@ mod tests {
         let pool = test_pool().await;
         let projectors = ConversationRowProjectors::default();
         let (sink, batches, _workbench) = CapturingSink::new();
-        let pipeline = ConversationLivePipeline::new(
-            pool.clone(),
-            projectors,
-            Arc::new(sink),
-        );
+        let pipeline = ConversationLivePipeline::new(pool.clone(), projectors, Arc::new(sink));
 
         let conversation_id = Uuid::new_v4();
         let turn_id = Uuid::new_v4();
@@ -968,10 +962,7 @@ mod tests {
         pipeline.publish(&rec1).await;
 
         let captured = batches.lock().unwrap().clone();
-        let first_batches: Vec<_> = captured
-            .iter()
-            .filter(|(ch, _)| ch == &channel)
-            .collect();
+        let first_batches: Vec<_> = captured.iter().filter(|(ch, _)| ch == &channel).collect();
         assert_eq!(first_batches.len(), 1);
         assert_eq!(first_batches[0].1.previous_sequence, Some(0));
         assert_eq!(first_batches[0].1.last_sequence, 1);
@@ -992,14 +983,8 @@ mod tests {
         pipeline.publish(&rec2).await;
 
         let captured = batches.lock().unwrap().clone();
-        let per_conv: Vec<_> = captured
-            .iter()
-            .filter(|(ch, _)| ch == &channel)
-            .collect();
-        assert!(
-            per_conv.is_empty(),
-            "empty ops record must not emit batch"
-        );
+        let per_conv: Vec<_> = captured.iter().filter(|(ch, _)| ch == &channel).collect();
+        assert!(per_conv.is_empty(), "empty ops record must not emit batch");
 
         // Third event: unpersisted assistant_text_delta
         batches.lock().unwrap().clear();
@@ -1026,10 +1011,8 @@ mod tests {
         pipeline.publish_unpersisted(&unpersisted).await;
 
         let captured = batches.lock().unwrap().clone();
-        let unpersisted_batches: Vec<_> = captured
-            .iter()
-            .filter(|(ch, _)| ch == &channel)
-            .collect();
+        let unpersisted_batches: Vec<_> =
+            captured.iter().filter(|(ch, _)| ch == &channel).collect();
         assert_eq!(unpersisted_batches.len(), 1);
         assert_eq!(
             unpersisted_batches[0].1.previous_sequence,
@@ -1050,10 +1033,7 @@ mod tests {
         pipeline.publish(&rec3).await;
 
         let captured = batches.lock().unwrap().clone();
-        let final_batches: Vec<_> = captured
-            .iter()
-            .filter(|(ch, _)| ch == &channel)
-            .collect();
+        let final_batches: Vec<_> = captured.iter().filter(|(ch, _)| ch == &channel).collect();
         assert_eq!(final_batches.len(), 1);
         assert_eq!(
             final_batches[0].1.previous_sequence,
@@ -1143,7 +1123,11 @@ mod tests {
         }
 
         // Non-workbench events
-        for kind in ["assistant_text_delta", "tool_call_upsert", "raw_diagnostic_recorded"] {
+        for kind in [
+            "assistant_text_delta",
+            "tool_call_upsert",
+            "raw_diagnostic_recorded",
+        ] {
             assert!(
                 !super::is_workbench_changed(&[make_record(kind)]),
                 "{kind} should not be workbench-affecting"
@@ -1235,9 +1219,7 @@ mod tests {
             idempotency_key: None,
             created_at: chrono::Utc::now(),
         };
-        pipeline
-            .publish_batch(&[mem_delta_1, mem_delta_2])
-            .await;
+        pipeline.publish_batch(&[mem_delta_1, mem_delta_2]).await;
 
         let captured = batches.lock().unwrap().clone();
         let conv_batches: Vec<_> = captured.iter().filter(|(ch, _)| ch == &channel).collect();

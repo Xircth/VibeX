@@ -666,6 +666,7 @@ pub(super) async fn read_json_object_or_empty(path: &Path) -> Result<Value, Appl
 #[cfg(test)]
 mod tests {
     use api_types::AgentAuthModeKind;
+
     use super::*;
 
     #[test]

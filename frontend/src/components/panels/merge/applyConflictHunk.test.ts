@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  applyConflictHunk,
-  getResolvedHunkIndices,
-} from './applyConflictHunk';
+import { applyConflictHunk, getResolvedHunkIndices } from './applyConflictHunk';
 
 const RESULT = [
   'keep',

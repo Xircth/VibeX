@@ -160,10 +160,8 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
 
     const kanbanEntries = kanbanViewRegistry.getAll();
     expect(kanbanEntries.map((v) => v.id)).toEqual([
-      'builtin:columns',
-      'builtin:sessions',
-      'builtin:canvas',
       'builtin:usage',
+      'builtin:pulse',
     ]);
 
     const settingsPages = settingsPageRegistry.getAll();
@@ -532,9 +530,7 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
     // Conversation mode automatically falls back to Standard Chat!
     expect(screen.getByTestId('standard-chat-timeline')).toBeInTheDocument();
     expect(
-      document.head.querySelector(
-        'style[data-dimo-plugin="acme.super-plugin"]'
-      )
+      document.head.querySelector('style[data-dimo-plugin="acme.super-plugin"]')
     ).toBeNull();
   });
 });

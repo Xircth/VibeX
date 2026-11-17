@@ -8,5 +8,5 @@ mod tests_2;
 mod tests_3;
 mod tests_4;
 
-pub(self) use tests_1::{dummy_runner, test_launch_lock};
-pub(self) use tests_3::dummy_runner_for_agent;
+use tests_1::{dummy_runner, test_launch_lock};
+use tests_3::dummy_runner_for_agent;

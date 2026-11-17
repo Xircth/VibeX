@@ -40,13 +40,13 @@ use agents::{
         ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
         ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationRowsSincePage,
         ConversationSessionGoal, ConversationSessionModes, ConversationSessionNotice,
-        ConversationSteeringDeliveryMode, ConversationSteeringEvent,
-        ConversationSummary, ConversationTerminalPatch, ConversationTerminalView,
-        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
-        ConversationToolCallPatch, ConversationTurnErrorKind, ConversationUsage,
-        ConversationWorkflowRef, DeliveryChannel, ImageData, InternalPromptBlock, MessageTurn,
-        PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
-        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationSteeringDeliveryMode, ConversationSteeringEvent, ConversationSummary,
+        ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
+        ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
+        ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, DeliveryChannel,
+        ImageData, InternalPromptBlock, MessageTurn, PlanEntry, SessionLoadFailureReason,
+        SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream,
+        TurnBlockedReason, TurnRole, TurnUsage,
     },
     request_status::{
         ConversationConnectionStatus, ConversationRequestStatus, RequestActivity, RequestPhase,
@@ -87,6 +87,18 @@ use api_types::{
     PiRuntimeSaveRequest, PiTrustEntryView, PiTrustSetRequest, PiTrustWorkspaceRequest,
     UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
     UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
+    pulse::{
+        ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventActor, EventEnvelope,
+        EventSourceKind, EventSourceMeta, EventTrace, EventTrustLevel, GateFilterAst,
+        GateFilterCondition, GroupDispatchMode, GroupMentionOrder, MandateOrigin,
+        PresetOrchestratorKind, PulseCallbackKind, PulseCallbackSpec, PulseDeckSnapshot,
+        PulseDryRunReport, PulseDryRunViolation, PulseEvalMode, PulseEventSchemaView,
+        PulseObservedCandidateView, PulseOutboxEntryView, PulseRuleSpec, PulseRuleView,
+        PulseSourceTestResult, PulseSourceView, PulseSubscriptionView, PulseTargetSpec,
+        PulseTaskKind, PulseTaskLifecycleState, PulseTaskMeta, PulseTemporalSpec,
+        PulseUserInteractionView, PulseWorkspaceIsolation, ReplyChannelAddress,
+        SessionDeliveryStrategy, SessionTargetMode, UserInteractionKind, UserInteractionSeverity,
+    },
 };
 use application::{ConversationLiveFeedbackNote, ConversationOutputView};
 use conversations::{
@@ -106,6 +118,16 @@ use db::models::{
     task::{CreateTask, Task, TaskRelationships, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     workspace::{Workspace, WorkspaceWithStatus},
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
+};
+use dimo::commands::{
+    artifact_preview::ArtifactPreviewLeaseDto,
+    attention::{AttentionInbox, AttentionItem, AttentionItemKind},
+    conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
+    crash_reports::{CrashReportMeta, CrashReportsInfo},
+    sessions::{
+        SessionCollaborationMemberRef, SessionCollaborationRef, SessionContinuityMode,
+        SessionSummary,
+    },
 };
 use executors::{
     actions::{ExecutorAction, ExecutorActionType},
@@ -136,28 +158,6 @@ use services::services::{
     },
 };
 use ts_rs::TS;
-use dimo::commands::{
-    artifact_preview::ArtifactPreviewLeaseDto,
-    attention::{AttentionInbox, AttentionItem, AttentionItemKind},
-    conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
-    crash_reports::{CrashReportMeta, CrashReportsInfo},
-    sessions::{
-        SessionCollaborationMemberRef, SessionCollaborationRef, SessionContinuityMode,
-        SessionSummary,
-    },
-};
-use api_types::pulse::{
-    ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventActor, EventEnvelope,
-    EventSourceKind, EventSourceMeta, EventTrace, EventTrustLevel, GateFilterAst,
-    GateFilterCondition, GroupDispatchMode, GroupMentionOrder, MandateOrigin,
-    PresetOrchestratorKind, PulseCallbackKind, PulseCallbackSpec, PulseDeckSnapshot,
-    PulseDryRunReport, PulseDryRunViolation, PulseEvalMode, PulseEventSchemaView,
-    PulseObservedCandidateView, PulseOutboxEntryView, PulseRuleSpec, PulseRuleView,
-    PulseSourceTestResult, PulseSourceView, PulseSubscriptionView, PulseTargetSpec,
-    PulseTaskKind, PulseTaskLifecycleState, PulseTaskMeta, PulseTemporalSpec,
-    PulseUserInteractionView, PulseWorkspaceIsolation, ReplyChannelAddress,
-    SessionDeliveryStrategy, SessionTargetMode, UserInteractionKind, UserInteractionSeverity,
-};
 use workflows::{
     AgentStepSpec, ApprovalStepSpec, BotStepSpec, BoundedLoopStepSpec, ClaimedWorkflowStep,
     CompletionPolicy, ConditionBranchStepSpec, DebugRunScope, DirectReflexPresetConfig,

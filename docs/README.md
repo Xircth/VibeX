@@ -42,7 +42,7 @@ Welcome to the Dimo documentation hub. Every document here describes **current `
 | [`docs/agents/`](agents/) | Local `.scratch/` issue tracker conventions (`issue-tracker.md`, `triage-labels.md`) used by repository automation skills. |
 | [`docs/security/dependency-license-audit.md`](security/dependency-license-audit.md) | Dependency license gate (`pnpm run dependency:licenses`) and supply-chain audit policy. |
 | [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) & [`docs/third-party/`](third-party/) | Open-source attributions, vendored skill notices, and clean-room adoption provenance. |
-| [`docs/release/`](release/) | Versioned release notes (`0.1.2.md` – `0.4.4.md`) consumed by GitHub Release pipelines. |
+| [`docs/release/`](release/) | Versioned release notes (`0.1.2.md` – `0.5.0.md`) consumed by GitHub Release pipelines. |
 | [`AGENTS.md`](../AGENTS.md) / [`CLAUDE.md`](../CLAUDE.md) | Engineering bootstrap, commands, coding conventions, and architectural invariants for contributors and coding agents. |
 
 ## Documentation Hygiene Rule

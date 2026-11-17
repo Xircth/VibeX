@@ -83,7 +83,7 @@ const UserMessage = ({
 
     // Defer the first measurement by one frame so nested content (markdown
     // blocks, images) has finished its own layout before we read heights.
-    let rafId = requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       measureCollapse();
     });
 

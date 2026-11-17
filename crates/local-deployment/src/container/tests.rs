@@ -302,6 +302,7 @@ async fn stop_execution_test_pool() -> SqlitePool {
             external_session_id TEXT,
             agent_type TEXT,
             agent_id TEXT,
+            provider_instance_id TEXT,
             title_locked INTEGER NOT NULL DEFAULT 0,
             pinned_at TEXT,
             deleted_at TEXT,

@@ -251,7 +251,10 @@ command = "node"
         assert!(scrubbed_local.contains(&"CODEX_HOME"));
 
         let mut custom = HashMap::new();
-        custom.insert("DIMO_PROVIDER_INSTANCE_ID".to_string(), "work-1".to_string());
+        custom.insert(
+            "DIMO_PROVIDER_INSTANCE_ID".to_string(),
+            "work-1".to_string(),
+        );
         custom.insert("CLAUDE_CONFIG_DIR".to_string(), "/tmp/work-1".to_string());
         custom.insert("ANTHROPIC_API_KEY".to_string(), "sk-work".to_string());
         let scrubbed_custom = scrub_keys_for_agent_launch(&claude, &custom);

@@ -734,7 +734,7 @@ fn evaluate_condition(cond: &Value, envelope: &Value) -> bool {
                 Some(Value::String(s)) => s.contains(needle),
                 Some(Value::Array(items)) => items.iter().any(|item| match item {
                     Value::String(s) => s == needle,
-                    other => other.to_string() == needle,
+                    other => serde_json::to_string(other).ok().as_deref() == Some(needle),
                 }),
                 _ => false,
             }

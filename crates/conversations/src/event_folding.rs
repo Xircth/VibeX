@@ -330,47 +330,48 @@ async fn apply_planned_folds_in_tx(
     .collect();
 
     let (events_before, max_sequence_before, recomputed_mutations);
-    let mutations: &[PlannedFoldMutation] =
-        if tx_max_sequence == planned_max_sequence && tx_in_flight_turns == *planned_in_flight_turns {
-            events_before = planned_events_before;
-            max_sequence_before = planned_max_sequence;
-            planned_mutations
-        } else {
-            let records: Vec<ConversationEventRecord> = sqlx::query_as(
-                r#"SELECT id, conversation_id, turn_id, binding_id, connection_id, prompt_id,
+    let mutations: &[PlannedFoldMutation] = if tx_max_sequence == planned_max_sequence
+        && tx_in_flight_turns == *planned_in_flight_turns
+    {
+        events_before = planned_events_before;
+        max_sequence_before = planned_max_sequence;
+        planned_mutations
+    } else {
+        let records: Vec<ConversationEventRecord> = sqlx::query_as(
+            r#"SELECT id, conversation_id, turn_id, binding_id, connection_id, prompt_id,
                           sequence, source, event_kind, event_version, normalized_json, raw_json,
                           idempotency_key, created_at
                    FROM conversation_events
                    WHERE conversation_id = ?
                    ORDER BY sequence ASC"#,
-            )
-            .bind(conversation_id)
-            .fetch_all(&mut *conn)
-            .await?;
-            events_before = records.len();
-            if events_before < 2 {
-                return Ok(FoldReport {
-                    conversations_scanned: 1,
-                    events_before,
-                    events_after: events_before,
-                    bytes_reclaimed: 0,
-                    fold_operations: 0,
-                });
-            }
-            max_sequence_before = records.iter().map(|r| r.sequence).max().unwrap_or(0);
-            recomputed_mutations =
-                plan_conversation_folds(&records, &tx_in_flight_turns, recent_turn_buffer);
-            if recomputed_mutations.is_empty() {
-                return Ok(FoldReport {
-                    conversations_scanned: 1,
-                    events_before,
-                    events_after: events_before,
-                    bytes_reclaimed: 0,
-                    fold_operations: 0,
-                });
-            }
-            &recomputed_mutations
-        };
+        )
+        .bind(conversation_id)
+        .fetch_all(&mut *conn)
+        .await?;
+        events_before = records.len();
+        if events_before < 2 {
+            return Ok(FoldReport {
+                conversations_scanned: 1,
+                events_before,
+                events_after: events_before,
+                bytes_reclaimed: 0,
+                fold_operations: 0,
+            });
+        }
+        max_sequence_before = records.iter().map(|r| r.sequence).max().unwrap_or(0);
+        recomputed_mutations =
+            plan_conversation_folds(&records, &tx_in_flight_turns, recent_turn_buffer);
+        if recomputed_mutations.is_empty() {
+            return Ok(FoldReport {
+                conversations_scanned: 1,
+                events_before,
+                events_after: events_before,
+                bytes_reclaimed: 0,
+                fold_operations: 0,
+            });
+        }
+        &recomputed_mutations
+    };
 
     let mut deleted_total = 0usize;
     let mut bytes_reclaimed = 0usize;

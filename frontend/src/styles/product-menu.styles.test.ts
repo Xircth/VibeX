@@ -16,7 +16,11 @@ function declarationsFor(
     if (normalized !== selector) return;
     rule.walkDecls((declaration) => {
       declarations[declaration.prop] = {
-        value: declaration.value,
+        value: declaration.value
+          .replace(/\s+/g, ' ')
+          .replace(/\(\s+/g, '(')
+          .replace(/\s+\)/g, ')')
+          .trim(),
         important: declaration.important,
       };
     });

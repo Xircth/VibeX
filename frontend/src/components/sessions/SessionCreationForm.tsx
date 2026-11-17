@@ -168,13 +168,14 @@ export function SessionCreationForm({
     ? selectedInstanceByAgent[canonicalInstanceAgent]
     : undefined;
   const effectiveInstanceId = instanceOptions.hasMultipleInstances
-    ? instanceOptions.options.some((item) => item.instanceId === chosenInstanceId)
+    ? instanceOptions.options.some(
+        (item) => item.instanceId === chosenInstanceId
+      )
       ? chosenInstanceId!
       : instanceOptions.defaultInstanceId
     : LOCAL_PROVIDER_INSTANCE_ID;
-  const scopedInstanceId = normalizeProviderInstanceIdForApi(
-    effectiveInstanceId
-  );
+  const scopedInstanceId =
+    normalizeProviderInstanceIdForApi(effectiveInstanceId);
   const instanceOptionsReady =
     !instanceOptions.supported || !instanceOptions.isLoading;
   const defaultsScopeKey = executor
@@ -202,8 +203,7 @@ export function SessionCreationForm({
       controlsWorkspaceId ?? '',
       scopedInstanceId
     ),
-    queryFn: () =>
-      loadAgentSessionControlsCatalog(executor!, scopedInstanceId),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!, scopedInstanceId),
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -211,8 +211,7 @@ export function SessionCreationForm({
   });
   const schemaQuery = useQuery({
     queryKey: sessionControlsSchemaQueryKey(executor ?? '', scopedInstanceId),
-    queryFn: () =>
-      loadAgentSessionControlsCatalog(executor!, scopedInstanceId),
+    queryFn: () => loadAgentSessionControlsCatalog(executor!, scopedInstanceId),
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -305,9 +304,10 @@ export function SessionCreationForm({
       return;
     }
     backgroundRefreshAgent.current = defaultsScopeKey;
-    void (scopedInstanceId
-      ? agentsApi.refreshCapabilityCatalog(executor, scopedInstanceId)
-      : agentsApi.refreshCapabilityCatalog(executor)
+    void (
+      scopedInstanceId
+        ? agentsApi.refreshCapabilityCatalog(executor, scopedInstanceId)
+        : agentsApi.refreshCapabilityCatalog(executor)
     )
       .then(async (refreshed) => {
         if (!refreshed) {
@@ -345,12 +345,7 @@ export function SessionCreationForm({
       );
     }
     setDefaultsHydratedScope(defaultsScopeKey);
-  }, [
-    defaultsQuery.data,
-    defaultsQuery.isFetched,
-    defaultsScopeKey,
-    executor,
-  ]);
+  }, [defaultsQuery.data, defaultsQuery.isFetched, defaultsScopeKey, executor]);
 
   const supportsRemoteSessionList =
     activeControls?.capabilities?.list_sessions === true;

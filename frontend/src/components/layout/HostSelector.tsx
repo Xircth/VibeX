@@ -168,8 +168,7 @@ function ConnectHostDialog({
       : undefined) ??
     profiles.find(
       (item) =>
-        item.origin === origin.trim() ||
-        savedHostOrigin(item) === origin.trim()
+        item.origin === origin.trim() || savedHostOrigin(item) === origin.trim()
     );
   const isSshProfile =
     savedHostSource(matchedProfile?.provision_kind) === 'ssh';
@@ -234,7 +233,10 @@ function ConnectHostDialog({
       }
       if (result.stopped_host) {
         toast.success(
-          t('settings:webService.stoppedHostForClient', '已停止本机远程连接服务')
+          t(
+            'settings:webService.stoppedHostForClient',
+            '已停止本机远程连接服务'
+          )
         );
       }
       onClose();
@@ -291,9 +293,14 @@ function ConnectHostDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={(event) => void handleSubmit(event)} className="space-y-3.5">
+        <form
+          onSubmit={(event) => void handleSubmit(event)}
+          className="space-y-3.5"
+        >
           <div className="space-y-1.5">
-            <Label>{t('settings:webService.manualOriginLabel', 'Host 地址')}</Label>
+            <Label>
+              {t('settings:webService.manualOriginLabel', 'Host 地址')}
+            </Label>
             <TextInput
               ref={originInputRef}
               label={t('settings:webService.manualOriginLabel', 'Host 地址')}
@@ -464,10 +471,7 @@ function NewSshHostDialog({
         if (!nextOpen) onClose();
       }}
     >
-      <DialogContent
-        data-testid="new-ssh-host-dialog"
-        className="max-w-2xl"
-      >
+      <DialogContent data-testid="new-ssh-host-dialog" className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {t('toolbar.newSshHostDialogTitle', '新建 SSH Host')}

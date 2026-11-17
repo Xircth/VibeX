@@ -383,7 +383,10 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           pulseClient.listSources(),
         ]);
 
-      if (eventsResult.status === 'fulfilled' && eventsResult.value.length > 0) {
+      if (
+        eventsResult.status === 'fulfilled' &&
+        eventsResult.value.length > 0
+      ) {
         setCapturedEvents(eventsResult.value);
       } else {
         setCapturedEvents([...BUILT_IN_SAMPLE_EVENTS]);
@@ -674,19 +677,22 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     workflowClient,
   ]);
 
-  const applyDefinitionChange = useCallback((next: StudioWorkflowDefinition) => {
-    hasUserEditedRef.current = true;
-    setStatusMessage(null);
-    setDefinition((current) => {
-      if (
-        serializeStudioDefinition(current) === serializeStudioDefinition(next)
-      ) {
-        return current;
-      }
-      setUndoStack((stack) => [...stack.slice(-39), current]);
-      return next;
-    });
-  }, []);
+  const applyDefinitionChange = useCallback(
+    (next: StudioWorkflowDefinition) => {
+      hasUserEditedRef.current = true;
+      setStatusMessage(null);
+      setDefinition((current) => {
+        if (
+          serializeStudioDefinition(current) === serializeStudioDefinition(next)
+        ) {
+          return current;
+        }
+        setUndoStack((stack) => [...stack.slice(-39), current]);
+        return next;
+      });
+    },
+    []
+  );
 
   const handleUndo = useCallback(() => {
     setUndoStack((stack) => {
@@ -740,7 +746,14 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       }
       return triggerSteps.length;
     },
-    [definition, projectId, pulseClient, savedRuleIds, sourceRuleId, triggerSteps]
+    [
+      definition,
+      projectId,
+      pulseClient,
+      savedRuleIds,
+      sourceRuleId,
+      triggerSteps,
+    ]
   );
 
   const persistWorkflow = useCallback(
@@ -854,7 +867,12 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         agentPollTimerRef.current = null;
       }
     }, 4000);
-  }, [activeVersion?.id, loadWorkflowSelection, selectedDefinitionId, workflowClient]);
+  }, [
+    activeVersion?.id,
+    loadWorkflowSelection,
+    selectedDefinitionId,
+    workflowClient,
+  ]);
 
   const loadAgentSessionControls = useCallback(
     (agentId: string) => loadAgentSessionControlsCatalog(agentId),
@@ -869,10 +887,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   const handleTestNode = useCallback(
     async (stepId: string) => {
       const target = definition.steps.find((item) => item.id === stepId);
-      if (
-        !target ||
-        (target.kind !== 'session' && target.kind !== 'agent')
-      ) {
+      if (!target || (target.kind !== 'session' && target.kind !== 'agent')) {
         return;
       }
       try {
@@ -933,7 +948,14 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         toast.error(error instanceof Error ? error.message : String(error));
       }
     },
-    [defaultAgentId, definition.name, definition.steps, projectId, selectedDefinitionId, t]
+    [
+      defaultAgentId,
+      definition.name,
+      definition.steps,
+      projectId,
+      selectedDefinitionId,
+      t,
+    ]
   );
 
   const mergedSteps = useMemo(() => {

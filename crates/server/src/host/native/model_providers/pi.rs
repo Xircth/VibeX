@@ -54,9 +54,7 @@ pub(super) fn project_with_pi_native(
         });
         let configured_in_models = native.providers.iter().any(|item| {
             !item.api_url.is_empty()
-                && (item.id == provider.id
-                    || item.id == slug
-                    || item.api_url == provider.api_url)
+                && (item.id == provider.id || item.id == slug || item.api_url == provider.api_url)
         });
         if configured_in_models {
             provider.bound = true;

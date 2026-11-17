@@ -39,7 +39,9 @@ fn agent_block_to_transcript_block(block: AgentContentBlock) -> TranscriptConten
 
 fn agent_block_to_acp_content_block(block: &AgentContentBlock) -> Option<ContentBlock> {
     match block {
-        AgentContentBlock::Text { text } => Some(ContentBlock::Text(TextContent::new(text.clone()))),
+        AgentContentBlock::Text { text } => {
+            Some(ContentBlock::Text(TextContent::new(text.clone())))
+        }
         AgentContentBlock::Image {
             data,
             mime_type,

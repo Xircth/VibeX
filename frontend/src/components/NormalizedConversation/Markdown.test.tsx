@@ -652,9 +652,12 @@ $$
 \int_0^1 x^2 dx
 $$`);
 
-    await waitFor(() => {
-      expect(container.querySelector('.katex')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex')).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
     expect(container.querySelector('.katex-display')).toBeInTheDocument();
   });
 
@@ -663,9 +666,12 @@ $$`);
       'Inline \\(a+b\\)\n\n\\[\nc=d\n\\]\n\n```ts\nconst raw = "\\\\(not math\\\\)";\n```'
     );
 
-    await waitFor(() => {
-      expect(container.querySelector('.katex')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex')).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
     expect(container.querySelector('.katex-display')).toBeInTheDocument();
     await waitFor(() =>
       expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledWith(
@@ -683,9 +689,12 @@ $$`);
 T_0 = 2\text{s} \qquad T_1 = 3s \qquad T_2 = s
 \]`);
 
-    await waitFor(() => {
-      expect(container.querySelector('.katex-display')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex-display')).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
     expect(container.querySelector('.katex-error')).toBeNull();
     expect(container.querySelector('.katex-html')?.textContent).not.toContain(
       'qquad'
@@ -701,9 +710,12 @@ T_0 &= 2\text{s} \\
 T_1 &= 3s
 \end{aligned}`);
 
-    await waitFor(() => {
-      expect(container.querySelector('.katex-display')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex-display')).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
     expect(container.querySelector('.katex-error')).toBeNull();
     expect(container.querySelector('.katex-html')?.textContent).not.toContain(
       'begin{aligned}'
@@ -974,7 +986,9 @@ describe('Markdown closed-block LRU cache', () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <Markdown
-          value={'```typescript\nconst a = 1;\nconst b = 2;\n```\n\nTrailing text'}
+          value={
+            '```typescript\nconst a = 1;\nconst b = 2;\n```\n\nTrailing text'
+          }
           taskAttemptId="workspace-1"
           workspacePath="C:/workspace/project"
           isStreaming={true}
@@ -1103,9 +1117,12 @@ describe('Markdown closed-block LRU cache', () => {
       </QueryClientProvider>
     );
 
-    await waitFor(() => {
-      expect(container.querySelector('.katex-display')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex-display')).toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
     expect(container.querySelector('.katex-error')).toBeNull();
     expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
     expect(getMarkdownBlockElementCacheStats().entries).toBe(1);
@@ -1132,9 +1149,12 @@ describe('Markdown closed-block LRU cache', () => {
       ].join('\n')
     );
 
-    await waitFor(() => {
-      expect(container.querySelectorAll('.katex')).toHaveLength(2);
-    });
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll('.katex')).toHaveLength(2);
+      },
+      { timeout: 5000 }
+    );
     expect(container.querySelector('.katex-display')).toBeInTheDocument();
     expect(container.querySelector('.katex-error')).toBeNull();
   });

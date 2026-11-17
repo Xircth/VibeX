@@ -13,10 +13,7 @@ vi.mock('@/lib/frontendPreferences', () => ({
 }));
 
 import { StartupOverlayContext } from '@/contexts/StartupOverlayContext';
-import {
-  clearLocalStorageCache,
-  writeLocalStorage,
-} from '@/lib/safeStorage';
+import { clearLocalStorageCache, writeLocalStorage } from '@/lib/safeStorage';
 import {
   GITHUB_STAR_PROMPT_KEY,
   GITHUB_STAR_REPO_URL,

@@ -21,4 +21,3 @@ export function useWorkspaceBranchStatus(workspaceId?: string) {
     placeholderData: (prev) => prev,
   });
 }
-

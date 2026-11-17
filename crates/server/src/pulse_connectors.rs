@@ -8,9 +8,7 @@ use std::{
     time::Duration,
 };
 
-use api_types::pulse::{
-    EventEnvelope, EventSourceKind, EventTrustLevel, PulseSourceTestResult,
-};
+use api_types::pulse::{EventEnvelope, EventSourceKind, EventTrustLevel, PulseSourceTestResult};
 use application::ApplicationError;
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
@@ -143,11 +141,8 @@ pub async fn bridge_feishu_inbound_to_pulse(
         if !source.view.enabled || source.view.kind != EventSourceKind::Feishu {
             continue;
         }
-        let is_long_conn = source
-            .config_json
-            .get("mode")
-            .and_then(Value::as_str)
-            == Some("long_connection");
+        let is_long_conn =
+            source.config_json.get("mode").and_then(Value::as_str) == Some("long_connection");
         let bridge_flag = source
             .config_json
             .get("bridgeChatChannel")
@@ -176,15 +171,18 @@ pub async fn bridge_feishu_inbound_to_pulse(
             .filter(|s| !s.is_empty())
             .map(str::to_string);
 
-        let Ok(mut envelope) = FeishuSourceNormalizer::new(&source.view.id, bot_open_id)
-            .normalize(&event, now)
+        let Ok(mut envelope) =
+            FeishuSourceNormalizer::new(&source.view.id, bot_open_id).normalize(&event, now)
         else {
             continue;
         };
         envelope.delivery_id = format!("feishu-ws:{}:{message_id}", source.view.id);
 
         if let Some(domains) = find_domain_host_for_source(&source.view.id).await {
-            if let Ok(outcome) = domains.pulse_engine.ingest_event(envelope.clone(), now).await
+            if let Ok(outcome) = domains
+                .pulse_engine
+                .ingest_event(envelope.clone(), now)
+                .await
                 && !outcome.duplicate_delivery
                 && outcome.rejected_reason.is_none()
             {
@@ -321,6 +319,7 @@ impl ServerApplicationDomains {
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn fail_source_test(
         &self,
         engine: &PulseEngine,
@@ -385,7 +384,15 @@ impl ServerApplicationDomains {
             Ok(runs) => runs,
             Err(err_msg) => {
                 return self
-                    .fail_source_test(engine, &source.view.id, "poll", None, None, err_msg, now_iso)
+                    .fail_source_test(
+                        engine,
+                        &source.view.id,
+                        "poll",
+                        None,
+                        None,
+                        err_msg,
+                        now_iso,
+                    )
                     .await;
             }
         };
@@ -667,7 +674,10 @@ impl ServerApplicationDomains {
             let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
             let tag = ring::hmac::sign(&key, &raw_bytes);
             let hex_sig: String = tag.as_ref().iter().map(|b| format!("{b:02x}")).collect();
-            headers.insert("x-hub-signature-256".to_string(), format!("sha256={hex_sig}"));
+            headers.insert(
+                "x-hub-signature-256".to_string(),
+                format!("sha256={hex_sig}"),
+            );
 
             if let Err(reason) = verify_platform_webhook_secret(secret, &headers, &raw_bytes, now) {
                 return self
@@ -889,7 +899,8 @@ impl ServerApplicationDomains {
                 .as_deref()
                 .is_some_and(|w| !w.trim().is_empty());
 
-            let cooldown_ready = should_poll_github_source(&source.view.id, now_epoch, poll_interval);
+            let cooldown_ready =
+                should_poll_github_source(&source.view.id, now_epoch, poll_interval);
             if has_watermark && !cooldown_ready {
                 continue;
             }
@@ -965,10 +976,7 @@ impl ServerApplicationDomains {
                     .get("status")
                     .and_then(Value::as_str)
                     .unwrap_or("completed");
-                let conclusion = run
-                    .get("conclusion")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let conclusion = run.get("conclusion").and_then(Value::as_str).unwrap_or("");
                 let delivery_id =
                     format!("gh-poll:{}:{run_id}:{status}:{conclusion}", source.view.id);
                 let wrapped = wrap_github_workflow_run_payload(&repo, run);
@@ -1259,7 +1267,10 @@ fn compute_github_watermark(runs: &[Value]) -> String {
         .iter()
         .filter_map(|r| {
             let id = r.get("id").and_then(Value::as_u64)?;
-            let st = r.get("status").and_then(Value::as_str).unwrap_or("completed");
+            let st = r
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
             (id < max_id && st != "completed").then_some(id)
         })
         .collect();
@@ -1482,7 +1493,9 @@ mod tests {
             Some("octocat/Hello-World".to_string())
         );
         assert_eq!(
-            normalize_github_repo("https://github.com/octocat/Hello-World/actions?query=branch%3Amain#run"),
+            normalize_github_repo(
+                "https://github.com/octocat/Hello-World/actions?query=branch%3Amain#run"
+            ),
             Some("octocat/Hello-World".to_string())
         );
         assert_eq!(
@@ -1518,4 +1531,3 @@ mod tests {
         );
     }
 }
-

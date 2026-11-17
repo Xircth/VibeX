@@ -20,7 +20,7 @@ import {
 import {
   PulseInteractionCard,
   type PulseInteractionLabels,
-} from '@/components/kanban/pulseInteractionForm';
+} from '@/components/kanban/PulseInteractionForm';
 import { attentionApi } from '@/lib/api/attention';
 import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
 import { usePulseDeckSnapshot } from '@/hooks/usePulseDeckSnapshot';

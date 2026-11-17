@@ -32,7 +32,9 @@ describe('CloneRepoDialog', () => {
 
   it('surfaces an error instead of throwing when pickHostDirectory fails', async () => {
     const user = userEvent.setup();
-    pickHostDirectoryMock.mockRejectedValueOnce(new Error('Browse unavailable'));
+    pickHostDirectoryMock.mockRejectedValueOnce(
+      new Error('Browse unavailable')
+    );
 
     render(
       <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
@@ -42,7 +44,9 @@ describe('CloneRepoDialog', () => {
       </HotkeysProvider>
     );
 
-    await user.click(await screen.findByRole('button', { name: /浏览|Browse/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /浏览|Browse/i })
+    );
 
     expect(await screen.findByText('Browse unavailable')).toBeInTheDocument();
   });

@@ -88,18 +88,34 @@ describe('useSessionComposerQueue', () => {
 
   it('reschedules an input without changing its accepted Agent, settings or history policy', async () => {
     const accepted = input();
-    Object.assign(accepted.payload, { continuationPolicy: 'portable', modeOverride: 'plan',
-      configOverrides: [{ key: 'model', value: 'codex-model' }], fileRefs: [{ path: 'keep.ts' }] });
+    Object.assign(accepted.payload, {
+      continuationPolicy: 'portable',
+      modeOverride: 'plan',
+      configOverrides: [{ key: 'model', value: 'codex-model' }],
+      fileRefs: [{ path: 'keep.ts' }],
+    });
     api.listInputs.mockResolvedValue([accepted]);
-    const { result } = renderHook(() => useSessionComposerQueue({
-      sessionId: 'session-1', workspaceId: 'workspace-1', isAttemptRunning: true,
-      modeOverride: 'other-agent-mode', configOverrides: [],
-    }), { wrapper: wrapperFor(client()) });
+    const { result } = renderHook(
+      () =>
+        useSessionComposerQueue({
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          isAttemptRunning: true,
+          modeOverride: 'other-agent-mode',
+          configOverrides: [],
+        }),
+      { wrapper: wrapperFor(client()) }
+    );
     await waitFor(() => expect(result.current.queuedMessages).toHaveLength(1));
-    await act(async () => { await result.current.delayQueue(result.current.queuedMessages[0], 60); });
-    expect(api.updateInput).toHaveBeenCalledWith(expect.objectContaining({
-      payload: accepted.payload, delaySeconds: 60,
-    }));
+    await act(async () => {
+      await result.current.delayQueue(result.current.queuedMessages[0], 60);
+    });
+    expect(api.updateInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: accepted.payload,
+        delaySeconds: 60,
+      })
+    );
   });
 
   it('hydrates waiting queued and claimed inputs while ignoring terminal inputs', async () => {

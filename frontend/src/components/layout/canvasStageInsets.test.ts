@@ -1,13 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DockviewApi } from 'dockview-react';
-import { EDITOR_GROUP_PREFIX, GROUP_IDS, PANEL_IDS } from '@/stores/useLayoutStore';
+import {
+  EDITOR_GROUP_PREFIX,
+  GROUP_IDS,
+  PANEL_IDS,
+} from '@/stores/useLayoutStore';
 import type { LayoutArrangement } from '@/lib/layoutArrangement';
 import {
   findCanvasBoundarySash,
   measureCanvasStageInsets,
 } from './canvasStageInsets';
 
-function mockRect(el: HTMLElement, rect: { left: number; width: number; height?: number }) {
+function mockRect(
+  el: HTMLElement,
+  rect: { left: number; width: number; height?: number }
+) {
   const height = rect.height ?? 800;
   vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
     x: rect.left,
@@ -123,19 +130,23 @@ describe('canvasStageInsets', () => {
       ],
     } as unknown as Pick<DockviewApi, 'groups'>;
 
-    expect(measureCanvasStageInsets(api, host, RIGHT_DOCK_ARRANGEMENT)).toEqual({
-      left: 0,
-      right: 320,
-    });
+    expect(measureCanvasStageInsets(api, host, RIGHT_DOCK_ARRANGEMENT)).toEqual(
+      {
+        left: 0,
+        right: 320,
+      }
+    );
 
     // Simulate live sash drag widening right Zone A from 320 -> 460
     mockRect(editorEl, { left: 0, width: 940 });
     mockRect(rightDockView, { left: 940, width: 460 });
 
-    expect(measureCanvasStageInsets(api, host, RIGHT_DOCK_ARRANGEMENT)).toEqual({
-      left: 0,
-      right: 460,
-    });
+    expect(measureCanvasStageInsets(api, host, RIGHT_DOCK_ARRANGEMENT)).toEqual(
+      {
+        left: 0,
+        right: 460,
+      }
+    );
   });
 
   it('finds the adjacent Dockview sash on both left and right canvas boundaries', () => {

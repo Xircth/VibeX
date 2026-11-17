@@ -36,7 +36,7 @@ import type {
   PulseUserInteractionView,
 } from '@/lib/api/pulse';
 
-import { PulseInteractionCard } from '../pulseInteractionForm';
+import { PulseInteractionCard } from '../PulseInteractionForm';
 import {
   CANONICAL_WORKFLOW_STARTERS,
   type CanonicalWorkflowStarter,
@@ -66,11 +66,11 @@ const STATUS_VISUAL: Record<
   AutomationTaskStatus,
   { dot: string; tone: FilterStatusTone }
 > = {
-  awaiting_approval: { dot: '#f09a2f', tone: 'todo' },
-  running: { dot: '#16a6c7', tone: 'progress' },
-  active: { dot: '#25a878', tone: 'done' },
-  paused: { dot: '#737373', tone: 'paused' },
-  draft: { dot: '#f09a2f', tone: 'todo' },
+  awaiting_approval: { dot: 'hsl(var(--warning))', tone: 'todo' },
+  running: { dot: 'hsl(var(--info))', tone: 'progress' },
+  active: { dot: 'hsl(var(--success))', tone: 'done' },
+  paused: { dot: 'hsl(var(--muted-foreground))', tone: 'paused' },
+  draft: { dot: 'hsl(var(--warning))', tone: 'todo' },
 };
 
 function resolveSourceIcon(kind: EventSourceKind | string): LucideIcon {
@@ -477,7 +477,9 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
                           )}
                           <span>
                             {isApplying
-                              ? t('pulseDeck.workbench.agent.applyingStarterBtn')
+                              ? t(
+                                  'pulseDeck.workbench.agent.applyingStarterBtn'
+                                )
                               : t('pulseDeck.workbench.agent.applyStarterBtn')}
                           </span>
                         </Button>

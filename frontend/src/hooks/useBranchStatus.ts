@@ -22,4 +22,3 @@ export function useBranchStatus(
     placeholderData: (prev) => prev,
   });
 }
-

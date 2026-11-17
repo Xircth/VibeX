@@ -40,4 +40,3 @@ export default function DockviewProcessesPanel(
     <WorkspaceActivityPanel workspaceId={workspaceId} sessionId={sessionId} />
   );
 }
-

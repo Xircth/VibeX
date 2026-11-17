@@ -384,7 +384,10 @@ pub(super) async fn install_staged_binary_and_siblings(
 /// Replaces `destination` with `source` in the same directory so an active or
 /// lingering process holding `destination` open (Windows `ERROR_SHARING_VIOLATION`
 /// / `os error 32` or Unix `ETXTBSY`) does not block binary ACP updates.
-pub(super) async fn replace_executable_file(source: &Path, destination: &Path) -> anyhow::Result<()> {
+pub(super) async fn replace_executable_file(
+    source: &Path,
+    destination: &Path,
+) -> anyhow::Result<()> {
     let parent = destination
         .parent()
         .ok_or_else(|| anyhow::anyhow!("destination `{}` has no parent", destination.display()))?;
@@ -475,7 +478,9 @@ pub(super) async fn install_kiro_from_official_installer(
     result
 }
 
-pub(super) async fn resolve_installed_kiro_binary(user_env: &UserEnvironmentLayout) -> Option<PathBuf> {
+pub(super) async fn resolve_installed_kiro_binary(
+    user_env: &UserEnvironmentLayout,
+) -> Option<PathBuf> {
     let _ = utils::shell::refresh_process_path_after_install().await;
     if cfg!(windows) {
         let mut candidates = Vec::new();
@@ -742,7 +747,11 @@ pub(super) fn user_bin_destination(user_bin: &Path, command: &str, staged: &Path
     }
 }
 
-pub(super) fn extract_archive(bytes: &[u8], source: &str, destination: &Path) -> anyhow::Result<()> {
+pub(super) fn extract_archive(
+    bytes: &[u8],
+    source: &str,
+    destination: &Path,
+) -> anyhow::Result<()> {
     if source_path(source).to_ascii_lowercase().ends_with(".zip") {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
         archive.extract(destination)?;
@@ -847,7 +856,9 @@ pub(super) fn find_staged_executable(root: &Path, command: &str) -> anyhow::Resu
     anyhow::bail!("extracted archive does not contain `{command}`")
 }
 
-pub(super) async fn prepare_user_environment(user_env: &UserEnvironmentLayout) -> anyhow::Result<()> {
+pub(super) async fn prepare_user_environment(
+    user_env: &UserEnvironmentLayout,
+) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(&user_env.user_bin).await?;
     tokio::fs::create_dir_all(&user_env.npm_bin).await?;
     tokio::fs::create_dir_all(&user_env.uv_tool_dir).await?;
@@ -1053,7 +1064,10 @@ pub(super) async fn file_sha256(path: &Path) -> anyhow::Result<String> {
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-pub(super) async fn run_command(label: &str, mut command: tokio::process::Command) -> anyhow::Result<()> {
+pub(super) async fn run_command(
+    label: &str,
+    mut command: tokio::process::Command,
+) -> anyhow::Result<()> {
     let output = command.output().await?;
     if output.status.success() {
         return Ok(());

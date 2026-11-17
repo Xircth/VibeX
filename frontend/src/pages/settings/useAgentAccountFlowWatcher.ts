@@ -1,4 +1,11 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentAuthenticationStatus,
@@ -121,7 +128,12 @@ export function useAgentAccountFlowWatcher({
 
   useEffect(() => {
     if (!selectedAgentId || registryOpen) return;
-    void watchAccountFlow(selectedAgentId, false, undefined, providerInstanceId);
+    void watchAccountFlow(
+      selectedAgentId,
+      false,
+      undefined,
+      providerInstanceId
+    );
   }, [providerInstanceId, registryOpen, selectedAgentId, watchAccountFlow]);
 
   const runManagementAction = useCallback(

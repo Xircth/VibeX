@@ -100,10 +100,7 @@ async fn build_inline_step_context(
     .await?;
     for (completed_id, raw) in completed_rows {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) {
-            steps_map.insert(
-                completed_id,
-                serde_json::json!({ "output": parsed }),
-            );
+            steps_map.insert(completed_id, serde_json::json!({ "output": parsed }));
         }
     }
 
@@ -949,4 +946,3 @@ fn lookup_context_expr<'a>(
     let pointer = format!("/{}", normalized.trim_start_matches('/').replace('.', "/"));
     select_pointer(context, &pointer)
 }
-

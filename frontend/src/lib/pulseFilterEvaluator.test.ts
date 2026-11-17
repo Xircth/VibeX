@@ -100,7 +100,9 @@ describe('pulseFilterEvaluator Rust <-> TypeScript parity', () => {
         'literal-tilde-one'
       );
       expect(resolveJsonPointer(envelope.payload, '/labels/1')).toBe('urgent');
-      expect(resolveJsonPointer(envelope.payload, '/labels/01')).toBeUndefined();
+      expect(
+        resolveJsonPointer(envelope.payload, '/labels/01')
+      ).toBeUndefined();
     });
 
     it('reports invalid_pointer violations in validatePulseRuleSpec without fail-fast', () => {
@@ -156,7 +158,10 @@ describe('pulseFilterEvaluator Rust <-> TypeScript parity', () => {
             {
               op: 'in_set',
               pointer: '/issue/meta',
-              values: [{ a: 9, b: 9 }, { a: 1, b: 2 }],
+              values: [
+                { a: 9, b: 9 },
+                { a: 1, b: 2 },
+              ],
             },
           ],
         },
@@ -234,7 +239,11 @@ describe('pulseFilterEvaluator Rust <-> TypeScript parity', () => {
         expect(violations).toEqual([]);
       }
 
-      for (const badCron of ['0 9 * *', '0 0 0 9 * * * 2026', 'bad cron * * *']) {
+      for (const badCron of [
+        '0 9 * *',
+        '0 0 0 9 * * * 2026',
+        'bad cron * * *',
+      ]) {
         const violations = validatePulseRuleSpec(
           makeSpec({
             temporal: { kind: 'cron', expression: badCron, timezone: 'UTC' },

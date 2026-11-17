@@ -401,11 +401,11 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         ...CONTROLS,
         config_options: [
           {
-     ...CONTROLS.config_options[0],
-     choices: [
-       ...CONTROLS.config_options[0].choices,
-       { value: 'removed-model', label: 'Removed', description: null },
-     ],
+            ...CONTROLS.config_options[0],
+            choices: [
+              ...CONTROLS.config_options[0].choices,
+              { value: 'removed-model', label: 'Removed', description: null },
+            ],
           },
           CONTROLS.config_options[1],
         ],
@@ -1372,7 +1372,9 @@ describe('SessionCreationForm provider instance selector', () => {
     });
 
     await user.click(screen.getByTestId('session-instance-selector-trigger'));
-    await user.click(await screen.findByTestId('session-instance-option-local'));
+    await user.click(
+      await screen.findByTestId('session-instance-option-local')
+    );
 
     await waitFor(() => {
       expect(onPreset).toHaveBeenLastCalledWith({

@@ -979,16 +979,20 @@ async fn pending_question(
     if !has_active_turn {
         return None;
     }
-    let side_rows = conversations::ConversationProjector::persisted_side_rows(pool, conversation_id)
-        .await
-        .ok()?;
-    side_rows.into_iter().rev().find_map(|entry| match entry.row {
-        agents::conversation::ConversationTimelineRow::QuestionRequest {
-            request,
-            response: None,
-        } => Some(request),
-        _ => None,
-    })
+    let side_rows =
+        conversations::ConversationProjector::persisted_side_rows(pool, conversation_id)
+            .await
+            .ok()?;
+    side_rows
+        .into_iter()
+        .rev()
+        .find_map(|entry| match entry.row {
+            agents::conversation::ConversationTimelineRow::QuestionRequest {
+                request,
+                response: None,
+            } => Some(request),
+            _ => None,
+        })
 }
 
 fn question_choices(request: &agents::conversation::ConversationQuestionRequest) -> Vec<String> {

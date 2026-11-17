@@ -272,7 +272,15 @@ export function AgentAuthModeControl({
       await onChanged?.();
       return true;
     },
-    [agentId, locked, onChanged, onViewChange, providerInstanceId, t, view?.mode]
+    [
+      agentId,
+      locked,
+      onChanged,
+      onViewChange,
+      providerInstanceId,
+      t,
+      view?.mode,
+    ]
   );
   persistModeRef.current = persistMode;
 

@@ -12,7 +12,7 @@ mod principal;
 mod workflow;
 mod workflow_pulse;
 
-pub use agents::ConversationWorkflowRef;
+pub use agents::{ConversationSteeringDeliveryMode, ConversationWorkflowRef};
 pub use args::{ArgShape, decode_command_args, decode_command_args_shaped};
 pub use command::{CommandRegistry, HostCommandDescriptor, HostCommandKind, RegisteredCommand};
 pub use conversation::{
@@ -31,7 +31,6 @@ pub use conversation::{
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;
-pub use agents::ConversationSteeringDeliveryMode;
 pub use conversations::{
     ConversationInputStatus, ConversationInputSubmission, ConversationInputView,
     ConversationRelationView, ConversationSteeringReceipt, ConversationSteeringStatus,

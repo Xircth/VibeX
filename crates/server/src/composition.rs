@@ -83,9 +83,7 @@ pub struct HeadlessServer {
 }
 
 impl HeadlessServer {
-    pub async fn bootstrap(
-        config: ServerBootstrapConfig,
-    ) -> Result<Self, ServerBootstrapError> {
+    pub async fn bootstrap(config: ServerBootstrapConfig) -> Result<Self, ServerBootstrapError> {
         Box::pin(Self::bootstrap_inner(config)).await
     }
 

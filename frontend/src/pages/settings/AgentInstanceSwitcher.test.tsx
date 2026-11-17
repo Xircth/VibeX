@@ -80,7 +80,9 @@ describe('AgentInstanceSwitcher', () => {
 
     // Re-open menu: verify default setting on local, delete disabled on active-session instance, delete enabled on idle instance
     await user.click(trigger);
-    expect(screen.getByTestId('agent-instance-option-local')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('agent-instance-option-local')
+    ).toBeInTheDocument();
     expect(
       screen.getByTestId('agent-instance-delete-claude-busy')
     ).toBeDisabled();

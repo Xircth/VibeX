@@ -34,8 +34,7 @@ import { pluginCatalogQueryKey } from '@/pages/plugins/pluginQueries';
 const POLL_MS = 60_000;
 export const pluginMcpStatusQueryKey = ['plugin-mcp-status'] as const;
 export const localMcpServersQueryKey = ['local-mcp-servers'] as const;
-export const LOCAL_MCP_SERVERS_CHANGED_EVENT =
-  'dimo:local-mcp-servers-changed';
+export const LOCAL_MCP_SERVERS_CHANGED_EVENT = 'dimo:local-mcp-servers-changed';
 
 export function notifyLocalMcpServersChanged() {
   if (typeof window !== 'undefined') {

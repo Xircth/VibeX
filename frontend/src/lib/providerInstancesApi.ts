@@ -3,10 +3,7 @@ import {
   type BackendTransport,
 } from '@/lib/backendTransport';
 
-export type ProviderAuthModeKind =
-  | 'OfficialOAuth'
-  | 'ApiKey'
-  | 'SecretManager';
+export type ProviderAuthModeKind = 'OfficialOAuth' | 'ApiKey' | 'SecretManager';
 
 export type ProviderSecretRef =
   | { kind: 'system_keychain'; keyId: string }
@@ -222,8 +219,10 @@ export function formatProviderInstanceOptionLabel(
 
 export function groupProviderInstancesByAgent(
   instances: ReadonlyArray<ProviderInstanceConfig>,
-  seedAgents: ReadonlyArray<{ agentId: string; label: string }> =
-    DEFAULT_PROVIDER_AGENTS
+  seedAgents: ReadonlyArray<{
+    agentId: string;
+    label: string;
+  }> = DEFAULT_PROVIDER_AGENTS
 ): Array<{
   agentId: string;
   label: string;
@@ -298,7 +297,11 @@ function normalizeAuthMode(raw: unknown): ProviderAuthMode {
             : null,
     };
   }
-  if ('SecretManager' in rec && rec.SecretManager && typeof rec.SecretManager === 'object') {
+  if (
+    'SecretManager' in rec &&
+    rec.SecretManager &&
+    typeof rec.SecretManager === 'object'
+  ) {
     const inner = rec.SecretManager as Record<string, unknown>;
     return {
       mode: 'SecretManager',
@@ -317,7 +320,11 @@ function normalizeAuthMode(raw: unknown): ProviderAuthMode {
             : null,
     };
   }
-  if ('OfficialOAuth' in rec && rec.OfficialOAuth && typeof rec.OfficialOAuth === 'object') {
+  if (
+    'OfficialOAuth' in rec &&
+    rec.OfficialOAuth &&
+    typeof rec.OfficialOAuth === 'object'
+  ) {
     const inner = rec.OfficialOAuth as Record<string, unknown>;
     return {
       mode: 'OfficialOAuth',

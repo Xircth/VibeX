@@ -419,7 +419,9 @@ impl ConversationSessionService {
                 .or(Session::find_by_id(pool, conversation_id)
                     .await?
                     .map(|s| s.workspace_id))
-                .ok_or_else(|| ConversationServiceError::NotFound("Conversation not found".into()))?;
+                .ok_or_else(|| {
+                    ConversationServiceError::NotFound("Conversation not found".into())
+                })?;
             let worktree = if let Some(ws) =
                 db::models::workspace::Workspace::find_by_id(pool, workspace_id).await?
                 && let Some(container_ref) = ws
@@ -1088,8 +1090,7 @@ impl ConversationSessionService {
                     if super::turn_is_auth_blocked(pool, active_turn_id).await? {
                         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
                     } else {
-                        let _ = self
-                            .void_pending_turn_interactions(conversation_id, active_turn_id)
+                        self.void_pending_turn_interactions(conversation_id, active_turn_id)
                             .await?;
                         self.append_event(
                             conversation_id,

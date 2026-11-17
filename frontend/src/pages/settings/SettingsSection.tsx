@@ -56,12 +56,7 @@ export function AgentSectionHeading({
 
   if (description) {
     return (
-      <div
-        className={cn(
-          'agent-section-heading has-description',
-          className
-        )}
-      >
+      <div className={cn('agent-section-heading has-description', className)}>
         {onToggle && !trailingToggle ? (
           <button
             type="button"

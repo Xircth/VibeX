@@ -21,9 +21,9 @@ describe('settingsNavFloat', () => {
     persistFrontendPreference.mockReset();
   });
 
-  it('defaults to a floating settings menu', () => {
+  it('defaults to a fixed settings menu', () => {
     expect(getSettingsNavFloat()).toBe(DEFAULT_SETTINGS_NAV_FLOAT);
-    expect(getSettingsNavFloat()).toBe(true);
+    expect(getSettingsNavFloat()).toBe(false);
   });
 
   it('persists turning the floating menu off', () => {
@@ -37,10 +37,10 @@ describe('settingsNavFloat', () => {
     expect(getSettingsNavFloat()).toBe(false);
   });
 
-  it('treats unknown stored values as the floating default', () => {
+  it('treats unknown stored values as the default', () => {
     localStorage.setItem(SETTINGS_NAV_FLOAT_KEY, 'maybe');
 
-    expect(getSettingsNavFloat()).toBe(true);
+    expect(getSettingsNavFloat()).toBe(false);
   });
 
   it('notifies subscribers on change', () => {

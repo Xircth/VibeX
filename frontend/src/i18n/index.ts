@@ -1,17 +1,13 @@
 /**
  * i18n runtime (P3-1). A module-singleton react-i18next instance — importing
- * this file initializes it (synchronously, resources are bundled) so
- * `useTranslation()` works app-wide with no provider component and no change to
- * the three app roots in App.tsx. Import once in main.tsx before render.
+ * this file starts initialization and loads the active locale bundle
+ * dynamically so unused languages stay out of the startup JS budget.
  *
  * Bilingual zh-CN / en, with the initial language derived from the saved choice
  * or primary system locale. Language selection persists to localStorage via
  * {@link @/lib/uiLanguage}; changing it re-renders subscribers.
- *
- * Coverage is progressive (see docs): only converted screens read from here;
- * everything else stays as literal zh-CN, which matches the default language.
  */
-import i18n from 'i18next';
+import i18n, { type BackendModule, type ReadCallback } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import {
@@ -21,27 +17,6 @@ import {
   LANGUAGE_KEY,
   type UiLanguage,
 } from '@/lib/uiLanguage';
-
-import commonZh from './locales/zh-CN/common.json';
-import settingsZh from './locales/zh-CN/settings.json';
-import statusbarZh from './locales/zh-CN/statusbar.json';
-import appZh from './locales/zh-CN/app.json';
-import tasksZh from './locales/zh-CN/tasks.json';
-import dialogsZh from './locales/zh-CN/dialogs.json';
-import conversationZh from './locales/zh-CN/conversation.json';
-import panelsZh from './locales/zh-CN/panels.json';
-import workflowZh from './locales/zh-CN/workflow.json';
-import basicGuideZh from './locales/zh-CN/basicGuide.json';
-import commonEn from './locales/en/common.json';
-import settingsEn from './locales/en/settings.json';
-import statusbarEn from './locales/en/statusbar.json';
-import appEn from './locales/en/app.json';
-import tasksEn from './locales/en/tasks.json';
-import dialogsEn from './locales/en/dialogs.json';
-import conversationEn from './locales/en/conversation.json';
-import panelsEn from './locales/en/panels.json';
-import workflowEn from './locales/en/workflow.json';
-import basicGuideEn from './locales/en/basicGuide.json';
 
 export const NAMESPACES = [
   'common',
@@ -56,32 +31,72 @@ export const NAMESPACES = [
   'basicGuide',
 ] as const;
 
-export const resources = {
-  'zh-CN': {
-    common: commonZh,
-    settings: settingsZh,
-    statusbar: statusbarZh,
-    app: appZh,
-    tasks: tasksZh,
-    dialogs: dialogsZh,
-    conversation: conversationZh,
-    panels: panelsZh,
-    workflow: workflowZh,
-    basicGuide: basicGuideZh,
+export type LocaleNamespace = (typeof NAMESPACES)[number];
+export type LocaleBundle = Record<LocaleNamespace, Record<string, unknown>>;
+
+const bundleCache = new Map<UiLanguage, LocaleBundle>();
+const bundleInFlight = new Map<UiLanguage, Promise<LocaleBundle>>();
+
+export async function loadLocaleBundle(
+  language: UiLanguage
+): Promise<LocaleBundle> {
+  const cached = bundleCache.get(language);
+  if (cached) return cached;
+
+  const existing = bundleInFlight.get(language);
+  if (existing) return existing;
+
+  const promise = (
+    language === 'zh-CN' ? import('./locales/zh-CN') : import('./locales/en')
+  )
+    .then((mod) => {
+      const bundle = mod.default as unknown as LocaleBundle;
+      bundleCache.set(language, bundle);
+      return bundle;
+    })
+    .finally(() => {
+      bundleInFlight.delete(language);
+    });
+
+  bundleInFlight.set(language, promise);
+  return promise;
+}
+
+export async function ensureLanguageLoaded(
+  language: UiLanguage
+): Promise<void> {
+  await i18nReady;
+  const bundle = await loadLocaleBundle(language);
+  for (const ns of NAMESPACES) {
+    if (!i18n.hasResourceBundle(language, ns)) {
+      i18n.addResourceBundle(language, ns, bundle[ns], true, true);
+    }
+  }
+}
+
+const localeBackend: BackendModule = {
+  type: 'backend',
+  init() {},
+  read(language: string, namespace: string, callback: ReadCallback) {
+    if (language !== 'zh-CN' && language !== 'en') {
+      callback(null, false);
+      return;
+    }
+    void loadLocaleBundle(language)
+      .then((bundle) => {
+        const resource = (bundle as Record<string, Record<string, unknown>>)[
+          namespace
+        ];
+        callback(null, resource ?? false);
+      })
+      .catch((error: unknown) => {
+        callback(
+          error instanceof Error ? error : new Error(String(error)),
+          false
+        );
+      });
   },
-  en: {
-    common: commonEn,
-    settings: settingsEn,
-    statusbar: statusbarEn,
-    app: appEn,
-    tasks: tasksEn,
-    dialogs: dialogsEn,
-    conversation: conversationEn,
-    panels: panelsEn,
-    workflow: workflowEn,
-    basicGuide: basicGuideEn,
-  },
-} as const;
+};
 
 function applyDocumentLanguage(language: string): void {
   if (typeof document !== 'undefined') {
@@ -96,25 +111,24 @@ i18n.on('languageChanged', (language) => {
   applyDocumentLanguage(language);
 });
 
-void i18n.use(initReactI18next).init({
-  resources,
-  lng: initialLanguage,
-  fallbackLng: DEFAULT_LANGUAGE,
-  ns: NAMESPACES,
-  defaultNS: 'common',
-  interpolation: { escapeValue: false },
-  returnNull: false,
-  // Resources are bundled (synchronous) — never suspend on load, and stay safe
-  // in unit tests that render a translated component without importing this
-  // module (t() then returns the key instead of throwing a Suspense promise).
-  react: { useSuspense: false },
-});
+export const i18nReady: Promise<unknown> = i18n
+  .use(localeBackend)
+  .use(initReactI18next)
+  .init({
+    lng: initialLanguage,
+    fallbackLng: DEFAULT_LANGUAGE,
+    ns: NAMESPACES,
+    defaultNS: 'common',
+    interpolation: { escapeValue: false },
+    returnNull: false,
+    react: { useSuspense: false },
+  });
 
 /** Persist + apply a language change; subscribers re-render via i18next events. */
 export function setUiLanguage(language: UiLanguage): void {
   persistUiLanguage(language);
   applyDocumentLanguage(language);
-  void i18n.changeLanguage(language);
+  void ensureLanguageLoaded(language).then(() => i18n.changeLanguage(language));
 }
 
 // Cross-window sync: the Settings webview is a separate JS context with its own
@@ -127,7 +141,7 @@ if (typeof window !== 'undefined') {
     const next = getUiLanguage();
     applyDocumentLanguage(next);
     if (i18n.language !== next) {
-      void i18n.changeLanguage(next);
+      void ensureLanguageLoaded(next).then(() => i18n.changeLanguage(next));
     }
   });
 }

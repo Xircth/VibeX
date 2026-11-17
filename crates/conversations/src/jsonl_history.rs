@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use agents::{
     AgentKind,
     acp_transcript::{
-        self, EntryKind, TranscriptHeader, safe_component, dimo_acp_transcripts_root,
+        self, EntryKind, TranscriptHeader, dimo_acp_transcripts_root, safe_component,
     },
     conversation::{
         ContentBlock, ConversationEvent, ConversationTimeline, ConversationTimelineRow,

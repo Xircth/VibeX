@@ -375,7 +375,9 @@ export function WorkflowStudioToolbar({
                       title={validationTooltip}
                       disabled={publishing || hasValidationIssues}
                     >
-                      {publishing ? t('studio.publishing') : t('studio.publish')}
+                      {publishing
+                        ? t('studio.publishing')
+                        : t('studio.publish')}
                     </Button>
                   </span>
                 ) : null}

@@ -388,15 +388,20 @@ where
 {
     let active = subscriptions
         .iter()
-        .filter(|(_, subscription)| match (subscription, conversation_filter) {
-            (ActiveSubscription::HostEvent { .. }, _) => false,
-            (ActiveSubscription::Conversation { conversation_id, .. }, Some(Some(target))) => {
-                conversation_id.as_uuid() == target
-            }
-            (ActiveSubscription::Conversation { .. }, Some(None)) => true,
-            (ActiveSubscription::WorkflowRun { .. }, Some(_)) => false,
-            (_, None) => true,
-        })
+        .filter(
+            |(_, subscription)| match (subscription, conversation_filter) {
+                (ActiveSubscription::HostEvent { .. }, _) => false,
+                (
+                    ActiveSubscription::Conversation {
+                        conversation_id, ..
+                    },
+                    Some(Some(target)),
+                ) => conversation_id.as_uuid() == target,
+                (ActiveSubscription::Conversation { .. }, Some(None)) => true,
+                (ActiveSubscription::WorkflowRun { .. }, Some(_)) => false,
+                (_, None) => true,
+            },
+        )
         .map(|(id, subscription)| (*id, subscription.clone()))
         .collect::<Vec<_>>();
     for (subscription_id, subscription) in active {
@@ -468,14 +473,8 @@ where
         SubscriptionClientMessage::Attach { request } => {
             let subscription_id = request.subscription_id;
             patch_streams.release(&subscription_id);
-            let attached = attach_resource(
-                state,
-                principal,
-                request,
-                subscriptions,
-                patch_streams,
-            )
-            .await;
+            let attached =
+                attach_resource(state, principal, request, subscriptions, patch_streams).await;
             let (bootstrap, active) = match attached {
                 Ok(attached) => attached,
                 Err(error) => {
@@ -646,8 +645,8 @@ where
                     after_sequence,
                 },
             );
-            let task_key = crate::patch_stream_task_key(&stream, &args)
-                .unwrap_or_else(|_| channel.clone());
+            let task_key =
+                crate::patch_stream_task_key(&stream, &args).unwrap_or_else(|_| channel.clone());
             if let Err(error) = state
                 .commands
                 .execute_name(principal, command, OperationId::new(), args)

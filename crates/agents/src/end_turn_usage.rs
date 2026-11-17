@@ -293,7 +293,10 @@ fn canonicalize_model_token(raw: &str) -> String {
         let split_at = lower.len() - 9;
         if lower.is_char_boundary(split_at) {
             let (head, tail) = lower.split_at(split_at);
-            if tail.starts_with('-') && tail[1..].chars().all(|c| c.is_ascii_digit()) && !head.is_empty() {
+            if tail.starts_with('-')
+                && tail[1..].chars().all(|c| c.is_ascii_digit())
+                && !head.is_empty()
+            {
                 lower = head.to_string();
             }
         }
@@ -332,15 +335,23 @@ fn canonicalize_model_token(raw: &str) -> String {
 
 fn short_alias_matches_family(alias: &str, concrete: &str) -> bool {
     match alias {
-        "opus" => concrete == "opus" || concrete.starts_with("claude-opus") || concrete.contains("-opus"),
+        "opus" => {
+            concrete == "opus" || concrete.starts_with("claude-opus") || concrete.contains("-opus")
+        }
         "sonnet" => {
-            concrete == "sonnet" || concrete.starts_with("claude-sonnet") || concrete.contains("-sonnet")
+            concrete == "sonnet"
+                || concrete.starts_with("claude-sonnet")
+                || concrete.contains("-sonnet")
         }
         "haiku" => {
-            concrete == "haiku" || concrete.starts_with("claude-haiku") || concrete.contains("-haiku")
+            concrete == "haiku"
+                || concrete.starts_with("claude-haiku")
+                || concrete.contains("-haiku")
         }
         "fable" => {
-            concrete == "fable" || concrete.starts_with("claude-fable") || concrete.contains("-fable")
+            concrete == "fable"
+                || concrete.starts_with("claude-fable")
+                || concrete.contains("-fable")
         }
         _ => false,
     }

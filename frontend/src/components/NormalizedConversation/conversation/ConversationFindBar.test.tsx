@@ -46,9 +46,8 @@ describe('ConversationFindBar', () => {
       },
     ];
 
-    const searchGlobal = vi.fn(
-      async ({ offset }: { offset: number }) =>
-        offset === 0 ? page0Hits : page1Hits
+    const searchGlobal = vi.fn(async ({ offset }: { offset: number }) =>
+      offset === 0 ? page0Hits : page1Hits
     );
     const onSelectGlobalHit = vi.fn();
     const onNext = vi.fn();

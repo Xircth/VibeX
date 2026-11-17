@@ -42,6 +42,14 @@ describe('builtin panel manifests', () => {
       ['processes', 'editor', false, 'panelRegistry.processes'],
       ['search', 'left', false, 'panelRegistry.search'],
       ['session-list', 'left', false, 'panelRegistry.sessionList'],
+      ['bots', 'left', false, 'panelRegistry.bots'],
+      [
+        'collaboration-space',
+        'editor',
+        false,
+        'panelRegistry.collaborationSpace',
+      ],
+      ['workflow-studio', 'editor', false, 'panelRegistry.workflowStudio'],
     ]);
   });
 

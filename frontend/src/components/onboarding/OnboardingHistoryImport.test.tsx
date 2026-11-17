@@ -78,11 +78,7 @@ const history: LocalHistoryScanPage = {
   total_sessions: 1,
   importable_count: 1,
 };
-function setup(
-  sources: string[] = ['codex'],
-  active = true,
-  onBack = vi.fn()
-) {
+function setup(sources: string[] = ['codex'], active = true, onBack = vi.fn()) {
   api.discoverLocalHistorySources.mockResolvedValue(sources);
   const onFinish = vi.fn().mockResolvedValue(undefined);
   render(
@@ -281,9 +277,7 @@ describe('onboarding history import', () => {
       name: t('importAndContinue'),
     });
     fireEvent.click(importButton);
-    await waitFor(() =>
-      expect(api.startLocalHistoryImport).toBeCalled()
-    );
+    await waitFor(() => expect(api.startLocalHistoryImport).toBeCalled());
     expect(api.startLocalHistoryImport).toHaveBeenCalledWith([
       {
         agent_id: 'codex',
@@ -336,9 +330,7 @@ describe('onboarding history import', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: t('importAndContinue') })
     );
-    await waitFor(() =>
-      expect(api.startLocalHistoryImport).toHaveBeenCalled()
-    );
+    await waitFor(() => expect(api.startLocalHistoryImport).toHaveBeenCalled());
     await act(async () =>
       api.listener?.({
         ...idle,

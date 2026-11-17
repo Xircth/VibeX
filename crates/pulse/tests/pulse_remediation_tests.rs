@@ -256,7 +256,8 @@ async fn unsigned_webhook_source_rejected_by_default_and_allowed_only_when_expli
 }
 
 #[tokio::test]
-async fn rate_breaker_evicts_expired_buckets_sla_disarms_cleanly_and_bound_session_uuid_preserved() {
+async fn rate_breaker_evicts_expired_buckets_sla_disarms_cleanly_and_bound_session_uuid_preserved()
+{
     let breaker = ChainRateBreaker::new(Duration::seconds(60), 3);
     let t0 = Utc.with_ymd_and_hms(2026, 11, 16, 14, 0, 0).unwrap();
     let _ = breaker.record_and_check("thread-alpha", t0);
@@ -599,7 +600,10 @@ async fn callback_meta_roundtrip_workflow_run_normalizer_and_fast_task_outbox() 
         .expect("normalize completed workflow_run");
     assert_eq!(completed_env.event_type, "github.workflow_run.completed");
     assert_eq!(completed_env.payload["conclusion"], "failure");
-    assert_eq!(completed_env.payload["workflow_run"]["conclusion"], "failure");
+    assert_eq!(
+        completed_env.payload["workflow_run"]["conclusion"],
+        "failure"
+    );
     assert_eq!(completed_env.payload["head_branch"], "feat/pulse");
     assert_eq!(completed_env.payload["name"], "Build & Test");
     assert_eq!(
@@ -708,7 +712,14 @@ async fn callback_meta_roundtrip_workflow_run_normalizer_and_fast_task_outbox() 
         "callback-only FastTask rule should pass rule validation"
     );
     let saved_rule = engine
-        .save_rule(None, true, MandateOrigin::ExplicitHuman, fast_spec, None, t0)
+        .save_rule(
+            None,
+            true,
+            MandateOrigin::ExplicitHuman,
+            fast_spec,
+            None,
+            t0,
+        )
         .await
         .expect("save callback-only fast_task rule");
 
@@ -735,7 +746,7 @@ async fn callback_meta_roundtrip_workflow_run_normalizer_and_fast_task_outbox() 
     }
 
     let deck = engine.deck_snapshot(None).await.expect("deck snapshot");
-    assert_eq!(deck.sources[0].has_signing_secret, true);
+    assert!(deck.sources[0].has_signing_secret);
     assert_eq!(deck.sources[0].config_json["repo"], "acme/vibex");
     assert_eq!(deck.recent_outbox.len(), 1);
     assert_eq!(

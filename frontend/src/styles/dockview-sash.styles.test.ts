@@ -39,9 +39,7 @@ describe('workspace dockview sash', () => {
     expect(line).toBeTruthy();
     expect(selector(line!)).not.toContain('dv-enabled');
     expect(declaration(line!, 'width')).toBe('1px');
-    expect(declaration(line!, 'background-color')).toBe(
-      'var(--workspace-divider-color, var(--dv-sash-color))'
-    );
+    expect(declaration(line!, 'background-color')).toBe('transparent');
     expect(declaration(capsule!, 'width')).toBe('4px');
     expect(declaration(capsule!, 'height')).toBe('21px');
     expect(selector(capsule!)).not.toContain('dv-enabled');

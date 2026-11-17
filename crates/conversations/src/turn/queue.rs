@@ -579,6 +579,7 @@ async fn copy_sqlite_conversation_snapshot_on_connection(
     until_turn_id: Option<Uuid>,
 ) -> Result<(), ConversationServiceError> {
     use std::collections::{HashMap, HashSet};
+
     use db::models::conversation_event::{ConversationEventRecord, insert_conversation_event};
 
     let source_turns = sqlx::query_as::<_, ConversationTurnRecord>(
@@ -690,7 +691,10 @@ async fn copy_sqlite_conversation_snapshot_on_connection(
     let first_dropped_seq = if until_turn_id.is_some() {
         source_events
             .iter()
-            .find(|ev| ev.turn_id.is_some_and(|tid| dropped_turn_ids.contains(&tid)))
+            .find(|ev| {
+                ev.turn_id
+                    .is_some_and(|tid| dropped_turn_ids.contains(&tid))
+            })
             .map(|ev| ev.sequence)
     } else {
         None
@@ -719,11 +723,9 @@ async fn copy_sqlite_conversation_snapshot_on_connection(
             }
         };
         let remapped_normalized_json = if record.event_kind == "conversation_steering" {
-            let Ok(mut event) =
-                serde_json::from_str::<agents::conversation::ConversationEvent>(
-                    &record.normalized_json,
-                )
-            else {
+            let Ok(mut event) = serde_json::from_str::<agents::conversation::ConversationEvent>(
+                &record.normalized_json,
+            ) else {
                 continue;
             };
             if let agents::conversation::ConversationEvent::ConversationSteering {

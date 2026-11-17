@@ -275,9 +275,7 @@ function inferPermissionKind(
   if (trimmedKind && trimmedKind.toLowerCase() !== 'other') {
     return trimmedKind;
   }
-  const canonical = (toolName ?? '')
-    .replace(/[\s._-]/g, '')
-    .toLowerCase();
+  const canonical = (toolName ?? '').replace(/[\s._-]/g, '').toLowerCase();
   if (
     canonical === 'bash' ||
     canonical === 'commandexecution' ||

@@ -1899,18 +1899,20 @@ impl HostCollaborationHost {
             return Ok(json!({ "available": false }));
         };
         let raw_instance_id = text(input, &["providerInstanceId", "provider_instance_id"]);
-        let provider_instance_id = (!raw_instance_id.is_empty()).then_some(raw_instance_id.as_str());
-        let snapshot = match conversations::load_capability_catalog_for_session_defaults_for_provider_instance(
-            &self.pool,
-            runtime,
-            &agent_id,
-            provider_instance_id,
-        )
-        .await
-        {
-            Ok(snapshot) => snapshot,
-            Err(_) => return Ok(json!({ "available": false })),
-        };
+        let provider_instance_id =
+            (!raw_instance_id.is_empty()).then_some(raw_instance_id.as_str());
+        let snapshot =
+            match conversations::load_capability_catalog_for_session_defaults_for_provider_instance(
+                &self.pool,
+                runtime,
+                &agent_id,
+                provider_instance_id,
+            )
+            .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(_) => return Ok(json!({ "available": false })),
+            };
         let modes: Vec<Value> = snapshot
             .modes
             .iter()

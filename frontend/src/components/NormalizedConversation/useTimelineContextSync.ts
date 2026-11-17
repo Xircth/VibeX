@@ -112,10 +112,9 @@ export function useTimelineContextSync({
   askQuestionUses: ReturnType<
     typeof import('@/components/NormalizedConversation/TurnActivity').collectAskQuestionToolUses
   >;
-  latestTurnError: Extract<
-    TimelineRow['row'],
-    { kind: 'turn_error' }
-  >['error']['error'] | null;
+  latestTurnError:
+    | Extract<TimelineRow['row'], { kind: 'turn_error' }>['error']['error']
+    | null;
   latestTurnErrorRow: TimelineRow | undefined;
   latestInterruptedRow: ConversationTimelineTurn | null;
   userOrdinalByKey: Map<string, number>;

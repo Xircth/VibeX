@@ -12,12 +12,12 @@ describe('hostSurfaceIds', () => {
     expect(pluginSurfaceId('dimo.host-surface', 'sample-tab')).toBe(
       'plugin:dimo.host-surface/sample-tab'
     );
-    expect(
-      parsePluginSurfaceId('plugin:dimo.host-surface/sample-tab')
-    ).toEqual({
-      pluginId: 'dimo.host-surface',
-      contributionId: 'sample-tab',
-    });
+    expect(parsePluginSurfaceId('plugin:dimo.host-surface/sample-tab')).toEqual(
+      {
+        pluginId: 'dimo.host-surface',
+        contributionId: 'sample-tab',
+      }
+    );
     expect(pluginSurfaceId('dimo.browser', 'browser', 2)).toBe(
       'plugin:dimo.browser/browser:2'
     );

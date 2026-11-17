@@ -6,10 +6,6 @@ mod plugins_catalog;
 #[path = "domains/plugins_marketplace.rs"]
 mod plugins_marketplace;
 
-pub(crate) use self::plugins_marketplace::plugin_control_item;
-#[allow(unused_imports)]
-use self::plugins_marketplace::*;
-
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use agents::AgentId;
@@ -41,6 +37,9 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+pub(crate) use self::plugins_marketplace::plugin_control_item;
+#[allow(unused_imports)]
+use self::plugins_marketplace::*;
 use crate::{
     PreviewProxyRegistry,
     automation_runtime::HeadlessAutomationRuntime,
@@ -1083,10 +1082,7 @@ mod plugin_invoke_contribution_args {
                 "dimo.core.channels.get_webhooks",
                 DomainCommand::GetChatEventWebhooks,
             ),
-            (
-                "dimo.prompt-enhancer.enhance",
-                DomainCommand::EnhancePrompt,
-            ),
+            ("dimo.prompt-enhancer.enhance", DomainCommand::EnhancePrompt),
             (
                 "dimo.prompt-enhancer.cancel",
                 DomainCommand::CancelEnhancePrompt,

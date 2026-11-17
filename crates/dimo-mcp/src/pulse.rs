@@ -401,11 +401,10 @@ impl PulseState {
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| format!("dlv_{}", Uuid::new_v4().simple()));
-        let source_instance_id =
-            str_field(arguments, &["source_instance_id", "sourceInstanceId"])
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .unwrap_or("dimo-mcp");
+        let source_instance_id = str_field(arguments, &["source_instance_id", "sourceInstanceId"])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("dimo-mcp");
         let root_event_id = meta
             .and_then(|m| m.get("root_event_id").or_else(|| m.get("rootEventId")))
             .and_then(Value::as_str)
@@ -485,15 +484,11 @@ impl PulseState {
         meta: Option<&Value>,
         env_mandate_override: Option<&str>,
     ) -> Value {
-        let prepared = match prepare_rule_save(
-            normalized_args,
-            raw_caller_args,
-            meta,
-            env_mandate_override,
-        ) {
-            Ok(prepared) => prepared,
-            Err(validation_err) => return validation_err,
-        };
+        let prepared =
+            match prepare_rule_save(normalized_args, raw_caller_args, meta, env_mandate_override) {
+                Ok(prepared) => prepared,
+                Err(validation_err) => return validation_err,
+            };
 
         let rule_id = prepared
             .id
@@ -841,8 +836,7 @@ pub(crate) fn prepare_rule_save(
         }));
     }
 
-    let mandate_origin =
-        resolve_mandate_origin(env_mandate_override, meta, Some(raw_caller_args));
+    let mandate_origin = resolve_mandate_origin(env_mandate_override, meta, Some(raw_caller_args));
     let requested_enabled = bool_field(normalized_args, &["enabled"])
         .or_else(|| bool_field(raw_caller_args, &["enabled"]))
         .unwrap_or(false);
@@ -864,29 +858,30 @@ pub(crate) fn prepare_rule_save(
     // CRITICAL SECURITY INVARIANT (`MandateOrigin` + draft/propose coercion):
     // When provenance is `untrusted_external` OR `propose_only`/`draft_only` is
     // requested, coerce `evalMode = "observe"`, `draftOnly = true`, `enabled = false`.
-    let (final_enabled, final_draft_only, final_mode, security_notice) =
-        if mandate_origin == MandateOrigin::UntrustedExternal {
-            (
-                false,
-                true,
-                "observe".to_string(),
-                Some(json!({
-                    "coerced": true,
-                    "code": "untrusted_mandate_draft_coercion",
-                    "mandateOrigin": "untrusted_external",
-                    "requestedEnabled": requested_enabled,
-                    "requestedEvalMode": requested_mode,
-                    "enforcedDraftOnly": true,
-                    "enforcedEnabled": false,
-                    "enforcedEvalMode": "observe",
-                    "message": "Caller MandateOrigin is untrusted_external; rule was coerced to draftOnly=true, enabled=false, evalMode=observe and requires explicit human confirmation.",
-                })),
-            )
-        } else if requested_draft {
-            (false, true, "observe".to_string(), None)
-        } else {
-            (requested_enabled, false, requested_mode, None)
-        };
+    let (final_enabled, final_draft_only, final_mode, security_notice) = if mandate_origin
+        == MandateOrigin::UntrustedExternal
+    {
+        (
+            false,
+            true,
+            "observe".to_string(),
+            Some(json!({
+                "coerced": true,
+                "code": "untrusted_mandate_draft_coercion",
+                "mandateOrigin": "untrusted_external",
+                "requestedEnabled": requested_enabled,
+                "requestedEvalMode": requested_mode,
+                "enforcedDraftOnly": true,
+                "enforcedEnabled": false,
+                "enforcedEvalMode": "observe",
+                "message": "Caller MandateOrigin is untrusted_external; rule was coerced to draftOnly=true, enabled=false, evalMode=observe and requires explicit human confirmation.",
+            })),
+        )
+    } else if requested_draft {
+        (false, true, "observe".to_string(), None)
+    } else {
+        (requested_enabled, false, requested_mode, None)
+    };
 
     if let Some(spec_obj) = spec.as_object_mut() {
         spec_obj.remove("eval_mode");
@@ -898,14 +893,11 @@ pub(crate) fn prepare_rule_save(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
-    let webhook_route_id = str_field(
-        normalized_args,
-        &["webhook_route_id", "webhookRouteId"],
-    )
-    .or_else(|| str_field(raw_caller_args, &["webhook_route_id", "webhookRouteId"]))
-    .map(str::trim)
-    .filter(|s| !s.is_empty())
-    .map(str::to_string);
+    let webhook_route_id = str_field(normalized_args, &["webhook_route_id", "webhookRouteId"])
+        .or_else(|| str_field(raw_caller_args, &["webhook_route_id", "webhookRouteId"]))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
 
     Ok(PreparedRuleSave {
         id,

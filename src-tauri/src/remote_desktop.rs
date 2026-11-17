@@ -188,10 +188,7 @@ impl RemoteDesktopRegistry {
             .client
             .post(format!("{}/api/v1/call/{command}", profile.base_url))
             .bearer_auth(&profile.token.0)
-            .header(
-                "x-dimo-protocol-version",
-                remote_protocol::PROTOCOL_VERSION,
-            )
+            .header("x-dimo-protocol-version", remote_protocol::PROTOCOL_VERSION)
             .json(&serde_json::json!({
                 "operation_id": operation_id.unwrap_or_default(),
                 "args": args,
@@ -212,10 +209,7 @@ impl RemoteDesktopRegistry {
             .client
             .get(format!("{}/api/v1/capabilities", profile.base_url))
             .bearer_auth(&profile.token.0)
-            .header(
-                "x-dimo-protocol-version",
-                remote_protocol::PROTOCOL_VERSION,
-            )
+            .header("x-dimo-protocol-version", remote_protocol::PROTOCOL_VERSION)
             .send()
             .await
             .map_err(internal)?;

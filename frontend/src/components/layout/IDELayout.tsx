@@ -790,7 +790,9 @@ export function IDELayout({
       if (!rightGroup) {
         if (
           shouldShow &&
-          !listSessionGroups(api.groups).some((group) => group.panels.length > 0)
+          !listSessionGroups(api.groups).some(
+            (group) => group.panels.length > 0
+          )
         ) {
           useLayoutStore.getState().setRightPanelVisible(false);
         }
@@ -1052,7 +1054,7 @@ export function IDELayout({
             <div
               ref={setStageCreationHostNode}
               data-testid="workspace-stage-creation-overlay"
-              className="workspace-stage-creation-overlay pointer-events-none absolute top-0 bottom-0 z-20 min-w-0 overflow-hidden rounded-[14px]"
+              className="workspace-stage-creation-overlay pointer-events-none absolute top-0 bottom-0 z-20 min-w-0 overflow-hidden rounded-xl"
               style={{
                 left: canvasStageInsets.left,
                 right: canvasStageInsets.right,

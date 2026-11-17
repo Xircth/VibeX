@@ -174,8 +174,9 @@ pub use conversation::{
     InternalPromptBlock, MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES, MAX_TIMELINE_PREVIEW_BYTES,
     MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
     TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage, cap_content_blocks,
-    cap_json_value, cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
-    extract_and_strip_internal_messages, format_internal_prompt_contributions,
+    cap_json_value, cap_preview_bytes, cap_timeline_preview_fields,
+    cap_timeline_row_preview_fields, extract_and_strip_internal_messages,
+    format_internal_prompt_contributions,
 };
 pub use cursor_auth::cursor_account_token;
 pub use delegation_inject::{

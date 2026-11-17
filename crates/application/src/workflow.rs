@@ -1,10 +1,10 @@
 #[path = "workflow/execution.rs"]
 mod execution;
 
-pub(crate) use self::execution::{UnavailableWorkflowExecution, map_error, principal_json};
-pub use self::execution::ensure_member_session_workspace;
-
 use agents::{AgentId, AgentKind, ConversationInputPayload};
+
+pub use self::execution::ensure_member_session_workspace;
+pub(crate) use self::execution::{UnavailableWorkflowExecution, map_error, principal_json};
 
 pub(crate) fn parse_canonical_agent_id(raw: &str) -> Result<AgentId, ApplicationError> {
     let parsed = AgentId::parse(raw.trim())
@@ -25,9 +25,7 @@ use conversations::{
 use db::models::{
     conversation_input::ConversationInputRecord,
     conversation_side_effects::ConversationFileChangeRecord,
-    conversation_turn::ConversationTurnRecord,
-    task::Task,
-    workspace::Workspace,
+    conversation_turn::ConversationTurnRecord, task::Task, workspace::Workspace,
 };
 use uuid::Uuid;
 use workflows::{
@@ -679,22 +677,24 @@ impl WorkflowAgentDispatcher {
                         )
                         .await
                         {
-                            Ok(text) => match parse_step_assistant_output(&definition, step, text) {
-                                Ok(parsed) => Some(parsed),
-                                Err(err_msg) => {
-                                    self.store
-                                        .fail_step(
-                                            run_id,
-                                            &step_id,
-                                            "invalid_structured_output",
-                                            &err_msg,
-                                        )
-                                        .await
-                                        .map_err(map_error)?;
-                                    changed = true;
-                                    continue;
+                            Ok(text) => {
+                                match parse_step_assistant_output(&definition, step, text) {
+                                    Ok(parsed) => Some(parsed),
+                                    Err(err_msg) => {
+                                        self.store
+                                            .fail_step(
+                                                run_id,
+                                                &step_id,
+                                                "invalid_structured_output",
+                                                &err_msg,
+                                            )
+                                            .await
+                                            .map_err(map_error)?;
+                                        changed = true;
+                                        continue;
+                                    }
                                 }
-                            },
+                            }
                             Err(error) => {
                                 self.store
                                     .fail_step(
@@ -1079,12 +1079,12 @@ pub(crate) fn step_requires_strict_json_output(spec: &WorkflowStepSpec) -> bool 
 fn json_value_contains_text(value: &serde_json::Value, needle: &str) -> bool {
     match value {
         serde_json::Value::String(s) => s.contains(needle),
-        serde_json::Value::Array(items) => {
-            items.iter().any(|item| json_value_contains_text(item, needle))
-        }
-        serde_json::Value::Object(map) => {
-            map.values().any(|val| json_value_contains_text(val, needle))
-        }
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| json_value_contains_text(item, needle)),
+        serde_json::Value::Object(map) => map
+            .values()
+            .any(|val| json_value_contains_text(val, needle)),
         _ => false,
     }
 }
@@ -1098,20 +1098,27 @@ fn downstream_references_structured_output(
         if candidate.id == source_step_id {
             return false;
         }
-        let binding_refs = candidate.input_bindings.values().any(|binding| match binding {
-            workflows::WorkflowBinding::StepOutput { step_id, pointer } => {
-                step_id == source_step_id && !pointer.trim().is_empty() && pointer.trim() != "/"
-            }
-            workflows::WorkflowBinding::RunInput { .. } => false,
-        });
+        let binding_refs = candidate
+            .input_bindings
+            .values()
+            .any(|binding| match binding {
+                workflows::WorkflowBinding::StepOutput { step_id, pointer } => {
+                    step_id == source_step_id && !pointer.trim().is_empty() && pointer.trim() != "/"
+                }
+                workflows::WorkflowBinding::RunInput { .. } => false,
+            });
         if binding_refs {
             return true;
         }
         match &candidate.spec {
             WorkflowStepSpec::Agent(agent) => agent.prompt.contains(&template_marker),
-            WorkflowStepSpec::Session(session) => session.prompt_template.contains(&template_marker),
+            WorkflowStepSpec::Session(session) => {
+                session.prompt_template.contains(&template_marker)
+            }
             WorkflowStepSpec::Bot(bot) => bot.prompt_template.contains(&template_marker),
-            WorkflowStepSpec::GroupStage(group) => group.message_template.contains(&template_marker),
+            WorkflowStepSpec::GroupStage(group) => {
+                group.message_template.contains(&template_marker)
+            }
             WorkflowStepSpec::UserGate(gate) => {
                 gate.title_template.contains(&template_marker)
                     || gate.body_template.contains(&template_marker)
@@ -1168,7 +1175,8 @@ pub(crate) fn extract_json_value_from_text(text: &str) -> Option<serde_json::Val
         if !matches!(ch, '{' | '[') {
             continue;
         }
-        let mut stream = serde_json::Deserializer::from_str(&text[idx..]).into_iter::<serde_json::Value>();
+        let mut stream =
+            serde_json::Deserializer::from_str(&text[idx..]).into_iter::<serde_json::Value>();
         if let Some(Ok(value)) = stream.next()
             && (value.is_object() || value.is_array())
         {
@@ -1204,14 +1212,15 @@ pub(crate) fn parse_step_assistant_output(
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{
-        extract_json_value_from_text, final_assistant_text, parse_step_assistant_output,
-        render_agent_prompt,
-    };
     use workflows::{
         AgentStepSpec, CompletionPolicy, OutboxActionKind, OutboxActionStepSpec, SessionStepSpec,
         SideEffectClass, WorkflowBinding, WorkflowDefinition, WorkflowPolicy, WorkflowStep,
         WorkflowStepSpec, WorkspaceAccess,
+    };
+
+    use super::{
+        extract_json_value_from_text, final_assistant_text, parse_step_assistant_output,
+        render_agent_prompt,
     };
 
     #[test]
@@ -1367,7 +1376,9 @@ mod tests {
             Some(serde_json::json!({"summary": "ok"}))
         );
         assert_eq!(
-            extract_json_value_from_text("Investigation complete: {\"summary\":\"pathed\"} trailing note."),
+            extract_json_value_from_text(
+                "Investigation complete: {\"summary\":\"pathed\"} trailing note."
+            ),
             Some(serde_json::json!({"summary": "pathed"}))
         );
         assert_eq!(extract_json_value_from_text("plain prose response"), None);
@@ -1422,8 +1433,12 @@ mod tests {
         };
 
         assert_eq!(
-            parse_step_assistant_output(&def, &session_step, "```json\n{\"summary\":\"ok\"}\n```".to_owned())
-                .unwrap(),
+            parse_step_assistant_output(
+                &def,
+                &session_step,
+                "```json\n{\"summary\":\"ok\"}\n```".to_owned()
+            )
+            .unwrap(),
             serde_json::json!({"summary": "ok"})
         );
         assert!(parse_step_assistant_output(&def, &session_step, "not json".to_owned()).is_err());
@@ -1454,7 +1469,8 @@ mod tests {
             ..def
         };
         assert_eq!(
-            parse_step_assistant_output(&brief_def, &agent_brief_step, "LGTM prose".to_owned()).unwrap(),
+            parse_step_assistant_output(&brief_def, &agent_brief_step, "LGTM prose".to_owned())
+                .unwrap(),
             serde_json::Value::String("LGTM prose".to_owned())
         );
     }

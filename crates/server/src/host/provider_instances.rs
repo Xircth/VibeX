@@ -13,8 +13,7 @@ use agents::secret_resolution::{
 use application::ApplicationError;
 use db::models::provider_instance::{
     CreateProviderInstanceInput, LOCAL_PROVIDER_INSTANCE_ID, ProviderInstanceRecord,
-    ProviderInstanceStoreError, UpdateProviderInstanceInput, candidate_provider_agent_ids,
-    canonical_provider_agent_id,
+    ProviderInstanceStoreError, UpdateProviderInstanceInput, canonical_provider_agent_id,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -143,7 +142,10 @@ fn slugify_instance_id(display_name: &str) -> String {
     }
 }
 
-fn to_wire_view(record: ProviderInstanceRecord, has_active_sessions: bool) -> ProviderInstanceWireView {
+fn to_wire_view(
+    record: ProviderInstanceRecord,
+    has_active_sessions: bool,
+) -> ProviderInstanceWireView {
     let auth_mode = serde_json::from_str::<Value>(&record.auth_mode)
         .unwrap_or_else(|_| json!({ "mode": "OfficialOAuth" }));
     ProviderInstanceWireView {
@@ -427,19 +429,13 @@ pub(crate) async fn delete(
     ProviderInstanceRecord::delete(domains.writer_pool(), &canonical_agent, &input.instance_id)
         .await
         .map_err(map_store_error)?;
-    let candidates = candidate_provider_agent_ids(&canonical_agent);
-    let placeholders = vec!["?"; candidates.len()].join(", ");
-    let reset_sql = format!(
-        "UPDATE sessions SET provider_instance_id = NULL WHERE provider_instance_id = ? AND agent_id IN ({placeholders})"
-    );
-    let mut reset_q = sqlx::query(&reset_sql).bind(input.instance_id.trim());
-    for candidate in &candidates {
-        reset_q = reset_q.bind(candidate);
-    }
-    reset_q
-        .execute(domains.writer_pool())
-        .await
-        .map_err(internal_error)?;
+    ProviderInstanceRecord::clear_session_assignments(
+        domains.writer_pool(),
+        &canonical_agent,
+        &input.instance_id,
+    )
+    .await
+    .map_err(map_store_error)?;
     if let Ok(parsed_agent) = agents::AgentId::parse(&canonical_agent)
         && let Some(dir) = conversations::host_isolation::isolated_instance_root(
             &parsed_agent,
@@ -555,11 +551,9 @@ pub(crate) async fn test_connection(
                 .await?;
                 let home = dirs::home_dir()
                     .ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-                let present =
-                    agents::official_account_present(&home, &parsed_agent, &env).await;
+                let present = agents::official_account_present(&home, &parsed_agent, &env).await;
                 let resolved_email =
-                    agents::resolve_account_label_with_env(Some(&home), &parsed_agent, &env)
-                        .await;
+                    agents::resolve_account_label_with_env(Some(&home), &parsed_agent, &env).await;
                 ProviderConnectionTestWireResult {
                     ok: present,
                     latency_ms: started.elapsed().as_millis() as u64,

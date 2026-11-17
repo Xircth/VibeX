@@ -19,7 +19,10 @@ impl ServerApplicationDomains {
         serde_json::to_value(page).map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
-    pub(super) async fn plugin_marketplace_listing(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_marketplace_listing(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct ListingArgs {
@@ -88,7 +91,10 @@ impl ServerApplicationDomains {
         serde_json::to_value(detail).map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
-    pub(super) async fn plugin_marketplace_install(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_marketplace_install(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct InstallArgs {
@@ -240,7 +246,10 @@ impl ServerApplicationDomains {
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
-    pub(super) async fn plugin_control_diagnostics(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_control_diagnostics(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginIdentityArgs = parse(args)?;
         let control_plane = self.plugin_control_plane().await?;
         let installed = control_plane
@@ -355,7 +364,10 @@ impl ServerApplicationDomains {
         }))
     }
 
-    pub(super) async fn plugin_control_gc_runtimes(&self, _args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_control_gc_runtimes(
+        &self,
+        _args: Value,
+    ) -> Result<Value, ApplicationError> {
         let reclaimed = self
             .plugin_control_plane
             .reclaim_unreferenced_runtimes(&self.runtime_root)
@@ -400,7 +412,10 @@ impl ServerApplicationDomains {
         Ok(value)
     }
 
-    pub(super) async fn plugin_invoke_contribution(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_invoke_contribution(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginInvokeContributionArgs = parse(args)?;
         let plugin_id = args.plugin_id.trim();
         let handler = args.handler.trim();
@@ -570,7 +585,10 @@ impl ServerApplicationDomains {
         primary
     }
 
-    pub(super) async fn plugin_surface_revoke(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_surface_revoke(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let identity: plugins::AppSurfaceIdentity = parse(args)?;
         self.app_surfaces
             .revoke(&identity)
@@ -633,7 +651,10 @@ impl ServerApplicationDomains {
         })
     }
 
-    pub(super) async fn plugin_open_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_open_file_preview(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginFilePreviewArgs = parse(args)?;
         self.ensure_registered_repo_file(&args.file_path).await?;
         let extension = std::path::Path::new(&args.file_path)
@@ -738,7 +759,10 @@ impl ServerApplicationDomains {
         }
     }
 
-    pub(super) async fn ensure_registered_repo_file(&self, file_path: &str) -> Result<(), ApplicationError> {
+    pub(super) async fn ensure_registered_repo_file(
+        &self,
+        file_path: &str,
+    ) -> Result<(), ApplicationError> {
         let requested = tokio::fs::canonicalize(file_path)
             .await
             .map_err(|_| ApplicationError::not_found("preview file was not found"))?;
@@ -764,7 +788,10 @@ impl ServerApplicationDomains {
         ))
     }
 
-    pub(super) async fn plugin_close_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_close_file_preview(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginFilePreviewArgs = parse(args)?;
         if let Some(lease_id) = args.lease_id {
             self.preview_proxy.revoke(lease_id).await;
@@ -777,7 +804,10 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
-    pub(super) async fn plugin_renew_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_renew_file_preview(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: PluginFilePreviewRenewArgs = parse(args)?;
         let lease = self
             .preview_host
@@ -953,7 +983,9 @@ pub(super) fn plugin_control_item_with_quarantine(
     })
 }
 
-pub(super) async fn download_marketplace_archive(url: &str) -> Result<std::path::PathBuf, ApplicationError> {
+pub(super) async fn download_marketplace_archive(
+    url: &str,
+) -> Result<std::path::PathBuf, ApplicationError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()

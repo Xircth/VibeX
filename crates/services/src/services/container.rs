@@ -818,7 +818,11 @@ pub trait ContainerService: Send + Sync {
                     commit_oid: checkpoint.commit_oid.clone().unwrap_or_default(),
                     head_commit_oid: Some(checkpoint.before_head_commit.clone()),
                 };
-                if checkpoint_ref.restore(&worktree_path, &handle).await.is_ok() {
+                if checkpoint_ref
+                    .restore(&worktree_path, &handle)
+                    .await
+                    .is_ok()
+                {
                     restored_via_hidden_ref = true;
                 }
             }

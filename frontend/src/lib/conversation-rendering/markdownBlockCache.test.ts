@@ -63,10 +63,7 @@ function buildSyntheticDocument(targetChars: number): string {
 function percentile99(samples: number[]): number {
   if (samples.length === 0) return 0;
   const sorted = [...samples].sort((a, b) => a - b);
-  const idx = Math.min(
-    sorted.length - 1,
-    Math.floor(sorted.length * 0.99)
-  );
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99));
   return sorted[idx] ?? 0;
 }
 
@@ -76,8 +73,9 @@ describe('MarkdownBlockCache & streaming performance', () => {
     const cache = new MarkdownBlockCache<string>(MAX_CACHED_CHARS);
 
     const chunkSize = 100_000;
-    const sources = Array.from({ length: 6 }, (_, i) =>
-      `block-${i}-${'x'.repeat(chunkSize - 8)}`
+    const sources = Array.from(
+      { length: 6 },
+      (_, i) => `block-${i}-${'x'.repeat(chunkSize - 8)}`
     );
 
     for (let i = 0; i < 5; i += 1) {
@@ -97,7 +95,9 @@ describe('MarkdownBlockCache & streaming performance', () => {
     cache.set(hashMarkdownBlock(sixth), sixth, 'compiled-5');
 
     expect(cache.totalChars).toBeLessThanOrEqual(MAX_CACHED_CHARS);
-    expect(cache.hit(hashMarkdownBlock(sources[1]!), sources[1]!)).toBeUndefined();
+    expect(
+      cache.hit(hashMarkdownBlock(sources[1]!), sources[1]!)
+    ).toBeUndefined();
     expect(cache.hit(hashMarkdownBlock(sources[0]!), sources[0]!)).toBe(
       'compiled-0'
     );

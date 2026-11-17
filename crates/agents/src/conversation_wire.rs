@@ -605,14 +605,13 @@ fn extract_and_strip_internal_messages_core(
         let earliest = candidates.into_iter().flatten().min_by_key(|(pos, _)| *pos);
 
         let Some((rel_pos, marker)) = earliest else {
-            let emitted_slice = if is_streaming
-                && let Some(partial_rel) = trailing_partial_marker_start(rest)
-            {
-                has_pending_tail = true;
-                &rest[..partial_rel]
-            } else {
-                rest
-            };
+            let emitted_slice =
+                if is_streaming && let Some(partial_rel) = trailing_partial_marker_start(rest) {
+                    has_pending_tail = true;
+                    &rest[..partial_rel]
+                } else {
+                    rest
+                };
             visible_text.push_str(emitted_slice);
             if is_streaming
                 && emitted_slice.len() > MAX_OPEN_MARKER_LEN
@@ -753,13 +752,14 @@ fn extract_and_strip_internal_messages_core(
         }
     }
 
-    let safe_commit_rel = safe_tail.and_then(|(safe_raw, trailing_vis_len, safe_across_collapse)| {
-        if (!collapsed || safe_across_collapse) && visible_text.len() >= trailing_vis_len {
-            Some((safe_raw, visible_text.len() - trailing_vis_len))
-        } else {
-            None
-        }
-    });
+    let safe_commit_rel =
+        safe_tail.and_then(|(safe_raw, trailing_vis_len, safe_across_collapse)| {
+            if (!collapsed || safe_across_collapse) && visible_text.len() >= trailing_vis_len {
+                Some((safe_raw, visible_text.len() - trailing_vis_len))
+            } else {
+                None
+            }
+        });
 
     (
         InternalMessageExtraction {
@@ -785,8 +785,14 @@ pub fn extract_and_strip_internal_messages(
     turn_id: Option<Uuid>,
     is_streaming: bool,
 ) -> InternalMessageExtraction {
-    extract_and_strip_internal_messages_core(raw_text, conversation_id, turn_id, is_streaming, false)
-        .0
+    extract_and_strip_internal_messages_core(
+        raw_text,
+        conversation_id,
+        turn_id,
+        is_streaming,
+        false,
+    )
+    .0
 }
 
 /// Incremental O(1)-amortized variant of [`extract_and_strip_internal_messages`] for

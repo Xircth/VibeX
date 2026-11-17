@@ -65,10 +65,8 @@ function applyConnectionToSteps(
   if (!connection.source || !connection.target) return null;
   if (!isWorkflowConnectionValid(connection, steps)) return null;
 
-  const sourceId =
-    confirmationParentId(connection.source) ?? connection.source;
-  const targetId =
-    confirmationParentId(connection.target) ?? connection.target;
+  const sourceId = confirmationParentId(connection.source) ?? connection.source;
+  const targetId = confirmationParentId(connection.target) ?? connection.target;
   if (sourceId === targetId) return null;
 
   const sourceStep = steps.find((step) => step.id === sourceId);
@@ -191,7 +189,9 @@ function applyDisconnectToSteps(
   return changed ? nextSteps : null;
 }
 
-function computeTopologySignature(definition: StudioWorkflowDefinition): string {
+function computeTopologySignature(
+  definition: StudioWorkflowDefinition
+): string {
   return definition.steps
     .map((step) => {
       const manual =
@@ -497,7 +497,9 @@ export function useWorkflowStudioGraph({
     if (rightOverflow > 0) {
       dx = -rightOverflow;
     }
-    const leftEdge = stepEl ? stepEl.getBoundingClientRect().left : targetRect.left;
+    const leftEdge = stepEl
+      ? stepEl.getBoundingClientRect().left
+      : targetRect.left;
     if (leftEdge + dx < stageRect.left + 24) {
       dx += stageRect.left + 24 - (leftEdge + dx);
     }

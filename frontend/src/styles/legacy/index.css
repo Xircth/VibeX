@@ -347,6 +347,11 @@
     );
     /* Shadow pigment for component-local shadows: hsl(var(--shadow-ink) / a). */
     --shadow-ink: 220 36% 8%;
+    /* Onboarding auto-theme swatch split stops. */
+    --onboarding-swatch-auto-start: #1b1b1b;
+    --onboarding-swatch-auto-end: #e7ebef;
+    /* Backing plate for dark-ink provider icons on dark surfaces. */
+    --provider-icon-backing: #f5f5f5;
     /* Fixed blue glow of full-bleed scenes such as the web connect page. */
     --scene-glow: 220 52% 51%;
     /* QR modules must sit on white in every scheme and theme so phones scan. */
@@ -473,11 +478,7 @@
     --text-faint: #525252;
     --surface-shell: #1b1b1b;
     --surface-topbar: var(--surface-shell);
-    --surface-tabbar: color-mix(
-      in srgb,
-      var(--surface-topbar) 78%,
-      #ffffff
-    );
+    --surface-tabbar: color-mix(in srgb, var(--surface-topbar) 78%, #ffffff);
     --surface-sidebar: var(--surface-topbar);
     --surface-right-panel: var(--surface-topbar);
     --surface-composer: var(--surface-content);
@@ -754,7 +755,10 @@
   }
 
   .legacy-design .session-composer-attachment-drawer {
-    --radius-chat: var(--radius-composer, var(--radius-container, var(--radius)));
+    --radius-chat: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
     position: relative;
     z-index: 1;
     border: 1px solid var(--border-strong);
@@ -773,7 +777,10 @@
   }
 
   .legacy-design .session-composer-body {
-    border-radius: var(--radius-composer, var(--radius-container, var(--radius)));
+    border-radius: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
   }
 
   .legacy-design .session-composer-file-drop-zone {
@@ -783,13 +790,22 @@
   .legacy-design .composer-at-reference-menu.composer-status-surface {
     position: absolute;
     right: 0;
-    bottom: calc(100% - var(--radius-composer, var(--radius-container, var(--radius))));
+    bottom: calc(
+      100% - var(--radius-composer, var(--radius-container, var(--radius)))
+    );
     left: 0;
     z-index: 3;
     overflow: hidden;
-    padding-bottom: var(--radius-composer, var(--radius-container, var(--radius)));
+    padding-bottom: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
     /* Square join sits under the composer top radius so sides stay flush. */
-    border-radius: var(--radius-composer, var(--radius-container, var(--radius))) var(--radius-composer, var(--radius-container, var(--radius))) 0 0;
+    border-radius: var(
+        --radius-composer,
+        var(--radius-container, var(--radius))
+      )
+      var(--radius-composer, var(--radius-container, var(--radius))) 0 0;
     animation: composer-surface-reveal 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
@@ -840,7 +856,7 @@
     place-items: center;
     gap: 6px;
     border: 2px dashed var(--accent);
-    border-radius: calc(var(--radius-composer, var(--radius-container, var(--radius))) - 2px);
+    border-radius: var(--radius-container);
     background: color-mix(
       in srgb,
       var(--surface-card-strong) 92%,
@@ -1571,11 +1587,11 @@ html.dark {
   --color-neutral: var(--surface-track);
   --color-background-surface: var(--surface-thumb);
   --_segmented-control-padding: 3px;
-  --_segmented-control-radius: var(--radius-element, 0.625rem);
+  --_radius-segmented-control: var(--radius-element);
   align-items: center;
   gap: var(--spacing-0-5, 2px);
   padding: var(--_segmented-control-padding);
-  border-radius: var(--_segmented-control-radius);
+  border-radius: var(--_radius-segmented-control);
   background-color: var(--color-neutral);
   box-sizing: border-box;
 }
@@ -1589,7 +1605,7 @@ html.dark {
     .agent-auth-mode-submodes
   ) {
   --_segmented-control-padding: var(--spacing-1, 4px);
-  --_segmented-control-radius: var(--radius-container, 0.75rem);
+  --_radius-segmented-control: var(--radius-container);
 }
 
 .legacy-design
@@ -1611,12 +1627,8 @@ html.dark {
   padding-block: 0;
   padding-inline: var(--spacing-3, 12px);
   border: 0;
-  border-radius: max(
-    0px,
-    calc(
-      var(--_segmented-control-radius, var(--radius-container, 0.75rem)) -
-        var(--_segmented-control-padding, 4px)
-    )
+  border-radius: calc(
+    var(--_radius-segmented-control) - var(--_segmented-control-padding)
   );
   background-color: transparent;
   color: var(--color-text-secondary, var(--text-muted));
@@ -2176,11 +2188,21 @@ html.dark {
 }
 
 .legacy-design.dark
-  :is(.astryx-text-input, .astryx-textarea, .astryx-tokenizer, .astryx-typeahead)
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-tokenizer,
+    .astryx-typeahead
+  )
   :is(input, textarea),
 .dark
   .legacy-design
-  :is(.astryx-text-input, .astryx-textarea, .astryx-tokenizer, .astryx-typeahead)
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-tokenizer,
+    .astryx-typeahead
+  )
   :is(input, textarea) {
   color-scheme: only dark;
 }
@@ -5701,8 +5723,8 @@ html.dark {
   .project-rail-shell--inline {
     --project-rail-project-size: 32px;
     --project-rail-action-size: 30px;
-    --project-rail-control-radius: 8px;
-    --project-rail-action-radius: 8px;
+    --project-rail-control-radius: var(--radius-element);
+    --project-rail-action-radius: var(--radius-element);
     --project-rail-project-gap: 2px;
     --project-rail-action-gap: 6px;
     --project-rail-monogram-size: 10px;
@@ -5762,7 +5784,7 @@ html.dark {
     gap: 10px;
     padding: 0 10px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-element);
     background: transparent;
     color: var(--project-rail-ink);
     font-size: 12px;
@@ -5892,7 +5914,7 @@ html.dark {
     gap: 8px;
     padding: 0 10px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-element);
     background: transparent;
     color: hsl(var(--foreground) / 0.82);
     transition:
@@ -6021,7 +6043,7 @@ html.dark {
     padding: 0;
     color: var(--project-rail-muted);
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-inner);
     background: transparent;
     box-shadow: none;
     opacity: 0;
@@ -6371,7 +6393,11 @@ html.dark {
     max-width: 100%;
     overflow: hidden;
     white-space: nowrap;
-    mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+    mask-image: linear-gradient(
+      to right,
+      black calc(100% - 1.5rem),
+      transparent
+    );
     color: var(--text-strong);
     font-size: 0.8125rem;
     line-height: 1.4;
@@ -6399,7 +6425,11 @@ html.dark {
     margin-left: 0.375rem;
   }
 
-  .workspace-session-row--full.has-actions:is(.is-hovered, :hover, :focus-within)
+  .workspace-session-row--full.has-actions:is(
+      .is-hovered,
+      :hover,
+      :focus-within
+    )
     .workspace-session-card-workspace {
     padding-right: 4.25rem;
   }
@@ -7238,7 +7268,10 @@ html.dark {
 
   .composer-shell {
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius-composer, var(--radius-container, var(--radius)));
+    border-radius: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
     background:
       linear-gradient(180deg, var(--surface-composer), var(--surface-card)),
       var(--surface-card);
@@ -7698,7 +7731,10 @@ html.dark {
     )::after {
     position: absolute;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-composer, var(--radius-container, var(--radius)));
+    border-radius: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
     background: var(--surface-card-strong);
     box-shadow: var(--shadow-control);
     content: '';
@@ -7734,7 +7770,10 @@ html.dark {
     overflow-y: auto;
     overscroll-behavior: contain;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-composer, var(--radius-container, var(--radius)));
+    border-radius: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
     background: var(--surface-card-strong);
     color: var(--text-primary);
     box-shadow: var(--shadow-card);
@@ -9422,7 +9461,7 @@ html.dark {
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-none);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -9543,7 +9582,7 @@ html.dark {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -9566,7 +9605,7 @@ html.dark {
   height: 22px;
   box-sizing: border-box;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   object-fit: contain;
 }
 
@@ -9589,7 +9628,7 @@ html.dark {
    light plate to stay legible on dark surfaces. */
 .dark .provider-preset-icon.has-backing {
   padding: 2px;
-  background: #f5f5f5;
+  background: var(--provider-icon-backing);
 }
 
 .settings-page .pi-configuration-panel {
@@ -10408,7 +10447,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 :is(.settings-page, .plan-usage-page)
-  :is(.agent-management-bar-item.is-selected, .agent-management-bar-item.has-label)
+  :is(
+    .agent-management-bar-item.is-selected,
+    .agent-management-bar-item.has-label
+  )
   .agent-management-bar-label {
   max-width: var(--agent-label-width, var(--agent-bar-label-max));
   margin: 0 4px 0 6px;
@@ -10855,9 +10897,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 8px;
 }
 
-.settings-page
-  .agent-section-heading-subrow
-  > .agent-section-heading-actions {
+.settings-page .agent-section-heading-subrow > .agent-section-heading-actions {
   margin-left: auto;
 }
 
@@ -10915,7 +10955,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-preflight-grid > li:hover,
 .settings-page .agent-preflight-grid > li[data-expanded='true'] {
-  border-color: color-mix(in srgb, var(--border-strong) 76%, var(--text-strong));
+  border-color: color-mix(
+    in srgb,
+    var(--border-strong) 76%,
+    var(--text-strong)
+  );
   background: var(--surface-raised-control);
 }
 
@@ -17279,11 +17323,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     .canvas-session-card .session-hub-card:hover,
     .canvas-session-card.session-hub-card:hover
   ) {
-  background: color-mix(
-    in srgb,
-    var(--surface-tabbar) 94%,
-    var(--text-strong)
-  );
+  background: color-mix(in srgb, var(--surface-tabbar) 94%, var(--text-strong));
   border-color: color-mix(
     in oklab,
     var(--text-strong) 68%,
@@ -17564,11 +17604,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .canvas-surface .canvas-session-group.is-collapsed:not(.is-selected):hover {
-  background: color-mix(
-    in srgb,
-    var(--surface-tabbar) 94%,
-    var(--text-strong)
-  );
+  background: color-mix(in srgb, var(--surface-tabbar) 94%, var(--text-strong));
   border-color: color-mix(
     in oklab,
     var(--text-strong) 68%,
@@ -19596,13 +19632,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   position: relative;
   width: 100%;
   height: 100%;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .tab-bar-drop-zone.is-drag-over {
   background-color: hsl(var(--accent) / 0.1);
   border: 2px dashed hsl(var(--primary) / 0.6);
-  border-radius: 4px;
+  border-radius: var(--radius-none);
 }
 
 .tab-bar-drop-zone.is-drag-over::after {
@@ -19615,7 +19653,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   color: hsl(var(--primary));
   background-color: hsl(var(--accent) / 0.15);
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   pointer-events: none;
   z-index: 1000;
   white-space: nowrap;
@@ -19640,4 +19678,3 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-size: 0.6875rem !important;
   line-height: 0.9375rem;
 }
-

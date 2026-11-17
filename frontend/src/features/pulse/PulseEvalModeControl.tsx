@@ -67,9 +67,7 @@ export function PulseEvalModeControl({
             tabIndex={active ? 0 : -1}
             aria-pressed={active}
             disabled={itemDisabled}
-            title={
-              isLockedAuto ? t('pulseFilter.lockAutoTitle') : undefined
-            }
+            title={isLockedAuto ? t('pulseFilter.lockAutoTitle') : undefined}
             onClick={(event) => {
               event.stopPropagation();
               if (itemDisabled) return;

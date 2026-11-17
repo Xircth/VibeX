@@ -111,7 +111,8 @@ export function applyInstallationToPreflight(
   const previous = index >= 0 ? items[index] : null;
   const resolvedVersion = effectiveVersion ?? previous?.version ?? null;
   const resolvedPath =
-    previous?.path ?? (nativeEngine ? (agent.local_runtime?.path ?? null) : null);
+    previous?.path ??
+    (nativeEngine ? (agent.local_runtime?.path ?? null) : null);
   const available =
     Boolean(resolvedVersion || resolvedPath) || previous?.status === 'pass';
   const normalizedLabel =

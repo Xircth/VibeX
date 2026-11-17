@@ -53,8 +53,10 @@ describe('conversation pixel-grid loader', () => {
   it('lights the cells from the shared tool-icon token, not a spinner border', () => {
     const cell = declarationsFor('.conv-pixel-cell');
     expect(cell.get('background')).toBe('var(--conv-tool-icon)');
-    expect(cell.get('border-radius')).toBe('1px');
-    expect(cell.get('animation')).toBe('conv-pixel-on 650ms ease-in-out infinite');
+    expect(cell.get('border-radius')).toBe('0');
+    expect(cell.get('animation')).toBe(
+      'conv-pixel-on 650ms ease-in-out infinite'
+    );
 
     const steps = keyframeSteps('conv-pixel-on');
     expect(steps.get('0%, 100%')?.get('opacity')).toBe('0.18');

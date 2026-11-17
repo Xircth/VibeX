@@ -75,7 +75,7 @@
   gap: 8px;
   margin-inline: -6px;
   padding: 3px 6px;
-  border-radius: var(--radius-inner, 0.375rem);
+  border-radius: var(--radius-inner);
   color: var(--conv-text-secondary);
   font-family: var(--font-ui);
   font-size: 13px;
@@ -172,7 +172,7 @@
   align-items: center;
   gap: 4px;
   padding: 1px 7px;
-  border-radius: var(--radius-inner, 0.375rem);
+  border-radius: var(--radius-inner);
   border: 1px solid var(--conv-border-subtle);
   background: var(--conv-surface-control);
   color: var(--conv-text-primary);
@@ -211,7 +211,7 @@
 .conv-tool-chip-error-badge {
   flex-shrink: 0;
   padding: 1px 6px;
-  border-radius: var(--radius-inner, 0.375rem);
+  border-radius: var(--radius-inner);
   background: hsl(var(--destructive) / 0.12);
   color: var(--conv-tool-error);
   font-size: 11px;
@@ -245,7 +245,7 @@
   align-items: center;
   gap: 5px;
   padding: 0 8px;
-  border-radius: var(--radius-inner, 0.375rem);
+  border-radius: var(--radius-inner);
   border: 1px solid var(--conv-border-subtle);
   background: var(--conv-surface-control);
   color: var(--conv-text-primary);

@@ -189,7 +189,8 @@ export function resolveComposerControlScopeTransition({
     previous.sessionId === current.sessionId &&
     previous.targetExecutor === current.targetExecutor &&
     previous.resolvedSessionExecutor === current.resolvedSessionExecutor &&
-    (previous.providerInstanceId ?? null) === (current.providerInstanceId ?? null);
+    (previous.providerInstanceId ?? null) ===
+      (current.providerInstanceId ?? null);
   if (unchanged) {
     return {
       shouldReset: false,
@@ -249,10 +250,6 @@ export function persistPendingSessionControls({
   }
   for (const [key, value] of Object.entries(selectedConfigValues)) {
     if (!key || !value) continue;
-    void setSessionConfigOption({ conversationId, key, value }).catch(
-      () => {}
-    );
+    void setSessionConfigOption({ conversationId, key, value }).catch(() => {});
   }
 }
-
-

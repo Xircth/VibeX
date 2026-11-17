@@ -1387,7 +1387,7 @@ async fn ensure_managed_node(managed_artifacts_dir: &Path) -> anyhow::Result<Nod
 
 #[path = "agent_install/installers.rs"]
 mod installers;
-pub(self) use installers::*;
+use installers::*;
 
 #[cfg(test)]
 #[path = "agent_install/tests.rs"]

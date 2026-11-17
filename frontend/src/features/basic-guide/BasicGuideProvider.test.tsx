@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { MemoryRouter } from 'react-router-dom';
@@ -10,10 +16,7 @@ import { useLayoutStore } from '@/stores/useLayoutStore';
 import { BasicGuideOverlay } from './BasicGuideOverlay';
 import { useBasicGuide } from './BasicGuideContext';
 import { BasicGuideProvider } from './BasicGuideProvider';
-import {
-  BASIC_GUIDE_STORAGE_KEY,
-  COMPLETED_GUIDE,
-} from './basicGuideState';
+import { BASIC_GUIDE_STORAGE_KEY, COMPLETED_GUIDE } from './basicGuideState';
 
 const userSystemMock = vi.hoisted(() => ({
   loading: false,
@@ -82,11 +85,7 @@ function mockElementRect(
   } as DOMRect);
 }
 
-function GuideHarness({
-  showProjects = true,
-}: {
-  showProjects?: boolean;
-}) {
+function GuideHarness({ showProjects = true }: { showProjects?: boolean }) {
   const guide = useBasicGuide();
   return (
     <>
@@ -165,9 +164,24 @@ describe('BasicGuideProvider integration', () => {
     const createProject = screen.getByTestId('zero-project-create-project');
     const enterGlobal = screen.getByTestId('zero-project-enter-global');
 
-    mockElementRect(openFolder, { left: 400, top: 220, width: 320, height: 52 });
-    mockElementRect(createProject, { left: 400, top: 280, width: 320, height: 52 });
-    mockElementRect(enterGlobal, { left: 520, top: 430, width: 200, height: 28 });
+    mockElementRect(openFolder, {
+      left: 400,
+      top: 220,
+      width: 320,
+      height: 52,
+    });
+    mockElementRect(createProject, {
+      left: 400,
+      top: 280,
+      width: 320,
+      height: 52,
+    });
+    mockElementRect(enterGlobal, {
+      left: 520,
+      top: 430,
+      width: 200,
+      height: 28,
+    });
 
     fireEvent(window, new Event('resize'));
 
@@ -211,7 +225,9 @@ describe('BasicGuideProvider integration', () => {
 
     // Selecting a project switches to the workspace tab and advances to toolbar-host-selector.
     userSystemMock.onboardingAcknowledged = true;
-    fireEvent.click(screen.getByRole('button', { name: 'trigger-enter-project' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'trigger-enter-project' })
+    );
     rerender(
       <HotkeysProvider initiallyActiveScopes={['dialog']}>
         <MemoryRouter initialEntries={['/local-projects/home/sessions']}>
@@ -300,9 +316,8 @@ describe('BasicGuideProvider integration', () => {
       expect(screen.getByTestId('guide-phase')).toHaveTextContent('completed');
     });
     expect(
-      JSON.parse(
-        window.localStorage.getItem(BASIC_GUIDE_STORAGE_KEY) ?? '{}'
-      ).phase
+      JSON.parse(window.localStorage.getItem(BASIC_GUIDE_STORAGE_KEY) ?? '{}')
+        .phase
     ).toBe('completed');
   });
 });

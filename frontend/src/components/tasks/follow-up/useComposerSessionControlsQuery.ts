@@ -1,9 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type {
-  AgentSessionConfigOption,
-  AgentSessionMode,
-} from 'shared/types';
+import type { AgentSessionConfigOption, AgentSessionMode } from 'shared/types';
 import {
   composerSessionControlDisplay,
   liveSessionControlsSnapshot,
@@ -55,10 +52,7 @@ export function useComposerSessionControlsQuery({
     ),
     queryFn: () =>
       selectedProviderInstanceId
-        ? loadAgentSessionControlsCatalog(
-            executor!,
-            selectedProviderInstanceId
-          )
+        ? loadAgentSessionControlsCatalog(executor!, selectedProviderInstanceId)
         : loadAgentSessionControlsCatalog(executor!),
     enabled: false,
     staleTime: Infinity,

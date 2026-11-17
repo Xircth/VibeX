@@ -92,9 +92,9 @@ describe('session controls query cache', () => {
           key: 'model',
           label: 'Model',
           category: 'model',
-   value: values[0],
-   choices: values.map((value) => ({ value, label: value })),
- },
+          value: values[0],
+          choices: values.map((value) => ({ value, label: value })),
+        },
       ],
     });
 

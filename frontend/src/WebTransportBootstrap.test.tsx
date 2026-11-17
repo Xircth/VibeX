@@ -182,7 +182,9 @@ describe('WebTransportBootstrap', () => {
     );
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
-        expect(String(input)).toBe('http://127.0.0.1:17891/api/v1/capabilities');
+        expect(String(input)).toBe(
+          'http://127.0.0.1:17891/api/v1/capabilities'
+        );
         expect(new Headers(init?.headers).get('Authorization')).toBe(
           'Bearer saved-device-token'
         );

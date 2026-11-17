@@ -13,8 +13,8 @@ use agents::{
     AgentId, AgentKind, BuiltInProfileCatalog, NativeFileSystem, ProfileManagementActionKind,
     TokioNativeFileSystem, apply_built_in_auth_mode_policy, apply_codex_auth_mode,
     authentication_from_account_command, built_in_auth_mode_policy,
-    codex_shadow_home::prepare_codex_shadow_home, official_account_present,
-    resolve_account_label_with_env,
+    codex_shadow_home::prepare_codex_shadow_home,
+    official_account_present, resolve_account_label_with_env,
     secret_resolution::{
         ProviderAuthMode, ProviderInstanceConfig, SecretResolver, ensure_private_instance_dir,
         mask_secret_preview,
@@ -25,12 +25,17 @@ use api_types::{
     AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
 };
 use application::ApplicationError;
-use db::models::provider_instance::{
-    LOCAL_PROVIDER_INSTANCE_ID, ProviderInstanceRecord, UpdateProviderInstanceInput,
-    canonical_provider_agent_id,
+use db::{
+    DbPool as SqlitePool,
+    models::{
+        agent_management::agent_probe_is_account,
+        provider_instance::{
+            LOCAL_PROVIDER_INSTANCE_ID, ProviderInstanceRecord, UpdateProviderInstanceInput,
+            canonical_provider_agent_id,
+        },
+    },
 };
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 
 use super::{
     auth_projection::{
@@ -72,8 +77,10 @@ impl ManagementInstanceScope {
 
 pub(crate) fn extract_provider_instance_id(args: &Value) -> Option<String> {
     let candidates = [
-        args.get("request")
-            .and_then(|req| req.get("providerInstanceId").or_else(|| req.get("provider_instance_id"))),
+        args.get("request").and_then(|req| {
+            req.get("providerInstanceId")
+                .or_else(|| req.get("provider_instance_id"))
+        }),
         args.get("providerInstanceId"),
         args.get("provider_instance_id"),
     ];
@@ -195,7 +202,9 @@ pub(crate) fn ensure_custom_instance_dirs(
     ensure_custom_instance_dirs_with_root(agent_id, instance_id, None)
 }
 
-pub(crate) fn scoped_store_path(scope: &ManagementInstanceScope) -> Result<PathBuf, ApplicationError> {
+pub(crate) fn scoped_store_path(
+    scope: &ManagementInstanceScope,
+) -> Result<PathBuf, ApplicationError> {
     match scope {
         ManagementInstanceScope::Local => Ok(provider_store_path()),
         ManagementInstanceScope::Custom(record) => {
@@ -360,7 +369,10 @@ pub(crate) async fn sync_custom_instance_auth_summary(
         }
         _ => {
             let mut obj = serde_json::Map::new();
-            obj.insert("mode".to_string(), Value::String("OfficialOAuth".to_string()));
+            obj.insert(
+                "mode".to_string(),
+                Value::String("OfficialOAuth".to_string()),
+            );
             if let Some(email) = account_email.filter(|s| !s.trim().is_empty()) {
                 obj.insert("accountEmail".to_string(), Value::String(email));
             }
@@ -391,8 +403,12 @@ pub(crate) async fn custom_auth_mode(
 ) -> Result<AgentAuthModeView, ApplicationError> {
     let home =
         dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-    let env = scoped_environment(pool, &ManagementInstanceScope::Custom(record.clone()), &agent_id)
-        .await?;
+    let env = scoped_environment(
+        pool,
+        &ManagementInstanceScope::Custom(record.clone()),
+        &agent_id,
+    )
+    .await?;
     let store_path = scoped_store_path(&ManagementInstanceScope::Custom(record.clone()))?;
     let view = project_auth_mode_view_at(&home, &store_path, agent_id, &env).await?;
     with_account_label_env(view, &home, &env).await
@@ -418,14 +434,11 @@ pub(crate) async fn custom_auth_mode_set(
         }
         let mut env = scoped_environment(pool, &scope, &agent_id).await?;
         let native_home = model_providers::provider_native_home(&home, &env, &agent_id);
-        let bound_id = model_providers::list_with_native(
-            &store_path,
-            agent_id.clone(),
-            Some(&native_home),
-        )
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .bound_provider_id;
+        let bound_id =
+            model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
+                .await
+                .map_err(|error| ApplicationError::internal(error.to_string()))?
+                .bound_provider_id;
         if mode == "model_provider" && bound_id.is_none() {
             return Err(ApplicationError::bad_request(
                 "请先在 Model Provider 区域绑定一个 Codex Provider",
@@ -638,7 +651,7 @@ pub(crate) async fn custom_account_flow_status(
     let home =
         dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
     let authentication = authentication_from_account_command(pending.kind, exit_code)
-        .unwrap_or_else(|| AgentAuthenticationStatus::NotLoggedIn);
+        .unwrap_or(AgentAuthenticationStatus::NotLoggedIn);
     if exit_code == 0 {
         let target_mode = if agent_id.as_str() == "codex" {
             "chatgpt_subscription"
@@ -686,18 +699,7 @@ pub(crate) async fn scoped_logged_in(
     env: &HashMap<String, String>,
 ) -> bool {
     match scope {
-        ManagementInstanceScope::Local => {
-            sqlx::query_scalar::<_, String>(
-                "SELECT authentication FROM agent_probe WHERE agent_id = ?",
-            )
-            .bind(agent_id.as_str())
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .as_deref()
-                == Some("account")
-        }
+        ManagementInstanceScope::Local => agent_probe_is_account(pool, agent_id).await,
         ManagementInstanceScope::Custom(_) => {
             let Some(home) = dirs::home_dir() else {
                 return false;
@@ -753,15 +755,8 @@ pub(crate) async fn sync_native_config_auth_summary(
             .map(str::trim)
             .filter(|s| !s.is_empty());
         if let Some(key) = trimmed {
-            sync_custom_instance_auth_summary(
-                pool,
-                record,
-                agent_id,
-                "api_key",
-                Some(key),
-                None,
-            )
-            .await?;
+            sync_custom_instance_auth_summary(pool, record, agent_id, "api_key", Some(key), None)
+                .await?;
         } else {
             sync_custom_instance_auth_summary(
                 pool,
@@ -863,7 +858,15 @@ pub(crate) async fn resolve_native_scope_context(
     pool: &SqlitePool,
     agent_id: &AgentId,
     requested_instance_id: Option<&str>,
-) -> Result<(ManagementInstanceScope, PathBuf, HashMap<String, String>, PathBuf), ApplicationError> {
+) -> Result<
+    (
+        ManagementInstanceScope,
+        PathBuf,
+        HashMap<String, String>,
+        PathBuf,
+    ),
+    ApplicationError,
+> {
     let scope = resolve_management_instance_scope(pool, agent_id, requested_instance_id).await?;
     let home =
         dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
@@ -874,8 +877,9 @@ pub(crate) async fn resolve_native_scope_context(
 
 #[cfg(test)]
 mod tests {
-    use db::models::provider_instance::{
-        CreateProviderInstanceInput, ensure_provider_instances_schema,
+    use db::models::{
+        agent_setting::AgentSetting,
+        provider_instance::{CreateProviderInstanceInput, ensure_provider_instances_schema},
     };
 
     use super::*;
@@ -883,12 +887,7 @@ mod tests {
     async fn test_pool() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         ensure_provider_instances_schema(&pool).await.unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS agent_setting (agent_type TEXT PRIMARY KEY, env_json TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        AgentSetting::ensure_table_for_test(&pool).await.unwrap();
         pool
     }
 
@@ -899,11 +898,16 @@ mod tests {
             Some("work-1")
         );
         assert_eq!(
-            extract_provider_instance_id(&json!({ "request": { "provider_instance_id": "inst-2" } }))
-                .as_deref(),
+            extract_provider_instance_id(
+                &json!({ "request": { "provider_instance_id": "inst-2" } })
+            )
+            .as_deref(),
             Some("inst-2")
         );
-        assert_eq!(extract_provider_instance_id(&json!({ "providerInstanceId": "   " })), None);
+        assert_eq!(
+            extract_provider_instance_id(&json!({ "providerInstanceId": "   " })),
+            None
+        );
     }
 
     #[tokio::test]
@@ -912,25 +916,36 @@ mod tests {
         let claude = AgentId::parse("claude_code").unwrap();
         let kiro = AgentId::parse("kiro").unwrap();
 
-        assert!(!resolve_management_instance_scope(&pool, &claude, None).await.unwrap().is_custom());
+        assert!(
+            !resolve_management_instance_scope(&pool, &claude, None)
+                .await
+                .unwrap()
+                .is_custom()
+        );
         assert!(
             !resolve_management_instance_scope(&pool, &claude, Some("local"))
                 .await
                 .unwrap()
                 .is_custom()
         );
-        assert!(resolve_management_instance_scope(&pool, &kiro, Some("work-1")).await.is_err());
+        assert!(
+            resolve_management_instance_scope(&pool, &kiro, Some("work-1"))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn custom_instance_dirs_and_env_remain_clean_and_isolated() {
         let pool = test_pool().await;
         let temp = tempfile::tempdir().unwrap();
-        sqlx::query("INSERT INTO agent_setting (agent_type, env_json) VALUES ('claude_code', ?)")
-            .bind(r#"{"ANTHROPIC_API_KEY":"sk-local-only","CUSTOM_VAR":"local"}"#)
-            .execute(&pool)
-            .await
-            .unwrap();
+        AgentSetting::seed_env_for_test(
+            &pool,
+            "claude_code",
+            r#"{"ANTHROPIC_API_KEY":"sk-local-only","CUSTOM_VAR":"local"}"#,
+        )
+        .await
+        .unwrap();
 
         let rec = ProviderInstanceRecord::create(
             &pool,
@@ -946,8 +961,9 @@ mod tests {
         .await
         .unwrap();
         let agent_id = AgentId::parse("claude_code").unwrap();
-        let dir = ensure_custom_instance_dirs_with_root(&agent_id, &rec.instance_id, Some(temp.path()))
-            .unwrap();
+        let dir =
+            ensure_custom_instance_dirs_with_root(&agent_id, &rec.instance_id, Some(temp.path()))
+                .unwrap();
         assert!(dir.join("claude-config").is_dir());
         assert!(dir.join("instance-env.json").is_file());
         assert!(dir.join("agent-model-providers.json").is_file());
@@ -969,12 +985,14 @@ mod tests {
             .unwrap();
 
         // Implicit directory keys are stripped from instance-env.json and local agent_setting stays untouched.
-        let saved_json: HashMap<String, String> = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("instance-env.json")).unwrap(),
-        )
-        .unwrap();
+        let saved_json: HashMap<String, String> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("instance-env.json")).unwrap())
+                .unwrap();
         assert!(!saved_json.contains_key("CLAUDE_CONFIG_DIR"));
-        assert_eq!(saved_json.get("CLAUDE_AUTH_MODE").map(String::as_str), Some("official_api"));
+        assert_eq!(
+            saved_json.get("CLAUDE_AUTH_MODE").map(String::as_str),
+            Some("official_api")
+        );
 
         let local_env = read_agent_environment(&pool, &agent_id).await.unwrap();
         assert_eq!(

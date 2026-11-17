@@ -42,9 +42,7 @@ describe('ModelRouterEntry', () => {
     );
 
     render(<ModelRouterEntry agentId="claude_code" />);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'ModelRouter' })
-    );
+    await userEvent.click(screen.getByRole('button', { name: 'ModelRouter' }));
 
     await waitFor(() =>
       expect(mocks.openModelMarketplace).toHaveBeenCalledWith('claude_code')
@@ -64,9 +62,7 @@ describe('ModelRouterEntry', () => {
     });
 
     render(<ModelRouterEntry agentId="codex" />);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'ModelRouter' })
-    );
+    await userEvent.click(screen.getByRole('button', { name: 'ModelRouter' }));
 
     await waitFor(() =>
       expect(mocks.startLogin).toHaveBeenCalledWith(

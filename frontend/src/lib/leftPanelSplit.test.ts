@@ -111,4 +111,3 @@ describe('left panel split geometry', () => {
     expect(hasHalfBoxOverlap(dragged110, sessionList, 0.5)).toBe(true);
   });
 });
-

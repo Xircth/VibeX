@@ -56,7 +56,8 @@ vi.mock('@/hooks/useOpenProjectSession', () => ({
 const pushListeners = new Map<string, () => void>();
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
   return {
     ...actual,
     backendListen: vi.fn(async (eventName: string, handler: () => void) => {
@@ -248,10 +249,9 @@ describe('IssuePulseDispatchPopover & StatusBar Pulse Badges (Track F5 / R4)', (
         </div>
       );
 
-      expect(screen.getByTestId('issue-pulse-dispatch-trigger')).toHaveAttribute(
-        'aria-label',
-        '派发工单自动化'
-      );
+      expect(
+        screen.getByTestId('issue-pulse-dispatch-trigger')
+      ).toHaveAttribute('aria-label', '派发工单自动化');
       await user.click(screen.getByTestId('issue-pulse-dispatch-trigger'));
       expect(screen.getByText('工单自动化派发')).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: '单次派发' })).toBeInTheDocument();
@@ -260,10 +260,9 @@ describe('IssuePulseDispatchPopover & StatusBar Pulse Badges (Track F5 / R4)', (
         await i18n.changeLanguage('en');
       });
 
-      expect(screen.getByTestId('issue-pulse-dispatch-trigger')).toHaveAttribute(
-        'aria-label',
-        'Dispatch Issue Automation'
-      );
+      expect(
+        screen.getByTestId('issue-pulse-dispatch-trigger')
+      ).toHaveAttribute('aria-label', 'Dispatch Issue Automation');
       expect(screen.getByText('Issue Automation Dispatch')).toBeInTheDocument();
       expect(
         screen.getByRole('tab', { name: 'One-Shot Ticket' })
@@ -340,7 +339,9 @@ describe('IssuePulseDispatchPopover & StatusBar Pulse Badges (Track F5 / R4)', (
       </div>
     );
 
-    const observeBadge = await screen.findByTestId('pulse-observe-status-badge');
+    const observeBadge = await screen.findByTestId(
+      'pulse-observe-status-badge'
+    );
     expect(observeBadge).toHaveTextContent('1');
     // Both badges share the exact same React Query snapshot key -> only 1 fetch!
     expect(pulseApi.deckSnapshot).toHaveBeenCalledTimes(1);

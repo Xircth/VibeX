@@ -759,7 +759,9 @@ function toolActionType(
   const outputRecord = asRecord(parsedOutput);
   const actionQueries = nestedRecord(obj, 'action').queries;
   const firstActionQuery = Array.isArray(actionQueries)
-    ? actionQueries.find((q): q is string => typeof q === 'string' && q.trim().length > 0) ?? null
+    ? (actionQueries.find(
+        (q): q is string => typeof q === 'string' && q.trim().length > 0
+      ) ?? null)
     : null;
   const query =
     firstStringDeep(obj, 'pattern', 'query', 'q', 'glob', 'regex') ??
@@ -943,7 +945,9 @@ function extractMcpToolMeta(
     'toolName',
     ...(inputServer || isMcpWireName ? ['tool_name'] : [])
   );
-  const prefixedMatch = (toolName ?? '').trim().match(/^mcp__([^_].*?)__(.+)$/i);
+  const prefixedMatch = (toolName ?? '')
+    .trim()
+    .match(/^mcp__([^_].*?)__(.+)$/i);
   const server =
     firstString(mcpRecord, 'server', 'server_name', 'serverName') ??
     firstString(airMcpRecord, 'server', 'server_name', 'serverName') ??
@@ -1110,7 +1114,12 @@ export function toolBlockToNormalizedEntry(
   const existingMetaRecord = asRecord(use.meta);
   const needsMcpMetaBackfill =
     Boolean(mcpMeta.server && mcpMeta.tool) &&
-    firstString(asRecord(existingMetaRecord.mcp), 'tool', 'tool_name', 'toolName') == null;
+    firstString(
+      asRecord(existingMetaRecord.mcp),
+      'tool',
+      'tool_name',
+      'toolName'
+    ) == null;
   const effectiveMeta: JsonValue | null =
     (inferredDescription && !mcpMeta.prompt) || needsMcpMetaBackfill
       ? ({

@@ -667,7 +667,7 @@ async fn persisting_switched_session_agent_before_turn_still_delivers_portable_h
 
 #[tokio::test]
 async fn placeholder_binding_upgrade_via_link_native_session_preserves_a_b_a_context_and_preferences()
-{
+ {
     let f = Fixture::new().await;
     let pool = &f.ctx.deployment.db().pool;
     let claude_id = AgentId::parse("claude_code").unwrap();
@@ -880,12 +880,15 @@ async fn placeholder_binding_upgrade_via_link_native_session_preserves_a_b_a_con
 
 #[tokio::test]
 async fn unlinked_placeholder_binding_is_excluded_from_stage_c_resume_and_cold_starts_with_full_history()
-{
+ {
     let f = Fixture::new().await;
     let pool = &f.ctx.deployment.db().pool;
 
     f.service
-        .submit_and_dispatch(f.input("claude_code", "remember the sapphire token"), "user")
+        .submit_and_dispatch(
+            f.input("claude_code", "remember the sapphire token"),
+            "user",
+        )
         .await
         .unwrap();
     let placeholder_binding =
@@ -1107,7 +1110,7 @@ async fn auth_blocked_turn_does_not_deadlock_rebind_or_next_turn() {
     let turn_id = Uuid::new_v4();
     let mut conn = pool.acquire().await.unwrap();
     db::models::conversation_turn::ConversationTurnRecord::create_pending_on_connection(
-        &mut *conn,
+        &mut conn,
         turn_id,
         db::models::conversation_turn::CreateConversationTurn {
             conversation_id: f.conversation,
@@ -1170,7 +1173,10 @@ async fn auth_blocked_turn_does_not_deadlock_rebind_or_next_turn() {
         .service
         .submit_and_dispatch(f.input("claude_code", "retry after login"), "user")
         .await;
-    assert!(next.is_ok(), "next turn after auth block must succeed: {next:?}");
+    assert!(
+        next.is_ok(),
+        "next turn after auth block must succeed: {next:?}"
+    );
     f.service.cancel_turn(f.conversation, None).await.unwrap();
 }
 
@@ -1248,12 +1254,13 @@ async fn cross_agent_fork_copies_history_up_to_cutoff_and_injects_handoff_on_fir
         "handoff fork creates no eager binding"
     );
 
-    let child_last_turn = db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
-        pool, child_id,
-    )
-    .await
-    .unwrap()
-    .expect("child has copied turn");
+    let child_last_turn =
+        db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
+            pool, child_id,
+        )
+        .await
+        .unwrap()
+        .expect("child has copied turn");
     f.service
         .append_fork_handoff_notice(child_id, child_last_turn.id, &claude, &codex, None)
         .await;
@@ -1370,12 +1377,13 @@ async fn same_agent_fork_also_uses_handoff_on_first_turn() {
         "same-agent handoff fork creates no eager binding"
     );
 
-    let child_last_turn = db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
-        pool, child_id,
-    )
-    .await
-    .unwrap()
-    .expect("child has copied turn");
+    let child_last_turn =
+        db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
+            pool, child_id,
+        )
+        .await
+        .unwrap()
+        .expect("child has copied turn");
     f.service
         .append_fork_handoff_notice(child_id, child_last_turn.id, &codex, &codex, None)
         .await;

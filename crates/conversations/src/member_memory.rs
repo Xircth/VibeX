@@ -1337,7 +1337,6 @@ pub async fn memory_context_text(
     Ok(Some(lines.join("\n")))
 }
 
-
 mod distill;
 mod review;
 mod space_ops;

@@ -113,7 +113,9 @@ export function OnboardingAgents({
     (
       id: AgentId,
       insertIndex?: number,
-      checkOverride?: ReturnType<typeof useOnboardingAgentChecks>['checks'][AgentId]
+      checkOverride?: ReturnType<
+        typeof useOnboardingAgentChecks
+      >['checks'][AgentId]
     ) => {
       const option = agentsRef.current.find((item) => item.agentId === id);
       if (!option) return;
@@ -315,9 +317,7 @@ export function OnboardingAgents({
       setStarting((current) => new Set([...current, id]));
       installation(id, false);
       try {
-        const view = managementRef.current.find(
-          (item) => item.agent_id === id
-        );
+        const view = managementRef.current.find((item) => item.agent_id === id);
         const receipt = await (view?.lifecycle === 'needs_repair'
           ? agentManagementApi.repair(id)
           : agentManagementApi.addAndInstall(id));
@@ -384,7 +384,13 @@ export function OnboardingAgents({
         }
       })
     );
-  }, [pendingAutoEnableIds, onConsumeAutoEnableIds, check, install, joinRoster]);
+  }, [
+    pendingAutoEnableIds,
+    onConsumeAutoEnableIds,
+    check,
+    install,
+    joinRoster,
+  ]);
   return (
     <DndContext
       sensors={sensors}

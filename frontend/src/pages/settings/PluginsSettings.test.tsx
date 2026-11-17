@@ -628,9 +628,7 @@ describe('PluginsSettings', () => {
     const detail = screen.getByRole('region', { name: 'Research Toolkit' });
     const detailHeader = detail.querySelector('.plugin-detail-header');
     expect(detailHeader).not.toBeNull();
-    expect(
-      within(detailHeader as HTMLElement).getByText('Dimo')
-    ).toBeVisible();
+    expect(within(detailHeader as HTMLElement).getByText('Dimo')).toBeVisible();
     expect(
       within(detailHeader as HTMLElement).getByText('Codex')
     ).toBeVisible();

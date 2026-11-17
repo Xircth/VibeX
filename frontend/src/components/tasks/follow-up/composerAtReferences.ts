@@ -108,7 +108,6 @@ export {
   shortCommitSha,
 } from './referenceUris';
 
-
 function matchesQuery(
   query: string,
   ...fields: Array<string | null | undefined>

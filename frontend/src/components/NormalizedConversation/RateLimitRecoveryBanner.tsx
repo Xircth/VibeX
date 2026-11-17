@@ -104,8 +104,7 @@ export function RateLimitRecoveryBanner({
         promptExpanded?: boolean;
       }
     ) => {
-      const normalizedPrompt =
-        nextPrompt.trim() || DEFAULT_CONTINUATION_PROMPT;
+      const normalizedPrompt = nextPrompt.trim() || DEFAULT_CONTINUATION_PROMPT;
       setIsUpdating(true);
       try {
         if (onUpdateAutoResume) {
@@ -199,13 +198,13 @@ export function RateLimitRecoveryBanner({
       role="status"
       data-testid="rate-limit-recovery-banner"
       className={cn(
-        'rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground',
+        'rounded-lg border border-warning/35 bg-warning/10 px-3 py-2.5 text-xs text-foreground',
         className
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Clock className="h-4 w-4 shrink-0 text-amber-500" />
+          <Clock className="h-4 w-4 shrink-0 text-warning" />
           <span
             data-testid="rate-limit-banner-title"
             className="font-medium tabular-nums"
@@ -265,7 +264,7 @@ export function RateLimitRecoveryBanner({
       {promptExpanded ? (
         <div
           data-testid="rate-limit-prompt-editor"
-          className="mt-2.5 flex items-center gap-2 border-t border-amber-500/20 pt-2.5"
+          className="mt-2.5 flex items-center gap-2 border-t border-warning/20 pt-2.5"
         >
           <input
             type="text"

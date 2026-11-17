@@ -25,7 +25,8 @@ pub(super) const OPENCODE_ACP_ARGS: &[&str] = &["acp"];
 pub(super) const OPENCODE_CANDIDATES: &[ProfileExternalCandidate] =
     &[external_acp("opencode", OPENCODE_ACP_ARGS)];
 pub(super) const MIMO_ACP_ARGS: &[&str] = &["acp"];
-pub(super) const MIMO_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("mimo", MIMO_ACP_ARGS)];
+pub(super) const MIMO_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("mimo", MIMO_ACP_ARGS)];
 pub(super) const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
     ProfileExternalCandidate {
         component: ProfileComponent::AgentRuntime,
@@ -71,7 +72,8 @@ pub(super) const OPENCLAW_ACP_ARGS: &[&str] = &["acp"];
 pub(super) const OPENCLAW_CANDIDATES: &[ProfileExternalCandidate] =
     &[external_acp("openclaw", OPENCLAW_ACP_ARGS)];
 pub(super) const CLINE_ACP_ARGS: &[&str] = &["--acp"];
-pub(super) const CLINE_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("cline", CLINE_ACP_ARGS)];
+pub(super) const CLINE_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("cline", CLINE_ACP_ARGS)];
 pub(super) const HERMES_ACP_ARGS: &[&str] = &["acp"];
 pub(super) const HERMES_CANDIDATES: &[ProfileExternalCandidate] = &[
     external_acp("hermes", HERMES_ACP_ARGS),
@@ -81,13 +83,16 @@ pub(super) const CODEBUDDY_ACP_ARGS: &[&str] = &["--acp"];
 pub(super) const CODEBUDDY_CANDIDATES: &[ProfileExternalCandidate] =
     &[external_acp("codebuddy", CODEBUDDY_ACP_ARGS)];
 pub(super) const KIMI_ACP_ARGS: &[&str] = &["acp"];
-pub(super) const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("kimi", KIMI_ACP_ARGS)];
+pub(super) const KIMI_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("kimi", KIMI_ACP_ARGS)];
 pub(super) const GROK_ACP_ARGS: &[&str] = &["agent", "stdio"];
-pub(super) const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("grok", GROK_ACP_ARGS)];
+pub(super) const GROK_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("grok", GROK_ACP_ARGS)];
 pub(super) const CURSOR_ACP_ARGS: &[&str] = &["acp"];
 pub(super) const CURSOR_CANDIDATES: &[ProfileExternalCandidate] =
     &[external_acp("cursor-agent", CURSOR_ACP_ARGS)];
-pub(super) const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] = &[external("deepseek-acp")];
+pub(super) const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external("deepseek-acp")];
 /// `omp` without `acp` is the interactive TUI. The subcommand is the stdio server.
 pub(super) const OMP_ACP_ARGS: &[&str] = &["acp"];
 pub(super) const OMP_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("omp", OMP_ACP_ARGS)];
@@ -102,7 +107,8 @@ pub(super) const QODER_CANDIDATES: &[ProfileExternalCandidate] = &[
 ];
 /// `kiro-cli acp` is the native ACP server. A bare `kiro-cli` starts the TUI.
 pub(super) const KIRO_ACP_ARGS: &[&str] = &["acp"];
-pub(super) const KIRO_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("kiro-cli", KIRO_ACP_ARGS)];
+pub(super) const KIRO_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("kiro-cli", KIRO_ACP_ARGS)];
 /// The CLI runs on these desktops. Managed install artifacts exist only for
 /// Linux zip archives; macOS is a DMG and Windows is an MSI, which this
 /// installer does not extract. PATH detection still launches `kiro-cli acp`.
@@ -114,7 +120,8 @@ pub(super) const KIRO_PLATFORMS: &[&str] = &[
     "windows-x86_64",
 ];
 pub(super) const AUGGIE_ACP_ARGS: &[&str] = &["--acp"];
-pub(super) const AUGGIE_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("auggie", AUGGIE_ACP_ARGS)];
+pub(super) const AUGGIE_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("auggie", AUGGIE_ACP_ARGS)];
 /// `acp serve` is the documented stdio server. Global flags, when present,
 /// must precede the subcommand; Dimo does not pass permission overrides.
 pub(super) const TRAE_ACP_ARGS: &[&str] = &["acp", "serve"];
@@ -474,7 +481,10 @@ pub(super) const DEEPSEEK_HARNESS_ACTIONS: &[ProfileManagementAction] = &[termin
     &[program("deepseek-acp", &["--setup"])],
 )];
 
-pub(super) const fn program(program: &'static str, args: &'static [&'static str]) -> ProfileManagementProgram {
+pub(super) const fn program(
+    program: &'static str,
+    args: &'static [&'static str],
+) -> ProfileManagementProgram {
     ProfileManagementProgram { program, args }
 }
 
@@ -524,7 +534,8 @@ pub(super) const CLAUDE_PERMISSION_OPTIONS: &[(&str, &str)] = &[
     ("plan", "计划模式"),
     ("bypassPermissions", "跳过权限确认"),
 ];
-pub(super) const CLAUDE_UPDATE_OPTIONS: &[(&str, &str)] = &[("stable", "稳定版"), ("latest", "最新版")];
+pub(super) const CLAUDE_UPDATE_OPTIONS: &[(&str, &str)] =
+    &[("stable", "稳定版"), ("latest", "最新版")];
 pub(super) const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
     authentication(text_field(
         "anthropic_base_url",

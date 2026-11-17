@@ -768,12 +768,7 @@ pub fn record_steer(
     if !legacy_jsonl_shadow_write_enabled() {
         return resolved_ack();
     }
-    record_steer_in(
-        &dimo_acp_transcripts_root(),
-        agent_dir,
-        session_id,
-        payload,
-    )
+    record_steer_in(&dimo_acp_transcripts_root(), agent_dir, session_id, payload)
 }
 
 /// Root-injectable core of [`record_steer`].

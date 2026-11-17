@@ -161,7 +161,14 @@ export function SideChatPane({
     }
     resetEphemeralState();
     setOpen(false);
-  }, [client, conversationId, isStreaming, resetEphemeralState, setOpen, sideChatId]);
+  }, [
+    client,
+    conversationId,
+    isStreaming,
+    resetEphemeralState,
+    setOpen,
+    sideChatId,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -406,8 +413,7 @@ export function SideChatPane({
       cancelScheduledDeltaFlush();
       pendingDeltaRef.current = null;
       if (controller.signal.aborted) return;
-      const errMessage =
-        error instanceof Error ? error.message : String(error);
+      const errMessage = error instanceof Error ? error.message : String(error);
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === assistantMessageId

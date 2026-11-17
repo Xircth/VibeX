@@ -130,10 +130,10 @@ export function AgentRuntimeStatus({
   const advisory =
     request && phase && since ? waitingAdvisory(phase, since, now) : null;
   const message = connection?.message ?? retry?.reason ?? notice.message;
-  const waitingConnection =
-    Boolean(connection && !connection.bound && !connectionFailed);
-  const isActive =
-    Boolean(request && !terminal) || waitingConnection;
+  const waitingConnection = Boolean(
+    connection && !connection.bound && !connectionFailed
+  );
+  const isActive = Boolean(request && !terminal) || waitingConnection;
 
   const content = (
     <div
@@ -169,14 +169,14 @@ export function AgentRuntimeStatus({
         <span
           role="status"
           className={cn(
-            isError ? 'font-medium text-destructive' : 'font-medium text-foreground/90'
+            isError
+              ? 'font-medium text-destructive'
+              : 'font-medium text-foreground/90'
           )}
         >
           {title}
         </span>
-        {elapsed !== null &&
-        !terminal &&
-        (!connection || waitingConnection) ? (
+        {elapsed !== null && !terminal && (!connection || waitingConnection) ? (
           <span
             className="tabular-nums text-muted-foreground/80"
             aria-label={t('runtime.elapsed')}
@@ -203,7 +203,9 @@ export function AgentRuntimeStatus({
         <div
           className={cn(
             'flex items-center gap-1.5',
-            placement === 'stream' ? 'ml-auto' : 'composer-status-action-slot ml-auto'
+            placement === 'stream'
+              ? 'ml-auto'
+              : 'composer-status-action-slot ml-auto'
           )}
         >
           {connectionFailed && onReconnect ? (

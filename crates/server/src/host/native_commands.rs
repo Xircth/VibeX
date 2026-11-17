@@ -5,12 +5,12 @@ use agents::{
     apply_built_in_auth_mode_policy,
 };
 use api_types::{
-    AgentModelProviderImportRequest, AgentModelProviderImportSource,
-    AgentModelProviderSaveRequest, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
-    AgentNativeConfigFileView, AgentNativeConfigFormat, AgentNativeConfigOptionView,
-    AgentNativeConfigSurface, AgentNativeConfigView, CodexModelCatalogConfigRequest,
-    DshProviderSaveRequest, OpenCodeProviderConnectRequest, PiCredentialsSaveRequest,
-    PiRuntimeSaveRequest, PiTrustSetRequest, PiTrustWorkspaceRequest,
+    AgentModelProviderImportRequest, AgentModelProviderImportSource, AgentModelProviderSaveRequest,
+    AgentNativeConfigFieldKind, AgentNativeConfigFieldView, AgentNativeConfigFileView,
+    AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigSurface,
+    AgentNativeConfigView, CodexModelCatalogConfigRequest, DshProviderSaveRequest,
+    OpenCodeProviderConnectRequest, PiCredentialsSaveRequest, PiRuntimeSaveRequest,
+    PiTrustSetRequest, PiTrustWorkspaceRequest,
 };
 use application::ApplicationError;
 use serde::{Deserialize, de::DeserializeOwned};
@@ -1168,8 +1168,7 @@ async fn native_config_view(
     agent_id: AgentId,
     instance_id: Option<&str>,
 ) -> Result<AgentNativeConfigView, ApplicationError> {
-    let (scope, home, env, _) =
-        resolve_native_scope_context(pool, &agent_id, instance_id).await?;
+    let (scope, home, env, _) = resolve_native_scope_context(pool, &agent_id, instance_id).await?;
     let logged_in = scoped_logged_in(pool, &scope, &agent_id, &env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),

@@ -23,10 +23,7 @@ import type {
 import { evaluatePulseRuleLocally } from '@/lib/pulseFilterEvaluator';
 import { cn } from '@/lib/utils';
 
-import {
-  BUILT_IN_SAMPLE_EVENTS,
-  formatEventSourceLabel,
-} from './sampleEvents';
+import { BUILT_IN_SAMPLE_EVENTS, formatEventSourceLabel } from './sampleEvents';
 
 export type ConditionOp = GateFilterCondition['op'];
 
@@ -80,9 +77,7 @@ function formatConditionValue(condition: GateFilterCondition): string {
       return condition.needle;
     case 'in_set':
       return condition.values
-        .map((item) =>
-          typeof item === 'string' ? item : JSON.stringify(item)
-        )
+        .map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
         .join(', ');
     case 'regex':
       return condition.pattern;

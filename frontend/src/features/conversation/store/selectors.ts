@@ -32,7 +32,10 @@ type CachedProjectedRowTurn = {
   result: ConversationTimelineTurn;
 };
 
-const projectedRowTurnCache = new WeakMap<TimelineRow, CachedProjectedRowTurn>();
+const projectedRowTurnCache = new WeakMap<
+  TimelineRow,
+  CachedProjectedRowTurn
+>();
 
 export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null

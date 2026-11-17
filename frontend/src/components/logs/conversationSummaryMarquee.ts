@@ -21,9 +21,7 @@ export function conversationSummaryLabel(
   target: EventTarget | null
 ): HTMLElement | null {
   if (!(target instanceof Element)) return null;
-  const batchHeader = target.closest(
-    ".dimo-tool-call-batch > [role='button']"
-  );
+  const batchHeader = target.closest(".dimo-tool-call-batch > [role='button']");
   if (batchHeader) {
     const label = batchHeader.querySelector(':scope > span:nth-child(2)');
     return label instanceof HTMLElement ? label : null;

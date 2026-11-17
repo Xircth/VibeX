@@ -136,10 +136,7 @@ async fn kv_is_isolated_by_plugin_id_and_list_clear_are_scoped() {
             .kv_put("dev.dimo.a", "alpine", &json!(2))
             .await
             .unwrap();
-        plane
-            .kv_put("dev.dimo.a", "beta", &json!(3))
-            .await
-            .unwrap();
+        plane.kv_put("dev.dimo.a", "beta", &json!(3)).await.unwrap();
         plane
             .kv_put("dev.dimo.b", "alpha", &json!("other"))
             .await
@@ -606,22 +603,14 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
         );
 
         plane.import(first, ConflictDecision::Reject).await.unwrap();
-        assert!(
-            !plane
-                .rollback_available("dev.dimo.rollback")
-                .await
-                .unwrap()
-        );
+        assert!(!plane.rollback_available("dev.dimo.rollback").await.unwrap());
 
         plane
             .import(second, ConflictDecision::Replace)
             .await
             .unwrap();
         assert!(
-            plane
-                .rollback_available("dev.dimo.rollback")
-                .await
-                .unwrap(),
+            plane.rollback_available("dev.dimo.rollback").await.unwrap(),
             "{adapter}: digest change retains rollback"
         );
         let rollback = registry
@@ -643,10 +632,7 @@ async fn replacing_a_package_retains_rollback_and_rollback_and_activate_republis
         assert_eq!(restored.package.version, "1.0.0", "{adapter}");
         assert_eq!(restored.activation, PluginActivation::Enabled, "{adapter}");
         assert!(
-            plane
-                .active_generation("dev.dimo.rollback")
-                .await
-                .is_some(),
+            plane.active_generation("dev.dimo.rollback").await.is_some(),
             "{adapter}: rollback publishes a new generation"
         );
     }
@@ -905,10 +891,7 @@ async fn in_memory_capability_grants_persist_the_published_projection() {
         .await
         .unwrap();
     assert_eq!(
-        registry
-            .capability_grants("dev.dimo.grants")
-            .await
-            .unwrap(),
+        registry.capability_grants("dev.dimo.grants").await.unwrap(),
         grants
     );
 }

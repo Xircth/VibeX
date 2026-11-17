@@ -201,8 +201,12 @@ describe('workspace tab strip chrome', () => {
     expect(stageHost.background?.value).toBe('var(--surface-topbar)');
     expect(stageGroup['box-shadow']?.value).toBe('none');
     expect(canvasOverlay['box-shadow']?.value).toBe('none');
-    expect(canvasOverlay['border-radius']?.value).toBe('14px');
-    expect(creationOverlay['border-radius']?.value).toBe('14px');
+    expect(canvasOverlay['border-radius']?.value).toBe(
+      'var(--radius-container)'
+    );
+    expect(creationOverlay['border-radius']?.value).toBe(
+      'var(--radius-container)'
+    );
     expect(creationOverlay.overflow?.value).toBe('hidden');
     expect(hiddenUnderlay.visibility?.value).toBe('hidden');
     expect(hiddenUnderlay['pointer-events']?.value).toBe('none');

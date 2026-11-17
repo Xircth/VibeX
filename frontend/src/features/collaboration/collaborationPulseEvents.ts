@@ -223,7 +223,8 @@ export function buildSampleEnvelopeForSource(
   eventType?: string,
   payloadOverride?: unknown
 ): EventEnvelope {
-  const resolvedType = eventType?.trim() || defaultEventTypeForSource(sourceKind);
+  const resolvedType =
+    eventType?.trim() || defaultEventTypeForSource(sourceKind);
   const defaultPayload =
     payloadOverride !== undefined
       ? payloadOverride

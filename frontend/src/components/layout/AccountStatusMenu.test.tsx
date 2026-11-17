@@ -310,9 +310,7 @@ describe('AccountStatusMenu', () => {
     expect(screen.getByText('登录 Dimo 账号')).toBeInTheDocument();
     expect(screen.getByText('享邀请好礼')).toBeInTheDocument();
     expect(
-      screen.getByText(
-        '优质低价大模型、语音输入与跨端远程连接等功能触手可得'
-      )
+      screen.getByText('优质低价大模型、语音输入与跨端远程连接等功能触手可得')
     ).toBeInTheDocument();
     expect(screen.getByText('优质低价大模型')).toBeInTheDocument();
     expect(screen.getByText('语音输入')).toBeInTheDocument();

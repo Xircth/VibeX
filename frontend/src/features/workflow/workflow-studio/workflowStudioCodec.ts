@@ -164,7 +164,10 @@ function applyCommonStudioMetadata<T extends StudioStepCommon>(
     if (meta.branchPorts && Object.keys(meta.branchPorts).length > 0) {
       next.branchPorts = meta.branchPorts;
     }
-  } else if (inferredBranchPorts && Object.keys(inferredBranchPorts).length > 0) {
+  } else if (
+    inferredBranchPorts &&
+    Object.keys(inferredBranchPorts).length > 0
+  ) {
     next.branchPorts = inferredBranchPorts;
   }
   if (
@@ -693,13 +696,43 @@ export function toBackendWorkflowDefinition(
 
     switch (step.kind) {
       case 'agent': {
-        const { workspaceIsolation, filter: _f, subscribeThread: _s, threadKeyTemplate: _t, branchPorts: _b, joinMode: _j, ...rest } = step;
-        return { ...rest, ...buildCommon(workspaceIsolation !== undefined ? { legacy: { workspaceIsolation } } : {}) };
+        const {
+          workspaceIsolation,
+          filter: _f,
+          subscribeThread: _s,
+          threadKeyTemplate: _t,
+          branchPorts: _b,
+          joinMode: _j,
+          ...rest
+        } = step;
+        return {
+          ...rest,
+          ...buildCommon(
+            workspaceIsolation !== undefined
+              ? { legacy: { workspaceIsolation } }
+              : {}
+          ),
+        };
       }
       case 'approval':
       case 'notify': {
-        const { slaTimeoutSeconds, filter: _f, subscribeThread: _s, threadKeyTemplate: _t, branchPorts: _b, joinMode: _j, ...rest } = step;
-        return { ...rest, ...buildCommon(slaTimeoutSeconds !== undefined ? { legacy: { slaTimeoutSeconds } } : {}) };
+        const {
+          slaTimeoutSeconds,
+          filter: _f,
+          subscribeThread: _s,
+          threadKeyTemplate: _t,
+          branchPorts: _b,
+          joinMode: _j,
+          ...rest
+        } = step;
+        return {
+          ...rest,
+          ...buildCommon(
+            slaTimeoutSeconds !== undefined
+              ? { legacy: { slaTimeoutSeconds } }
+              : {}
+          ),
+        };
       }
       case 'session': {
         const common = buildCommon({

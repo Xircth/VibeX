@@ -145,7 +145,12 @@ struct ConversationForkArgs {
     _current_mode: Option<String>,
     #[serde(default, alias = "config_selection_json")]
     _config_selection_json: Option<String>,
-    #[serde(default, alias = "target_agent_id", alias = "agentId", alias = "agent_id")]
+    #[serde(
+        default,
+        alias = "target_agent_id",
+        alias = "agentId",
+        alias = "agent_id"
+    )]
     target_agent_id: Option<String>,
     #[serde(
         default,
@@ -731,45 +736,44 @@ impl ServerApplicationDomains {
         if let (Some(source_agent), Some(target_agent)) =
             (source_agent_id.as_ref(), resolved_target_agent_id.as_ref())
         {
-            if imported_event_count > 0 {
-                if let Ok(Some(child_last_turn)) =
+            if imported_event_count > 0
+                && let Ok(Some(child_last_turn)) =
                     ConversationTurnRecord::latest_for_conversation(&self.pool, new_id).await
-                {
-                    let mut source_model = child_last_turn
-                        .model
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|m| !m.is_empty())
-                        .map(str::to_string)
-                        .or_else(|| {
-                            summary
-                                .model
-                                .as_deref()
-                                .map(str::trim)
-                                .filter(|m| !m.is_empty())
-                                .map(str::to_string)
-                        });
-                    if source_model.is_none()
-                        && let Ok(Some(snapshot)) =
-                            ConversationUsageSnapshotRecord::find(&self.pool, source_id).await
-                    {
-                        source_model = snapshot
+            {
+                let mut source_model = child_last_turn
+                    .model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        summary
                             .model
                             .as_deref()
                             .map(str::trim)
                             .filter(|m| !m.is_empty())
-                            .map(str::to_string);
-                    }
-                    conversations::ConversationSessionService::new(self.conversations.clone())
-                        .append_fork_handoff_notice(
-                            new_id,
-                            child_last_turn.id,
-                            source_agent,
-                            target_agent,
-                            source_model.as_deref(),
-                        )
-                        .await;
+                            .map(str::to_string)
+                    });
+                if source_model.is_none()
+                    && let Ok(Some(snapshot)) =
+                        ConversationUsageSnapshotRecord::find(&self.pool, source_id).await
+                {
+                    source_model = snapshot
+                        .model
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|m| !m.is_empty())
+                        .map(str::to_string);
                 }
+                conversations::ConversationSessionService::new(self.conversations.clone())
+                    .append_fork_handoff_notice(
+                        new_id,
+                        child_last_turn.id,
+                        source_agent,
+                        target_agent,
+                        source_model.as_deref(),
+                    )
+                    .await;
             }
             return Ok(ConversationForkResult::with_agent_context(
                 imported, source_id,
@@ -841,10 +845,9 @@ pub async fn load_conversation_detail(
         .map_err(internal_error)?;
     let session_stats =
         session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
-    let active_binding_record =
-        ConversationAgentBindingRecord::active_for_conversation(pool, id)
-            .await
-            .map_err(internal_error)?;
+    let active_binding_record = ConversationAgentBindingRecord::active_for_conversation(pool, id)
+        .await
+        .map_err(internal_error)?;
     let active_binding = active_binding_for_conversation(pool, id).await?;
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
@@ -948,6 +951,7 @@ fn binding_matches_summary_instance(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn load_conversation_session_controls(
     pool: &SqlitePool,
     conversation_id: Uuid,
@@ -965,21 +969,20 @@ async fn load_conversation_session_controls(
     ApplicationError,
 > {
     let parse_lenient_agent_id = |raw: Option<&str>| {
-        raw.map(str::trim)
-            .filter(|s| !s.is_empty())
-            .and_then(|s| {
-                agents::AgentId::parse(s).ok().or_else(|| {
-                    agents::AgentKind::from_lenient(s)
-                        .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
-                })
+        raw.map(str::trim).filter(|s| !s.is_empty()).and_then(|s| {
+            agents::AgentId::parse(s).ok().or_else(|| {
+                agents::AgentKind::from_lenient(s)
+                    .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
             })
+        })
     };
     let parsed_summary_agent = parse_lenient_agent_id(summary_agent_id);
     let mut parsed_binding_agent = parse_lenient_agent_id(binding_agent_id);
-    let active_binding = ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
-        .await
-        .ok()
-        .flatten();
+    let active_binding =
+        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+            .await
+            .ok()
+            .flatten();
     let reference_binding = if let Some(active) = active_binding.as_ref() {
         Some(active.clone())
     } else {
@@ -1102,9 +1105,7 @@ async fn load_conversation_session_controls(
         }
     }
 
-    if binding_matches_summary
-        && let Some(binding) = active_binding
-    {
+    if binding_matches_summary && let Some(binding) = active_binding {
         if !had_live_modes
             && let Some(mode) = binding
                 .current_mode
@@ -1130,13 +1131,12 @@ async fn load_conversation_session_controls(
                 }
             }
         }
-    } else if !binding_matches_summary
-        && let Some(agent_id) = resolved_agent_id.as_ref()
-    {
-        let saved_defaults = db::models::agent_management::SessionDefaultRepository::new(pool.clone())
-            .list_for_agent(agent_id)
-            .await
-            .unwrap_or_default();
+    } else if !binding_matches_summary && let Some(agent_id) = resolved_agent_id.as_ref() {
+        let saved_defaults =
+            db::models::agent_management::SessionDefaultRepository::new(pool.clone())
+                .list_for_agent(agent_id)
+                .await
+                .unwrap_or_default();
         for record in saved_defaults {
             let Ok(parsed_val) = serde_json::from_str::<Value>(&record.value_json) else {
                 continue;

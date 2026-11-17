@@ -454,8 +454,7 @@ export function OnboardingProjects({
   );
 
   const hasProjectList = useMemo(
-    () =>
-      projects.some((project) => !project.is_home) || importedIds.size > 0,
+    () => projects.some((project) => !project.is_home) || importedIds.size > 0,
     [importedIds.size, projects]
   );
 
@@ -513,9 +512,7 @@ export function OnboardingProjects({
               </span>
             );
           })}
-          <span aria-current="step">
-            {t('dialogs:onboarding.projectStep')}
-          </span>
+          <span aria-current="step">{t('dialogs:onboarding.projectStep')}</span>
         </div>
         <span
           className="onboarding-journey-count tabular-nums"
@@ -628,7 +625,10 @@ export function OnboardingProjects({
                     className="flex items-center gap-1.5 pt-1 text-xs font-medium text-primary"
                     role="status"
                   >
-                    <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <Check
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
                     <span>
                       {t('dialogs:onboarding.projectsMultiImported', {
                         count: importedIds.size,
@@ -701,7 +701,9 @@ export function OnboardingProjects({
                                 </span>
                                 {importedIds.has(project.id) ? (
                                   <span className="shrink-0 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary">
-                                    {t('dialogs:onboarding.importedProjectBadge')}
+                                    {t(
+                                      'dialogs:onboarding.importedProjectBadge'
+                                    )}
                                   </span>
                                 ) : null}
                               </span>
@@ -805,7 +807,10 @@ export function OnboardingProjects({
                     onClick={() => void enterProject(globalProject.id)}
                     className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
                   >
-                    <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <Sparkles
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
                     <span>
                       {t(
                         'panels:projectSwitcher.enterGlobalProject',

@@ -40,9 +40,7 @@ describe('syncFrontendPreferences', () => {
     await syncFrontendPreferences(api);
 
     expect(localStorage.getItem('dimo:session-list-appearance')).toBe('full');
-    expect(localStorage.getItem('dimo:kanban-session-list-view')).toBe(
-      'mixed'
-    );
+    expect(localStorage.getItem('dimo:kanban-session-list-view')).toBe('mixed');
   });
 
   it('migrates existing browser preferences missing from the JSON document', async () => {

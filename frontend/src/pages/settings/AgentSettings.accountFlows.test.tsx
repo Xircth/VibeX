@@ -768,9 +768,7 @@ describe('AgentSettings (account flows & post-operation refreshes)', () => {
           agent_id: agentId,
           checked_at: '2026-09-08T00:01:00Z',
           items:
-            scope === 'authentication'
-              ? [authPass]
-              : [nativeRuntime, authPass],
+            scope === 'authentication' ? [authPass] : [nativeRuntime, authPass],
         })
       );
       api.authMode.mockResolvedValue({

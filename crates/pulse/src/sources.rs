@@ -169,7 +169,8 @@ impl FeishuSourceNormalizer {
         let raw_content = message.get("content").and_then(Value::as_str).unwrap_or("");
         let parsed_content: Value =
             serde_json::from_str(raw_content).unwrap_or_else(|_| json!({ "raw": raw_content }));
-        let extracted_text = extract_feishu_message_text(message_type, raw_content, &parsed_content);
+        let extracted_text =
+            extract_feishu_message_text(message_type, raw_content, &parsed_content);
         let text = extracted_text.as_str();
 
         let topic_id = message
@@ -1014,10 +1015,7 @@ impl GitHubSourceNormalizer {
                     "queued" => "requested",
                     other => other,
                 };
-                let head_sha = wf_run
-                    .get("head_sha")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let head_sha = wf_run.get("head_sha").and_then(Value::as_str).unwrap_or("");
                 if !head_sha.is_empty() && self.self_artifacts.contains(head_sha) {
                     is_self = true;
                 }
@@ -1029,18 +1027,9 @@ impl GitHubSourceNormalizer {
                     .or_else(|| wf_run.get("display_title"))
                     .cloned()
                     .unwrap_or(Value::Null);
-                let head_branch = wf_run
-                    .get("head_branch")
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let html_url = wf_run
-                    .get("html_url")
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let conclusion = wf_run
-                    .get("conclusion")
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                let head_branch = wf_run.get("head_branch").cloned().unwrap_or(Value::Null);
+                let html_url = wf_run.get("html_url").cloned().unwrap_or(Value::Null);
+                let conclusion = wf_run.get("conclusion").cloned().unwrap_or(Value::Null);
                 let run_id = wf_run.get("id").cloned().unwrap_or(Value::Null);
                 (
                     format!("github.workflow_run.{normalized_action}"),
@@ -1071,10 +1060,7 @@ impl GitHubSourceNormalizer {
                 let check = raw
                     .get("check_run")
                     .ok_or(SourceNormalizeError::MissingField("check_run"))?;
-                let head_sha = check
-                    .get("head_sha")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let head_sha = check.get("head_sha").and_then(Value::as_str).unwrap_or("");
                 if !head_sha.is_empty() && self.self_artifacts.contains(head_sha) {
                     is_self = true;
                 }

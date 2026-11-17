@@ -439,4 +439,3 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(composerQueueInner.margin?.value).toBe('0 auto');
   });
 });
-

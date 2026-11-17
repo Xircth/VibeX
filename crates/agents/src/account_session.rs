@@ -181,7 +181,8 @@ pub async fn resolve_account_label_with_env(
                 return Some(label);
             }
             if let Some(h) = home
-                && let Some(doc) = read_json_value(h.join(".claude").join(".credentials.json")).await
+                && let Some(doc) =
+                    read_json_value(h.join(".claude").join(".credentials.json")).await
             {
                 return account_label_from_document(&doc);
             }
@@ -191,7 +192,9 @@ pub async fn resolve_account_label_with_env(
         "grok" => account_label_from_grok_auth(&read_json_value(grok_auth_path()?).await?),
         "antigravity" | "gemini" => resolve_antigravity_account_label().await,
         "omp" => {
-            let home = home.map(std::path::Path::to_path_buf).or_else(dirs::home_dir)?;
+            let home = home
+                .map(std::path::Path::to_path_buf)
+                .or_else(dirs::home_dir)?;
             let mut env = std::collections::BTreeMap::new();
             if let Ok(explicit) = std::env::var("PI_CODING_AGENT_DIR") {
                 env.insert("PI_CODING_AGENT_DIR".to_string(), explicit);

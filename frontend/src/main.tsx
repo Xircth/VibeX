@@ -22,8 +22,8 @@ import { initMonoFont } from '@/lib/uiFont';
 import { initResolvedTheme } from '@/lib/resolvedTheme';
 import { initColorThemes } from '@/lib/theme/colorThemeStore';
 import { warmDefaultSettingsSurface } from '@/lib/settingsPreload';
-// Initialize the i18n runtime (module side-effect) before first render.
-import '@/i18n';
+// Initialize the i18n runtime before first render.
+import { i18nReady } from '@/i18n';
 // Import modal type definitions
 import './types/modals';
 import { isTauriDesktopShell } from '@/utils/platform';
@@ -85,20 +85,22 @@ if (getAppRouteMode(window.location.pathname) === 'desktop-toast') {
   document.documentElement.classList.add('desktop-toast-shell');
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <React.Suspense fallback={null}>
-        {isTauriDesktopShell() ? (
-          <DesktopHostBootstrap>
-            <App />
-          </DesktopHostBootstrap>
-        ) : (
-          <WebTransportBootstrap>
-            <App />
-          </WebTransportBootstrap>
-        )}
-      </React.Suspense>
-    </QueryClientProvider>
-  </React.StrictMode>
-);
+void i18nReady.finally(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <React.Suspense fallback={null}>
+          {isTauriDesktopShell() ? (
+            <DesktopHostBootstrap>
+              <App />
+            </DesktopHostBootstrap>
+          ) : (
+            <WebTransportBootstrap>
+              <App />
+            </WebTransportBootstrap>
+          )}
+        </React.Suspense>
+      </QueryClientProvider>
+    </React.StrictMode>
+  );
+});

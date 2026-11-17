@@ -1433,9 +1433,7 @@ describe('AgentSettings', () => {
 
       // Switch to custom instance
       await user.click(screen.getByTestId('agent-instance-switcher-trigger'));
-      await user.click(
-        screen.getByTestId('agent-instance-option-codex-work')
-      );
+      await user.click(screen.getByTestId('agent-instance-option-codex-work'));
 
       await waitFor(() => {
         expect(api.readConfig).toHaveBeenCalledWith('codex', 'codex-work');

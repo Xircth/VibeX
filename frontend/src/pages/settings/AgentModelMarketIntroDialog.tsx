@@ -96,7 +96,7 @@ export function AgentModelMarketIntroDialog({
             <img
               src={dimoLogo}
               alt="Dimo Logo"
-              className="mt-0.5 h-6 w-6 shrink-0 rounded-[6px] object-contain"
+              className="mt-0.5 h-6 w-6 shrink-0 rounded-sm object-contain"
             />
             <div className="min-w-0">
               <p className="m-0 text-[13px] font-medium leading-[1.4] text-foreground">
@@ -114,7 +114,7 @@ export function AgentModelMarketIntroDialog({
             onClick={handleDismiss}
             title={closeLabel}
             aria-label={closeLabel}
-            className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -124,7 +124,7 @@ export function AgentModelMarketIntroDialog({
           <button
             type="button"
             onClick={handleDismiss}
-            className="inline-flex h-7 items-center rounded-[7px] px-2 text-xs font-normal text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="inline-flex h-7 items-center rounded-sm px-2 text-xs font-normal text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             {t('settings:agents.modelMarketIntroLater', {
               defaultValue: '暂不需要',
@@ -134,7 +134,7 @@ export function AgentModelMarketIntroDialog({
             type="button"
             variant="primary"
             size="xs"
-            className="h-7 gap-1.5 rounded-[8px] px-2.5 text-xs font-semibold shadow-none"
+            className="h-7 gap-1.5 rounded-md px-2.5 text-xs font-semibold shadow-none"
             onClick={handleOpenMarket}
           >
             <span>

@@ -549,7 +549,9 @@ export function WorkspaceSessionRow({
             session.id,
             session.collaboration
           )}
-          onRename={onRename && !session.collaboration ? beginRename : undefined}
+          onRename={
+            onRename && !session.collaboration ? beginRename : undefined
+          }
           onCopySessionInfo={() => {
             void writeClipboardViaBridge(
               formatSessionInfoForCopy({

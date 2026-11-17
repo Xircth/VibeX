@@ -128,10 +128,11 @@ pub use service::{
     CreateForkConversation, CreateWorkflowConversation, ForkVisibleConversation,
     NoopConversationEventPublisher, PreparedCheckpointFileChanges, QueuedConversationInputClaim,
     RuntimeEventNotification, clear_turn_hooks, commit_checkpoint_metadata_on_connection,
-    continuation_key_instance_id, create_delegated_conversation, create_fork_conversation, create_workflow_conversation,
-    finalize_checkpoint_file_changes, fork_visible_conversation, prepare_checkpoint_file_changes,
-    preview_checkpoint_file_changes, register_after_turn_hook, register_before_turn_hook,
-    remember_creation_session_controls, subscribe_after_turn_events, subscribe_runtime_events,
+    continuation_key_instance_id, create_delegated_conversation, create_fork_conversation,
+    create_workflow_conversation, finalize_checkpoint_file_changes, fork_visible_conversation,
+    prepare_checkpoint_file_changes, preview_checkpoint_file_changes, register_after_turn_hook,
+    register_before_turn_hook, remember_creation_session_controls, subscribe_after_turn_events,
+    subscribe_runtime_events,
 };
 pub use session_info::{
     SessionInfo, agent_session_title_from_patch, derive_session_display_name,

@@ -1125,3 +1125,14 @@ impl SessionDefaultRepository {
         .collect())
     }
 }
+
+pub async fn agent_probe_is_account(pool: &SqlitePool, agent_id: &AgentId) -> bool {
+    sqlx::query_scalar::<_, String>("SELECT authentication FROM agent_probe WHERE agent_id = ?")
+        .bind(agent_id.as_str())
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("account")
+}

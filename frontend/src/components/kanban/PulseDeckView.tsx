@@ -590,4 +590,3 @@ export function PulseDeckView({
     />
   );
 }
-

@@ -541,22 +541,14 @@ mod tests {
         .fetch_all(db.reader().as_pool())
         .await
         .expect("snapshot columns");
-        assert!(
-            snapshot_cols
-                .iter()
-                .any(|c| c == "last_allocated_sequence")
-        );
+        assert!(snapshot_cols.iter().any(|c| c == "last_allocated_sequence"));
 
         let session_cols: Vec<String> =
             sqlx::query_scalar("SELECT name FROM pragma_table_info('sessions') ORDER BY cid")
                 .fetch_all(db.reader().as_pool())
                 .await
                 .expect("session columns");
-        assert!(
-            session_cols
-                .iter()
-                .any(|c| c == "legacy_jsonl_migrated")
-        );
+        assert!(session_cols.iter().any(|c| c == "legacy_jsonl_migrated"));
 
         // WritePool succeeds on row-level trigram FTS5 writes; ReadPool sees committed rows.
         sqlx::query(
@@ -592,7 +584,9 @@ mod tests {
             .expect("expected sqlite database error");
         let code = db_err.code().unwrap_or_default();
         assert!(
-            code == "8" || db_err.message().to_ascii_lowercase().contains("readonly") || db_err.message().to_ascii_lowercase().contains("read-only"),
+            code == "8"
+                || db_err.message().to_ascii_lowercase().contains("readonly")
+                || db_err.message().to_ascii_lowercase().contains("read-only"),
             "expected SQLITE_READONLY (code 8), got code={code:?}, msg={}",
             db_err.message()
         );
@@ -780,10 +774,11 @@ mod tests {
             .await
             .expect("rename_plugin_ids_to_dimo must succeed with foreign_keys = ON");
 
-        let fk_violations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
-            .fetch_one(&pool)
-            .await
-            .expect("foreign key check");
+        let fk_violations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
+                .fetch_one(&pool)
+                .await
+                .expect("foreign key check");
         assert_eq!(fk_violations, 0);
 
         let v4_ids: Vec<(String, String)> = sqlx::query_as(

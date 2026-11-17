@@ -77,15 +77,17 @@ pub(super) async fn probe_one_built_in_external_installation(
                     local_runtime.version.clone().unwrap_or_default(),
                 )
             } else if native_engine {
-                let fallback_path = match utils::shell::resolve_executable_path(candidate.executable)
-                    .await
-                    .filter(|path| !agents::launch_program_is_legacy_acp_shim(&profile.agent_id, path))
-                {
-                    Some(path) => Some(path),
-                    None => app.path().home_dir().ok().and_then(|home| {
-                        agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
-                    }),
-                };
+                let fallback_path =
+                    match utils::shell::resolve_executable_path(candidate.executable)
+                        .await
+                        .filter(|path| {
+                            !agents::launch_program_is_legacy_acp_shim(&profile.agent_id, path)
+                        }) {
+                        Some(path) => Some(path),
+                        None => app.path().home_dir().ok().and_then(|home| {
+                            agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
+                        }),
+                    };
                 let Some(path) = fallback_path else {
                     anyhow::bail!("external local Runtime is missing");
                 };
@@ -321,7 +323,9 @@ pub(super) fn bind_profile_runtime_executable(
     bind_runtime_executable_env(agent_id, runtime_path, env);
 }
 
-pub(super) fn pi_runtime_lock_env(configured_env: &HashMap<String, String>) -> BTreeMap<String, String> {
+pub(super) fn pi_runtime_lock_env(
+    configured_env: &HashMap<String, String>,
+) -> BTreeMap<String, String> {
     [
         "PI_ACP_PI_COMMAND",
         "PI_CODING_AGENT_DIR",
@@ -635,7 +639,8 @@ pub(super) async fn live_npm_global_prefix() -> Option<PathBuf> {
     }
 }
 
-pub(super) const ACP_CAPABILITY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+pub(super) const ACP_CAPABILITY_PROBE_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(10);
 
 pub(super) async fn probe_acp_capabilities(
     agent_id: &AgentId,
@@ -885,11 +890,16 @@ pub(super) fn redact_operation_output(value: &str) -> String {
     redacted
 }
 
-pub(super) fn dsh_paths(home: &Path, environment: &HashMap<String, String>) -> dsh_configuration::DshPaths {
+pub(super) fn dsh_paths(
+    home: &Path,
+    environment: &HashMap<String, String>,
+) -> dsh_configuration::DshPaths {
     dsh_configuration::resolve_paths(home, environment)
 }
 
-pub(super) fn parse_agent_env(value: Option<&str>) -> Result<HashMap<String, String>, serde_json::Error> {
+pub(super) fn parse_agent_env(
+    value: Option<&str>,
+) -> Result<HashMap<String, String>, serde_json::Error> {
     value
         .filter(|value| !value.trim().is_empty())
         .map(serde_json::from_str)

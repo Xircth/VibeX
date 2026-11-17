@@ -61,9 +61,9 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('dimo.science', 'fallback', en)).toBe(
       'Scientific Research'
     );
-    expect(
-      officialPluginName('dimo-plugin-computer-use', 'fallback', en)
-    ).toBe('Computer Use');
+    expect(officialPluginName('dimo-plugin-computer-use', 'fallback', en)).toBe(
+      'Computer Use'
+    );
     expect(officialPluginName('dimo.code-completion', 'fallback', en)).toBe(
       'AI Code Completion'
     );

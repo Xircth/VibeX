@@ -61,7 +61,12 @@ pub struct LiveRowOpCoalescer {
 
 impl LiveRowOpCoalescer {
     pub fn new(sink: Arc<dyn ConversationEventSink>) -> Self {
-        Self::with_limits(sink, COALESCE_WINDOW, MAX_PENDING_UPDATES, MAX_PENDING_BYTES)
+        Self::with_limits(
+            sink,
+            COALESCE_WINDOW,
+            MAX_PENDING_UPDATES,
+            MAX_PENDING_BYTES,
+        )
     }
 
     pub fn with_config(
@@ -267,12 +272,7 @@ impl LiveRowOpCoalescer {
         self.sink.emit_workspaces_sessions_changed(payload);
     }
 
-    fn emit_now(
-        &self,
-        conversation_id: Uuid,
-        batch: &ConversationRowOpBatch,
-        emit_global: bool,
-    ) {
+    fn emit_now(&self, conversation_id: Uuid, batch: &ConversationRowOpBatch, emit_global: bool) {
         self.sink.emit_conversation_batch(conversation_id, batch);
         if emit_global {
             self.sink.emit_global_batch(batch);
@@ -307,9 +307,9 @@ fn is_barrier_op(op: &ConversationRowOp) -> bool {
 
 fn estimate_row_op_bytes(op: &ConversationRowOp) -> usize {
     match op {
-        ConversationRowOp::AppendText { row_id, delta, .. } => {
-            48usize.saturating_add(row_id.len()).saturating_add(delta.len())
-        }
+        ConversationRowOp::AppendText { row_id, delta, .. } => 48usize
+            .saturating_add(row_id.len())
+            .saturating_add(delta.len()),
         ConversationRowOp::Delete { row_id, .. } => 32usize.saturating_add(row_id.len()),
         ConversationRowOp::Upsert { .. } | ConversationRowOp::PatchBlocks { .. } => {
             let mut counter = ByteCountWriter::default();
@@ -321,7 +321,9 @@ fn estimate_row_op_bytes(op: &ConversationRowOp) -> usize {
 
 fn estimate_batch_ops_bytes(ops: &[ConversationRowOp]) -> usize {
     ops.iter()
-        .fold(0usize, |acc, op| acc.saturating_add(estimate_row_op_bytes(op)))
+        .fold(0usize, |acc, op| {
+            acc.saturating_add(estimate_row_op_bytes(op))
+        })
         .max(1)
 }
 
@@ -540,7 +542,10 @@ fn merge_patched_blocks(existing: &mut Vec<ContentBlock>, incoming: Vec<ContentB
     }
 }
 
-fn merge_optional_usage(existing: Option<TurnUsage>, incoming: Option<TurnUsage>) -> Option<TurnUsage> {
+fn merge_optional_usage(
+    existing: Option<TurnUsage>,
+    incoming: Option<TurnUsage>,
+) -> Option<TurnUsage> {
     match (existing, incoming) {
         (None, None) => None,
         (Some(prev), None) => Some(prev),
@@ -602,7 +607,12 @@ mod tests {
         fn emit_workspaces_sessions_changed(&self, _payload: WorkspaceSessionsChanged) {}
     }
 
-    fn empty_batch(cid: Uuid, prev: i64, last: i64, ops: Vec<ConversationRowOp>) -> ConversationRowOpBatch {
+    fn empty_batch(
+        cid: Uuid,
+        prev: i64,
+        last: i64,
+        ops: Vec<ConversationRowOp>,
+    ) -> ConversationRowOpBatch {
         ConversationRowOpBatch {
             conversation_id: cid,
             last_sequence: last,

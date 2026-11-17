@@ -1,5 +1,11 @@
 import { createRef } from 'react';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,9 +61,10 @@ vi.mock('@/features/agents/api', () => ({
 }));
 
 vi.mock('@/features/agents/sessionControlsQuery', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('@/features/agents/sessionControlsQuery')
-  >();
+  const actual =
+    await importOriginal<
+      typeof import('@/features/agents/sessionControlsQuery')
+    >();
   return {
     ...actual,
     loadAgentSessionControlsCatalog: loadCatalogMock,
@@ -65,9 +72,10 @@ vi.mock('@/features/agents/sessionControlsQuery', async (importOriginal) => {
 });
 
 vi.mock('@/features/conversation/conversationApi', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('@/features/conversation/conversationApi')
-  >();
+  const actual =
+    await importOriginal<
+      typeof import('@/features/conversation/conversationApi')
+    >();
   return {
     ...actual,
     conversationApi: {
@@ -365,6 +373,7 @@ describe('ComposerDock BotSpace session settings', () => {
       expect(confirmEngineHandoffMock).toHaveBeenCalledWith({
         conversationId: 'conv-bot-1',
         targetEngine: 'codex',
+        targetProviderInstanceId: 'local',
       });
     });
   });
@@ -569,7 +578,10 @@ describe('ComposerDock BotSpace session settings', () => {
       expect(trigger).toHaveTextContent('GPT-5 Codex');
     });
     // Must stay on Codex's mode/model and not revert to Claude's Plan / Opus 4
-    expect(trigger).toHaveAttribute('aria-label', '本次会话: Agent · GPT-5 Codex');
+    expect(trigger).toHaveAttribute(
+      'aria-label',
+      '本次会话: Agent · GPT-5 Codex'
+    );
     expect(trigger).not.toHaveTextContent('Opus 4');
   });
 
@@ -656,7 +668,10 @@ describe('ComposerDock BotSpace session settings', () => {
         targetEngine: 'claude_code',
         targetProviderInstanceId: 'claude-work',
       });
-      expect(loadCatalogMock).toHaveBeenCalledWith('claude_code', 'claude-work');
+      expect(loadCatalogMock).toHaveBeenCalledWith(
+        'claude_code',
+        'claude-work'
+      );
     });
     expect(setDefaultSpy).not.toHaveBeenCalled();
     expect(getMruProviderInstanceId('claude_code')).toBe('claude-work');

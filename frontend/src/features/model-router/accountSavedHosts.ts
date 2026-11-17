@@ -1,10 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useSyncExternalStore,
-} from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 
 import {
   hostClientApi,
@@ -14,7 +9,10 @@ import {
 } from '@/lib/api';
 import { backendListen } from '@/lib/backendTransport';
 import { isTauriClient } from '@/lib/desktopShell';
-import { savedHostAddress, savedHostSource } from '@/pages/settings/savedHostAddress';
+import {
+  savedHostAddress,
+  savedHostSource,
+} from '@/pages/settings/savedHostAddress';
 
 import {
   AccountError,
@@ -220,7 +218,9 @@ function matchesCloudProfile(
     return true;
   }
   const localSshHost =
-    typeof local.provision?.host === 'string' ? local.provision.host.trim() : '';
+    typeof local.provision?.host === 'string'
+      ? local.provision.host.trim()
+      : '';
   const remoteSshHost =
     typeof remote.provision?.host === 'string'
       ? remote.provision.host.trim()
@@ -502,9 +502,9 @@ export async function isolateSavedHostsOnSignOut(): Promise<void> {
   });
   if (!isTauriClient()) return;
   await enqueueSyncTask(async () => {
-    await runWithEchoSuppressed(() =>
-      hostClientApi.setSyncAccount(null)
-    ).catch(() => undefined);
+    await runWithEchoSuppressed(() => hostClientApi.setSyncAccount(null)).catch(
+      () => undefined
+    );
   });
 }
 

@@ -90,7 +90,10 @@ impl ServerApplicationDomains {
         Ok(!repositories.is_empty())
     }
 
-    pub(super) async fn project_repositories(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn project_repositories(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: IdArgs = parse(args)?;
         serialize(
             ProjectRepo::find_repos_for_project(&self.pool, args.id)
@@ -149,7 +152,10 @@ impl ServerApplicationDomains {
         )
     }
 
-    pub(super) async fn agent_capability_catalog_fresh(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn agent_capability_catalog_fresh(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
         serialize(
@@ -315,7 +321,10 @@ impl ServerApplicationDomains {
         serialize(automation_view(record))
     }
 
-    pub(super) async fn automation_create_workflow(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn automation_create_workflow(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: WorkflowAutomationInputArgs = parse(args)?;
         let mut draft = args.input;
         draft.launch.workspace.root_folder =
@@ -355,7 +364,10 @@ impl ServerApplicationDomains {
         serialize(automation_view(record))
     }
 
-    pub(super) async fn automation_set_enabled(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn automation_set_enabled(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: AutomationEnabledArgs = parse(args)?;
         self.automation_store()
             .set_enabled(args.id, args.enabled, Utc::now())
@@ -402,7 +414,10 @@ impl ServerApplicationDomains {
         serialize(view)
     }
 
-    pub(super) async fn automation_cancel_run(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn automation_cancel_run(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: RunIdArgs = parse(args)?;
         let store = self.automation_store();
         if !store
@@ -498,7 +513,10 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
-    pub(super) async fn automation_export_spec(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn automation_export_spec(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: IdArgs = parse(args)?;
         let record = self
             .automation_store()
@@ -553,7 +571,10 @@ impl ServerApplicationDomains {
         )
     }
 
-    pub(super) async fn automation_import_spec(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn automation_import_spec(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let args: AutomationImportArgs = parse(args)?;
         let spec: AutomationSpec = serde_json::from_str(&args.json).map_err(|error| {
             ApplicationError::bad_request(format!("Invalid Automation JSON: {error}"))
@@ -722,7 +743,9 @@ impl ServerApplicationDomains {
         Ok(draft)
     }
 
-    pub(super) async fn unified_action_catalog(&self) -> Result<UnifiedActionCatalog, ApplicationError> {
+    pub(super) async fn unified_action_catalog(
+        &self,
+    ) -> Result<UnifiedActionCatalog, ApplicationError> {
         let control_plane = self.plugin_control_plane().await?;
         let actions = control_plane
             .catalog()

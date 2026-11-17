@@ -3014,8 +3014,11 @@ fn prune_settled_history_locked(state: &mut RuntimeState) -> Vec<AgentSessionId>
         if settled.len() > MAX_SETTLED_CONNECTIONS {
             settled.sort_by_key(|(_, updated_at)| *updated_at);
             let excess = settled.len() - MAX_SETTLED_CONNECTIONS;
-            let evicted_cids: HashSet<AgentConnectionId> =
-                settled.into_iter().take(excess).map(|(cid, _)| cid).collect();
+            let evicted_cids: HashSet<AgentConnectionId> = settled
+                .into_iter()
+                .take(excess)
+                .map(|(cid, _)| cid)
+                .collect();
             for cid in &evicted_cids {
                 state.connections.remove(cid);
             }
@@ -5815,7 +5818,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bounded_runtime_event_sink_sheds_ephemeral_overflow_while_preserving_terminal_events() {
+    async fn bounded_runtime_event_sink_sheds_ephemeral_overflow_while_preserving_terminal_events()
+    {
         let (sender, mut receiver) = mpsc::channel(4);
         let sink = Arc::new(BoundedRuntimeEventSink::new(sender));
         let connection_id = AgentConnectionId::new();
@@ -5859,7 +5863,10 @@ mod tests {
             .lock()
             .expect("overflow lock")
             .dropped_ephemeral;
-        assert!(dropped > 0, "ephemeral telemetry past soft cap must be shed");
+        assert!(
+            dropped > 0,
+            "ephemeral telemetry past soft cap must be shed"
+        );
 
         let mut saw_terminal = false;
         while let Some(env) = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
@@ -5871,6 +5878,9 @@ mod tests {
                 break;
             }
         }
-        assert!(saw_terminal, "PromptFinished must never be shed under overflow");
+        assert!(
+            saw_terminal,
+            "PromptFinished must never be shed under overflow"
+        );
     }
 }

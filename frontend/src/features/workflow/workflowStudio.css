@@ -44,7 +44,7 @@
 }
 
 .workflow-studio .react-flow__node {
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   background: transparent;
   border: 0;
   padding: 0;
@@ -53,7 +53,7 @@
 
 .workflow-studio-floating-controls {
   border: 1px solid hsl(var(--border) / 0.9);
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   background: color-mix(in srgb, var(--surface-card-strong) 90%, transparent);
   box-shadow:
     0 1px 2px hsl(var(--shadow-ink) / 0.05),
@@ -68,7 +68,7 @@
 /* Two-tier tactile card shell aligned to standard VibeX container radius */
 .workflow-studio-node {
   min-height: 112px;
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   border: 1px solid hsl(var(--border) / 0.88);
   background: var(--workflow-node-wash);
   box-shadow:
@@ -82,7 +82,7 @@
 
 .workflow-node-deck {
   min-height: 80px;
-  border-radius: calc(var(--radius-container, 0.75rem) - 1px);
+  border-radius: var(--radius-container);
   background: var(--surface-card-strong);
   color: inherit;
   box-shadow:
@@ -137,7 +137,7 @@
 }
 
 .workflow-confirmation-node {
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   border: 1px solid hsl(var(--border) / 0.88);
   background: var(--surface-card-strong);
   color: hsl(var(--muted-foreground));
@@ -200,7 +200,7 @@
 
 .workflow-quick-add-btn {
   border: 1px solid hsl(var(--border) / 0.88);
-  border-radius: var(--radius-element, 0.625rem);
+  border-radius: var(--radius-element);
   background: var(--surface-card-strong);
   color: hsl(var(--muted-foreground));
   box-shadow:
@@ -409,7 +409,7 @@
 }
 
 .workflow-node-log {
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   border-color: hsl(var(--border));
   background: var(--surface-card-strong);
   box-shadow: var(--shadow-popover);
@@ -420,7 +420,7 @@
   display: flex;
   overflow: hidden;
   height: 22px;
-  border-radius: var(--radius-inner, 0.375rem);
+  border-radius: var(--radius-inner);
   background: hsl(var(--muted));
 }
 
@@ -514,7 +514,7 @@
 }
 
 .workflow-node-inspector {
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   border-color: hsl(var(--border));
   background: var(--surface-card-strong);
   box-shadow: var(--shadow-popover);
@@ -522,7 +522,7 @@
 }
 
 .workflow-workspace-panel {
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   background: var(--surface-card-strong);
   box-shadow: var(--shadow-popover);
   animation: workflow-panel-reveal 160ms var(--workflow-ease-out);
@@ -538,7 +538,7 @@
 .workflow-studio .react-flow__controls,
 .workflow-studio .react-flow__minimap {
   overflow: hidden;
-  border-radius: var(--radius-container, 0.75rem);
+  border-radius: var(--radius-container);
   border-color: hsl(var(--border));
   background-color: hsl(var(--card));
   box-shadow: var(--shadow-card);

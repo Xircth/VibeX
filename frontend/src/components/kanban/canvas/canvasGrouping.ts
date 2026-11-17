@@ -1316,7 +1316,14 @@ export function buildCanvasFlowData(
     minSizes.set(groupId, containerMinSize(nodes, groupId));
   }
 
-  return { index, sessionCount, runningGroups, reviewGroups, containers, minSizes };
+  return {
+    index,
+    sessionCount,
+    runningGroups,
+    reviewGroups,
+    containers,
+    minSizes,
+  };
 }
 
 export function buildCanvasFlowLookups(
@@ -1333,7 +1340,11 @@ export function buildCanvasFlowLookups(
     options.runningSessionIds ?? new Set(),
     options.reviewSessionIds ?? new Set()
   );
-  return flowLookupsFromData(data, options.draggedId ?? null, options.selectedIds);
+  return flowLookupsFromData(
+    data,
+    options.draggedId ?? null,
+    options.selectedIds
+  );
 }
 
 export function flowLookupsFromData(
@@ -1341,7 +1352,14 @@ export function flowLookupsFromData(
   draggedId: string | null,
   selectedIds: ReadonlySet<string> | undefined
 ): CanvasFlowLookups {
-  const { index, sessionCount, runningGroups, reviewGroups, containers, minSizes } = data;
+  const {
+    index,
+    sessionCount,
+    runningGroups,
+    reviewGroups,
+    containers,
+    minSizes,
+  } = data;
   const draggedRoot = draggedId
     ? (index.rootOf.get(draggedId) ?? draggedId)
     : null;

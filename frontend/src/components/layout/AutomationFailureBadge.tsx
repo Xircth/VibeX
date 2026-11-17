@@ -65,11 +65,7 @@ export function AutomationFailureBadge() {
   const [markedSeen, setMarkedSeen] = useState(false);
   const effectiveFailureCount = markedSeen ? 0 : failureCount;
 
-  if (
-    effectiveFailureCount <= 0 &&
-    observeCount <= 0 &&
-    !observePopoverOpen
-  ) {
+  if (effectiveFailureCount <= 0 && observeCount <= 0 && !observePopoverOpen) {
     return null;
   }
 
@@ -81,10 +77,7 @@ export function AutomationFailureBadge() {
   return (
     <span className="inline-flex items-center gap-1">
       {observeCount > 0 || observePopoverOpen ? (
-        <Popover
-          open={observePopoverOpen}
-          onOpenChange={setObservePopoverOpen}
-        >
+        <Popover open={observePopoverOpen} onOpenChange={setObservePopoverOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"

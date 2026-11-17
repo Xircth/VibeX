@@ -271,7 +271,10 @@ export function layoutNodes(
     if (!bucket || bucket.length === 0) continue;
 
     const ordered = [...bucket].sort((left, right) => {
-      const targetYFor = (entry: { step: StudioWorkflowStep; index: number }) => {
+      const targetYFor = (entry: {
+        step: StudioWorkflowStep;
+        index: number;
+      }) => {
         const samples: number[] = [];
         for (const sourceId of entry.step.dependsOn) {
           const predPos = positionsByStepId.get(sourceId);
@@ -286,9 +289,7 @@ export function layoutNodes(
         if (samples.length === 0) {
           return LAYOUT_SPINE_Y + entry.index * 0.01;
         }
-        return (
-          samples.reduce((sum, value) => sum + value, 0) / samples.length
-        );
+        return samples.reduce((sum, value) => sum + value, 0) / samples.length;
       };
 
       const delta = targetYFor(left) - targetYFor(right);
@@ -499,9 +500,7 @@ export function buildEdges(
       const hasConfirm = Boolean(
         sourceStep && hasManualConfirmation(sourceStep)
       );
-      const source = hasConfirm
-        ? `confirmation:${sourceStepId}`
-        : sourceStepId;
+      const source = hasConfirm ? `confirmation:${sourceStepId}` : sourceStepId;
 
       const sourcePos = nodePositions?.get(source);
       const targetPos = nodePositions?.get(step.id);

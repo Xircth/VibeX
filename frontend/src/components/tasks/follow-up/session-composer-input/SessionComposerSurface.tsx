@@ -176,8 +176,7 @@ export function SessionComposerSurface({
     if (token.kind !== 'quote' || !hasQuoteSourceAnchor(token.quote)) return;
     requestConversationScrollToQuote({
       ...token.quote,
-      conversationId:
-        token.quote?.conversationId ?? (sessionId || undefined),
+      conversationId: token.quote?.conversationId ?? (sessionId || undefined),
       snippet: token.value,
     });
   };

@@ -1,7 +1,7 @@
 //! Internal SQLite row projections and JSON/enum codecs for `SqlitePulseStore`.
 
 use api_types::pulse::{
-     PulseEventSchemaView, PulseObservedCandidateView, PulseRuleView, PulseSourceView,
+    PulseEventSchemaView, PulseObservedCandidateView, PulseRuleView, PulseSourceView,
     PulseSubscriptionView, PulseUserInteractionView,
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -134,14 +134,11 @@ pub(super) const RULE_COLUMNS: &str = "id,revision,enabled,draft_only,mandate_or
     webhook_route_id,next_fire_at,matched_count,observed_count,created_at,updated_at";
 pub(super) const SUBSCRIPTION_COLUMNS: &str =
     "id,thread_key,subscriber_kind,subscriber_id,active,created_at";
-pub(super) const CANDIDATE_COLUMNS: &str =
-    "id,rule_id,rule_name,event_id,event_type,source_kind,thread_key,\
+pub(super) const CANDIDATE_COLUMNS: &str = "id,rule_id,rule_name,event_id,event_type,source_kind,thread_key,\
     summary,envelope_json,occurred_at,promoted";
-pub(super) const MAILBOX_COLUMNS: &str =
-    "id,member_id,conversation_scope,mailbox_policy,thread_key,event_id,\
+pub(super) const MAILBOX_COLUMNS: &str = "id,member_id,conversation_scope,mailbox_policy,thread_key,event_id,\
     prompt_text,status,created_at,claimed_at";
-pub(super) const INTERACTION_COLUMNS: &str =
-    "id,rule_id,workflow_run_id,step_id,kind,severity,title,body,\
+pub(super) const INTERACTION_COLUMNS: &str = "id,rule_id,workflow_run_id,step_id,kind,severity,title,body,\
     approval_options_json,form_schema_json,resolution_json,status,sla_deadline_at,\
     created_at,resolved_at";
 pub(super) const OUTBOX_COLUMNS: &str = "id,dedupe_key,target_kind,payload_json,status,attempts,\
@@ -302,7 +299,9 @@ pub(super) fn parse_outbox_row(row: OutboxRow) -> Result<PulseOutboxRecord, sqlx
     })
 }
 
-pub(super) fn parse_event_schema_row(row: EventSchemaRow) -> Result<PulseEventSchemaView, sqlx::Error> {
+pub(super) fn parse_event_schema_row(
+    row: EventSchemaRow,
+) -> Result<PulseEventSchemaView, sqlx::Error> {
     Ok(PulseEventSchemaView {
         event_type: row.event_type,
         summary: row.summary,

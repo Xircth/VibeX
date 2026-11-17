@@ -9,7 +9,8 @@ use agents::{
     SessionGateInput, SessionLaunchLock, bind_pi_acp_pi_command, discover_path_acp_launch_lock,
     engine::{EngineRegistry, EngineRuntimePreference},
     launch_program_is_legacy_acp_shim, lifecycle_ready_for_path_acp,
-    secret_resolution::SecretResolver, session_launch_rejection_message,
+    secret_resolution::SecretResolver,
+    session_launch_rejection_message,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{repo::Repo, workspace::Workspace};
@@ -1156,5 +1157,4 @@ mod working_dir_tests {
             vec![std::path::PathBuf::from("/Users/mac/Projects/Dimo")]
         );
     }
-
 }

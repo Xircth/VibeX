@@ -345,9 +345,7 @@ describe('spotlightGeometry', () => {
     });
 
     const [clamped] = mergeOverlapping(
-      [
-        box('edge-button', 'edge', { left: 1, top: 2, width: 80, height: 28 }),
-      ],
+      [box('edge-button', 'edge', { left: 1, top: 2, width: 80, height: 28 })],
       { width: 1280, height: 800 }
     );
     expect(clamped).toMatchObject({

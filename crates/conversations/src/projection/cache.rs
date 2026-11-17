@@ -108,9 +108,7 @@ impl ProjectionFold {
                             Some(turn_id),
                         );
                         if !buf.is_empty() {
-                            turn.assistant
-                                .blocks
-                                .push(ContentBlock::Text { text: buf });
+                            turn.assistant.blocks.push(ContentBlock::Text { text: buf });
                         }
                         (update.visible_delta, update.newly_captured)
                     }
@@ -532,14 +530,14 @@ impl IncrementalRowProjector {
         self.fold.complete_antigravity_reads
     }
 
-    pub fn missing_turns_for_records(&self, records: &[ConversationEventRecord]) -> Vec<(Uuid, i64)> {
+    pub fn missing_turns_for_records(
+        &self,
+        records: &[ConversationEventRecord],
+    ) -> Vec<(Uuid, i64)> {
         missing_turns_for_projection(&self.fold, &self.loaded_turns, self.partial_turns, records)
     }
 
-    pub(crate) fn insert_hydrated_turns(
-        &mut self,
-        hydrated: Vec<(Uuid, Option<ProjectedTurn>)>,
-    ) {
+    pub(crate) fn insert_hydrated_turns(&mut self, hydrated: Vec<(Uuid, Option<ProjectedTurn>)>) {
         for (turn_id, turn_opt) in hydrated {
             if let Some(turn) = turn_opt {
                 if !self.fold.turn_order.contains(&turn_id) {
@@ -1042,7 +1040,9 @@ pub(super) fn decode_timeline_row_records(
         .collect()
 }
 
-pub(super) fn decode_session_stats(json: Option<&str>) -> Result<Option<SessionStats>, sqlx::Error> {
+pub(super) fn decode_session_stats(
+    json: Option<&str>,
+) -> Result<Option<SessionStats>, sqlx::Error> {
     json.map(|value| serde_json::from_str(value).map_err(json_decode_error))
         .transpose()
 }

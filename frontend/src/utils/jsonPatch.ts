@@ -149,4 +149,3 @@ export function cloneAndApplyUpsertPatch<T extends object>(
   }
   return rootClone;
 }
-

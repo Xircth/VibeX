@@ -1183,8 +1183,7 @@ async fn generate_pr_description_host(
         .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
     let runtime = &domains.conversations.agent_runtime;
     let events = runtime.subscribe_events();
-    let working_dir =
-        utils::path::dimo_scratch_subdir("pr-description").map_err(internal_error)?;
+    let working_dir = utils::path::dimo_scratch_subdir("pr-description").map_err(internal_error)?;
     let prepared = runtime
         .prepare_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),

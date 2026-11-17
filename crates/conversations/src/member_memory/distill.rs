@@ -6,10 +6,12 @@ pub(super) struct SpaceReviewChainState {
     rerun_conversation_id: Option<Uuid>,
 }
 
-pub(super) static SPACE_REVIEW_QUEUES: OnceLock<std::sync::Mutex<HashMap<String, SpaceReviewChainState>>> =
-    OnceLock::new();
+pub(super) static SPACE_REVIEW_QUEUES: OnceLock<
+    std::sync::Mutex<HashMap<String, SpaceReviewChainState>>,
+> = OnceLock::new();
 
-pub(super) fn space_review_queues() -> &'static std::sync::Mutex<HashMap<String, SpaceReviewChainState>> {
+pub(super) fn space_review_queues()
+-> &'static std::sync::Mutex<HashMap<String, SpaceReviewChainState>> {
     SPACE_REVIEW_QUEUES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 

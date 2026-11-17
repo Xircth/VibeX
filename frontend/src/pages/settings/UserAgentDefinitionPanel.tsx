@@ -131,116 +131,116 @@ export function UserAgentDefinitionPanel({
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-[minmax(0,1.45fr)_minmax(14rem,1fr)]">
-        <div className="space-y-4 px-4 py-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('agents.distributionEvidence')}
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-              <Evidence value={t('agents.userDefined')} />
-              <Separator />
-              <Evidence value={distribution.kind} mono />
-              <Separator />
-              <Evidence value={distribution.platform} mono />
-              <Separator />
-              <Evidence value={integrityLabel(t, distribution.integrity)} />
+          <div className="space-y-4 px-4 py-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('agents.distributionEvidence')}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <Evidence value={t('agents.userDefined')} />
+                <Separator />
+                <Evidence value={distribution.kind} mono />
+                <Separator />
+                <Evidence value={distribution.platform} mono />
+                <Separator />
+                <Evidence value={integrityLabel(t, distribution.integrity)} />
+              </div>
+            </div>
+
+            <dl className="grid gap-x-4 gap-y-3 text-xs sm:grid-cols-2">
+              <DefinitionValue
+                label="Agent ID"
+                value={definition.agent_id}
+                mono
+              />
+              <DefinitionValue
+                label={t('agents.version')}
+                value={definition.version}
+                mono
+              />
+              <DefinitionValue
+                className="sm:col-span-2"
+                label={
+                  distribution.package
+                    ? t('agents.package')
+                    : t('agents.archiveUrl')
+                }
+                value={distribution.package ?? distribution.archive_url ?? '—'}
+                mono
+              />
+              <DefinitionValue
+                label={t('agents.launchCommand')}
+                value={distribution.command}
+                mono
+              />
+              <DefinitionValue
+                label={t('agents.platformSupport')}
+                value={
+                  distribution.platform_supported
+                    ? t('agents.platformAvailable')
+                    : t('agents.platformUnsupported')
+                }
+              />
+              <DefinitionValue
+                className="sm:col-span-2"
+                label={t('agents.launchArguments')}
+                value={
+                  distribution.args.length
+                    ? distribution.args.join(' ')
+                    : t('agents.none')
+                }
+                mono
+              />
+            </dl>
+          </div>
+
+          <div className="space-y-4 px-4 py-4">
+            <DefinitionValue
+              label={t('agents.definitionDigest')}
+              value={shortDigest(definition.definition_sha256)}
+              title={definition.definition_sha256}
+              mono
+            />
+            <DefinitionValue
+              label={t('agents.installedDigest')}
+              value={
+                definition.installed_definition_sha256
+                  ? shortDigest(definition.installed_definition_sha256)
+                  : t('agents.notInstalledYet')
+              }
+              title={definition.installed_definition_sha256 ?? undefined}
+              mono={Boolean(definition.installed_definition_sha256)}
+            />
+            <DefinitionValue
+              label={t('agents.lastUpdated')}
+              value={formatDate(
+                definition.updated_at ?? definition.created_at,
+                i18n.language
+              )}
+            />
+            <div>
+              <dt className="text-xs text-muted-foreground">
+                {t('agents.environmentVariables')}
+              </dt>
+              <dd className="mt-1 space-y-1">
+                {distribution.environment.length ? (
+                  distribution.environment.map((entry) => (
+                    <code
+                      className="block break-all text-xs text-foreground"
+                      key={entry.name}
+                    >
+                      {entry.name}={maskEnvironmentValue(t, entry.value)}
+                    </code>
+                  ))
+                ) : (
+                  <span className="text-xs text-foreground">
+                    {t('agents.none')}
+                  </span>
+                )}
+              </dd>
             </div>
           </div>
-
-          <dl className="grid gap-x-4 gap-y-3 text-xs sm:grid-cols-2">
-            <DefinitionValue
-              label="Agent ID"
-              value={definition.agent_id}
-              mono
-            />
-            <DefinitionValue
-              label={t('agents.version')}
-              value={definition.version}
-              mono
-            />
-            <DefinitionValue
-              className="sm:col-span-2"
-              label={
-                distribution.package
-                  ? t('agents.package')
-                  : t('agents.archiveUrl')
-              }
-              value={distribution.package ?? distribution.archive_url ?? '—'}
-              mono
-            />
-            <DefinitionValue
-              label={t('agents.launchCommand')}
-              value={distribution.command}
-              mono
-            />
-            <DefinitionValue
-              label={t('agents.platformSupport')}
-              value={
-                distribution.platform_supported
-                  ? t('agents.platformAvailable')
-                  : t('agents.platformUnsupported')
-              }
-            />
-            <DefinitionValue
-              className="sm:col-span-2"
-              label={t('agents.launchArguments')}
-              value={
-                distribution.args.length
-                  ? distribution.args.join(' ')
-                  : t('agents.none')
-              }
-              mono
-            />
-          </dl>
         </div>
-
-        <div className="space-y-4 px-4 py-4">
-          <DefinitionValue
-            label={t('agents.definitionDigest')}
-            value={shortDigest(definition.definition_sha256)}
-            title={definition.definition_sha256}
-            mono
-          />
-          <DefinitionValue
-            label={t('agents.installedDigest')}
-            value={
-              definition.installed_definition_sha256
-                ? shortDigest(definition.installed_definition_sha256)
-                : t('agents.notInstalledYet')
-            }
-            title={definition.installed_definition_sha256 ?? undefined}
-            mono={Boolean(definition.installed_definition_sha256)}
-          />
-          <DefinitionValue
-            label={t('agents.lastUpdated')}
-            value={formatDate(
-              definition.updated_at ?? definition.created_at,
-              i18n.language
-            )}
-          />
-          <div>
-            <dt className="text-xs text-muted-foreground">
-              {t('agents.environmentVariables')}
-            </dt>
-            <dd className="mt-1 space-y-1">
-              {distribution.environment.length ? (
-                distribution.environment.map((entry) => (
-                  <code
-                    className="block break-all text-xs text-foreground"
-                    key={entry.name}
-                  >
-                    {entry.name}={maskEnvironmentValue(t, entry.value)}
-                  </code>
-                ))
-              ) : (
-                <span className="text-xs text-foreground">
-                  {t('agents.none')}
-                </span>
-              )}
-            </dd>
-          </div>
-        </div>
-      </div>
       </div>
     </section>
   );

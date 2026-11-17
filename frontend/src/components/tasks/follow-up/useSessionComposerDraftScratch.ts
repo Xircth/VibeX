@@ -178,4 +178,3 @@ export function useSessionComposerDraftScratch({
     scratchRevision: scratch?.revision ?? null,
   };
 }
-

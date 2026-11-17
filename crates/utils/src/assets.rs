@@ -209,8 +209,10 @@ fn push_unique_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 
 #[cfg(target_os = "windows")]
 fn windows_vibex_registry_install_dirs() -> Vec<PathBuf> {
-    use winreg::RegKey;
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+    use winreg::{
+        RegKey,
+        enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ},
+    };
 
     let mut dirs = Vec::new();
     for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
@@ -506,7 +508,9 @@ pub fn renamed_env_var(name: &str) -> Option<std::ffi::OsString> {
     std::env::var_os(name)
         .filter(|value| !value.is_empty())
         .or_else(|| {
-            let legacy = name.strip_prefix("DIMO_").map(|rest| format!("VIBEX_{rest}"))?;
+            let legacy = name
+                .strip_prefix("DIMO_")
+                .map(|rest| format!("VIBEX_{rest}"))?;
             std::env::var_os(legacy).filter(|value| !value.is_empty())
         })
 }

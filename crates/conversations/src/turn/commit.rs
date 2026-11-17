@@ -702,7 +702,9 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
     conversation_id: Uuid,
     turn_id: Uuid,
 ) -> Result<Option<ConversationEventEnvelope>, ConversationServiceError> {
-    let Some(prepared) = prepare_checkpoint_file_changes(deployment, conversation_id, turn_id).await? else {
+    let Some(prepared) =
+        prepare_checkpoint_file_changes(deployment, conversation_id, turn_id).await?
+    else {
         return Ok(None);
     };
     let writer = deployment.db().writer().as_pool();
@@ -713,20 +715,15 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
             Ok(None)
         }
         Some((event, batch_event)) => {
-            let mut out =
-                ConversationEventAppender::append_batch(writer, &[batch_event]).await?;
+            let mut out = ConversationEventAppender::append_batch(writer, &[batch_event]).await?;
             if let Some((_, error)) = out.failed.pop() {
                 return Err(error.into());
             }
-            let record = out
-                .committed
-                .pop()
-                .map(|c| c.record)
-                .ok_or_else(|| {
-                    ConversationServiceError::Internal(
-                        "checkpoint append_batch produced no committed event".into(),
-                    )
-                })?;
+            let record = out.committed.pop().map(|c| c.record).ok_or_else(|| {
+                ConversationServiceError::Internal(
+                    "checkpoint append_batch produced no committed event".into(),
+                )
+            })?;
             Ok(Some(ConversationEventEnvelope {
                 id: record.id,
                 conversation_id: record.conversation_id,

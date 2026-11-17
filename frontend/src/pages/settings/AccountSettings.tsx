@@ -160,7 +160,9 @@ export function AccountSettings() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => void openAccountWebPath('/account/profile')}
+                      onClick={() =>
+                        void openAccountWebPath('/account/profile')
+                      }
                       className="text-xs text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {t('settings:account.rename')}

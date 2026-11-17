@@ -271,4 +271,3 @@ describe('useSessionComposerDraftScratch', () => {
     errorSpy.mockRestore();
   });
 });
-

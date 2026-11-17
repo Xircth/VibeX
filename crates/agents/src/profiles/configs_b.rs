@@ -564,7 +564,8 @@ pub(super) const GROK_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
     fields: GROK_FIELDS,
 }];
 
-pub(super) const CURSOR_SANDBOX_OPTIONS: &[(&str, &str)] = &[("enabled", "启用"), ("disabled", "关闭")];
+pub(super) const CURSOR_SANDBOX_OPTIONS: &[(&str, &str)] =
+    &[("enabled", "启用"), ("disabled", "关闭")];
 pub(super) const CURSOR_FIELDS: &[NativeConfigField] = &[
     text_field(
         "cursor_model",

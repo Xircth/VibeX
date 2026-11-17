@@ -11,10 +11,10 @@
 use std::sync::Arc;
 
 use agents::AgentContentBlock;
+use conversations::{ConversationLivePipeline, ConversationRowProjectors};
 pub use conversations::{
     ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
 };
-use conversations::{ConversationLivePipeline, ConversationRowProjectors};
 use db::models::{conversation_event::ConversationEventRecord, repo::Repo, workspace::Workspace};
 use sqlx::SqlitePool;
 

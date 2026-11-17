@@ -1,7 +1,4 @@
-import {
-  MarkdownBlockCache,
-  MAX_CACHED_CHARS,
-} from './markdownBlockCache';
+import { MarkdownBlockCache, MAX_CACHED_CHARS } from './markdownBlockCache';
 import {
   splitFencedCodeSegments,
   stabilizeUnclosedFencedCode,
@@ -45,8 +42,7 @@ function isMarkdownImagePath(value: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i.test(candidate);
 }
 
-const IMAGE_EXTENSION_HINT_REGEX =
-  /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)/i;
+const IMAGE_EXTENSION_HINT_REGEX = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)/i;
 
 function normalizeBareImageReferences(value: string): string {
   if (!IMAGE_EXTENSION_HINT_REGEX.test(value)) {

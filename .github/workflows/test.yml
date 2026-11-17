@@ -202,9 +202,9 @@ jobs:
       matrix:
         include:
           - group: core-a
-            flags: -p api-types -p application -p artifacts -p automation -p browser-host -p conversations
+            flags: -p api-types -p application -p artifacts -p automation -p browser-host -p conversations -p pulse
           - group: core-b
-            flags: -p agents -p db -p delegation -p delegation-proto -p executors -p git -p local-deployment
+            flags: -p agents -p db -p delegation -p delegation-proto -p deployment -p executors -p git -p local-deployment
           - group: plugins
             flags: -p plugins -p dimo-plugin-sdk
           - group: server-services

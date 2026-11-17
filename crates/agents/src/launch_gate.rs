@@ -44,14 +44,15 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
             ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
         )
     })?;
-    let executable = match workspace_utils::shell::resolve_executable_path(candidate.executable).await {
-        Some(path) => path,
-        None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => {
-            let home = dirs::home_dir()?;
-            crate::resolve_native_engine_cli(agent_id.as_str(), &home)?
-        }
-        None => return None,
-    };
+    let executable =
+        match workspace_utils::shell::resolve_executable_path(candidate.executable).await {
+            Some(path) => path,
+            None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => {
+                let home = dirs::home_dir()?;
+                crate::resolve_native_engine_cli(agent_id.as_str(), &home)?
+            }
+            None => return None,
+        };
     let executable = prefer_direct_spawn_executable(executable);
     if !launch_program_available(&executable)
         || launch_program_is_vendor_cli(agent_id, &executable)
@@ -419,10 +420,7 @@ mod tests {
 
     #[test]
     fn path_launch_uses_the_command_stem_and_falls_back_to_the_lock() {
-        assert_eq!(
-            launch_command_name(Path::new("codex.cmd")),
-            Some("codex")
-        );
+        assert_eq!(launch_command_name(Path::new("codex.cmd")), Some("codex"));
         let missing = PathBuf::from("/definitely/not/here/dimo-acp");
         assert_eq!(prefer_path_launch_program(&missing), missing);
     }

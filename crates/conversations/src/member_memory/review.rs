@@ -88,8 +88,9 @@ pub trait MemoryReviewModel: Send + Sync {
 
 pub(super) static REVIEW_MODEL: OnceLock<std::sync::RwLock<Option<Arc<dyn MemoryReviewModel>>>> =
     OnceLock::new();
-pub(super) static RUNTIME_REVIEW_MODEL: OnceLock<std::sync::RwLock<Option<Arc<dyn MemoryReviewModel>>>> =
-    OnceLock::new();
+pub(super) static RUNTIME_REVIEW_MODEL: OnceLock<
+    std::sync::RwLock<Option<Arc<dyn MemoryReviewModel>>>,
+> = OnceLock::new();
 
 /// Install or replace a process-wide [`MemoryReviewModel`] (used by tests or custom hosts).
 pub fn set_memory_review_model(model: Arc<dyn MemoryReviewModel>) -> bool {
@@ -237,7 +238,8 @@ impl ResidentReviewSessionPool {
     }
 }
 
-pub(super) static GLOBAL_RESIDENT_REVIEW_POOL: OnceLock<ResidentReviewSessionPool> = OnceLock::new();
+pub(super) static GLOBAL_RESIDENT_REVIEW_POOL: OnceLock<ResidentReviewSessionPool> =
+    OnceLock::new();
 
 pub(super) fn global_resident_review_pool() -> &'static ResidentReviewSessionPool {
     GLOBAL_RESIDENT_REVIEW_POOL.get_or_init(ResidentReviewSessionPool::new)
@@ -1209,4 +1211,3 @@ pub async fn review_conversation_memory_with_threshold(
 
     Ok(applied)
 }
-

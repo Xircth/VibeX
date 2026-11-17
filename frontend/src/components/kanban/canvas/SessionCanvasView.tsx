@@ -496,7 +496,8 @@ function SessionCanvasFlow({
       );
     };
     const handleWorkspaceUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<CanvasWorkspaceUpdatedDetail>).detail;
+      const detail = (event as CustomEvent<CanvasWorkspaceUpdatedDetail>)
+        .detail;
       if (!detail || detail.projectId !== projectId) return;
       if (detail.sourceInstanceId === instanceIdRef.current) return;
       if (detail.revision <= knownRevisionRef.current) return;
@@ -641,9 +642,13 @@ function SessionCanvasFlow({
         }
         hasPendingDocumentSaveRef.current = false;
         pendingViewportDirtyRef.current = false;
-        knownRevisionRef.current = saveCanvasWorkspace(projectId, nextWorkspace, {
-          sourceInstanceId: instanceIdRef.current,
-        });
+        knownRevisionRef.current = saveCanvasWorkspace(
+          projectId,
+          nextWorkspace,
+          {
+            sourceInstanceId: instanceIdRef.current,
+          }
+        );
       } else {
         hasPendingDocumentSaveRef.current = true;
       }
@@ -967,9 +972,7 @@ function SessionCanvasFlow({
 
   const autoSessionLinks = useMemo(
     () =>
-      sameSessionLinks(
-        nodes.filter((node) => !isOverflowHidden(nodes, node))
-      ),
+      sameSessionLinks(nodes.filter((node) => !isOverflowHidden(nodes, node))),
     [nodes]
   );
 
@@ -2404,7 +2407,8 @@ function SessionCanvasFlow({
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         saveTimer.current = null;
-        if (!pendingViewportDirtyRef.current || !pendingViewport.current) return;
+        if (!pendingViewportDirtyRef.current || !pendingViewport.current)
+          return;
         const next: SessionCanvasViewport = pendingViewport.current;
         persist({ ...documentRef.current, viewport: next });
       }, VIEWPORT_SAVE_DELAY_MS);

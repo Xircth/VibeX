@@ -1093,8 +1093,7 @@ mod tests {
             spec["startup_timeout_sec"],
             json!(HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC)
         );
-        let workflow =
-            host_family_stdio_spec("/opt/dimo-workflow-mcp", "workflow", "", None, None);
+        let workflow = host_family_stdio_spec("/opt/dimo-workflow-mcp", "workflow", "", None, None);
         assert_eq!(workflow["args"], json!([]));
         assert_eq!(
             workflow["startup_timeout_sec"],
@@ -1331,10 +1330,7 @@ mod tests {
         assert!(runtime.is_valid_product_token(&token));
         assert_eq!(runtime.token_for_product("superagent"), Some(token));
 
-        assert_eq!(
-            superagent_mcp_features(false, false, 0),
-            "pulse,workflow"
-        );
+        assert_eq!(superagent_mcp_features(false, false, 0), "pulse,workflow");
         assert_eq!(
             superagent_mcp_features(true, true, SESSION_FEAT_ASK | SESSION_FEAT_FEEDBACK),
             "delegation,sessions,collaboration,space,feedback,ask,pulse,workflow"

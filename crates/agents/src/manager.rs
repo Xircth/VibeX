@@ -1324,6 +1324,5 @@ impl AgentConnectionManager {
     }
 }
 
-
 #[cfg(test)]
 mod tests;

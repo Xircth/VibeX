@@ -690,21 +690,23 @@ impl SqlitePulseStore {
         let Some(mut current) = self.get_rule(id).await? else {
             return Ok(false);
         };
-        let mut meta = current.spec.task_meta.take().unwrap_or_else(PulseTaskMeta::default);
+        let mut meta = current
+            .spec
+            .task_meta
+            .take()
+            .unwrap_or_else(PulseTaskMeta::default);
         meta.last_run_at = Some(now.to_string());
         meta.last_run_status = Some(run_status.to_string());
         meta.last_run_summary = Some(run_summary.to_string());
         current.spec.task_meta = Some(meta);
 
         let spec_json = serde_json::to_string(&current.spec).map_err(protocol_error)?;
-        let res = sqlx::query(
-            "UPDATE pulse_rules SET spec_json = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(spec_json)
-        .bind(now)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let res = sqlx::query("UPDATE pulse_rules SET spec_json = ?, updated_at = ? WHERE id = ?")
+            .bind(spec_json)
+            .bind(now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -1361,7 +1363,10 @@ impl SqlitePulseStore {
         Ok(res.rows_affected() > 0)
     }
 
-    pub async fn list_recent_outbox(&self, limit: u32) -> Result<Vec<PulseOutboxRecord>, sqlx::Error> {
+    pub async fn list_recent_outbox(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<PulseOutboxRecord>, sqlx::Error> {
         let sql = format!(
             "SELECT {OUTBOX_COLUMNS} FROM pulse_outbox ORDER BY updated_at DESC, created_at DESC LIMIT ?"
         );
@@ -1458,22 +1463,53 @@ mod tests {
             created_at: ts.to_string(),
             claimed_at: None,
         };
-        store.enqueue_bot_turn(&item("pulse-1", "2026-11-17T00:00:01Z")).await.unwrap();
-        store.enqueue_bot_turn(&item("pulse-2", "2026-11-17T00:00:02Z")).await.unwrap();
-        store.enqueue_bot_turn(&item("wf-bot:run1:s1:1", "2026-11-17T00:00:03Z")).await.unwrap();
-        store.enqueue_bot_turn(&item("wf-bot:run2:s1:1", "2026-11-17T00:00:04Z")).await.unwrap();
+        store
+            .enqueue_bot_turn(&item("pulse-1", "2026-11-17T00:00:01Z"))
+            .await
+            .unwrap();
+        store
+            .enqueue_bot_turn(&item("pulse-2", "2026-11-17T00:00:02Z"))
+            .await
+            .unwrap();
+        store
+            .enqueue_bot_turn(&item("wf-bot:run1:s1:1", "2026-11-17T00:00:03Z"))
+            .await
+            .unwrap();
+        store
+            .enqueue_bot_turn(&item("wf-bot:run2:s1:1", "2026-11-17T00:00:04Z"))
+            .await
+            .unwrap();
 
-        let first = store.claim_next_bot_turn("bot-ops", "2026-11-17T00:01:00Z").await.unwrap().unwrap();
+        let first = store
+            .claim_next_bot_turn("bot-ops", "2026-11-17T00:01:00Z")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(first.primary.id, "pulse-1");
-        assert_eq!(first.coalesced_items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), vec!["pulse-2"]);
+        assert_eq!(
+            first
+                .coalesced_items
+                .iter()
+                .map(|i| i.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pulse-2"]
+        );
         assert!(store.complete_bot_turn(&first.primary.id).await.unwrap());
 
-        let second = store.claim_next_bot_turn("bot-ops", "2026-11-17T00:02:00Z").await.unwrap().unwrap();
+        let second = store
+            .claim_next_bot_turn("bot-ops", "2026-11-17T00:02:00Z")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(second.primary.id, "wf-bot:run1:s1:1");
         assert!(second.coalesced_items.is_empty());
         assert!(store.complete_bot_turn(&second.primary.id).await.unwrap());
 
-        let third = store.claim_next_bot_turn("bot-ops", "2026-11-17T00:03:00Z").await.unwrap().unwrap();
+        let third = store
+            .claim_next_bot_turn("bot-ops", "2026-11-17T00:03:00Z")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(third.primary.id, "wf-bot:run2:s1:1");
         assert!(third.coalesced_items.is_empty());
     }

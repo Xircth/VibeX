@@ -134,7 +134,9 @@ describe('SessionComposerInput promptSuggestion', () => {
   it('marks data-prompt-suggestion only when an AI suggestion is active and not composing', () => {
     const { rerender } = render(
       <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
       >
         <SessionComposerInput
           value=""
@@ -161,7 +163,9 @@ describe('SessionComposerInput promptSuggestion', () => {
 
     rerender(
       <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
       >
         <SessionComposerInput
           value=""

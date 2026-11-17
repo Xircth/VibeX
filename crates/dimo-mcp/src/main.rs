@@ -21,8 +21,6 @@ mod workflow;
 mod workflow_patch;
 mod workflow_presets;
 
-pub(crate) use render::render_result;
-
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -39,6 +37,7 @@ use delegation_proto::{
     BrokerSessionCancelRequest, BrokerSessionRequest, BrokerSessionSendRequest,
     BrokerSessionWaitRequest, BrokerStatusRequest,
 };
+pub(crate) use render::render_result;
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -114,9 +113,7 @@ impl CompanionFeatures {
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask || self.collaboration,
-            "get_session_info" | "thread_read_history" => {
-                self.session_info || self.collaboration
-            }
+            "get_session_info" | "thread_read_history" => self.session_info || self.collaboration,
             "send_session_input" => self.session_control || self.collaboration,
             "cancel_session_turn" | "wait_for_session" => self.session_control,
             "list_conversations" | "create_conversation" | "list_spaces" | "manage_bot" => {
@@ -599,11 +596,7 @@ impl Companion {
             stdout,
             respond(
                 id,
-                modernize_result(
-                    meta.as_ref(),
-                    render_result(&final_outcome),
-                    &self.product,
-                ),
+                modernize_result(meta.as_ref(), render_result(&final_outcome), &self.product),
             ),
         )
         .await;
@@ -644,11 +637,7 @@ impl Companion {
             stdout,
             respond(
                 id,
-                modernize_result(
-                    meta.as_ref(),
-                    render_result(&final_outcome),
-                    &self.product,
-                ),
+                modernize_result(meta.as_ref(), render_result(&final_outcome), &self.product),
             ),
         )
         .await;
@@ -1022,11 +1011,7 @@ impl pulse_bridge::HostCommandCaller for Companion {
         operation_id: &'a str,
         args: &'a Value,
     ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<Value, client::HostCallError>>
-                + Send
-                + 'a,
-        >,
+        Box<dyn std::future::Future<Output = Result<Value, client::HostCallError>> + Send + 'a>,
     > {
         Box::pin(async move {
             if self.uses_http() {

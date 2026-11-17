@@ -576,7 +576,8 @@ export function WorkflowStudioInspectorInfo({
             </>
           ) : null}
 
-          {selectedStep.kind === 'approval' || selectedStep.kind === 'notify' ? (
+          {selectedStep.kind === 'approval' ||
+          selectedStep.kind === 'notify' ? (
             <div className="space-y-1">
               <Label
                 htmlFor="inspector-gate-title"
@@ -730,7 +731,10 @@ export function WorkflowStudioInspectorInfo({
               {t('studio.testNode')}
             </Button>
           ) : null}
-          {run && !onDefinitionChange && onRerunFromNode && isSessionTestable ? (
+          {run &&
+          !onDefinitionChange &&
+          onRerunFromNode &&
+          isSessionTestable ? (
             <Button
               size="sm"
               variant="outline"

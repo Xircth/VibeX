@@ -767,10 +767,7 @@ mod tests {
         assert_eq!(
             decide_user_environment_adopt(
                 &required,
-                &[observed(
-                    "combined_runtime",
-                    Some("@openai/codex 1.8.0"),
-                )]
+                &[observed("combined_runtime", Some("@openai/codex 1.8.0"),)]
             ),
             UserEnvironmentAdoptDecision::Install {
                 missing: Vec::new(),
@@ -782,10 +779,7 @@ mod tests {
     #[test]
     fn planned_updates_read_npm_spec_output_and_compare_numerically() {
         let planned = vec![planned("combined_runtime", "1.10.0")];
-        let current = vec![observed(
-            "combined_runtime",
-            Some("@openai/codex 1.8.0"),
-        )];
+        let current = vec![observed("combined_runtime", Some("@openai/codex 1.8.0"))];
         assert_eq!(
             planned_preflight_updates(&planned, &current),
             vec![PlannedPreflightUpdate {
@@ -811,10 +805,7 @@ mod tests {
         let plan = update_plan("1.10.0", LockedInstallSource::BuiltInProfile);
         let view = compose_agent_update_check(AgentUpdateCheckInput {
             agent_id: plan.agent_id.clone(),
-            current: &[observed(
-                "combined_runtime",
-                Some("@openai/codex 1.8.0"),
-            )],
+            current: &[observed("combined_runtime", Some("@openai/codex 1.8.0"))],
             plan: Some(&plan),
             overlay_fetched: &["combined_runtime".into()],
             snapshot_id: None,
@@ -824,10 +815,7 @@ mod tests {
         });
         assert!(view.update_available);
         assert_eq!(view.acp_available.as_deref(), Some("1.10.0"));
-        assert_eq!(
-            view.acp_current.as_deref(),
-            Some("@openai/codex 1.8.0")
-        );
+        assert_eq!(view.acp_current.as_deref(), Some("@openai/codex 1.8.0"));
     }
 
     #[test]
@@ -835,10 +823,7 @@ mod tests {
         let plan = update_plan("1.7.0", LockedInstallSource::BuiltInProfile);
         let view = compose_agent_update_check(AgentUpdateCheckInput {
             agent_id: plan.agent_id.clone(),
-            current: &[observed(
-                "combined_runtime",
-                Some("@openai/codex 1.8.0"),
-            )],
+            current: &[observed("combined_runtime", Some("@openai/codex 1.8.0"))],
             plan: Some(&plan),
             overlay_fetched: &[],
             snapshot_id: None,

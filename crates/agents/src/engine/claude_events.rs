@@ -19,9 +19,7 @@ use crate::{
         EngineRateLimits, EngineSelectChoice, EngineStartSpec, EngineToolClassification,
         PromptMode, classify_standard_tool_call, is_placeholder_engine_session_id,
     },
-    managed_toolchain::{
-        default_managed_artifacts_dir, ensure_managed_node, managed_node_runtime,
-    },
+    managed_toolchain::{default_managed_artifacts_dir, ensure_managed_node, managed_node_runtime},
     permissions::{AgentPermissionOption, AgentPermissionOptionKind},
 };
 
@@ -128,7 +126,10 @@ pub(super) fn parse_sidecar_models(raw: Option<&Value>) -> Vec<EngineModelInfo> 
             .map(str::trim)
             .filter(|s| !s.is_empty());
         let Some(id) = id else { continue };
-        if out.iter().any(|existing: &EngineModelInfo| existing.id == id) {
+        if out
+            .iter()
+            .any(|existing: &EngineModelInfo| existing.id == id)
+        {
             continue;
         }
         let label = item
@@ -214,7 +215,8 @@ pub(super) fn normalize_sidecar_event(
     is_official_session: bool,
 ) -> Option<EngineEvent> {
     let kind = event.get("kind").and_then(Value::as_str)?;
-    let session_id = str_opt(event, "sessionId").filter(|sid| !is_placeholder_engine_session_id(sid));
+    let session_id =
+        str_opt(event, "sessionId").filter(|sid| !is_placeholder_engine_session_id(sid));
     let prompt_id = str_opt(event, "promptId");
 
     match kind {
@@ -490,16 +492,15 @@ pub fn resolve_claude_driver_script(spec: &EngineStartSpec) -> Result<PathBuf, E
     {
         candidates.push(PathBuf::from(explicit));
     }
-    if let Some(env_script) = std::env::var_os("DIMO_CLAUDE_DRIVER_SCRIPT")
-        .filter(|s| !s.is_empty())
+    if let Some(env_script) =
+        std::env::var_os("DIMO_CLAUDE_DRIVER_SCRIPT").filter(|s| !s.is_empty())
     {
         candidates.push(PathBuf::from(env_script));
     }
 
     #[cfg(debug_assertions)]
-    candidates.push(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/claude-native-driver.mjs"),
-    );
+    candidates
+        .push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/claude-native-driver.mjs"));
 
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
@@ -512,9 +513,8 @@ pub fn resolve_claude_driver_script(spec: &EngineStartSpec) -> Result<PathBuf, E
     }
 
     #[cfg(not(debug_assertions))]
-    candidates.push(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/claude-native-driver.mjs"),
-    );
+    candidates
+        .push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/claude-native-driver.mjs"));
 
     candidates.into_iter().find(|p| p.is_file()).ok_or_else(|| {
         EngineError::BinaryNotFound("scripts/claude-native-driver.mjs not found".to_string())
@@ -882,9 +882,7 @@ pub(super) fn format_claude_model_display_name(model_id: &str) -> String {
             return out.join(" ");
         }
         // Legacy pattern: claude-<major>(-<minor>)?-<family>(-YYYYMMDD)?(-extra)?
-        if parts.len() >= 2
-            && !parts[0].is_empty()
-            && parts[0].bytes().all(|b| b.is_ascii_digit())
+        if parts.len() >= 2 && !parts[0].is_empty() && parts[0].bytes().all(|b| b.is_ascii_digit())
         {
             let mut idx = 1;
             let version = if idx < parts.len()
@@ -1040,16 +1038,13 @@ pub(super) fn classify_claude_tool_call(
     }
     let mut claude_meta = Map::new();
     claude_meta.insert("toolName".to_string(), Value::String(raw_name.to_string()));
-    if let Some(parent_id) = parent_tool_use_id
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            input
-                .get("_parentToolUseId")
-                .or_else(|| input.get("parent_tool_use_id"))
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-        })
-    {
+    if let Some(parent_id) = parent_tool_use_id.filter(|s| !s.is_empty()).or_else(|| {
+        input
+            .get("_parentToolUseId")
+            .or_else(|| input.get("parent_tool_use_id"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    }) {
         claude_meta.insert(
             "parentToolUseId".to_string(),
             Value::String(parent_id.to_string()),

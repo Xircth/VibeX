@@ -68,11 +68,7 @@ export function boxAxisOverlapRatios(
   };
 }
 
-export function hasHalfBoxOverlap(
-  a: Box,
-  b: Box,
-  threshold = 0.5
-): boolean {
+export function hasHalfBoxOverlap(a: Box, b: Box, threshold = 0.5): boolean {
   const { widthRatio, heightRatio } = boxAxisOverlapRatios(a, b);
   return widthRatio > threshold && heightRatio > threshold;
 }

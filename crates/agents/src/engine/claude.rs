@@ -28,15 +28,15 @@ use workspace_utils::process::{
     ProcessTreeJob, group_spawn_no_window_with_job, new_hidden_tokio_command,
 };
 
-pub use super::claude_events::{
-    default_claude_models, resolve_claude_driver_script, resolve_node_executable,
-};
 use super::claude_events::{
     apply_claude_env_to_models, classify_claude_tool_call, claude_accepts_model_id,
     claude_capabilities, claude_normalize_mode, default_claude_permission_options,
     encode_claude_question_answers, normalize_sidecar_event, parse_sidecar_models,
     prepare_claude_launch_env, resolve_claude_auth, resolve_claude_default_model,
     serialize_sidecar_blocks, str_opt, str_or,
+};
+pub use super::claude_events::{
+    default_claude_models, resolve_claude_driver_script, resolve_node_executable,
 };
 use crate::{
     engine::{
@@ -281,7 +281,10 @@ impl ClaudeSidecarClient {
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
-        let mcp_servers = spec.mcp_servers.is_object().then(|| spec.mcp_servers.clone());
+        let mcp_servers = spec
+            .mcp_servers
+            .is_object()
+            .then(|| spec.mcp_servers.clone());
 
         let params = json!({
             "workspaceId": spec.workspace_id.to_string(),
@@ -309,9 +312,7 @@ impl ClaudeSidecarClient {
         let effective_official = local_official && sidecar_official;
         self.official_session
             .store(effective_official, Ordering::Release);
-        if !effective_official
-            && let Ok(mut guard) = self.latest_cache_status.write()
-        {
+        if !effective_official && let Ok(mut guard) = self.latest_cache_status.write() {
             *guard = None;
         }
         Ok(result)
@@ -558,13 +559,12 @@ async fn run_sidecar_reader_loop<R>(
         if let (Some(id_val), Some(method_name)) = (raw_id, method) {
             let params = msg.get("params").unwrap_or(&Value::Null);
             if matches!(method_name, "permission/request" | "canUseTool") {
-                let permission_id = str_opt(params, "permissionId").unwrap_or_else(|| {
-                    match &id_val {
+                let permission_id =
+                    str_opt(params, "permissionId").unwrap_or_else(|| match &id_val {
                         Value::Number(n) => format!("claude-perm-{n}"),
                         Value::String(s) => s.clone(),
                         other => format!("claude-perm-{other}"),
-                    }
-                });
+                    });
                 let prompt_id = str_opt(params, "promptId");
                 let session_id = str_opt(params, "sessionId");
                 if let Ok(mut map) = server_requests.lock() {
@@ -691,8 +691,7 @@ impl ClaudeNativeDriver {
     ) -> EngineHandle {
         let connection_id = Uuid::new_v4();
         let official = sidecar.is_official_session();
-        let clean_initial =
-            initial_session_id.filter(|s| !is_placeholder_engine_session_id(s));
+        let clean_initial = initial_session_id.filter(|s| !is_placeholder_engine_session_id(s));
         let handle = EngineHandle::new(
             connection_id,
             NativeEngineKind::ClaudeNative,
@@ -873,8 +872,8 @@ impl NativeEngineDriver for ClaudeNativeDriver {
         }
 
         let send_result = sidecar.request("prompt/send", params).await?;
-        if let Some(returned_sid) = str_opt(&send_result, "sessionId")
-            .filter(|s| !is_placeholder_engine_session_id(s))
+        if let Some(returned_sid) =
+            str_opt(&send_result, "sessionId").filter(|s| !is_placeholder_engine_session_id(s))
         {
             handle.set_external_session_id(Some(returned_sid));
         }
@@ -992,7 +991,9 @@ impl NativeEngineDriver for ClaudeNativeDriver {
         decision: EnginePermissionDecision,
     ) -> Result<(), EngineError> {
         let sidecar = self.ensure_sidecar(handle).await?;
-        sidecar.respond_permission_or_server_request(&decision).await
+        sidecar
+            .respond_permission_or_server_request(&decision)
+            .await
     }
 
     async fn respond_question(
@@ -1192,8 +1193,16 @@ mod tests {
             ev,
             EngineEvent::QuestionRequested { request_id, .. } if request_id == "q-1"
         )));
-        assert!(events.iter().any(|ev| matches!(ev, EngineEvent::PlanUpdated { .. })));
-        assert!(events.iter().any(|ev| matches!(ev, EngineEvent::UsageUpdated { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, EngineEvent::PlanUpdated { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, EngineEvent::UsageUpdated { .. }))
+        );
 
         let decision = EnginePermissionDecision {
             permission_id: "perm-1".into(),
@@ -1354,13 +1363,19 @@ mod tests {
         let driver = ClaudeNativeDriver::new();
         driver.apply_env_to_models(&mut models, &env);
 
-        let sonnet = models.iter().find(|m| m.id == "sonnet").expect("sonnet alias");
+        let sonnet = models
+            .iter()
+            .find(|m| m.id == "sonnet")
+            .expect("sonnet alias");
         assert_eq!(sonnet.label, "Claude Sonnet 5.5");
 
         let opus = models.iter().find(|m| m.id == "opus").expect("opus alias");
         assert_eq!(opus.label, "Opus (Latest Alias)");
 
-        let glm = models.iter().find(|m| m.id == "glm-5").expect("glm-5 concrete");
+        let glm = models
+            .iter()
+            .find(|m| m.id == "glm-5")
+            .expect("glm-5 concrete");
         assert!(glm.is_default);
         assert!(models.iter().any(|m| m.id == "glm-fable"));
     }

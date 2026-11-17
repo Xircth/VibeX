@@ -262,9 +262,7 @@ describe('WorkspaceBranchControls host selector & canvas list toggle', () => {
       screen.queryByRole('button', { name: '显示/隐藏文件树' })
     ).not.toBeInTheDocument();
     expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
-    const leftSidebarToggle = screen.getByTestId(
-      'toolbar-toggle-left-sidebar'
-    );
+    const leftSidebarToggle = screen.getByTestId('toolbar-toggle-left-sidebar');
     expect(leftSidebarToggle).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
 

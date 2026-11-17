@@ -313,8 +313,7 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
               now,
               {
                 justNow: t('composerStash.justNow'),
-                minutesAgo: (count) =>
-                  t('composerStash.minutesAgo', { count }),
+                minutesAgo: (count) => t('composerStash.minutesAgo', { count }),
                 hoursAgo: (count) => t('composerStash.hoursAgo', { count }),
                 daysAgo: (count) => t('composerStash.daysAgo', { count }),
               }

@@ -9,9 +9,9 @@ const mockSlotState = vi.hoisted(() => ({
   renderMic: false,
 }));
 
-const mockSelectableAgents = vi.hoisted(
-  () => ({ rows: [] as SelectableAgent[] })
-);
+const mockSelectableAgents = vi.hoisted(() => ({
+  rows: [] as SelectableAgent[],
+}));
 
 vi.mock('@/components/plugins/Slot', () => ({
   Slot: ({ name }: { name: string }) =>

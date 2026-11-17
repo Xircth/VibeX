@@ -7,7 +7,13 @@ import {
   type PointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpRight, Check, MessageSquarePlus, Pencil, X } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Check,
+  MessageSquarePlus,
+  Pencil,
+  X,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';

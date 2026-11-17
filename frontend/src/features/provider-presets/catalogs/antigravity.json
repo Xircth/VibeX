@@ -22,9 +22,7 @@
     "icon": "apinebula",
     "website_url": "https://apinebula.ai/",
     "api_key_url": "https://apinebula.ai/VjM74M",
-    "endpoint_candidates": [
-      "https://apinebula.ai/"
-    ],
+    "endpoint_candidates": ["https://apinebula.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://apinebula.ai/",
@@ -36,9 +34,7 @@
     "icon": "aicodemirror",
     "website_url": "https://www.aicodemirror.ai/",
     "api_key_url": "https://www.aicodemirror.ai/register",
-    "endpoint_candidates": [
-      "https://api.aicodemirror.ai/api/gemini"
-    ],
+    "endpoint_candidates": ["https://api.aicodemirror.ai/api/gemini"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.aicodemirror.ai/api/gemini",
@@ -83,10 +79,7 @@
     "icon": "runapi",
     "website_url": "https://runapi.host/",
     "api_key_url": "https://runapi.host/register",
-    "endpoint_candidates": [
-      "https://runapi.host/",
-      "https://runapi.co/"
-    ],
+    "endpoint_candidates": ["https://runapi.host/", "https://runapi.co/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://runapi.host/",
@@ -109,10 +102,7 @@
     "icon": "grooroute",
     "website_url": "https://grooroute.pro/",
     "api_key_url": "https://grooroute.pro/sign-up",
-    "endpoint_candidates": [
-      "https://grooroute.pro/",
-      "https://grooroute.xyz/"
-    ],
+    "endpoint_candidates": ["https://grooroute.pro/", "https://grooroute.xyz/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://grooroute.pro/",
@@ -195,9 +185,7 @@
     "icon": "aicoding",
     "website_url": "https://aicoding.inc/",
     "api_key_url": "https://aicoding.inc/i/CCSWITCH",
-    "endpoint_candidates": [
-      "https://api.aicoding.inc/"
-    ],
+    "endpoint_candidates": ["https://api.aicoding.inc/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.aicoding.inc/",
@@ -209,9 +197,7 @@
     "icon": "subrouter",
     "website_url": "https://subrouter.ai/",
     "api_key_url": "https://subrouter.ai/register",
-    "endpoint_candidates": [
-      "https://subrouter.ai/v1beta"
-    ],
+    "endpoint_candidates": ["https://subrouter.ai/v1beta"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://subrouter.ai/v1beta",
@@ -234,10 +220,7 @@
     "icon": "88api",
     "website_url": "https://88api.ai/",
     "api_key_url": "https://88api.ai/sign-up",
-    "endpoint_candidates": [
-      "https://api.88api.ai/",
-      "https://88api.ai/"
-    ],
+    "endpoint_candidates": ["https://api.88api.ai/", "https://88api.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.88api.ai/",
@@ -281,9 +264,7 @@
     "icon": "teamorouter",
     "website_url": "https://teamorouter.com/",
     "api_key_url": "https://teamorouter.com/",
-    "endpoint_candidates": [
-      "https://api.teamorouter.com/"
-    ],
+    "endpoint_candidates": ["https://api.teamorouter.com/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.teamorouter.com/",
@@ -306,9 +287,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://api.modelverse.cn/"
-    ],
+    "endpoint_candidates": ["https://api.modelverse.cn/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.modelverse.cn/",
@@ -347,9 +326,7 @@
     "icon": "soleapi",
     "website_url": "https://soleapi.com/",
     "api_key_url": "https://soleapi.com/r/ccswitch",
-    "endpoint_candidates": [
-      "https://soleapi.com/"
-    ],
+    "endpoint_candidates": ["https://soleapi.com/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://soleapi.com/",
@@ -361,9 +338,7 @@
     "icon": "micu",
     "website_url": "https://www.micuapi.ai/",
     "api_key_url": "https://www.micuapi.ai/register",
-    "endpoint_candidates": [
-      "https://www.micuapi.ai/"
-    ],
+    "endpoint_candidates": ["https://www.micuapi.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.micuapi.ai/",
@@ -392,9 +367,7 @@
     "icon": "crazyrouter",
     "website_url": "https://www.crazyrouter.com/",
     "api_key_url": "https://www.crazyrouter.com/register",
-    "endpoint_candidates": [
-      "https://cn.crazyrouter.com/"
-    ],
+    "endpoint_candidates": ["https://cn.crazyrouter.com/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cn.crazyrouter.com/",
@@ -406,10 +379,7 @@
     "icon": "dmxapi",
     "website_url": "https://www.dmxapi.cn/",
     "api_key_url": "https://www.dmxapi.cn/",
-    "endpoint_candidates": [
-      "https://www.dmxapi.cn/",
-      "https://api.dmxapi.cn/"
-    ],
+    "endpoint_candidates": ["https://www.dmxapi.cn/", "https://api.dmxapi.cn/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.dmxapi.cn/",
@@ -436,10 +406,7 @@
     "icon": "sudocode-us",
     "website_url": "https://sudocode.us/",
     "api_key_url": "https://sudocode.us/",
-    "endpoint_candidates": [
-      "https://sudocode.us/",
-      "https://sudocode.run/"
-    ],
+    "endpoint_candidates": ["https://sudocode.us/", "https://sudocode.run/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://sudocode.us/",
@@ -499,9 +466,7 @@
     "icon": "aicodewith",
     "website_url": "https://aicodewith.ai/",
     "api_key_url": "https://aicodewith.ai/login",
-    "endpoint_candidates": [
-      "https://api.aicodewith.ai/gemini_cli"
-    ],
+    "endpoint_candidates": ["https://api.aicodewith.ai/gemini_cli"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.aicodewith.ai/gemini_cli",
@@ -524,9 +489,7 @@
     "icon": "cherryin",
     "website_url": "https://open.cherryin.ai/",
     "api_key_url": "https://open.cherryin.ai/console/token",
-    "endpoint_candidates": [
-      "https://open.cherryin.net/"
-    ],
+    "endpoint_candidates": ["https://open.cherryin.net/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://open.cherryin.net/",
@@ -549,9 +512,7 @@
     "icon": "eflowcode",
     "website_url": "https://e-flowcode.cc/",
     "api_key_url": "https://e-flowcode.cc/",
-    "endpoint_candidates": [
-      "https://e-flowcode.cc/"
-    ],
+    "endpoint_candidates": ["https://e-flowcode.cc/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://e-flowcode.cc/",
@@ -622,9 +583,7 @@
     "icon": "therouter",
     "website_url": "https://therouter.ai/",
     "api_key_url": "https://dashboard.therouter.ai/",
-    "endpoint_candidates": [
-      "https://api.therouter.ai/"
-    ],
+    "endpoint_candidates": ["https://api.therouter.ai/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.therouter.ai/",
@@ -636,10 +595,7 @@
     "icon": "tokenflux",
     "website_url": "https://tokenflux.com/",
     "api_key_url": "https://tokenflux.com/keys",
-    "endpoint_candidates": [
-      "https://tokenflux.com/",
-      "https://tokenflux.dev/"
-    ],
+    "endpoint_candidates": ["https://tokenflux.com/", "https://tokenflux.dev/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://tokenflux.com/",

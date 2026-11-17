@@ -50,7 +50,11 @@ describe('isWorkflowConnectionValid & wouldCreateWorkflowCycle', () => {
       })
     ).toBe(false);
     expect(
-      wouldCreateWorkflowCycle([{ id: 'start', dependsOn: [] }], 'start', 'start')
+      wouldCreateWorkflowCycle(
+        [{ id: 'start', dependsOn: [] }],
+        'start',
+        'start'
+      )
     ).toBe(true);
   });
 

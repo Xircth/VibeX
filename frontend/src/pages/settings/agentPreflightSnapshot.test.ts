@@ -168,9 +168,9 @@ describe('agentPreflightSnapshot', () => {
       ],
     };
     const next = overlayAuthPreflightItems(full, refreshed);
-    expect(next.items.find((item) => item.id === 'native_runtime')?.status).toBe(
-      'pass'
-    );
+    expect(
+      next.items.find((item) => item.id === 'native_runtime')?.status
+    ).toBe('pass');
     expect(
       next.items.find((item) => item.id === 'authentication')
     ).toMatchObject({

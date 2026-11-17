@@ -63,7 +63,10 @@ pub async fn adopt_native_engine_if_needed(
         return Ok(false);
     }
 
-    let Some(version) = probed_version.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(version) = probed_version
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(false);
     };
 
@@ -116,7 +119,8 @@ pub async fn adopt_native_engine_if_needed(
             .await?;
             let valid_existing = !components.is_empty()
                 && !components.iter().any(|(kind, path)| {
-                    kind == "acp_adapter" || launch_program_is_legacy_acp_shim(agent_id, Path::new(path))
+                    kind == "acp_adapter"
+                        || launch_program_is_legacy_acp_shim(agent_id, Path::new(path))
                 })
                 && components.iter().all(|(_, path)| Path::new(path).is_file());
             if valid_existing {
@@ -410,10 +414,12 @@ mod tests {
         let codex_cli = write_dummy_cli(temp.path(), "codex");
         let agy_cli = write_dummy_cli(temp.path(), "agy_acp_server");
 
-        sqlx::query("UPDATE agent_membership SET enabled = 0 WHERE agent_id IN ('claude_code', 'codex')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE agent_membership SET enabled = 0 WHERE agent_id IN ('claude_code', 'codex')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let claude_id = AgentId::parse("claude_code").unwrap();
         let codex_id = AgentId::parse("codex").unwrap();

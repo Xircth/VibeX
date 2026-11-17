@@ -1,13 +1,13 @@
 mod applier;
 mod backfill;
+#[cfg(test)]
+mod bounds_tests;
 mod cache;
 mod fold;
 mod query;
 mod rows;
 mod runtime_status;
 mod write_cache;
-#[cfg(test)]
-mod bounds_tests;
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -15,6 +15,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock, RwLock},
 };
 
+pub use agents::conversation::ConversationRowsSincePage;
 use agents::conversation::{
     AcpCapabilitySnapshot, ContentBlock, ConversationEvent, ConversationInputEvent,
     ConversationRowOp, ConversationTimeline, ConversationTimelineRow, ConversationUsage,
@@ -32,7 +33,10 @@ use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-pub use agents::conversation::ConversationRowsSincePage;
+pub(crate) use self::{
+    applier::apply_checkpoint_metadata_update_on_conn as applier_checkpoint_update,
+    cache::fetch_hydrated_turns_for_projector,
+};
 pub use self::{
     applier::{
         BatchAppendResult, BatchConversationEvent, CheckpointMetadataUpdate,
@@ -51,10 +55,6 @@ pub use self::{
     query::{
         MAX_WINDOW_BYTES, TimelineKeysetCursor, decode_timeline_cursor, encode_timeline_cursor,
     },
-};
-pub(crate) use self::{
-    applier::apply_checkpoint_metadata_update_on_conn as applier_checkpoint_update,
-    cache::fetch_hydrated_turns_for_projector,
 };
 use self::{
     cache::{antigravity_conversation, decode_timeline_row_records, record_rebuilt_projector_fold},
@@ -222,7 +222,8 @@ pub(crate) fn emit_captured_internal_message(message: agents::CapturedInternalMe
     }
 }
 
-static PROJECTION_REPAIR_HOOK: OnceLock<Arc<dyn Fn(Uuid) + Send + Sync + 'static>> = OnceLock::new();
+static PROJECTION_REPAIR_HOOK: OnceLock<Arc<dyn Fn(Uuid) + Send + Sync + 'static>> =
+    OnceLock::new();
 static PENDING_PROJECTION_REPAIRS: OnceLock<Mutex<HashSet<Uuid>>> = OnceLock::new();
 
 /// Register a background repair hook backed by `WritePool` so cold-fold fallbacks on
@@ -231,13 +232,17 @@ pub fn register_projection_repair_hook(write_pool: db::WritePool) {
     let _ = PROJECTION_REPAIR_HOOK.set(Arc::new(move |conversation_id| {
         let pending = PENDING_PROJECTION_REPAIRS.get_or_init(|| Mutex::new(HashSet::new()));
         {
-            let mut guard = pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut guard = pending
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if !guard.insert(conversation_id) {
                 return;
             }
         }
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
-            let mut guard = pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut guard = pending
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.remove(&conversation_id);
             return;
         };
@@ -284,8 +289,8 @@ impl ConversationProjector {
         conversation_id: Uuid,
         limit: usize,
     ) -> Result<OpenConversationProjection, sqlx::Error> {
-        if let Some(open) = Self::try_materialized_open_with_budget(pool, conversation_id, limit)
-            .await?
+        if let Some(open) =
+            Self::try_materialized_open_with_budget(pool, conversation_id, limit).await?
         {
             let timeline = annotate_fork_points(pool, open.timeline).await?;
             return Ok(OpenConversationProjection {
@@ -547,10 +552,7 @@ pub(super) struct TurnMetricsSummary {
     pub(super) duration_ms: Option<u64>,
 }
 
-fn summarize_turn_metrics(
-    turn: &ProjectedTurn,
-    ordinal: i64,
-) -> Option<TurnMetricsSummary> {
+fn summarize_turn_metrics(turn: &ProjectedTurn, ordinal: i64) -> Option<TurnMetricsSummary> {
     let mut segments: Vec<&MessageTurn> = Vec::new();
     if !turn.user.blocks.is_empty() {
         segments.push(&turn.user);
@@ -912,17 +914,16 @@ pub(super) fn session_stats_from_metrics(
 ) -> Option<SessionStats> {
     let mut ordered: Vec<&TurnMetricsSummary> = metrics.values().collect();
     ordered.sort_by_key(|m| m.ordinal);
-    let total_usage =
-        ordered
-            .iter()
-            .filter_map(|m| m.usage.as_ref())
-            .fold(TurnUsage::default(), |mut acc, usage| {
-                acc.input_tokens += usage.input_tokens;
-                acc.output_tokens += usage.output_tokens;
-                acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
-                acc.cache_read_input_tokens += usage.cache_read_input_tokens;
-                acc
-            });
+    let total_usage = ordered.iter().filter_map(|m| m.usage.as_ref()).fold(
+        TurnUsage::default(),
+        |mut acc, usage| {
+            acc.input_tokens += usage.input_tokens;
+            acc.output_tokens += usage.output_tokens;
+            acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            acc.cache_read_input_tokens += usage.cache_read_input_tokens;
+            acc
+        },
+    );
     let total_tokens = total_usage.input_tokens
         + total_usage.output_tokens
         + total_usage.cache_creation_input_tokens

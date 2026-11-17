@@ -78,19 +78,30 @@ describe('useFollowUpSend', () => {
     const executorProfileId = { executor: 'codex' };
     const images: string[] = [];
     const { result, rerender } = renderHook(
-      ({ policy }: { policy: 'portable' | 'fresh' }) => useFollowUpSend({
-        sessionId: 'conversation-1', workspaceId: 'ws-1',
-        message: 'continue', executorProfileId, images,
-        continuationPolicy: policy, conflictMarkdown: null, reviewMarkdown: '',
-        clearComments, onAfterSendCleanup,
-      }),
+      ({ policy }: { policy: 'portable' | 'fresh' }) =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'continue',
+          executorProfileId,
+          images,
+          continuationPolicy: policy,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments,
+          onAfterSendCleanup,
+        }),
       { wrapper, initialProps: { policy: 'portable' } }
     );
     rerender({ policy: 'fresh' });
-    await act(async () => { await result.current.onSendFollowUp(); });
-    expect(sendTurnMock).toHaveBeenCalledWith(expect.objectContaining({
-      continuationPolicy: 'fresh',
-    }));
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        continuationPolicy: 'fresh',
+      })
+    );
   });
 
   it('continues with another Agent in the same conversation with the selected history policy', async () => {
@@ -99,17 +110,33 @@ describe('useFollowUpSend', () => {
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { result } = renderHook(() => useFollowUpSend({
-      sessionId: 'conversation-1', sessionExecutor: 'claude_code', workspaceId: 'ws-1',
-      message: 'continue', executorProfileId: { executor: 'codex' },
-      continuationPolicy: 'portable', conflictMarkdown: null, reviewMarkdown: '',
-      clearComments: vi.fn(), onAfterSendCleanup: vi.fn(),
-    }), { wrapper });
-    await act(async () => { await result.current.onSendFollowUp(); });
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          sessionExecutor: 'claude_code',
+          workspaceId: 'ws-1',
+          message: 'continue',
+          executorProfileId: { executor: 'codex' },
+          continuationPolicy: 'portable',
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
     expect(createMock).not.toHaveBeenCalled();
-    expect(sendTurnMock).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: 'conversation-1', executorProfileId: { executor: 'codex' }, continuationPolicy: 'portable',
-    }));
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'conversation-1',
+        executorProfileId: { executor: 'codex' },
+        continuationPolicy: 'portable',
+      })
+    );
   });
 
   it('creates a session and sends the turn exactly once for one message', async () => {
@@ -787,7 +814,9 @@ describe('useFollowUpSend', () => {
   });
 
   it('forwards providerInstanceId to sendAgentRuntimeTurn', async () => {
-    sendTurnMock.mockResolvedValue({ input: { id: 'in-1', status: 'dispatched' } });
+    sendTurnMock.mockResolvedValue({
+      input: { id: 'in-1', status: 'dispatched' },
+    });
     const queryClient = new QueryClient();
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

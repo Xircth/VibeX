@@ -123,14 +123,22 @@ impl ChatDeliveryPublisher {
         })
     }
 
-    fn enqueue_record_with_store(&self, record: &ConversationEventRecord, store: &ChatChannelStore) {
+    fn enqueue_record_with_store(
+        &self,
+        record: &ConversationEventRecord,
+        store: &ChatChannelStore,
+    ) {
         let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) else {
             return;
         };
         let Some(event_key) = conversation_event_key(&event) else {
             return;
         };
-        if !store.event_filter.iter().any(|enabled| enabled == event_key) {
+        if !store
+            .event_filter
+            .iter()
+            .any(|enabled| enabled == event_key)
+        {
             return;
         }
         let envelope = ConversationEventEnvelope {

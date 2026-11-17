@@ -1316,8 +1316,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           {
             getTerminalPanelId: () => PANEL_IDS.TERMINAL,
             getProcessesPanelId: () => PANEL_IDS.PROCESSES,
-            openNewTerminal: () =>
-              dispatchHostCustomEvent('dimo:new-terminal'),
+            openNewTerminal: () => dispatchHostCustomEvent('dimo:new-terminal'),
             exec: async (input: {
               program: string;
               args?: readonly string[];
@@ -1557,11 +1556,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '执行 Cron 定时对话轮次、后台周期巡检以及多步骤版本化 DAG 工作流自动化。',
       summaryEn:
         'Executes Cron-scheduled agent turns, recurring background jobs, and versioned multi-step DAG workflows.',
-      provides: [
-        'dimo.automation',
-        'dimo.scheduler',
-        'dimo.workflow-runner',
-      ],
+      provides: ['dimo.automation', 'dimo.scheduler', 'dimo.workflow-runner'],
       injects: ['dimo.agent-runtime'],
       onActivate: (ctx) => {
         registerBuiltinCommands({ ctx });

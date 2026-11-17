@@ -50,7 +50,11 @@ function FolderPickerBody({
 }: FolderPickerDialogProps & { multiSelect?: boolean }) {
   const modal = useModal();
   const { t, i18n: i18nInstance } = useTranslation(['dialogs', 'common']);
-  const isZh = (i18nInstance.resolvedLanguage ?? i18nInstance.language ?? '').startsWith('zh');
+  const isZh = (
+    i18nInstance.resolvedLanguage ??
+    i18nInstance.language ??
+    ''
+  ).startsWith('zh');
   const [currentPath, setCurrentPath] = useState<string>('');
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -185,225 +189,221 @@ function FolderPickerBody({
     }
   };
 
-    return (
-      <div className="fixed inset-0 z-[10000] pointer-events-none [&>*]:pointer-events-auto">
-        <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-          <DialogContent className="max-w-[600px] w-full h-[700px] flex flex-col overflow-hidden">
-            <DialogHeader>
-              <DialogTitle>{title}</DialogTitle>
-              <DialogDescription>{description}</DialogDescription>
-            </DialogHeader>
+  return (
+    <div className="fixed inset-0 z-[10000] pointer-events-none [&>*]:pointer-events-auto">
+      <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-[600px] w-full h-[700px] flex flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
 
-            <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
-              {/* Legend */}
-              <div className="text-xs text-muted-foreground border-b pb-2">
-                {t('folderPicker.navigationHint')}
+          <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
+            {/* Legend */}
+            <div className="text-xs text-muted-foreground border-b pb-2">
+              {t('folderPicker.navigationHint')}
+            </div>
+
+            {/* Manual path input */}
+            <div className="space-y-2">
+              <div className="text-sm font-medium">
+                {t('folderPicker.manualPathLabel')}
               </div>
-
-              {/* Manual path input */}
-              <div className="space-y-2">
-                <div className="text-sm font-medium">
-                  {t('folderPicker.manualPathLabel')}
-                </div>
-                <div className="flex min-w-0 space-x-2">
-                  <TextInput
-                    label={t('folderPicker.manualPathLabel')}
-                    isLabelHidden
-                    value={manualPath}
-                    onChange={handleManualPathChange}
-                    placeholder="/path/to/your/project"
-                    width="100%"
-                    className="min-w-0 flex-1 [&_input]:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    onClick={handleManualPathSubmit}
-                    variant="outline"
-                    size="sm"
-                    className="flex-shrink-0"
-                  >
-                    {t('folderPicker.go')}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Search input */}
-              <div className="space-y-2">
-                <div className="text-sm font-medium">
-                  {t('folderPicker.searchLabel')}
-                </div>
+              <div className="flex min-w-0 space-x-2">
                 <TextInput
-                  label={t('folderPicker.searchLabel')}
+                  label={t('folderPicker.manualPathLabel')}
                   isLabelHidden
-                  value={searchTerm}
-                  onChange={setSearchTerm}
-                  placeholder={i18n.t(
-                    'panels:ui.folderPicker.filterFoldersAndFiles'
-                  )}
-                  startIcon={
-                    <Search className="h-4 w-4 text-muted-foreground" />
-                  }
-                  hasClear
+                  value={manualPath}
+                  onChange={handleManualPathChange}
+                  placeholder="/path/to/your/project"
                   width="100%"
-                  className="[&_input]:text-sm"
+                  className="min-w-0 flex-1 [&_input]:text-sm"
                 />
-              </div>
-
-              {/* Navigation */}
-              <div className="flex items-center space-x-2 min-w-0">
                 <Button
                   type="button"
-                  onClick={handleHomeDirectory}
+                  onClick={handleManualPathSubmit}
                   variant="outline"
                   size="sm"
-                  aria-label={t('folderPicker.homeDirectory', {
-                    defaultValue: 'Home directory',
-                  })}
                   className="flex-shrink-0"
                 >
-                  <Home className="h-4 w-4" />
+                  {t('folderPicker.go')}
                 </Button>
-                <Button
-                  type="button"
-                  onClick={handleParentDirectory}
-                  variant="outline"
-                  size="sm"
-                  disabled={!currentPath || currentPath === '/'}
-                  aria-label={t('folderPicker.parentDirectory', {
-                    defaultValue: 'Parent directory',
-                  })}
-                  className="flex-shrink-0"
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </Button>
-                <div className="text-sm text-muted-foreground flex-1 truncate min-w-0">
-                  {currentPath || 'Home'}
-                </div>
-                <Button
-                  type="button"
-                  onClick={handleSelectCurrent}
-                  variant="outline"
-                  size="sm"
-                  disabled={!currentPath}
-                  className="flex-shrink-0"
-                >
-                  {t('folderPicker.selectCurrent')}
-                </Button>
-              </div>
-
-              {/* Directory listing */}
-              <div className="flex-1 border rounded-md overflow-auto">
-                {loading ? (
-                  <div className="p-4 text-center text-muted-foreground">
-                    Loading...
-                  </div>
-                ) : error ? (
-                  <Alert variant="destructive" className="m-4">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                ) : filteredEntries.length === 0 ? (
-                  <div className="p-4 text-center text-muted-foreground">
-                    {searchTerm.trim()
-                      ? 'No matches found'
-                      : 'No folders found'}
-                  </div>
-                ) : (
-                  <div className="p-2" role="listbox" aria-label={title}>
-                    {filteredEntries.map((entry, index) => {
-                      const isSelectable =
-                        entry.is_directory ||
-                        (selectFile && extensionAllowed(entry.name));
-                      const isChecked =
-                        multiSelect &&
-                        entry.is_directory &&
-                        selectedPaths.includes(entry.path);
-                      return (
-                        <div
-                          key={index}
-                          role="button"
-                          tabIndex={isSelectable ? 0 : -1}
-                          aria-disabled={!isSelectable || undefined}
-                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] ${
-                            !isSelectable ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
-                          onClick={() => handleFolderClick(entry)}
-                          onKeyDown={(e) => {
-                            if (
-                              isSelectable &&
-                              (e.key === 'Enter' || e.key === ' ')
-                            ) {
-                              e.preventDefault();
-                              handleFolderClick(entry);
-                            }
-                          }}
-                          title={entry.name}
-                        >
-                          {multiSelect && entry.is_directory ? (
-                            <span
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => e.stopPropagation()}
-                              className="flex items-center"
-                            >
-                              <Checkbox
-                                checked={isChecked}
-                                aria-label={entry.name}
-                                onCheckedChange={() =>
-                                  toggleSelectedPath(entry.path)
-                                }
-                              />
-                            </span>
-                          ) : null}
-                          {entry.is_directory ? (
-                            entry.is_git_repo ? (
-                              <FolderOpen className="h-4 w-4 text-success flex-shrink-0" />
-                            ) : (
-                              <Folder className="h-4 w-4 text-primary flex-shrink-0" />
-                            )
-                          ) : (
-                            <File className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
-                          )}
-                          <span className="text-sm flex-1 truncate min-w-0">
-                            {entry.name}
-                          </span>
-                          {entry.is_git_repo && (
-                            <span className="flex-shrink-0 rounded bg-[hsl(var(--success)/0.12)] px-2 py-1 text-xs text-[hsl(var(--success))]">
-                              {t('folderPicker.gitRepo')}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleCancel}>
-                {t('common:cancel')}
+            {/* Search input */}
+            <div className="space-y-2">
+              <div className="text-sm font-medium">
+                {t('folderPicker.searchLabel')}
+              </div>
+              <TextInput
+                label={t('folderPicker.searchLabel')}
+                isLabelHidden
+                value={searchTerm}
+                onChange={setSearchTerm}
+                placeholder={i18n.t(
+                  'panels:ui.folderPicker.filterFoldersAndFiles'
+                )}
+                startIcon={<Search className="h-4 w-4 text-muted-foreground" />}
+                hasClear
+                width="100%"
+                className="[&_input]:text-sm"
+              />
+            </div>
+
+            {/* Navigation */}
+            <div className="flex items-center space-x-2 min-w-0">
+              <Button
+                type="button"
+                onClick={handleHomeDirectory}
+                variant="outline"
+                size="sm"
+                aria-label={t('folderPicker.homeDirectory', {
+                  defaultValue: 'Home directory',
+                })}
+                className="flex-shrink-0"
+              >
+                <Home className="h-4 w-4" />
               </Button>
               <Button
-                type="submit"
-                data-dialog-primary="true"
-                onClick={handleSelectManual}
-                disabled={
-                  multiSelect
-                    ? selectedPaths.length === 0 && !manualPath.trim()
-                    : !manualPath.trim()
-                }
+                type="button"
+                onClick={handleParentDirectory}
+                variant="outline"
+                size="sm"
+                disabled={!currentPath || currentPath === '/'}
+                aria-label={t('folderPicker.parentDirectory', {
+                  defaultValue: 'Parent directory',
+                })}
+                className="flex-shrink-0"
               >
-                {multiSelect && selectedPaths.length > 0
-                  ? isZh
-                    ? `导入已选 (${selectedPaths.length})`
-                    : `Select (${selectedPaths.length})`
-                  : t('folderPicker.selectPath')}
+                <ChevronUp className="h-4 w-4" />
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
+              <div className="text-sm text-muted-foreground flex-1 truncate min-w-0">
+                {currentPath || 'Home'}
+              </div>
+              <Button
+                type="button"
+                onClick={handleSelectCurrent}
+                variant="outline"
+                size="sm"
+                disabled={!currentPath}
+                className="flex-shrink-0"
+              >
+                {t('folderPicker.selectCurrent')}
+              </Button>
+            </div>
+
+            {/* Directory listing */}
+            <div className="flex-1 border rounded-md overflow-auto">
+              {loading ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  Loading...
+                </div>
+              ) : error ? (
+                <Alert variant="destructive" className="m-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : filteredEntries.length === 0 ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  {searchTerm.trim() ? 'No matches found' : 'No folders found'}
+                </div>
+              ) : (
+                <div className="p-2" role="listbox" aria-label={title}>
+                  {filteredEntries.map((entry, index) => {
+                    const isSelectable =
+                      entry.is_directory ||
+                      (selectFile && extensionAllowed(entry.name));
+                    const isChecked =
+                      multiSelect &&
+                      entry.is_directory &&
+                      selectedPaths.includes(entry.path);
+                    return (
+                      <div
+                        key={index}
+                        role="button"
+                        tabIndex={isSelectable ? 0 : -1}
+                        aria-disabled={!isSelectable || undefined}
+                        className={`flex items-center space-x-2 p-2 rounded cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] ${
+                          !isSelectable ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        onClick={() => handleFolderClick(entry)}
+                        onKeyDown={(e) => {
+                          if (
+                            isSelectable &&
+                            (e.key === 'Enter' || e.key === ' ')
+                          ) {
+                            e.preventDefault();
+                            handleFolderClick(entry);
+                          }
+                        }}
+                        title={entry.name}
+                      >
+                        {multiSelect && entry.is_directory ? (
+                          <span
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="flex items-center"
+                          >
+                            <Checkbox
+                              checked={isChecked}
+                              aria-label={entry.name}
+                              onCheckedChange={() =>
+                                toggleSelectedPath(entry.path)
+                              }
+                            />
+                          </span>
+                        ) : null}
+                        {entry.is_directory ? (
+                          entry.is_git_repo ? (
+                            <FolderOpen className="h-4 w-4 text-success flex-shrink-0" />
+                          ) : (
+                            <Folder className="h-4 w-4 text-primary flex-shrink-0" />
+                          )
+                        ) : (
+                          <File className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
+                        )}
+                        <span className="text-sm flex-1 truncate min-w-0">
+                          {entry.name}
+                        </span>
+                        {entry.is_git_repo && (
+                          <span className="flex-shrink-0 rounded bg-[hsl(var(--success)/0.12)] px-2 py-1 text-xs text-[hsl(var(--success))]">
+                            {t('folderPicker.gitRepo')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              {t('common:cancel')}
+            </Button>
+            <Button
+              type="submit"
+              data-dialog-primary="true"
+              onClick={handleSelectManual}
+              disabled={
+                multiSelect
+                  ? selectedPaths.length === 0 && !manualPath.trim()
+                  : !manualPath.trim()
+              }
+            >
+              {multiSelect && selectedPaths.length > 0
+                ? isZh
+                  ? `导入已选 (${selectedPaths.length})`
+                  : `Select (${selectedPaths.length})`
+                : t('folderPicker.selectPath')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 
 const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(

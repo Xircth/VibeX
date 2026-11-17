@@ -506,14 +506,14 @@ export function useCanvasNodeContextMenu({
     setMenuPosition({ x: event.clientX, y: event.clientY });
   }, []);
 
-  const contextMenuElement = menuPosition ? (
-    <ProductContextMenu
-      x={menuPosition.x}
-      y={menuPosition.y}
-      items={menuItems}
-      onClose={() => setMenuPosition(null)}
-    />
-  ) : null;
+  const contextMenuElement = menuPosition
+    ? createElement(ProductContextMenu, {
+        x: menuPosition.x,
+        y: menuPosition.y,
+        items: menuItems,
+        onClose: () => setMenuPosition(null),
+      })
+    : null;
 
   return {
     openContextMenu,

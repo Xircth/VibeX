@@ -645,17 +645,15 @@ describe('production first-run flow', () => {
 
     await waitFor(() =>
       expect(
-        within(screen.getByRole('region', { name: t('rosterTitle') })).getByRole(
-          'button',
-          { name: 'zcode' }
-        )
+        within(
+          screen.getByRole('region', { name: t('rosterTitle') })
+        ).getByRole('button', { name: 'zcode' })
       ).toBeInTheDocument()
     );
     expect(
-      within(screen.getByRole('region', { name: t('rosterTitle') })).queryByRole(
-        'button',
-        { name: 'cursor' }
-      )
+      within(
+        screen.getByRole('region', { name: t('rosterTitle') })
+      ).queryByRole('button', { name: 'cursor' })
     ).toBeNull();
   });
   it('enables locally detected NativeEngine Agents after preflight without installing an ACP adapter', async () => {
@@ -707,17 +705,15 @@ describe('production first-run flow', () => {
     );
     await waitFor(() =>
       expect(
-        within(screen.getByRole('region', { name: t('rosterTitle') })).getByRole(
-          'button',
-          { name: 'codex' }
-        )
+        within(
+          screen.getByRole('region', { name: t('rosterTitle') })
+        ).getByRole('button', { name: 'codex' })
       ).toBeInTheDocument()
     );
     expect(
-      within(screen.getByRole('region', { name: t('rosterTitle') })).queryByRole(
-        'button',
-        { name: 'claude_code' }
-      )
+      within(
+        screen.getByRole('region', { name: t('rosterTitle') })
+      ).queryByRole('button', { name: 'claude_code' })
     ).toBeNull();
   });
   it('adds already-ready locally detected Agents directly to the roster without reinstalling or re-checking', async () => {
@@ -876,7 +872,9 @@ describe('production first-run flow', () => {
         within(roster).queryByRole('button', { name: 'claude_code' })
       ).toBeNull()
     );
-    expect(await screen.findByText(t('agentStatus.needs_auth'))).toBeInTheDocument();
+    expect(
+      await screen.findByText(t('agentStatus.needs_auth'))
+    ).toBeInTheDocument();
 
     const claudeInspectButton = screen.getByRole('button', {
       name: i18n.t('dialogs:onboarding.agentDetail', {

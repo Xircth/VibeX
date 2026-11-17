@@ -129,10 +129,7 @@ export function CodeCompletionStatusPopover({
     };
     window.addEventListener('dimo:plugin-config-updated', onConfigUpdated);
     return () => {
-      window.removeEventListener(
-        'dimo:plugin-config-updated',
-        onConfigUpdated
-      );
+      window.removeEventListener('dimo:plugin-config-updated', onConfigUpdated);
     };
   }, [pluginId]);
 

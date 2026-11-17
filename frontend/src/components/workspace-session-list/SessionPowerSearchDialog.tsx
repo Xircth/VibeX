@@ -9,12 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  Archive,
-  FolderGit2,
-  GitBranch,
-  Search,
-} from 'lucide-react';
+import { Archive, FolderGit2, GitBranch, Search } from 'lucide-react';
 import {
   PowerSearch,
   type EnumItem,
@@ -173,7 +168,9 @@ export function matchesPowerSearchFilters(
 
       case 'status': {
         const actualStatus = resolveSearchSessionStatus(session);
-        if (!matchesEnumOrListOperator(filter.operator, actualStatus, targets)) {
+        if (
+          !matchesEnumOrListOperator(filter.operator, actualStatus, targets)
+        ) {
           return false;
         }
         break;
@@ -215,7 +212,8 @@ export function matchesPowerSearchFilters(
           return botKey === target;
         };
         const anyMatched =
-          targets.length === 0 || targets.some((target) => matchesTarget(target));
+          targets.length === 0 ||
+          targets.some((target) => matchesTarget(target));
         if (
           filter.operator === 'is_not' || filter.operator === 'is_none_of'
             ? anyMatched && targets.length > 0
@@ -253,8 +251,7 @@ function hidePopoverElementWithSync(popoverEl: HTMLElement | null) {
     return;
   }
   const wasOpen =
-    popoverEl.hasAttribute('open') ||
-    safeMatchesPopoverOpen(popoverEl);
+    popoverEl.hasAttribute('open') || safeMatchesPopoverOpen(popoverEl);
   if (typeof popoverEl.hidePopover === 'function') {
     try {
       popoverEl.hidePopover();
@@ -430,7 +427,11 @@ export function SessionPowerSearchDialog({
       values: ReadonlyArray<EnumItem>
     ): PowerSearchOperator[] => [
       { key: 'is', label: opIs, value: { type: 'enum', values } },
-      { key: 'is_any_of', label: opIsAnyOf, value: { type: 'enum_list', values } },
+      {
+        key: 'is_any_of',
+        label: opIsAnyOf,
+        value: { type: 'enum_list', values },
+      },
       { key: 'is_not', label: opIsNot, value: { type: 'enum', values } },
     ];
 
@@ -464,8 +465,7 @@ export function SessionPowerSearchDialog({
             '工作区',
             '分支',
           ],
-          defaultOperator:
-            worktreeEnumValues.length > 0 ? 'is' : 'contains',
+          defaultOperator: worktreeEnumValues.length > 0 ? 'is' : 'contains',
           operators: worktreeOperators,
         },
         {
@@ -495,17 +495,15 @@ export function SessionPowerSearchDialog({
         },
       ],
     };
-  }, [
-    agentEnumValues,
-    botEnumValues,
-    statusEnumValues,
-    t,
-    worktreeEnumValues,
-  ]);
+  }, [agentEnumValues, botEnumValues, statusEnumValues, t, worktreeEnumValues]);
 
   const getComboboxInput = useCallback((): HTMLInputElement | null => {
-    const root = searchWrapperRef.current?.querySelector('.astryx-power-search');
-    return root?.querySelector<HTMLInputElement>('input[role="combobox"]') ?? null;
+    const root = searchWrapperRef.current?.querySelector(
+      '.astryx-power-search'
+    );
+    return (
+      root?.querySelector<HTMLInputElement>('input[role="combobox"]') ?? null
+    );
   }, []);
 
   const getTypeaheadPopover = useCallback((): HTMLElement | null => {

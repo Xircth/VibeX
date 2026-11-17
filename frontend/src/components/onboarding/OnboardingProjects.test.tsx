@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
@@ -156,9 +162,7 @@ describe('onboarding projects', () => {
     expect(api.create).toHaveBeenNthCalledWith(1, {
       name: 'alpha',
       rootPath: 'C:/Work/alpha',
-      repositories: [
-        { display_name: 'alpha', git_repo_path: 'C:/Work/alpha' },
-      ],
+      repositories: [{ display_name: 'alpha', git_repo_path: 'C:/Work/alpha' }],
     });
     expect(api.create).toHaveBeenNthCalledWith(2, {
       name: 'beta',
@@ -166,9 +170,7 @@ describe('onboarding projects', () => {
       repositories: [],
     });
 
-    fireEvent.click(
-      within(list).getByTestId('onboarding-project-item-beta')
-    );
+    fireEvent.click(within(list).getByTestId('onboarding-project-item-beta'));
     await waitFor(() =>
       expect(onFinish).toHaveBeenCalledWith(['beta', 'home', 'alpha'])
     );
@@ -207,9 +209,7 @@ describe('onboarding projects', () => {
   it('keeps project selection open when final persistence fails', async () => {
     api.getAll.mockResolvedValue([home, work]);
     setup([], vi.fn().mockRejectedValue(new Error('Disk full')));
-    fireEvent.click(
-      await screen.findByTestId('onboarding-project-item-work')
-    );
+    fireEvent.click(await screen.findByTestId('onboarding-project-item-work'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
     expect(screen.getByTestId('onboarding-project-item-work')).toBeEnabled();
   });

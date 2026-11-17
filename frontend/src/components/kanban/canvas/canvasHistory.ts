@@ -57,4 +57,3 @@ function shallowEqualRecords(
   }
   return true;
 }
-

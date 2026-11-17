@@ -590,7 +590,9 @@ impl ProcessTreeJob {
     pub fn terminate(&self) -> bool {
         #[cfg(windows)]
         {
-            use windows_sys::Win32::{Foundation::CloseHandle, System::JobObjects::TerminateJobObject};
+            use windows_sys::Win32::{
+                Foundation::CloseHandle, System::JobObjects::TerminateJobObject,
+            };
             let handle = self
                 .inner
                 .handle
@@ -653,7 +655,9 @@ impl Drop for ProcessTreeJobInner {
     fn drop(&mut self) {
         #[cfg(windows)]
         {
-            use windows_sys::Win32::{Foundation::CloseHandle, System::JobObjects::TerminateJobObject};
+            use windows_sys::Win32::{
+                Foundation::CloseHandle, System::JobObjects::TerminateJobObject,
+            };
             if let Ok(mut guard) = self.handle.lock()
                 && let Some(SendableJobHandle(job)) = guard.take()
             {

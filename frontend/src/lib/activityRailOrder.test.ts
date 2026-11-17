@@ -127,7 +127,11 @@ describe('activityRailOrder', () => {
 
   it('nudges an item one slot earlier or later', () => {
     expect(
-      nudgeActivityRailItem([...DEFAULT_ACTIVITY_RAIL_ORDER], PANEL_IDS.BOTS, -1)
+      nudgeActivityRailItem(
+        [...DEFAULT_ACTIVITY_RAIL_ORDER],
+        PANEL_IDS.BOTS,
+        -1
+      )
     ).toEqual([
       PANEL_IDS.BOTS,
       PANEL_IDS.SESSION_LIST,

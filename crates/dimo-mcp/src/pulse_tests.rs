@@ -472,7 +472,12 @@ struct RecordedHostCommand {
     args: Value,
 }
 
-async fn spawn_mock_http_host<F>(handler: F) -> (String, std::sync::Arc<std::sync::Mutex<Vec<RecordedHostCommand>>>)
+async fn spawn_mock_http_host<F>(
+    handler: F,
+) -> (
+    String,
+    std::sync::Arc<std::sync::Mutex<Vec<RecordedHostCommand>>>,
+)
 where
     F: Fn(&str, &Value) -> (u16, Value) + Send + Sync + 'static,
 {
@@ -527,17 +532,17 @@ where
 
                 let body_slice = &buf[header_end..(header_end + content_len).min(buf.len())];
                 let parsed_body: Value = serde_json::from_slice(body_slice).unwrap_or(Value::Null);
-                let command = path.strip_prefix("/api/v1/call/").unwrap_or(path).to_string();
+                let command = path
+                    .strip_prefix("/api/v1/call/")
+                    .unwrap_or(path)
+                    .to_string();
                 let args = parsed_body.get("args").cloned().unwrap_or(Value::Null);
 
-                recorded_inner
-                    .lock()
-                    .unwrap()
-                    .push(RecordedHostCommand {
-                        command: command.clone(),
-                        auth_header,
-                        args: args.clone(),
-                    });
+                recorded_inner.lock().unwrap().push(RecordedHostCommand {
+                    command: command.clone(),
+                    auth_header,
+                    args: args.clone(),
+                });
 
                 let (status, payload) = handler_inner(&command, &args);
                 let status_text = match status {
@@ -1041,8 +1046,7 @@ async fn http_host_400_validation_errors_propagate_as_real_mcp_errors_never_swal
             .contains("Host validation rejected `pulse_rule_save`: unknown target memberId")
     );
     assert_eq!(
-        outcome["violations"][0]["code"],
-        "unknown_bot_member",
+        outcome["violations"][0]["code"], "unknown_bot_member",
         "Exact Host violations must be preserved for Agent self-repair"
     );
     assert_eq!(recorded.lock().unwrap().len(), 1);
@@ -1211,7 +1215,13 @@ async fn desktop_socket_ipc_routes_all_seven_pulse_tools_to_host_and_propagates_
     assert!(comp.uses_host());
 
     let cat = comp
-        .execute_pulse_call("pulse_catalog_inspect", json!({}), None, Some(&json!(1)), None)
+        .execute_pulse_call(
+            "pulse_catalog_inspect",
+            json!({}),
+            None,
+            Some(&json!(1)),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(cat["sources"][0]["webhook_secret"], "[REDACTED]");

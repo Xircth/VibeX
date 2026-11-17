@@ -83,8 +83,10 @@ async fn workspace_hooks_preserve_root_mode_and_failures_are_visible_and_retryab
     std::fs::write(source.join("README.md"), "source").unwrap();
     git.commit(&source, "seed").unwrap();
     std::fs::create_dir_all(&data).unwrap();
-    let mut config = services::services::config::Config::default();
-    config.workspace_dir = Some(temp.path().join("managed").to_string_lossy().into_owned());
+    let config = services::services::config::Config {
+        workspace_dir: Some(temp.path().join("managed").to_string_lossy().into_owned()),
+        ..Default::default()
+    };
     services::services::config::save_config_to_file(&config, &data.join("settings.json"))
         .await
         .unwrap();

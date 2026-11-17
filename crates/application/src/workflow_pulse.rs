@@ -18,10 +18,10 @@ use db::models::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 use workflows::{
-    BotConversationScope, BotStepSpec, ClaimedWorkflowStep, CompleteWorkflowStep,
-    CompletionPolicy, GroupDispatchMode, GroupStageStepSpec, OutboxActionKind,
-    OutboxActionStepSpec, SessionStepSpec, WorkflowCore, WorkflowRunView, WorkflowStep,
-    WorkflowStepSpec, WorkflowStore, WorkspaceAccess, resolve_json_pointer,
+    BotConversationScope, BotStepSpec, ClaimedWorkflowStep, CompleteWorkflowStep, CompletionPolicy,
+    GroupDispatchMode, GroupStageStepSpec, OutboxActionKind, OutboxActionStepSpec, SessionStepSpec,
+    WorkflowCore, WorkflowRunView, WorkflowStep, WorkflowStepSpec, WorkflowStore, WorkspaceAccess,
+    resolve_json_pointer,
 };
 
 use crate::{
@@ -350,8 +350,10 @@ impl WorkflowAgentDispatcher {
             .map_err(|err| ApplicationError::internal(err.to_string()))?;
         let pulse_store = SqlitePulseStore::new(pool.clone());
         let now_iso = Utc::now().to_rfc3339();
-        let mailbox_item_id =
-            format!("wf-bot:{}:{}:{}", claimed.run.id, step.id, claimed.step.attempt);
+        let mailbox_item_id = format!(
+            "wf-bot:{}:{}:{}",
+            claimed.run.id, step.id, claimed.step.attempt
+        );
         let event_id = format!("workflow:{}:{}", claimed.run.id, step.id);
         pulse_store
             .enqueue_bot_turn(&PulseBotMailboxItem {
@@ -369,20 +371,18 @@ impl WorkflowAgentDispatcher {
             .await
             .map_err(|err| ApplicationError::internal(err.to_string()))?;
 
-        let has_active_turn = ConversationTurnRecord::list_for_conversation(
-            pool,
-            bot_session.conversation_id,
-        )
-        .await
-        .ok()
-        .is_some_and(|turns| {
-            turns.iter().any(|turn| {
-                matches!(
-                    turn.status.as_str(),
-                    "pending" | "queued" | "running" | "blocked"
-                )
-            })
-        });
+        let has_active_turn =
+            ConversationTurnRecord::list_for_conversation(pool, bot_session.conversation_id)
+                .await
+                .ok()
+                .is_some_and(|turns| {
+                    turns.iter().any(|turn| {
+                        matches!(
+                            turn.status.as_str(),
+                            "pending" | "queued" | "running" | "blocked"
+                        )
+                    })
+                });
         if has_active_turn {
             let _ = self
                 .store
@@ -493,7 +493,9 @@ impl WorkflowAgentDispatcher {
 
         match submission {
             Ok(submission) => {
-                let _ = pulse_store.complete_bot_turn(&claimed_turn.primary.id).await;
+                let _ = pulse_store
+                    .complete_bot_turn(&claimed_turn.primary.id)
+                    .await;
                 let turn_id = if let Some(turn) = submission.turn {
                     turn.turn_id
                 } else {
@@ -1135,13 +1137,17 @@ fn lookup_template_expr(
     if let Some(rest) = expr.strip_prefix("steps.") {
         if let Some((step_id, sub_path)) = rest.split_once(".output.") {
             let sub_pointer = format!("/{}", sub_path.trim_start_matches('/').replace('.', "/"));
-            if let Some(step_val) = step_outputs.get(step_id).or_else(|| step_inputs.get(step_id))
+            if let Some(step_val) = step_outputs
+                .get(step_id)
+                .or_else(|| step_inputs.get(step_id))
                 && let Some(found) = resolve_json_pointer(step_val, &sub_pointer)
             {
                 return Some(found.clone());
             }
         } else if let Some(step_id) = rest.strip_suffix(".output")
-            && let Some(step_val) = step_outputs.get(step_id).or_else(|| step_inputs.get(step_id))
+            && let Some(step_val) = step_outputs
+                .get(step_id)
+                .or_else(|| step_inputs.get(step_id))
         {
             return Some(step_val.clone());
         }

@@ -1777,20 +1777,21 @@ fn sync_builtin_workflow_pulse_skills_with_layout(
             merge_hosting_destination(&mut destinations, dir.join(skill_id), true);
         }
         for (dest, _) in destinations {
-            let owned_by_legacy_plugin = owned_plugin_projection(&dest, "dimo.workflow-creator");
-            let owned_by_builtin = std::fs::read_to_string(
-                dest.join(BUILTIN_WORKFLOW_PULSE_OWNER_FILE),
-            )
-            .ok()
-            .as_deref()
-                == Some(BUILTIN_WORKFLOW_PULSE_OWNER);
+            let owned_by_legacy_plugin = has_plugin_owner_marker(&dest);
+            let owned_by_builtin =
+                std::fs::read_to_string(dest.join(BUILTIN_WORKFLOW_PULSE_OWNER_FILE))
+                    .ok()
+                    .as_deref()
+                    == Some(BUILTIN_WORKFLOW_PULSE_OWNER);
             let exists = std::fs::symlink_metadata(&dest).is_ok();
             if exists && !owned_by_legacy_plugin && !owned_by_builtin {
                 continue;
             }
             let needs_update = owned_by_legacy_plugin
                 || !exists
-                || std::fs::read_to_string(dest.join("SKILL.md")).ok().as_deref()
+                || std::fs::read_to_string(dest.join("SKILL.md"))
+                    .ok()
+                    .as_deref()
                     != Some(*contents);
             if needs_update {
                 place_skill(&store_dir, &dest, true)?;
@@ -1972,6 +1973,12 @@ fn owned_plugin_projection(path: &Path, plugin_id: &str) -> bool {
         .iter()
         .filter_map(|marker| std::fs::read_to_string(path.join(marker)).ok())
         .any(|owner| owner == plugin_id)
+}
+
+fn has_plugin_owner_marker(path: &Path) -> bool {
+    [".dimo-plugin-owner", ".vibex-plugin-owner"]
+        .iter()
+        .any(|marker| path.join(marker).is_file())
 }
 
 fn parse_agent_keys(
@@ -3062,11 +3069,7 @@ mod tests {
         let skill = agent_dir.join(skill_id);
         std::fs::create_dir_all(&skill).unwrap();
         std::fs::write(skill.join("SKILL.md"), "stale projection").unwrap();
-        std::fs::write(
-            skill.join(".dimo-plugin-owner"),
-            HOST_MULTI_AGENT_PLUGIN_ID,
-        )
-        .unwrap();
+        std::fs::write(skill.join(".dimo-plugin-owner"), HOST_MULTI_AGENT_PLUGIN_ID).unwrap();
     }
 
     #[test]
@@ -3395,10 +3398,8 @@ mod tests {
 
     #[tokio::test]
     async fn saved_hermes_home_expands_tilde_for_skills() {
-        let environment = HashMap::from([(
-            "HERMES_HOME".to_string(),
-            "~/.hermes-dimo-test".to_string(),
-        )]);
+        let environment =
+            HashMap::from([("HERMES_HOME".to_string(), "~/.hermes-dimo-test".to_string())]);
         let paths = with_saved_agent_environment(environment, async {
             skill_dirs(AgentKind::Hermes, None)
                 .into_iter()
@@ -3720,8 +3721,13 @@ mod tests {
             assert!(layout.store.join(skill_id).join("SKILL.md").is_file());
             assert!(codex_dir.join(skill_id).join("SKILL.md").is_file());
         }
-        let updated = std::fs::read_to_string(codex_dir.join("dimo-workflow-creator/SKILL.md")).unwrap();
+        let updated =
+            std::fs::read_to_string(codex_dir.join("dimo-workflow-creator/SKILL.md")).unwrap();
         assert!(updated.contains("Dimo-superagent-mcp"));
-        assert!(!codex_dir.join("dimo-workflow-creator/.dimo-plugin-owner").exists());
+        assert!(
+            !codex_dir
+                .join("dimo-workflow-creator/.dimo-plugin-owner")
+                .exists()
+        );
     }
 }

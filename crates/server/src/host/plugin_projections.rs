@@ -530,11 +530,13 @@ pub(crate) async fn refresh_official_product_runtime_with_inner(
 }
 
 async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, enabled: bool) {
-    let removed = services::services::mcp::uninstall_servers_best_effort(
-        plugins::RETIRED_PRODUCT_MCP_NAMES,
-    );
+    let removed =
+        services::services::mcp::uninstall_servers_best_effort(plugins::RETIRED_PRODUCT_MCP_NAMES);
     if !removed.is_empty() {
-        tracing::info!(?removed, "removed retired or pre-rename product MCP entries");
+        tracing::info!(
+            ?removed,
+            "removed retired or pre-rename product MCP entries"
+        );
     }
     let Some(http_base) = gate.http_base().filter(|value| !value.trim().is_empty()) else {
         return;

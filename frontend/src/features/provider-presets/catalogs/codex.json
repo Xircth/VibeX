@@ -5,9 +5,7 @@
     "icon": "kimi",
     "website_url": "https://platform.kimi.com/",
     "api_key_url": "https://platform.kimi.com/console/api-keys",
-    "endpoint_candidates": [
-      "https://api.moonshot.cn/v1"
-    ],
+    "endpoint_candidates": ["https://api.moonshot.cn/v1"],
     "category": "prime",
     "surface": "reusable",
     "api_url": "https://api.moonshot.cn/v1",
@@ -19,9 +17,7 @@
     "icon": "kimi",
     "website_url": "https://www.kimi.com/code/",
     "api_key_url": "https://www.kimi.com/code/",
-    "endpoint_candidates": [
-      "https://api.kimi.com/coding/v1"
-    ],
+    "endpoint_candidates": ["https://api.kimi.com/coding/v1"],
     "category": "prime",
     "surface": "reusable",
     "api_url": "https://api.kimi.com/coding/v1",
@@ -50,9 +46,7 @@
     "icon": "apinebula",
     "website_url": "https://apinebula.ai/",
     "api_key_url": "https://apinebula.ai/VjM74M",
-    "endpoint_candidates": [
-      "https://apinebula.ai/v1"
-    ],
+    "endpoint_candidates": ["https://apinebula.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://apinebula.ai/v1",
@@ -78,9 +72,7 @@
     "icon": "pateway",
     "website_url": "https://pateway.ai/",
     "api_key_url": "https://pateway.ai/",
-    "endpoint_candidates": [
-      "https://api.pateway.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.pateway.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.pateway.ai/v1",
@@ -103,9 +95,7 @@
     "icon": "fenno",
     "website_url": "https://api.fenno.ai/",
     "api_key_url": "https://api.fenno.ai/register",
-    "endpoint_candidates": [
-      "https://api.fenno.ai/"
-    ],
+    "endpoint_candidates": ["https://api.fenno.ai/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.fenno.ai/",
@@ -117,10 +107,7 @@
     "icon": "runapi",
     "website_url": "https://runapi.host/",
     "api_key_url": "https://runapi.host/register",
-    "endpoint_candidates": [
-      "https://runapi.host/v1",
-      "https://runapi.co/v1"
-    ],
+    "endpoint_candidates": ["https://runapi.host/v1", "https://runapi.co/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://runapi.host/v1",
@@ -218,9 +205,7 @@
     "icon": "aicoding",
     "website_url": "https://aicoding.inc/",
     "api_key_url": "https://aicoding.inc/i/CCSWITCH",
-    "endpoint_candidates": [
-      "https://api.aicoding.inc/"
-    ],
+    "endpoint_candidates": ["https://api.aicoding.inc/"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.aicoding.inc/",
@@ -232,9 +217,7 @@
     "icon": "subrouter",
     "website_url": "https://subrouter.ai/",
     "api_key_url": "https://subrouter.ai/register",
-    "endpoint_candidates": [
-      "https://subrouter.ai/v1"
-    ],
+    "endpoint_candidates": ["https://subrouter.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://subrouter.ai/v1",
@@ -268,10 +251,7 @@
     "icon": "88api",
     "website_url": "https://88api.ai/",
     "api_key_url": "https://88api.ai/sign-up",
-    "endpoint_candidates": [
-      "https://api.88api.ai/v1",
-      "https://88api.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.88api.ai/v1", "https://88api.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.88api.ai/v1",
@@ -315,9 +295,7 @@
     "icon": "teamorouter",
     "website_url": "https://teamorouter.com/",
     "api_key_url": "https://teamorouter.com/",
-    "endpoint_candidates": [
-      "https://api.teamorouter.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.teamorouter.com/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.teamorouter.com/v1",
@@ -340,9 +318,7 @@
     "icon": "huoshan",
     "website_url": "https://www.volcengine.com/activity/agentplan",
     "api_key_url": "https://www.volcengine.com/activity/agentplan",
-    "endpoint_candidates": [
-      "https://ark.cn-beijing.volces.com/api/plan/v3"
-    ],
+    "endpoint_candidates": ["https://ark.cn-beijing.volces.com/api/plan/v3"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
@@ -354,9 +330,7 @@
     "icon": "huoshan",
     "website_url": "https://www.volcengine.com/activity/codingplan",
     "api_key_url": "https://www.volcengine.com/activity/codingplan",
-    "endpoint_candidates": [
-      "https://ark.cn-beijing.volces.com/api/coding/v3"
-    ],
+    "endpoint_candidates": ["https://ark.cn-beijing.volces.com/api/coding/v3"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
@@ -382,9 +356,7 @@
     "icon": "doubao",
     "website_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
     "api_key_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
-    "endpoint_candidates": [
-      "https://ark.cn-beijing.volces.com/api/v3"
-    ],
+    "endpoint_candidates": ["https://ark.cn-beijing.volces.com/api/v3"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://ark.cn-beijing.volces.com/api/v3",
@@ -396,9 +368,7 @@
     "icon": "a6api",
     "website_url": "https://www.a6api.vip/",
     "api_key_url": "https://a6api.vip/register",
-    "endpoint_candidates": [
-      "https://api.a6api.vip/v1"
-    ],
+    "endpoint_candidates": ["https://api.a6api.vip/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.a6api.vip/v1",
@@ -410,9 +380,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://api.modelverse.cn/v1"
-    ],
+    "endpoint_candidates": ["https://api.modelverse.cn/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://api.modelverse.cn/v1",
@@ -424,9 +392,7 @@
     "icon": "ucloud",
     "website_url": "https://www.compshare.cn/",
     "api_key_url": "https://www.compshare.cn/coding-plan",
-    "endpoint_candidates": [
-      "https://cp.compshare.cn/v1"
-    ],
+    "endpoint_candidates": ["https://cp.compshare.cn/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cp.compshare.cn/v1",
@@ -438,9 +404,7 @@
     "icon": "ccsub",
     "website_url": "https://www.ccsub.net/",
     "api_key_url": "https://www.ccsub.net/register",
-    "endpoint_candidates": [
-      "https://www.ccsub.net/v1"
-    ],
+    "endpoint_candidates": ["https://www.ccsub.net/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.ccsub.net/v1",
@@ -468,9 +432,7 @@
     "icon": "soleapi",
     "website_url": "https://soleapi.com/",
     "api_key_url": "https://soleapi.com/r/ccswitch",
-    "endpoint_candidates": [
-      "https://soleapi.com/v1"
-    ],
+    "endpoint_candidates": ["https://soleapi.com/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://soleapi.com/v1",
@@ -482,9 +444,7 @@
     "icon": "micu",
     "website_url": "https://www.micuapi.ai/",
     "api_key_url": "https://www.micuapi.ai/register",
-    "endpoint_candidates": [
-      "https://www.micuapi.ai/v1"
-    ],
+    "endpoint_candidates": ["https://www.micuapi.ai/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.micuapi.ai/v1",
@@ -524,9 +484,7 @@
     "icon": "crazyrouter",
     "website_url": "https://www.crazyrouter.com/",
     "api_key_url": "https://www.crazyrouter.com/register",
-    "endpoint_candidates": [
-      "https://cn.crazyrouter.com/v1"
-    ],
+    "endpoint_candidates": ["https://cn.crazyrouter.com/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://cn.crazyrouter.com/v1",
@@ -537,9 +495,7 @@
     "name": "DMXAPI",
     "icon": "dmxapi",
     "website_url": "https://www.dmxapi.cn/",
-    "endpoint_candidates": [
-      "https://www.dmxapi.cn/v1"
-    ],
+    "endpoint_candidates": ["https://www.dmxapi.cn/v1"],
     "category": "partner",
     "surface": "reusable",
     "api_url": "https://www.dmxapi.cn/v1",
@@ -633,9 +589,7 @@
     "icon": "aicodewith",
     "website_url": "https://aicodewith.ai/",
     "api_key_url": "https://aicodewith.ai/login",
-    "endpoint_candidates": [
-      "https://api.aicodewith.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.aicodewith.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.aicodewith.ai/v1",
@@ -672,9 +626,7 @@
     "icon": "amux",
     "website_url": "https://amux.ai/",
     "api_key_url": "https://amux.ai/",
-    "endpoint_candidates": [
-      "https://api.amux.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.amux.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.amux.ai/v1",
@@ -713,9 +665,7 @@
     "icon": "baidu",
     "website_url": "https://cloud.baidu.com/product/qianfan_modelbuilder",
     "api_key_url": "https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application",
-    "endpoint_candidates": [
-      "https://qianfan.baidubce.com/v2"
-    ],
+    "endpoint_candidates": ["https://qianfan.baidubce.com/v2"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://qianfan.baidubce.com/v2",
@@ -738,9 +688,7 @@
     "icon": "cherryin",
     "website_url": "https://open.cherryin.ai/",
     "api_key_url": "https://open.cherryin.ai/console/token",
-    "endpoint_candidates": [
-      "https://open.cherryin.net/v1"
-    ],
+    "endpoint_candidates": ["https://open.cherryin.net/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://open.cherryin.net/v1",
@@ -763,9 +711,7 @@
     "icon": "code0",
     "website_url": "https://code0.ai/",
     "api_key_url": "https://code0.ai/agent/register/B2XHxGjGmRvqgznY",
-    "endpoint_candidates": [
-      "https://code0.ai/v1"
-    ],
+    "endpoint_candidates": ["https://code0.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://code0.ai/v1",
@@ -777,9 +723,7 @@
     "icon": "commandcode",
     "website_url": "https://commandcode.ai/",
     "api_key_url": "https://commandcode.ai/settings/keys",
-    "endpoint_candidates": [
-      "https://api.commandcode.ai/provider/v1"
-    ],
+    "endpoint_candidates": ["https://api.commandcode.ai/provider/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.commandcode.ai/provider/v1",
@@ -791,9 +735,7 @@
     "icon": "deepinfra",
     "website_url": "https://deepinfra.com/",
     "api_key_url": "https://deepinfra.com/dash/api_keys",
-    "endpoint_candidates": [
-      "https://api.deepinfra.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.deepinfra.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.deepinfra.com/v1",
@@ -805,9 +747,7 @@
     "icon": "deepseek",
     "website_url": "https://platform.deepseek.com/",
     "api_key_url": "https://platform.deepseek.com/api_keys",
-    "endpoint_candidates": [
-      "https://api.deepseek.com/"
-    ],
+    "endpoint_candidates": ["https://api.deepseek.com/"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.deepseek.com/",
@@ -819,9 +759,7 @@
     "icon": "digitalocean",
     "website_url": "https://www.digitalocean.com/products/ai-platform",
     "api_key_url": "https://cloud.digitalocean.com/model-studio/manage-keys",
-    "endpoint_candidates": [
-      "https://inference.do-ai.run/v1"
-    ],
+    "endpoint_candidates": ["https://inference.do-ai.run/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://inference.do-ai.run/v1",
@@ -833,9 +771,7 @@
     "icon": "eflowcode",
     "website_url": "https://e-flowcode.cc/",
     "api_key_url": "https://e-flowcode.cc/",
-    "endpoint_candidates": [
-      "https://e-flowcode.cc/v1"
-    ],
+    "endpoint_candidates": ["https://e-flowcode.cc/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://e-flowcode.cc/v1",
@@ -847,9 +783,7 @@
     "icon": "fireworks",
     "website_url": "https://fireworks.ai/",
     "api_key_url": "https://app.fireworks.ai/settings/users/api-keys",
-    "endpoint_candidates": [
-      "https://api.fireworks.ai/inference/v1"
-    ],
+    "endpoint_candidates": ["https://api.fireworks.ai/inference/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.fireworks.ai/inference/v1",
@@ -861,9 +795,7 @@
     "icon": "genesis",
     "website_url": "https://genesis.moi.matrixorigin.cn/taas/",
     "api_key_url": "https://uc.moi.matrixorigin.cn/account/credentials",
-    "endpoint_candidates": [
-      "https://token.moi.matrixorigin.cn/v1"
-    ],
+    "endpoint_candidates": ["https://token.moi.matrixorigin.cn/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://token.moi.matrixorigin.cn/v1",
@@ -890,9 +822,7 @@
     "icon": "kimi",
     "website_url": "https://www.kimi.ai/code",
     "api_key_url": "https://www.kimi.ai/code",
-    "endpoint_candidates": [
-      "https://api.kimi.ai/coding/v1"
-    ],
+    "endpoint_candidates": ["https://api.kimi.ai/coding/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.kimi.ai/coding/v1",
@@ -904,9 +834,7 @@
     "icon": "kimi",
     "website_url": "https://platform.kimi.ai/",
     "api_key_url": "https://platform.kimi.ai/console/api-keys",
-    "endpoint_candidates": [
-      "https://api.moonshot.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.moonshot.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.moonshot.ai/v1",
@@ -946,9 +874,7 @@
     "icon": "longcat",
     "website_url": "https://longcat.chat/platform",
     "api_key_url": "https://longcat.chat/platform/api_keys",
-    "endpoint_candidates": [
-      "https://api.longcat.chat/openai/v1"
-    ],
+    "endpoint_candidates": ["https://api.longcat.chat/openai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.longcat.chat/openai/v1",
@@ -960,9 +886,7 @@
     "icon": "meta",
     "website_url": "https://dev.meta.ai/",
     "api_key_url": "https://dev.meta.ai/",
-    "endpoint_candidates": [
-      "https://api.meta.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.meta.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.meta.ai/v1",
@@ -974,9 +898,7 @@
     "icon": "minimax",
     "website_url": "https://platform.minimax.cn/",
     "api_key_url": "https://platform.minimax.cn/subscribe/token-plan",
-    "endpoint_candidates": [
-      "https://api.minimax.cn/v1"
-    ],
+    "endpoint_candidates": ["https://api.minimax.cn/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.minimax.cn/v1",
@@ -988,9 +910,7 @@
     "icon": "minimax",
     "website_url": "https://platform.minimax.io/",
     "api_key_url": "https://platform.minimax.io/subscribe/coding-plan",
-    "endpoint_candidates": [
-      "https://api.minimax.io/v1"
-    ],
+    "endpoint_candidates": ["https://api.minimax.io/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.minimax.io/v1",
@@ -1002,9 +922,7 @@
     "icon": "nebius",
     "website_url": "https://nebius.com/token-factory",
     "api_key_url": "https://tokenfactory.nebius.com/project/api-keys",
-    "endpoint_candidates": [
-      "https://api.tokenfactory.nebius.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.tokenfactory.nebius.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.tokenfactory.nebius.com/v1",
@@ -1041,9 +959,7 @@
     "icon": "ollama",
     "website_url": "https://ollama.com/",
     "api_key_url": "https://ollama.com/settings/keys",
-    "endpoint_candidates": [
-      "https://ollama.com/v1"
-    ],
+    "endpoint_candidates": ["https://ollama.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://ollama.com/v1",
@@ -1055,9 +971,7 @@
     "icon": "openai",
     "website_url": "https://platform.openai.com/",
     "api_key_url": "https://platform.openai.com/api-keys",
-    "endpoint_candidates": [
-      "https://api.openai.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.openai.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.openai.com/v1",
@@ -1069,9 +983,7 @@
     "icon": "opencode",
     "website_url": "https://opencode.ai/zen",
     "api_key_url": "https://opencode.ai/auth",
-    "endpoint_candidates": [
-      "https://opencode.ai/zen/v1"
-    ],
+    "endpoint_candidates": ["https://opencode.ai/zen/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://opencode.ai/zen/v1",
@@ -1094,9 +1006,7 @@
     "icon": "pipellm",
     "website_url": "https://code.pipellm.ai/",
     "api_key_url": "https://code.pipellm.ai/login",
-    "endpoint_candidates": [
-      "https://cc-api.pipellm.ai/v1"
-    ],
+    "endpoint_candidates": ["https://cc-api.pipellm.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://cc-api.pipellm.ai/v1",
@@ -1164,9 +1074,7 @@
     "icon": "sambanova",
     "website_url": "https://sambanova.ai/",
     "api_key_url": "https://cloud.sambanova.ai/apis",
-    "endpoint_candidates": [
-      "https://api.sambanova.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.sambanova.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.sambanova.ai/v1",
@@ -1222,9 +1130,7 @@
     "icon": "stepfun",
     "website_url": "https://platform.stepfun.com/",
     "api_key_url": "https://platform.stepfun.com/interface-key",
-    "endpoint_candidates": [
-      "https://api.stepfun.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.stepfun.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.stepfun.com/v1",
@@ -1236,9 +1142,7 @@
     "icon": "stepfun",
     "website_url": "https://platform.stepfun.ai/",
     "api_key_url": "https://platform.stepfun.ai/interface-key",
-    "endpoint_candidates": [
-      "https://api.stepfun.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.stepfun.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.stepfun.ai/v1",
@@ -1293,9 +1197,7 @@
     "icon": "therouter",
     "website_url": "https://therouter.ai/",
     "api_key_url": "https://dashboard.therouter.ai/",
-    "endpoint_candidates": [
-      "https://api.therouter.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.therouter.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.therouter.ai/v1",
@@ -1307,9 +1209,7 @@
     "icon": "tokenfactory",
     "website_url": "https://tokenfactory.cn/",
     "api_key_url": "https://console.tokenfactory.cn/login",
-    "endpoint_candidates": [
-      "https://api.tokenfactory.cn/v1"
-    ],
+    "endpoint_candidates": ["https://api.tokenfactory.cn/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.tokenfactory.cn/v1",
@@ -1353,9 +1253,7 @@
     "icon": "vercel",
     "website_url": "https://vercel.com/ai-gateway",
     "api_key_url": "https://vercel.com/d",
-    "endpoint_candidates": [
-      "https://ai-gateway.vercel.sh/codex/v1"
-    ],
+    "endpoint_candidates": ["https://ai-gateway.vercel.sh/codex/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://ai-gateway.vercel.sh/codex/v1",
@@ -1381,9 +1279,7 @@
     "icon": "xai",
     "website_url": "https://x.ai/api",
     "api_key_url": "https://console.x.ai/",
-    "endpoint_candidates": [
-      "https://api.x.ai/v1"
-    ],
+    "endpoint_candidates": ["https://api.x.ai/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.x.ai/v1",
@@ -1395,9 +1291,7 @@
     "icon": "xiaomimimo",
     "website_url": "https://platform.xiaomimimo.com/",
     "api_key_url": "https://platform.xiaomimimo.com/",
-    "endpoint_candidates": [
-      "https://api.xiaomimimo.com/v1"
-    ],
+    "endpoint_candidates": ["https://api.xiaomimimo.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.xiaomimimo.com/v1",
@@ -1409,9 +1303,7 @@
     "icon": "xiaomimimo",
     "website_url": "https://platform.xiaomimimo.com/",
     "api_key_url": "https://platform.xiaomimimo.com/",
-    "endpoint_candidates": [
-      "https://token-plan-cn.xiaomimimo.com/v1"
-    ],
+    "endpoint_candidates": ["https://token-plan-cn.xiaomimimo.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://token-plan-cn.xiaomimimo.com/v1",
@@ -1439,9 +1331,7 @@
     "icon": "zhipu",
     "website_url": "https://open.bigmodel.cn/",
     "api_key_url": "https://www.bigmodel.cn/claude-code",
-    "endpoint_candidates": [
-      "https://open.bigmodel.cn/api/v1"
-    ],
+    "endpoint_candidates": ["https://open.bigmodel.cn/api/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://open.bigmodel.cn/api/v1",
@@ -1453,9 +1343,7 @@
     "icon": "zhipu",
     "website_url": "https://z.ai/",
     "api_key_url": "https://z.ai/subscribe",
-    "endpoint_candidates": [
-      "https://api.z.ai/api/v1"
-    ],
+    "endpoint_candidates": ["https://api.z.ai/api/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://api.z.ai/api/v1",
@@ -1497,9 +1385,7 @@
     "icon": "moark",
     "website_url": "https://moark.com/",
     "api_key_url": "https://moark.com/dashboard/tokens",
-    "endpoint_candidates": [
-      "https://moark.com/v1"
-    ],
+    "endpoint_candidates": ["https://moark.com/v1"],
     "category": "community",
     "surface": "reusable",
     "api_url": "https://moark.com/v1",

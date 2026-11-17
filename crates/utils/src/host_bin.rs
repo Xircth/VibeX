@@ -321,9 +321,7 @@ mod tests {
     #[test]
     fn search_skips_empty_sidecar_and_finds_profile_binary() {
         let root = tempfile::tempdir().unwrap();
-        let macos = root
-            .path()
-            .join("bundle/macos/app/dimo.app/Contents/MacOS");
+        let macos = root.path().join("bundle/macos/app/dimo.app/Contents/MacOS");
         fs::create_dir_all(&macos).unwrap();
         fs::write(macos.join("dimo"), b"app").unwrap();
         fs::write(macos.join("dimo-mcp"), []).unwrap();

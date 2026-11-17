@@ -614,14 +614,18 @@ export function SessionHubListItem({
             void exportConversation(
               session.id,
               'html',
-              session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
+              session.name ??
+                session.fullName ??
+                t('hubListItem.sessionFallback')
             );
           }}
           onExportMarkdown={() => {
             void exportConversation(
               session.id,
               'markdown',
-              session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
+              session.name ??
+                session.fullName ??
+                t('hubListItem.sessionFallback')
             );
           }}
           onForkToAgent={handleForkSession}

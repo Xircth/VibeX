@@ -1961,7 +1961,8 @@ export function useCollaborationSpaceRuntime(
           const instanceChanged =
             hasInstanceUpdate &&
             (conv.provider_instance_id ?? null) !== switchedInstanceId;
-          if (conv.agent_id === switchedAgentId && !instanceChanged) return conv;
+          if (conv.agent_id === switchedAgentId && !instanceChanged)
+            return conv;
           changed = true;
           return {
             ...conv,

@@ -17,7 +17,9 @@ const dragDropListeners = vi.hoisted(
 
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({
-    onDragDropEvent: async (listener: (event: { payload: unknown }) => void) => {
+    onDragDropEvent: async (
+      listener: (event: { payload: unknown }) => void
+    ) => {
       dragDropListeners.push(listener);
       return () => undefined;
     },

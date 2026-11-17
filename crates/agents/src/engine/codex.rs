@@ -44,8 +44,9 @@ use crate::{
             parse_codex_models_response, prepare_codex_launch_env, resolve_codex_auth,
             resolve_codex_default_model, serialize_codex_input_items, str_any,
         },
-        descriptor::normalize_agent_token, format_bounded_diagnostic,
-        is_placeholder_engine_session_id, prepare_instance_isolation_env_for_keys,
+        descriptor::normalize_agent_token,
+        format_bounded_diagnostic, is_placeholder_engine_session_id,
+        prepare_instance_isolation_env_for_keys,
         stream_router::spawn_stderr_tail_reader,
     },
     stderr_tail::StderrTail,
@@ -349,8 +350,7 @@ impl CodexAppServer {
     }
 
     pub async fn handshake(&self) -> Result<Value, EngineError> {
-        let info =
-            json!({ "name": "dimo", "title": "Dimo", "version": env!("CARGO_PKG_VERSION") });
+        let info = json!({ "name": "dimo", "title": "Dimo", "version": env!("CARGO_PKG_VERSION") });
         let init_params =
             json!({ "clientInfo": info, "capabilities": { "experimentalApi": true } });
         let init_result = self.request("initialize", init_params).await?;
@@ -787,8 +787,11 @@ impl CodexAppServer {
     }
 
     pub async fn list_models(&self) -> Vec<EngineModelInfo> {
-        if let Ok(Ok(result)) =
-            timeout(Duration::from_secs(3), self.request("model/list", json!({}))).await
+        if let Ok(Ok(result)) = timeout(
+            Duration::from_secs(3),
+            self.request("model/list", json!({})),
+        )
+        .await
         {
             let parsed = parse_codex_models_response(&result);
             if !parsed.is_empty() {
@@ -939,7 +942,11 @@ async fn run_reader_loop<R>(
 }
 
 pub async fn resolve_codex_binary(spec: &EngineStartSpec) -> Result<PathBuf, EngineError> {
-    if let Some(val) = spec.env.get("DIMO_CODEX_PATH").map(String::as_str).map(str::trim)
+    if let Some(val) = spec
+        .env
+        .get("DIMO_CODEX_PATH")
+        .map(String::as_str)
+        .map(str::trim)
         && !val.is_empty()
     {
         let p = PathBuf::from(val);
@@ -960,20 +967,19 @@ pub async fn resolve_codex_binary(spec: &EngineStartSpec) -> Result<PathBuf, Eng
             val.to_string_lossy()
         )));
     }
-    for key in ["CODEX_PATH"] {
-        if let Some(val) = spec.env.get(key).map(String::as_str).map(str::trim)
-            && !val.is_empty()
-        {
-            let p = PathBuf::from(val);
-            if p.is_file() {
-                return Ok(p);
-            }
+    let key = "CODEX_PATH";
+    if let Some(val) = spec.env.get(key).map(String::as_str).map(str::trim)
+        && !val.is_empty()
+    {
+        let p = PathBuf::from(val);
+        if p.is_file() {
+            return Ok(p);
         }
-        if let Some(val) = std::env::var_os(key).filter(|s| !s.is_empty()) {
-            let p = PathBuf::from(val);
-            if p.is_file() {
-                return Ok(p);
-            }
+    }
+    if let Some(val) = std::env::var_os(key).filter(|s| !s.is_empty()) {
+        let p = PathBuf::from(val);
+        if p.is_file() {
+            return Ok(p);
         }
     }
 
@@ -1082,8 +1088,7 @@ impl CodexNativeDriver {
     ) -> EngineHandle {
         let connection_id = Uuid::new_v4();
         let official = !spec.uses_custom_base_url(NativeEngineKind::CodexNative);
-        let clean_initial =
-            initial_thread_id.filter(|s| !is_placeholder_engine_session_id(s));
+        let clean_initial = initial_thread_id.filter(|s| !is_placeholder_engine_session_id(s));
         let handle = EngineHandle::new(
             connection_id,
             NativeEngineKind::CodexNative,
@@ -1255,14 +1260,8 @@ impl NativeEngineDriver for CodexNativeDriver {
             .session_id
             .clone()
             .or_else(|| handle.external_session_id());
-        let effective_model = request
-            .model
-            .as_deref()
-            .or(ctx.spec.model.as_deref());
-        let effective_mcp = request
-            .mcp_servers
-            .as_ref()
-            .or(Some(&ctx.spec.mcp_servers));
+        let effective_model = request.model.as_deref().or(ctx.spec.model.as_deref());
+        let effective_mcp = request.mcp_servers.as_ref().or(Some(&ctx.spec.mcp_servers));
         let effective_dirs = if request.additional_directories.is_empty() {
             &ctx.spec.additional_directories
         } else {
@@ -1480,7 +1479,9 @@ impl NativeEngineDriver for CodexNativeDriver {
                     guard.remove(&key);
                     true
                 } else {
-                    !guard.values().any(|cached| Arc::ptr_eq(cached, &ctx.server))
+                    !guard
+                        .values()
+                        .any(|cached| Arc::ptr_eq(cached, &ctx.server))
                         && Arc::strong_count(&ctx.server) <= 1
                 }
             };
@@ -1495,4 +1496,3 @@ impl NativeEngineDriver for CodexNativeDriver {
 #[cfg(test)]
 #[path = "codex_tests.rs"]
 mod tests;
-

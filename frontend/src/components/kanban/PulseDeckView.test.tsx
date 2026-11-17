@@ -107,7 +107,8 @@ vi.mock('@/lib/api/pulse', () => ({
 }));
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
   return {
     ...actual,
     backendListen: vi.fn().mockResolvedValue(() => undefined),
@@ -350,9 +351,9 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
       ).not.toBeInTheDocument();
 
       // Left floating navigation rail matching KanbanUsageDashboard
-      expect(
-        screen.getByTestId('automation-left-nav-rail')
-      ).toHaveClass('kanban-usage-tab-rail');
+      expect(screen.getByTestId('automation-left-nav-rail')).toHaveClass(
+        'kanban-usage-tab-rail'
+      );
       expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
         'aria-selected',
         'true'
@@ -516,15 +517,18 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
     emptySnapshot.rules = [];
     vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(emptySnapshot);
     vi.mocked(workflowsApi.listDefinitions).mockResolvedValue([]);
-    vi.mocked(workflowsApi.publish).mockImplementation(async (def) => ({
-      id: `wfv-${def.name}`,
-      definitionId: `wf-${def.name}`,
-      version: 1n,
-      digest: 'sha256:starter',
-      normalizedJson: JSON.stringify(def),
-      sourcePath: null,
-      createdAt: '2026-11-16T00:00:00Z',
-    } as WorkflowVersionView));
+    vi.mocked(workflowsApi.publish).mockImplementation(
+      async (def) =>
+        ({
+          id: `wfv-${def.name}`,
+          definitionId: `wf-${def.name}`,
+          version: 1n,
+          digest: 'sha256:starter',
+          normalizedJson: JSON.stringify(def),
+          sourcePath: null,
+          createdAt: '2026-11-16T00:00:00Z',
+        }) as WorkflowVersionView
+    );
     vi.mocked(pulseApi.saveRule).mockImplementation(async ({ spec }) => ({
       id: `rule-${spec.name}`,
       revision: 1,
@@ -639,9 +643,7 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
       // Clicking "事件源模板" chip filters out connected sources and keeps templates visible
       await user.click(screen.getByTestId('sources-templates-group-header'));
       expect(
-        screen
-          .getByTestId('source-row-src-gh')
-          .closest('[data-row-visible]')
+        screen.getByTestId('source-row-src-gh').closest('[data-row-visible]')
       ).toHaveAttribute('data-row-visible', 'false');
       expect(
         screen
@@ -687,9 +689,9 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
         expect(pulseApi.upsertSource).toHaveBeenCalled();
         expect(pulseApi.testSource).toHaveBeenCalledWith('src-gh', false);
       });
-      expect(
-        await screen.findByTestId('source-test-result')
-      ).toHaveTextContent('GitHub CLI token verified');
+      expect(await screen.findByTestId('source-test-result')).toHaveTextContent(
+        'GitHub CLI token verified'
+      );
 
       // Switch source type via AstryxSelect combobox (`#source-kind-select`) -> Feishu
       const kindSelectTrigger = document.getElementById('source-kind-select')!;
@@ -924,4 +926,3 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
     expect(remoteUnlisten).toHaveBeenCalledOnce();
   });
 });
-

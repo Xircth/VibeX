@@ -1,10 +1,6 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Layout,
-  LayoutContent,
-  LayoutPanel,
-} from '@astryxdesign/core/Layout';
+import { Layout, LayoutContent, LayoutPanel } from '@astryxdesign/core/Layout';
 import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
 
 /**

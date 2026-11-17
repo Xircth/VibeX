@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useRef,
-  type Dispatch,
-  type SetStateAction,
-} from 'react';
+import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { ExecutorProfileId } from 'shared/types';
 import { imagesApi } from '@/lib/api';
 import { getInvokeErrorMessage } from '@/lib/errors';

@@ -173,8 +173,7 @@ export function useFollowUpSend({
       try {
         let targetSessionId = sessionId;
         let targetWorkspaceId = workspaceId;
-        const shouldCreateNewSession =
-          isNewSessionMode || !targetSessionId;
+        const shouldCreateNewSession = isNewSessionMode || !targetSessionId;
 
         if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
           throw new Error(t('followUpSend.sessionScopedSlashCommandError'));

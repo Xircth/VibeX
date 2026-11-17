@@ -226,7 +226,9 @@ pub fn validate_golden_fixture_exhaustively(fixture_name: &str, content: &str) -
     }
 
     if non_empty_lines == 0 {
-        violations.push(format!("{fixture_name}: fixture contains zero JSONL frames"));
+        violations.push(format!(
+            "{fixture_name}: fixture contains zero JSONL frames"
+        ));
     }
 
     violations
@@ -910,7 +912,10 @@ async fn bidirectional_server_request_approval_and_expected_revision_stale_rejec
                 )
                 .await;
             } else if id == Some(json!(202)) {
-                assert_eq!(msg["result"]["answers"]["env_target"]["answers"], json!(["staging"]));
+                assert_eq!(
+                    msg["result"]["answers"]["env_target"]["answers"],
+                    json!(["staging"])
+                );
                 write_frame(
                     &mut server_write,
                     &json!({
@@ -1043,7 +1048,7 @@ async fn bidirectional_server_request_approval_and_expected_revision_stale_rejec
     let prompt = runtime
         .send_prompt(SendAgentPromptInput {
             connection_id: session.connection_id,
-            session_id: session.id.clone(),
+            session_id: session.id,
             blocks: vec![AgentContentBlock::Text {
                 text: FULL_GATE_FIXTURE_PROMPT.to_string(),
             }],
@@ -1073,7 +1078,7 @@ async fn bidirectional_server_request_approval_and_expected_revision_stale_rejec
     runtime
         .respond_permission(RespondAgentPermissionInput {
             connection_id: session.connection_id,
-            permission_id: permission_req.id.clone(),
+            permission_id: permission_req.id,
             response: AgentPermissionResponse::selected_with_revision("allow-once", stale_rev),
         })
         .await
@@ -1321,13 +1326,39 @@ fn golden_jsonl_fixtures_pass_and_exhaustive_validator_reports_all_defects_witho
         "expected all defects across all 5 lines in one pass, got {}: {defects:#?}",
         defects.len()
     );
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:1:") && d.contains("sk-ant-")));
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:1:") && d.contains("jsonrpc")));
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:2:") && d.contains("invalid JSON")));
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:3:") && d.contains("thread/revert")));
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:4:") && d.contains("approval/respond")));
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:4:") && d.contains("Bearer eyJ")));
-    assert!(defects.iter().any(|d| d.contains("synthetic_bad.jsonl:5:") && d.contains("MAX_DIAGNOSTIC_PAYLOAD_BYTES")));
+    assert!(
+        defects
+            .iter()
+            .any(|d| d.contains("synthetic_bad.jsonl:1:") && d.contains("sk-ant-"))
+    );
+    assert!(
+        defects
+            .iter()
+            .any(|d| d.contains("synthetic_bad.jsonl:1:") && d.contains("jsonrpc"))
+    );
+    assert!(
+        defects
+            .iter()
+            .any(|d| d.contains("synthetic_bad.jsonl:2:") && d.contains("invalid JSON"))
+    );
+    assert!(
+        defects
+            .iter()
+            .any(|d| d.contains("synthetic_bad.jsonl:3:") && d.contains("thread/revert"))
+    );
+    assert!(
+        defects
+            .iter()
+            .any(|d| d.contains("synthetic_bad.jsonl:4:") && d.contains("approval/respond"))
+    );
+    assert!(
+        defects
+            .iter()
+            .any(|d| d.contains("synthetic_bad.jsonl:4:") && d.contains("Bearer eyJ"))
+    );
+    assert!(defects.iter().any(
+        |d| d.contains("synthetic_bad.jsonl:5:") && d.contains("MAX_DIAGNOSTIC_PAYLOAD_BYTES")
+    ));
 }
 
 #[tokio::test]
@@ -1364,9 +1395,23 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
 "#).unwrap();
 
     #[cfg(windows)]
-    let wrapper_path = { let p = temp_dir.join("codex.cmd"); std::fs::write(&p, format!("@node \"{}\" %*\r\n", mock_js.display())).unwrap(); p };
+    let wrapper_path = {
+        let p = temp_dir.join("codex.cmd");
+        std::fs::write(&p, format!("@node \"{}\" %*\r\n", mock_js.display())).unwrap();
+        p
+    };
     #[cfg(not(windows))]
-    let wrapper_path = { use std::os::unix::fs::PermissionsExt; let p = temp_dir.join("codex"); std::fs::write(&p, format!("#!/bin/sh\nexec node \"{}\" \"$@\"\n", mock_js.display())).unwrap(); std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap(); p };
+    let wrapper_path = {
+        use std::os::unix::fs::PermissionsExt;
+        let p = temp_dir.join("codex");
+        std::fs::write(
+            &p,
+            format!("#!/bin/sh\nexec node \"{}\" \"$@\"\n", mock_js.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    };
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let runtime = AgentRuntime::new(Arc::new(ChannelSink { tx }));
@@ -1375,33 +1420,88 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
         let env = HashMap::from([("DIMO_CODEX_PATH".into(), bin_override.display().to_string())]);
         EnsureAgentSessionInput {
             agent_id: codex_id.clone(),
-            launch_lock: SessionLaunchLock { agent_id: codex_id.clone(), absolute_acp_program: program, args: Vec::new(), env: BTreeMap::new(), runtime_version: "test".into(), acp_version: "test".into() },
-            workspace_id: Uuid::new_v4(), working_dir: temp_dir.clone(), additional_directories: Vec::new(),
-            session_id: AgentSessionId::new(), acp_session_id: String::new(), auto_approve_mode: AgentAutoApproveMode::Off,
-            env, preferences: Default::default(),
+            launch_lock: SessionLaunchLock {
+                agent_id: codex_id.clone(),
+                absolute_acp_program: program,
+                args: Vec::new(),
+                env: BTreeMap::new(),
+                runtime_version: "test".into(),
+                acp_version: "test".into(),
+            },
+            workspace_id: Uuid::new_v4(),
+            working_dir: temp_dir.clone(),
+            additional_directories: Vec::new(),
+            session_id: AgentSessionId::new(),
+            acp_session_id: String::new(),
+            auto_approve_mode: AgentAutoApproveMode::Off,
+            env,
+            preferences: Default::default(),
         }
     };
 
     let missing_bin = temp_dir.join("missing-codex");
-    assert!(runtime.prepare_session(make_input(missing_bin.clone(), &missing_bin)).await.is_err());
+    assert!(
+        runtime
+            .prepare_session(make_input(missing_bin.clone(), &missing_bin))
+            .await
+            .is_err()
+    );
 
-    let prepared = runtime.prepare_session(make_input(temp_dir.join("legacy-codex-acp"), &wrapper_path)).await.unwrap();
+    let prepared = runtime
+        .prepare_session(make_input(temp_dir.join("legacy-codex-acp"), &wrapper_path))
+        .await
+        .unwrap();
     assert!(prepared.session.acp_session_id.starts_with("prepared-"));
-    assert_eq!(runtime.bound_acp_session_id(prepared.session.id).await, None);
+    assert_eq!(
+        runtime.bound_acp_session_id(prepared.session.id).await,
+        None
+    );
     assert!(runtime.has_bound_acp_session(prepared.session.id).await);
     assert!(prepared.controls.modes.iter().any(|m| m.id == "plan"));
-    assert!(prepared.controls.config_options.iter().any(|o| o.key == "effort"));
-    assert!(!prepared.controls.available_commands.as_deref().unwrap_or_default().is_empty());
+    assert!(
+        prepared
+            .controls
+            .config_options
+            .iter()
+            .any(|o| o.key == "effort")
+    );
+    assert!(
+        !prepared
+            .controls
+            .available_commands
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+    );
 
-    let mode_controls = runtime.set_session_mode(prepared.session.id, "default").await.unwrap();
+    let mode_controls = runtime
+        .set_session_mode(prepared.session.id, "default")
+        .await
+        .unwrap();
     assert_eq!(mode_controls.current_mode.as_deref(), Some("default"));
-    let cfg_controls = runtime.set_session_config_option(prepared.session.id, "effort", json!("high")).await.unwrap();
-    assert!(cfg_controls.config_options.iter().any(|o| o.key == "effort" && o.value == Some(json!("high"))));
+    let cfg_controls = runtime
+        .set_session_config_option(prepared.session.id, "effort", json!("high"))
+        .await
+        .unwrap();
+    assert!(
+        cfg_controls
+            .config_options
+            .iter()
+            .any(|o| o.key == "effort" && o.value == Some(json!("high")))
+    );
 
-    let prompt = runtime.send_prompt(SendAgentPromptInput {
-        connection_id: prepared.session.connection_id, session_id: prepared.session.id,
-        blocks: vec![AgentContentBlock::Text { text: "deploy".into() }], mode_override: None, config_overrides: Vec::new(),
-    }).await.unwrap();
+    let prompt = runtime
+        .send_prompt(SendAgentPromptInput {
+            connection_id: prepared.session.connection_id,
+            session_id: prepared.session.id,
+            blocks: vec![AgentContentBlock::Text {
+                text: "deploy".into(),
+            }],
+            mode_override: None,
+            config_overrides: Vec::new(),
+        })
+        .await
+        .unwrap();
 
     let (mut saw_linked, mut saw_plan, mut saw_cum_term, mut saw_usage, mut saw_text) =
         (false, false, false, false, String::new());
@@ -1425,7 +1525,14 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                     saw_cum_term = true;
                 }
                 AgentEvent::PermissionRequested { request } => {
-                    assert!(request.details.as_ref().unwrap().to_string().contains("command"));
+                    assert!(
+                        request
+                            .details
+                            .as_ref()
+                            .unwrap()
+                            .to_string()
+                            .contains("command")
+                    );
                     let reject_id = request
                         .options
                         .iter()
@@ -1437,7 +1544,10 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                         .respond_permission(RespondAgentPermissionInput {
                             connection_id: prepared.session.connection_id,
                             permission_id: request.id,
-                            response: AgentPermissionResponse::selected_with_revision(reject_id, request.revision),
+                            response: AgentPermissionResponse::selected_with_revision(
+                                reject_id,
+                                request.revision,
+                            ),
                         })
                         .await
                         .unwrap();
@@ -1448,7 +1558,9 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                         .respond_elicitation(RespondAgentElicitationInput {
                             connection_id: prepared.session.connection_id,
                             elicitation_id: request.id,
-                            response: AgentElicitationResponse::Accept { content: json!({ "target_env": "staging" }) },
+                            response: AgentElicitationResponse::Accept {
+                                content: json!({ "target_env": "staging" }),
+                            },
                         })
                         .await
                         .unwrap();
@@ -1458,7 +1570,9 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                     assert_eq!(usage.cache_read_tokens, Some(20));
                     saw_usage = true;
                 }
-                AgentEvent::MessageChunk { content: AgentContentBlock::Text { text } } => {
+                AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text { text },
+                } => {
                     saw_text.push_str(&text);
                 }
                 AgentEvent::PromptFinished { finished } if finished.prompt_id == prompt.id => {
@@ -1474,10 +1588,22 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
 
     assert!(saw_linked && saw_plan && saw_cum_term && saw_usage);
     assert_eq!(saw_text, "Deployed to staging");
-    assert_eq!(runtime.bound_acp_session_id(prepared.session.id).await.as_deref(), Some("thr-native-e2e"));
+    assert_eq!(
+        runtime
+            .bound_acp_session_id(prepared.session.id)
+            .await
+            .as_deref(),
+        Some("thr-native-e2e")
+    );
 
     runtime
-        .rollback_turns(prepared.session.id, 1, Some("turn-e2e-1".into()), None, None)
+        .rollback_turns(
+            prepared.session.id,
+            1,
+            Some("turn-e2e-1".into()),
+            None,
+            None,
+        )
         .await
         .expect("rollback_turns over native Codex engine succeeds");
     let _ = runtime.disconnect(prepared.session.connection_id).await;

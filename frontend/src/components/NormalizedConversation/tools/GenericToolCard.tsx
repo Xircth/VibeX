@@ -272,7 +272,9 @@ export function GenericToolCard({
               ) : null}
               {hasGenericResult ? (
                 <ToolArtifact
-                  badge={actionType.result ? t('genericTool.result') : undefined}
+                  badge={
+                    actionType.result ? t('genericTool.result') : undefined
+                  }
                 >
                   <GenericToolDetail
                     arguments={actionType.arguments}

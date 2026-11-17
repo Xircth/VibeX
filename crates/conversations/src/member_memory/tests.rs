@@ -278,8 +278,7 @@ async fn seed_conversation_turns(pool: &SqlitePool, conv_id: Uuid, message_texts
         let is_user = idx % 2 == 0;
         if is_user {
             let round_idx = idx / 2;
-            let turn_id =
-                Uuid::new_v5(&conv_id, format!("seed-round-{round_idx}").as_bytes());
+            let turn_id = Uuid::new_v5(&conv_id, format!("seed-round-{round_idx}").as_bytes());
             ConversationTurnRecord::create_pending(
                 pool,
                 turn_id,
@@ -361,8 +360,9 @@ async fn seed_conversation_turns(pool: &SqlitePool, conv_id: Uuid, message_texts
             )
             .await
             .unwrap();
-            let _ = ConversationTurnRecord::mark_completed(pool, turn_id, Some("end_turn"), None, None)
-                .await;
+            let _ =
+                ConversationTurnRecord::mark_completed(pool, turn_id, Some("end_turn"), None, None)
+                    .await;
         }
     }
 
@@ -646,10 +646,19 @@ async fn review_requires_30_new_messages_advances_cursor_and_preserves_cursor_on
     let group_space_id = crate::collaboration::test_support::space_of(&pool, conv).await;
 
     let model = FailableReviewModel::new(vec![
-        Ok(r#"{"changes": [{"op": "add", "text": "满 30 条增量消息后沉淀的团队规范"}]}"#.to_string()),
-        Err(CollaborationError::new("model_failed", "simulated review error")),
+        Ok(
+            r#"{"changes": [{"op": "add", "text": "满 30 条增量消息后沉淀的团队规范"}]}"#
+                .to_string(),
+        ),
+        Err(CollaborationError::new(
+            "model_failed",
+            "simulated review error",
+        )),
         Ok("not valid json at all".to_string()),
-        Ok(r#"{"changes": [{"op": "edit", "entry": 1, "text": "满 60 条消息后更新的团队规范"}]}"#.to_string()),
+        Ok(
+            r#"{"changes": [{"op": "edit", "entry": 1, "text": "满 60 条消息后更新的团队规范"}]}"#
+                .to_string(),
+        ),
     ]);
 
     // 1. Seed 29 messages (< MEMORY_REVIEW_MIN_NEW_MESSAGES = 30): must skip model call & keep cursor at 0
@@ -772,10 +781,7 @@ async fn concurrent_space_reviews_serialize_and_preserve_multi_member_cursors() 
     seed_conversation_turns(&pool, conv_b, &refs_b).await;
 
     let model = FailableReviewModel::new(vec![
-        Ok(
-            r#"{"changes": [{"op": "add", "text": "并发审查只落盘一次的共享记忆"}]}"#
-                .to_string(),
-        ),
+        Ok(r#"{"changes": [{"op": "add", "text": "并发审查只落盘一次的共享记忆"}]}"#.to_string()),
         Ok(r#"{"changes": [{"op": "add", "text": "不应触发的第二次重复审查"}]}"#.to_string()),
     ]);
 

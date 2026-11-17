@@ -82,7 +82,12 @@ describe('useAttemptExecution', () => {
 
     const { result, rerender } = renderHook(
       ({ turnInFlight }: { turnInFlight: boolean }) =>
-        useAttemptExecution(undefined, 'task-1', 'conversation-1', turnInFlight),
+        useAttemptExecution(
+          undefined,
+          'task-1',
+          'conversation-1',
+          turnInFlight
+        ),
       { initialProps: { turnInFlight: true } }
     );
 

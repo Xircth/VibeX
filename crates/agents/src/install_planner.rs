@@ -323,9 +323,11 @@ impl InstallPlanner {
             }
         })?;
         if matches!(profile.topology, ProfileTopology::NativeEngine(_)) {
-            return Err(InstallPlanningError::RegistryDistributionDoesNotFitProfile {
-                agent_id: plan.agent_id.clone(),
-            });
+            return Err(
+                InstallPlanningError::RegistryDistributionDoesNotFitProfile {
+                    agent_id: plan.agent_id.clone(),
+                },
+            );
         }
         let bound_by_registry_id = profile
             .registry_binding

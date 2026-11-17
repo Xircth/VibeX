@@ -161,4 +161,3 @@ describe('supportsModelRouter', () => {
     expect(supportsModelRouter('kiro')).toBe(false);
   });
 });
-

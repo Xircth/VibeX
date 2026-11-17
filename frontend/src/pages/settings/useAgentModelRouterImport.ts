@@ -1,4 +1,10 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentAuthenticationStatus,

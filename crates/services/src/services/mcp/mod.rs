@@ -5522,10 +5522,8 @@ mod tests {
 
     #[tokio::test]
     async fn saved_hermes_home_expands_tilde_for_mcp() {
-        let environment = HashMap::from([(
-            "HERMES_HOME".to_string(),
-            "~/.hermes-dimo-test".to_string(),
-        )]);
+        let environment =
+            HashMap::from([("HERMES_HOME".to_string(), "~/.hermes-dimo-test".to_string())]);
 
         let path =
             with_saved_agent_environment(environment, async { hermes_config_yaml_path() }).await;

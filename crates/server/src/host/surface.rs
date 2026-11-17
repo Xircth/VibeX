@@ -33,7 +33,6 @@ use db::models::{
     conversation_event::AppendConversationEvent,
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::{CreateSession, Session, SessionStatus},
-    task::Task,
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
@@ -1387,14 +1386,15 @@ impl ServerApplicationDomains {
         let valid = if requested.is_empty() {
             BTreeMap::new()
         } else {
-            let snapshot = conversations::load_capability_catalog_for_session_defaults_for_provider_instance(
-                &self.pool,
-                &self.conversations.agent_runtime,
-                &args.agent_id,
-                args.provider_instance_id.as_deref(),
-            )
-            .await
-            .map_err(conversation_error)?;
+            let snapshot =
+                conversations::load_capability_catalog_for_session_defaults_for_provider_instance(
+                    &self.pool,
+                    &self.conversations.agent_runtime,
+                    &args.agent_id,
+                    args.provider_instance_id.as_deref(),
+                )
+                .await
+                .map_err(conversation_error)?;
             let validation = agents::validate_session_defaults(requested, &snapshot.config_options);
             if !validation.stale_ids.is_empty() {
                 return Err(ApplicationError::conflict(format!(
@@ -2206,19 +2206,21 @@ impl ServerApplicationDomains {
                 "At least one repository is required",
             ));
         }
-        let task = Task::create(
-            &self.pool,
-            &db::models::task::CreateTask::from_title_description(
-                args.project_id,
-                args.name.clone(),
-                None,
-            ),
-            Uuid::new_v4(),
-        )
-        .await
-        .map_err(internal_error)?;
+        let created = self
+            .product_command(
+                DomainCommand::TaskCreate,
+                json!({
+                    "project_id": args.project_id,
+                    "title": args.name,
+                }),
+            )
+            .await?;
+        let task_id = created
+            .get("id")
+            .cloned()
+            .ok_or_else(|| ApplicationError::internal("created task missing id"))?;
         self.create_workspace(json!({
-            "taskId": task.id,
+            "taskId": task_id,
             "repos": args.repos,
         }))
         .await

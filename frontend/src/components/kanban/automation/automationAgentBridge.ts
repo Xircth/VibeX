@@ -37,56 +37,58 @@ export interface CanonicalWorkflowStarter {
   definition: WorkflowDefinition;
 }
 
-export const CANONICAL_WORKFLOW_STARTERS: readonly CanonicalWorkflowStarter[] = [
-  {
-    id: 'github-ci-autofix',
-    examplePath: 'examples/workflows/github-ci-autofix.dimo-workflow.json',
-    sourceKind: 'github',
-    titleKey: 'pulseDeck.workbench.agent.starters.ciAutofixTitle',
-    summaryKey: 'pulseDeck.workbench.agent.starters.ciAutofixDesc',
-    promptZh:
-      '参考 examples/workflows/github-ci-autofix.dimo-workflow.json 创建一个自动化工作流：当 GitHub Actions CI 失败时，拉起隔离分支编码会话排查并提交最小修复补丁，随后在原 PR 下回复结论。',
-    promptEn:
-      'Create an automation workflow modeled on examples/workflows/github-ci-autofix.dimo-workflow.json: when GitHub Actions CI fails, launch an isolated coding session to diagnose and propose a minimal fix, then comment the summary on the PR.',
-    definition: githubCiAutofixJson as unknown as WorkflowDefinition,
-  },
-  {
-    id: 'feishu-mention-triage',
-    examplePath: 'examples/workflows/feishu-mention-triage.dimo-workflow.json',
-    sourceKind: 'feishu',
-    titleKey: 'pulseDeck.workbench.agent.starters.feishuTriageTitle',
-    summaryKey: 'pulseDeck.workbench.agent.starters.feishuTriageDesc',
-    promptZh:
-      '参考 examples/workflows/feishu-mention-triage.dimo-workflow.json 创建一个自动化工作流：当飞书群消息 @提及我时，先由值班 Bot 分诊，再核查代码库并在原飞书话题下回复结论。',
-    promptEn:
-      'Create an automation workflow modeled on examples/workflows/feishu-mention-triage.dimo-workflow.json: when a Feishu group message @mentions us, triage with our duty Bot, inspect the codebase, and reply in the original Feishu thread.',
-    definition: feishuMentionTriageJson as unknown as WorkflowDefinition,
-  },
-  {
-    id: 'daily-repo-digest',
-    examplePath: 'examples/workflows/daily-repo-digest.dimo-workflow.json',
-    sourceKind: 'time_cron',
-    titleKey: 'pulseDeck.workbench.agent.starters.dailyDigestTitle',
-    summaryKey: 'pulseDeck.workbench.agent.starters.dailyDigestDesc',
-    promptZh:
-      '参考 examples/workflows/daily-repo-digest.dimo-workflow.json 创建一个自动化工作流：每个工作日早上 09:30 自动汇总过去 24 小时的代码提交与潜在风险，推送通知给我。',
-    promptEn:
-      'Create an automation workflow modeled on examples/workflows/daily-repo-digest.dimo-workflow.json: every weekday at 09:30, summarize the past 24h commits and risks and send me a desktop notification.',
-    definition: dailyRepoDigestJson as unknown as WorkflowDefinition,
-  },
-  {
-    id: 'pr-review-gate',
-    examplePath: 'examples/workflows/pr-review-gate.dimo-workflow.json',
-    sourceKind: 'github',
-    titleKey: 'pulseDeck.workbench.agent.starters.prReviewGateTitle',
-    summaryKey: 'pulseDeck.workbench.agent.starters.prReviewGateDesc',
-    promptZh:
-      '参考 examples/workflows/pr-review-gate.dimo-workflow.json 创建一个自动化工作流：收到新的 GitHub PR 时，先由审查 Bot 检查风险并运行测试验证，等待我人工批准后再向 PR 发送放行评论。',
-    promptEn:
-      'Create an automation workflow modeled on examples/workflows/pr-review-gate.dimo-workflow.json: when a GitHub PR opens or updates, run Bot review and isolated verification, pause for my approval, then post the sign-off comment.',
-    definition: prReviewGateJson as unknown as WorkflowDefinition,
-  },
-];
+export const CANONICAL_WORKFLOW_STARTERS: readonly CanonicalWorkflowStarter[] =
+  [
+    {
+      id: 'github-ci-autofix',
+      examplePath: 'examples/workflows/github-ci-autofix.dimo-workflow.json',
+      sourceKind: 'github',
+      titleKey: 'pulseDeck.workbench.agent.starters.ciAutofixTitle',
+      summaryKey: 'pulseDeck.workbench.agent.starters.ciAutofixDesc',
+      promptZh:
+        '参考 examples/workflows/github-ci-autofix.dimo-workflow.json 创建一个自动化工作流：当 GitHub Actions CI 失败时，拉起隔离分支编码会话排查并提交最小修复补丁，随后在原 PR 下回复结论。',
+      promptEn:
+        'Create an automation workflow modeled on examples/workflows/github-ci-autofix.dimo-workflow.json: when GitHub Actions CI fails, launch an isolated coding session to diagnose and propose a minimal fix, then comment the summary on the PR.',
+      definition: githubCiAutofixJson as unknown as WorkflowDefinition,
+    },
+    {
+      id: 'feishu-mention-triage',
+      examplePath:
+        'examples/workflows/feishu-mention-triage.dimo-workflow.json',
+      sourceKind: 'feishu',
+      titleKey: 'pulseDeck.workbench.agent.starters.feishuTriageTitle',
+      summaryKey: 'pulseDeck.workbench.agent.starters.feishuTriageDesc',
+      promptZh:
+        '参考 examples/workflows/feishu-mention-triage.dimo-workflow.json 创建一个自动化工作流：当飞书群消息 @提及我时，先由值班 Bot 分诊，再核查代码库并在原飞书话题下回复结论。',
+      promptEn:
+        'Create an automation workflow modeled on examples/workflows/feishu-mention-triage.dimo-workflow.json: when a Feishu group message @mentions us, triage with our duty Bot, inspect the codebase, and reply in the original Feishu thread.',
+      definition: feishuMentionTriageJson as unknown as WorkflowDefinition,
+    },
+    {
+      id: 'daily-repo-digest',
+      examplePath: 'examples/workflows/daily-repo-digest.dimo-workflow.json',
+      sourceKind: 'time_cron',
+      titleKey: 'pulseDeck.workbench.agent.starters.dailyDigestTitle',
+      summaryKey: 'pulseDeck.workbench.agent.starters.dailyDigestDesc',
+      promptZh:
+        '参考 examples/workflows/daily-repo-digest.dimo-workflow.json 创建一个自动化工作流：每个工作日早上 09:30 自动汇总过去 24 小时的代码提交与潜在风险，推送通知给我。',
+      promptEn:
+        'Create an automation workflow modeled on examples/workflows/daily-repo-digest.dimo-workflow.json: every weekday at 09:30, summarize the past 24h commits and risks and send me a desktop notification.',
+      definition: dailyRepoDigestJson as unknown as WorkflowDefinition,
+    },
+    {
+      id: 'pr-review-gate',
+      examplePath: 'examples/workflows/pr-review-gate.dimo-workflow.json',
+      sourceKind: 'github',
+      titleKey: 'pulseDeck.workbench.agent.starters.prReviewGateTitle',
+      summaryKey: 'pulseDeck.workbench.agent.starters.prReviewGateDesc',
+      promptZh:
+        '参考 examples/workflows/pr-review-gate.dimo-workflow.json 创建一个自动化工作流：收到新的 GitHub PR 时，先由审查 Bot 检查风险并运行测试验证，等待我人工批准后再向 PR 发送放行评论。',
+      promptEn:
+        'Create an automation workflow modeled on examples/workflows/pr-review-gate.dimo-workflow.json: when a GitHub PR opens or updates, run Bot review and isolated verification, pause for my approval, then post the sign-off comment.',
+      definition: prReviewGateJson as unknown as WorkflowDefinition,
+    },
+  ];
 
 export function buildWorkflowTriggerRuleSpec(input: {
   studio: StudioWorkflowDefinition;
@@ -284,7 +286,9 @@ export async function dispatchAutomationAgentRequest(
     resolvedProjectId = projects[0]?.id ?? '';
   }
   if (!resolvedProjectId) {
-    throw new Error('当前没有可用项目，请先打开或创建一个项目后再由 Agent 编排自动化。');
+    throw new Error(
+      '当前没有可用项目，请先打开或创建一个项目后再由 Agent 编排自动化。'
+    );
   }
 
   const executor = (input.agentId || 'claude-code')
@@ -359,5 +363,3 @@ export function ensureRightSessionSidebarOpen(): void {
   const layout = useLayoutStore.getState();
   layout.setKanbanSessionVisible(true);
 }
-
-

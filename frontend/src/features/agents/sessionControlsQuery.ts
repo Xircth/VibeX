@@ -203,7 +203,7 @@ export function preferSessionControlValues(
     config_options: controls.config_options.map((option) => {
       const value = preferredValues.get(option.key);
       const offered =
- value !== undefined &&
+        value !== undefined &&
         value !== null &&
         (option.choices ?? []).some((choice) => choice.value === value);
       return offered ? { ...option, value } : option;
@@ -235,7 +235,10 @@ export function publishLiveSessionControls(
     sessionControlsQueryKey(agentType, workspaceId, providerInstanceId),
     controls
   );
-  const schemaKey = sessionControlsSchemaQueryKey(agentType, providerInstanceId);
+  const schemaKey = sessionControlsSchemaQueryKey(
+    agentType,
+    providerInstanceId
+  );
   queryClient.setQueryData(
     schemaKey,
     mergeCreateSessionControls([

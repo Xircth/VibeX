@@ -298,11 +298,7 @@ async fn same_runtime_id_can_lock_multiple_versions_without_displacing_plugins()
     first.runtimes.push(runtime("shared-cli", "1.0.0"));
     let mut second = package("dev.dimo.second", PluginSourceKind::Snapshot, root.path());
     second.runtimes.push(runtime("shared-cli", "1.0.0"));
-    let mut incoming = package(
-        "dev.dimo.incoming",
-        PluginSourceKind::Snapshot,
-        root.path(),
-    );
+    let mut incoming = package("dev.dimo.incoming", PluginSourceKind::Snapshot, root.path());
     incoming.runtimes.push(runtime("shared-cli", "2.0.0"));
     for plugin in [first, second, incoming] {
         control_plane
@@ -506,11 +502,7 @@ async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
-    let mut plugin = package(
-        "dev.dimo.workflow",
-        PluginSourceKind::Snapshot,
-        root.path(),
-    );
+    let mut plugin = package("dev.dimo.workflow", PluginSourceKind::Snapshot, root.path());
     plugin.skills.clear();
     plugin.app.file_openers.push(FileOpenerContribution {
         id: "workflow".to_owned(),

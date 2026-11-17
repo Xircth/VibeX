@@ -21,6 +21,7 @@ mod core;
 mod repository;
 
 pub use core::ApplicationCore;
+
 #[allow(unused_imports)]
 pub(crate) use repository::catalog_agent_usable;
 
@@ -240,7 +241,10 @@ pub struct SteerConversationTurnRequest {
         alias = "promoted_input_expected_revision"
     )]
     pub expected_revision: Option<u64>,
-    #[serde(default = "default_allow_interrupt_restart", alias = "allow_interrupt_restart")]
+    #[serde(
+        default = "default_allow_interrupt_restart",
+        alias = "allow_interrupt_restart"
+    )]
     pub allow_interrupt_restart: bool,
 }
 

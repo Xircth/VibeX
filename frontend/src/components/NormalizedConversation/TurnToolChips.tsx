@@ -324,10 +324,7 @@ export function TurnToolDiffChipsBar({
       : diffs.slice(0, INITIAL_VISIBLE_DIFF_CHIPS);
   const hiddenCount = diffs.length - visibleDiffs.length;
 
-  const openPreview = (
-    diff: TurnToolDiffChip,
-    element: HTMLButtonElement
-  ) => {
+  const openPreview = (diff: TurnToolDiffChip, element: HTMLButtonElement) => {
     if (diff.previewLines.length === 0) return;
     setHover({ diff, rect: element.getBoundingClientRect() });
   };
@@ -340,7 +337,10 @@ export function TurnToolDiffChipsBar({
       PREVIEW_VIEWPORT_MARGIN,
       viewportW - PREVIEW_CARD_WIDTH - PREVIEW_VIEWPORT_MARGIN
     );
-    const left = Math.min(Math.max(PREVIEW_VIEWPORT_MARGIN, rect.left), maxLeft);
+    const left = Math.min(
+      Math.max(PREVIEW_VIEWPORT_MARGIN, rect.left),
+      maxLeft
+    );
     const spaceBelow = viewportH - rect.bottom;
     const placeAbove = spaceBelow < 200 && rect.top > spaceBelow;
     return placeAbove
@@ -358,10 +358,7 @@ export function TurnToolDiffChipsBar({
 
   return (
     <>
-      <div
-        className="conv-tool-diff-chips"
-        data-testid="turn-tool-diff-chips"
-      >
+      <div className="conv-tool-diff-chips" data-testid="turn-tool-diff-chips">
         {visibleDiffs.map((diff) => (
           <button
             key={diff.key}

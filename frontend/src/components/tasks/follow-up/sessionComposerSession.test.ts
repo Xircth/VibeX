@@ -332,10 +332,7 @@ describe('session composer session helpers', () => {
     expect(calls).toEqual([
       ['mode', { conversationId: 'created-1', modeId: 'plan' }],
       ['config', { conversationId: 'created-1', key: 'model', value: 'gpt-5' }],
-      [
-        'config',
-        { conversationId: 'created-1', key: 'effort', value: 'high' },
-      ],
+      ['config', { conversationId: 'created-1', key: 'effort', value: 'high' }],
     ]);
   });
 });

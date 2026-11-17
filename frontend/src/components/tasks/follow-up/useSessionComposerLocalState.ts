@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  AgentSessionConfigOption,
-  ExecutorProfileId,
-} from 'shared/types';
+import type { AgentSessionConfigOption, ExecutorProfileId } from 'shared/types';
 import { listenToAgentEvents } from '@/features/agents/events';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import {
@@ -247,5 +244,3 @@ export function useSessionComposerControlSync({
 
   return { handleSelectMode, handleSelectConfigOption };
 }
-
-

@@ -129,16 +129,14 @@ impl AgentCapabilityCatalogRecord {
         agent_type: &str,
         fingerprint: &str,
     ) -> Result<u64, sqlx::Error> {
-        Ok(
-            sqlx::query(
-                "DELETE FROM agent_capability_catalog WHERE agent_type = ? AND fingerprint = ?",
-            )
-            .bind(agent_type)
-            .bind(fingerprint)
-            .execute(pool)
-            .await?
-            .rows_affected(),
+        Ok(sqlx::query(
+            "DELETE FROM agent_capability_catalog WHERE agent_type = ? AND fingerprint = ?",
         )
+        .bind(agent_type)
+        .bind(fingerprint)
+        .execute(pool)
+        .await?
+        .rows_affected())
     }
 
     pub async fn record_refresh_error_if_generation(
@@ -352,9 +350,14 @@ mod tests {
         .await
         .unwrap();
 
-        AgentCapabilityCatalogRecord::replace(&pool, "codex", "fp-local", r#"{"options":["local"]}"#)
-            .await
-            .unwrap();
+        AgentCapabilityCatalogRecord::replace(
+            &pool,
+            "codex",
+            "fp-local",
+            r#"{"options":["local"]}"#,
+        )
+        .await
+        .unwrap();
         AgentCapabilityCatalogRecord::replace(&pool, "codex", "fp-work", r#"{"options":["work"]}"#)
             .await
             .unwrap();

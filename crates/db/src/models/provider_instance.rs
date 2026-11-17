@@ -656,6 +656,25 @@ impl ProviderInstanceRecord {
         tx.commit().await?;
         Ok(())
     }
+
+    pub async fn clear_session_assignments(
+        pool: &SqlitePool,
+        agent_id: &str,
+        instance_id: &str,
+    ) -> Result<(), ProviderInstanceStoreError> {
+        let canonical_agent = canonical_provider_agent_id(agent_id)?;
+        let candidates = candidate_provider_agent_ids(&canonical_agent);
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+        let reset_sql = format!(
+            "UPDATE sessions SET provider_instance_id = NULL WHERE provider_instance_id = ? AND agent_id IN ({placeholders})"
+        );
+        let mut reset_q = sqlx::query(&reset_sql).bind(instance_id.trim());
+        for candidate in &candidates {
+            reset_q = reset_q.bind(candidate);
+        }
+        reset_q.execute(pool).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -681,8 +700,14 @@ mod tests {
 
     #[test]
     fn validates_instance_ids_and_agent_canonicalization() {
-        assert_eq!(canonical_provider_agent_id("claude").unwrap(), "claude_code");
-        assert_eq!(canonical_provider_agent_id("claude-code").unwrap(), "claude_code");
+        assert_eq!(
+            canonical_provider_agent_id("claude").unwrap(),
+            "claude_code"
+        );
+        assert_eq!(
+            canonical_provider_agent_id("claude-code").unwrap(),
+            "claude_code"
+        );
         assert_eq!(canonical_provider_agent_id("codex").unwrap(), "codex");
         assert!(canonical_provider_agent_id("cursor").is_err());
 

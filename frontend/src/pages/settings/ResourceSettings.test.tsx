@@ -244,9 +244,7 @@ describe('McpSettings', () => {
       runtimes: [],
     });
     mocks.configurePluginMcp.mockResolvedValue({ mcpErrors: [] });
-    renderSettings(<McpSettings />, [
-      '/settings/mcp?plugin=dev.dimo.research',
-    ]);
+    renderSettings(<McpSettings />, ['/settings/mcp?plugin=dev.dimo.research']);
 
     expect(
       await screen.findByText('配置 Research Toolkit 的 MCP 目标')
@@ -547,9 +545,7 @@ describe('SkillsSettings', () => {
     );
     mocks.configurePluginAgents.mockResolvedValue([]);
 
-    renderSettings(<SkillsSettings />, [
-      '/settings/skills?plugin=dimo.office',
-    ]);
+    renderSettings(<SkillsSettings />, ['/settings/skills?plugin=dimo.office']);
 
     expect(
       await screen.findByRole('heading', { name: '配置 Office Skill' })

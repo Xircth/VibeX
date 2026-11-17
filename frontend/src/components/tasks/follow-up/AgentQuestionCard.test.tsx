@@ -328,7 +328,9 @@ describe('AgentQuestionCard', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '下一个' }));
-    fireEvent.click(screen.getByRole('radio', { name: /No extra constraints/ }));
+    fireEvent.click(
+      screen.getByRole('radio', { name: /No extra constraints/ })
+    );
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
 
     const alert = await screen.findByTestId('agent-question-error');

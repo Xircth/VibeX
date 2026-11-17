@@ -284,7 +284,7 @@ export function GithubStarPrompt() {
             <img
               src={dimoLogo}
               alt="Dimo Logo"
-              className="mt-0.5 h-6 w-6 shrink-0 rounded-[6px] object-contain"
+              className="mt-0.5 h-6 w-6 shrink-0 rounded-sm object-contain"
             />
             <p className="m-0 text-[13px] font-medium leading-[1.45] text-foreground">
               {t('githubStarPrompt.message', {
@@ -297,7 +297,7 @@ export function GithubStarPrompt() {
             onClick={handleDismiss}
             title={closeLabel}
             aria-label={closeLabel}
-            className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -307,7 +307,7 @@ export function GithubStarPrompt() {
           <button
             type="button"
             onClick={handleDismiss}
-            className="inline-flex h-7 items-center rounded-[7px] px-2 text-xs font-normal text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="inline-flex h-7 items-center rounded-sm px-2 text-xs font-normal text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             {t('githubStarPrompt.later', { defaultValue: '以后再说' })}
           </button>
@@ -315,7 +315,7 @@ export function GithubStarPrompt() {
             variant="primary"
             size="xs"
             asChild
-            className="h-7 gap-1.5 rounded-[8px] px-2.5 text-xs font-semibold shadow-none"
+            className="h-7 gap-1.5 rounded-md px-2.5 text-xs font-semibold shadow-none"
           >
             <a
               href={GITHUB_STAR_REPO_URL}

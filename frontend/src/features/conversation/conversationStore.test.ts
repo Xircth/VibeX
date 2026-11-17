@@ -1451,12 +1451,7 @@ describe('conversationStore (row-op dumb container)', () => {
     const detail = emptyDetail([
       userRow('t1', 'first', 1n),
       assistantRow('t1', [{ type: 'text', text: 'done' }], 2n),
-      assistantRow(
-        't2',
-        [{ type: 'text', text: 'working' }],
-        3n,
-        'streaming'
-      ),
+      assistantRow('t2', [{ type: 'text', text: 'working' }], 3n, 'streaming'),
     ]);
     detail.timeline.last_sequence = 3n;
     state = conversationStoreReducer(state, {
@@ -3821,9 +3816,9 @@ describe('conversationStore (row-op dumb container)', () => {
       userRow('turn-1', 'Hello', 1n),
       assistantRow('turn-1', [{ type: 'text', text: 'World' }], 2n, 'settled'),
     ];
-    expect(
-      combineWindowAndLiveRows(CONVERSATION_ID, windowRows, [], {})
-    ).toBe(windowRows);
+    expect(combineWindowAndLiveRows(CONVERSATION_ID, windowRows, [], {})).toBe(
+      windowRows
+    );
   });
 
   it('does not drop the next append_text (rev+1) after an unconsuming usage-only patch_blocks', () => {

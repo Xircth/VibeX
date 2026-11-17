@@ -4,7 +4,10 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from 'shared/types';
 
-import { BackendTransportProvider, type BackendTransport } from '@/lib/transport';
+import {
+  BackendTransportProvider,
+  type BackendTransport,
+} from '@/lib/transport';
 import { useProjects } from './useProjects';
 import { useProjectMutations } from './useProjectMutations';
 

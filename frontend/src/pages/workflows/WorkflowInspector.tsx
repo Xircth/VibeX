@@ -409,7 +409,9 @@ export function WorkflowInspector() {
   const [data, setData] = useState<InspectorData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const eventCursor = useRef(0n);
-  const parsedDefinitionsRef = useRef<Map<string, WorkflowDefinition>>(new Map());
+  const parsedDefinitionsRef = useRef<Map<string, WorkflowDefinition>>(
+    new Map()
+  );
   const isRunTerminal = data ? isWorkflowTerminal(data.run.status) : false;
 
   const load = useCallback(

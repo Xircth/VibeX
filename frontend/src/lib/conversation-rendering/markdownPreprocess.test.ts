@@ -12,15 +12,7 @@ import {
 
 describe('preprocessForBlockSplit & splitIntoBlocks', () => {
   it('replaces \\[...\\] spanning 3+ blank lines with a single-line placeholder and restores it in one block', () => {
-    const mathBlock = [
-      '\\[',
-      'a = 1',
-      '',
-      '',
-      '',
-      'b = 2',
-      '\\]',
-    ].join('\n');
+    const mathBlock = ['\\[', 'a = 1', '', '', '', 'b = 2', '\\]'].join('\n');
     const doc = `Intro paragraph.\n\n${mathBlock}\n\nConclusion paragraph.`;
 
     const preprocessed = preprocessForBlockSplit(doc);
@@ -77,9 +69,13 @@ describe('preprocessForBlockSplit & splitIntoBlocks', () => {
   });
 
   it('handles leading $$ at line start and across blank lines without null fallback', () => {
-    const displayDollar = ['$$', '\\int_0^1 x^2 dx', '', '= \\frac{1}{3}', '$$'].join(
-      '\n'
-    );
+    const displayDollar = [
+      '$$',
+      '\\int_0^1 x^2 dx',
+      '',
+      '= \\frac{1}{3}',
+      '$$',
+    ].join('\n');
     const doc = `${displayDollar}\n\n<div>safe html</div>\n\nAfter paragraph.`;
 
     const preprocessed = preprocessForBlockSplit(doc);

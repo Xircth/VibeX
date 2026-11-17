@@ -536,7 +536,9 @@ export function syncConversationSelectedAgent(
   const normalized = nextAgentId?.trim();
   if (!id || !normalized) return;
   const entry = state.byConversationId[id];
-  const deferBind = Boolean(options?.deferBind || pendingEngineHandoffs.has(id));
+  const deferBind = Boolean(
+    options?.deferBind || pendingEngineHandoffs.has(id)
+  );
   const forceInvalidate = Boolean(options?.forceInvalidate);
   if (!entry?.detail) {
     if (forceInvalidate || deferBind) {
@@ -921,7 +923,8 @@ function startController(conversationId: string, slot: Slot): void {
       current.staleBindRetries = 0;
       current.connectionStatus = 'ready';
       current.bindReady = true;
-      if (current.controller) void loadDetail(conversationId, current.controller);
+      if (current.controller)
+        void loadDetail(conversationId, current.controller);
       notify(conversationId);
       startKeepalive(conversationId, current);
       return;
@@ -1144,7 +1147,9 @@ function loadDetail(
       );
       scheduleBind(conversationId, controller);
       if (shouldResetResync && !controller.stopped) {
-        void loadDetail(conversationId, controller, { forceReplaceWindow: true });
+        void loadDetail(conversationId, controller, {
+          forceReplaceWindow: true,
+        });
       }
     })
     .catch((error: unknown) => {
@@ -1479,7 +1484,11 @@ async function backfillSmallGap(
       controller.maxLiveSequenceSeen > normalized.lastSequence &&
       normalized.lastSequence > afterSequence
     ) {
-      void backfillSmallGap(conversationId, controller, normalized.lastSequence);
+      void backfillSmallGap(
+        conversationId,
+        controller,
+        normalized.lastSequence
+      );
     }
   } catch (error: unknown) {
     if (controller.stopped || controller.loadEpoch !== epoch) return;

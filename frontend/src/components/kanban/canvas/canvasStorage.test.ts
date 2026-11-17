@@ -288,7 +288,9 @@ describe('canvasStorage', () => {
     const before = getCanvasWorkspaceRevision(projectId);
     const received: CanvasWorkspaceUpdatedDetail[] = [];
     const listener = (event: Event) => {
-      received.push((event as CustomEvent<CanvasWorkspaceUpdatedDetail>).detail);
+      received.push(
+        (event as CustomEvent<CanvasWorkspaceUpdatedDetail>).detail
+      );
     };
     window.addEventListener(CANVAS_WORKSPACE_UPDATED_EVENT, listener);
     try {

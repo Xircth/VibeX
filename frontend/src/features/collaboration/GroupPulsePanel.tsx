@@ -349,7 +349,9 @@ export function GroupPulsePanel({
                           key={mode.value}
                           type="button"
                           data-testid={`group-rule-mode-${rule.id}-${mode.value}`}
-                          onClick={() => void handleModeChange(rule, mode.value)}
+                          onClick={() =>
+                            void handleModeChange(rule, mode.value)
+                          }
                           className={cn(
                             'rounded px-1.5 py-0.5 text-[11px] font-medium',
                             rule.spec.evalMode === mode.value

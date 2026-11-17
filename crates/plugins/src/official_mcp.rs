@@ -105,6 +105,30 @@ pub const PLUGIN_DEV_MCP_NAME: &str = "dimo-plugin-dev-mcp";
 /// Host-injected / native-projected MCP identity for Workflow Creator.
 pub const WORKFLOW_MCP_NAME: &str = "dimo-workflow-mcp";
 
+/// Retired and pre-rename (`VibeX`) host-injected MCP identities that were
+/// consolidated into [`SUPERAGENT_MCP_NAME`].
+pub const RETIRED_PRODUCT_MCP_NAMES: &[&str] = &[
+    DELEGATION_MCP_NAME,
+    SESSION_MCP_NAME,
+    WORKFLOW_MCP_NAME,
+    "dimo-superagent-mcp",
+    "vibex-delegation-mcp",
+    "vibex-session-mcp",
+    "vibex-workflow-mcp",
+    "vibex-superagent-mcp",
+    "VibeX-superagent-mcp",
+];
+
+/// Returns true for the active superagent MCP ID as well as any retired
+/// `dimo-*` or pre-rename `vibex-*` product MCP server ID.
+pub fn is_product_mcp_name(id: &str) -> bool {
+    let trimmed = id.trim();
+    trimmed == SUPERAGENT_MCP_NAME
+        || RETIRED_PRODUCT_MCP_NAMES
+            .iter()
+            .any(|legacy| legacy.eq_ignore_ascii_case(trimmed))
+}
+
 /// Grok `session/new` waits for every native `config.toml` MCP server using
 /// `startup_timeout_sec` (default 30). Official product MCPs are also injected
 /// per ACP session, so a stale Host URL must not freeze conversation create.
@@ -900,9 +924,13 @@ pub fn binding_has_delegation_mcp(mcp_servers_json: &str) -> bool {
     serde_json::from_str::<Vec<String>>(mcp_servers_json)
         .ok()
         .is_some_and(|names| {
-            names
-                .iter()
-                .any(|name| name == SUPERAGENT_MCP_NAME || name == DELEGATION_MCP_NAME)
+            names.iter().any(|name| {
+                name == SUPERAGENT_MCP_NAME
+                    || name == DELEGATION_MCP_NAME
+                    || name.eq_ignore_ascii_case("dimo-superagent-mcp")
+                    || name.eq_ignore_ascii_case("vibex-delegation-mcp")
+                    || name.eq_ignore_ascii_case("vibex-superagent-mcp")
+            })
         })
 }
 
@@ -1316,5 +1344,22 @@ mod tests {
         assert!(tools.iter().any(|t| t.name == "pulse_rule_upsert"));
         assert!(tools.iter().any(|t| t.name == "delegate_to_agent"));
         assert!(tools.iter().any(|t| t.name == "ask_user_question"));
+    }
+
+    #[test]
+    fn recognizes_active_retired_and_pre_rename_product_mcp_names() {
+        assert!(is_product_mcp_name(SUPERAGENT_MCP_NAME));
+        assert!(is_product_mcp_name("dimo-superagent-mcp"));
+        assert!(is_product_mcp_name("dimo-delegation-mcp"));
+        assert!(is_product_mcp_name("vibex-delegation-mcp"));
+        assert!(is_product_mcp_name("vibex-session-mcp"));
+        assert!(is_product_mcp_name("vibex-workflow-mcp"));
+        assert!(is_product_mcp_name("VibeX-superagent-mcp"));
+        assert!(!is_product_mcp_name("github"));
+        assert!(binding_has_delegation_mcp(r#"["vibex-delegation-mcp"]"#));
+        assert!(binding_has_delegation_mcp(r#"["Dimo-superagent-mcp"]"#));
+        assert!(!binding_has_delegation_mcp(r#"["github"]"#));
+        assert!(RETIRED_PRODUCT_MCP_NAMES.contains(&"vibex-delegation-mcp"));
+        assert!(!RETIRED_PRODUCT_MCP_NAMES.contains(&SUPERAGENT_MCP_NAME));
     }
 }

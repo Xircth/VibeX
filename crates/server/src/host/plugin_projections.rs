@@ -530,19 +530,15 @@ pub(crate) async fn refresh_official_product_runtime_with_inner(
 }
 
 async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, enabled: bool) {
+    let removed = services::services::mcp::uninstall_servers_best_effort(
+        plugins::RETIRED_PRODUCT_MCP_NAMES,
+    );
+    if !removed.is_empty() {
+        tracing::info!(?removed, "removed retired or pre-rename product MCP entries");
+    }
     let Some(http_base) = gate.http_base().filter(|value| !value.trim().is_empty()) else {
         return;
     };
-    let existing = services::services::mcp::scan_local_sync().unwrap_or_default();
-    for legacy in [
-        plugins::DELEGATION_MCP_NAME,
-        plugins::SESSION_MCP_NAME,
-        plugins::WORKFLOW_MCP_NAME,
-    ] {
-        if existing.iter().any(|server| server.id == legacy) {
-            let _ = services::services::mcp::uninstall_server(legacy.to_string()).await;
-        }
-    }
     let Some(command) = utils::host_bin::locate_runnable_host_family_binary("dimo-mcp") else {
         tracing::warn!("skipping superagent native MCP sync; dimo-mcp sidecar is missing");
         return;

@@ -3027,6 +3027,11 @@ const GROK_PRODUCT_MCP_IDS: &[&str] = &[
     "dimo-delegation-mcp",
     "dimo-session-mcp",
     "dimo-workflow-mcp",
+    "VibeX-superagent-mcp",
+    "vibex-superagent-mcp",
+    "vibex-delegation-mcp",
+    "vibex-session-mcp",
+    "vibex-workflow-mcp",
 ];
 
 /// Grok waits this long for each native MCP during `session/new` (default 30).
@@ -5449,6 +5454,53 @@ pub async fn uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, 
     scan_local_servers_with_tools().await
 }
 
+/// Best-effort removal of retired or pre-rename server IDs across every
+/// supported native agent configuration without aborting if any single app's
+/// config file is missing or malformed.
+pub fn uninstall_servers_best_effort(server_ids: &[&str]) -> Vec<String> {
+    uninstall_servers_for_apps_best_effort(&ALL_APPS, server_ids)
+}
+
+fn uninstall_servers_for_apps_best_effort(apps: &[McpAppType], server_ids: &[&str]) -> Vec<String> {
+    let mut removed = Vec::new();
+    for &app in apps {
+        let mut candidates = server_ids
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<Vec<_>>();
+        if let Ok(existing) = read_servers_for_app(app) {
+            for existing_id in existing.keys() {
+                if server_ids
+                    .iter()
+                    .any(|target| target.eq_ignore_ascii_case(existing_id))
+                    && !candidates.iter().any(|candidate| candidate == existing_id)
+                {
+                    candidates.push(existing_id.clone());
+                }
+            }
+        }
+        for id in candidates {
+            match remove_server_for_app(app, &id) {
+                Ok(true) => {
+                    if !removed.iter().any(|existing| existing == &id) {
+                        removed.push(id);
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        mcp_server_id = %id,
+                        ?app,
+                        %error,
+                        "best-effort retired MCP removal failed"
+                    );
+                }
+            }
+        }
+    }
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6437,5 +6489,71 @@ command = "other"
                 "list_globals".to_string()
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn best_effort_uninstall_removes_legacy_vibex_servers_despite_unrelated_bad_config() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let codex_home = root.path().join("codex");
+        let gemini_home = root.path().join("gemini");
+        let cline_dir = root.path().join("cline");
+        fs::create_dir_all(&codex_home).unwrap();
+        fs::create_dir_all(gemini_home.join("config")).unwrap();
+        fs::create_dir_all(cline_dir.join("settings")).unwrap();
+
+        fs::write(
+            codex_home.join("config.toml"),
+            r#"
+[mcp_servers.Dimo-superagent-mcp]
+command = "C:\\Users\\demo\\AppData\\Local\\Dimo\\dimo-mcp.exe"
+
+[mcp_servers.vibex-delegation-mcp]
+command = "C:\\Users\\demo\\AppData\\Local\\VibeX\\vibex-mcp.exe"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            gemini_home.join("config").join("mcp_config.json"),
+            r#"{
+  "mcpServers": {
+    "Dimo-superagent-mcp": { "command": "dimo-mcp.exe" },
+    "vibex-delegation-mcp": { "command": "vibex-mcp.exe" }
+  }
+}"#,
+        )
+        .unwrap();
+        // Malformed JSON in an unrelated app must not prevent cleanup of Codex/Antigravity.
+        fs::write(
+            cline_dir.join("settings").join("cline_mcp_settings.json"),
+            "{ not valid json",
+        )
+        .unwrap();
+
+        let environment = HashMap::from([
+            ("CODEX_HOME".to_string(), codex_home.display().to_string()),
+            ("GEMINI_HOME".to_string(), gemini_home.display().to_string()),
+            ("CLINE_DIR".to_string(), cline_dir.display().to_string()),
+        ]);
+
+        with_saved_agent_environment(environment, async {
+            let removed = uninstall_servers_for_apps_best_effort(
+                &[
+                    McpAppType::Cline,
+                    McpAppType::Codex,
+                    McpAppType::Antigravity,
+                ],
+                &["dimo-delegation-mcp", "vibex-delegation-mcp"],
+            );
+            assert_eq!(removed, vec!["vibex-delegation-mcp".to_string()]);
+
+            let codex = read_codex_servers().unwrap();
+            assert!(codex.contains_key("Dimo-superagent-mcp"));
+            assert!(!codex.contains_key("vibex-delegation-mcp"));
+
+            let antigravity = read_antigravity_servers().unwrap();
+            assert!(antigravity.contains_key("Dimo-superagent-mcp"));
+            assert!(!antigravity.contains_key("vibex-delegation-mcp"));
+        })
+        .await;
     }
 }

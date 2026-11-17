@@ -770,6 +770,10 @@ fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> 
         || title_lower.starts_with("dimo-delegation-mcp_")
         || title_lower.starts_with("dimo-workflow-mcp_")
         || title_lower.starts_with("dimo-superagent-mcp_")
+        || title_lower.starts_with("vibex-session-mcp_")
+        || title_lower.starts_with("vibex-delegation-mcp_")
+        || title_lower.starts_with("vibex-workflow-mcp_")
+        || title_lower.starts_with("vibex-superagent-mcp_")
     {
         return true;
     }
@@ -792,6 +796,10 @@ fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> 
                     | "dimo-delegation-mcp"
                     | "dimo-workflow-mcp"
                     | "dimo-superagent-mcp"
+                    | "vibex-session-mcp"
+                    | "vibex-delegation-mcp"
+                    | "vibex-workflow-mcp"
+                    | "vibex-superagent-mcp"
             ) {
                 return true;
             }

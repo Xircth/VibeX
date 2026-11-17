@@ -49,6 +49,11 @@ const INTERNAL_MCP_SERVER_IDS = new Set([
   'dimo-delegation-mcp',
   'dimo-session-mcp',
   'dimo-workflow-mcp',
+  'VibeX-superagent-mcp',
+  'vibex-superagent-mcp',
+  'vibex-delegation-mcp',
+  'vibex-session-mcp',
+  'vibex-workflow-mcp',
 ]);
 
 const EMPTY_REPORT: PluginMcpStatusReport = {

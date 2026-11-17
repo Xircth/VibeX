@@ -586,7 +586,7 @@ impl DelegationInjector for DimoDelegationInjector {
         services::services::mcp::scan_local_sync()
             .unwrap_or_default()
             .into_iter()
-            .filter(|server| server.global)
+            .filter(|server| server.global && !plugins::is_product_mcp_name(&server.id))
             .filter_map(|server| {
                 let object = server.spec.as_object()?;
                 let transport = match object.get("type")?.as_str()? {
@@ -625,16 +625,7 @@ impl DelegationInjector for DimoDelegationInjector {
     ) -> Vec<(InjectedMcpServer, Vec<(String, String)>)> {
         services::services::mcp::read_session_forwarded_servers_sync(agent_id.as_str())
             .into_iter()
-            .filter(|(id, _)| {
-                !matches!(
-                    id.as_str(),
-                    plugins::SUPERAGENT_MCP_NAME
-                        | "dimo-superagent-mcp"
-                        | "dimo-delegation-mcp"
-                        | "dimo-session-mcp"
-                        | "dimo-workflow-mcp"
-                )
-            })
+            .filter(|(id, _)| !plugins::is_product_mcp_name(id))
             .filter_map(|(id, spec)| {
                 let object = spec.as_object()?;
                 if object.get("type").and_then(serde_json::Value::as_str) != Some("stdio") {

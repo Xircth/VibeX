@@ -5,6 +5,7 @@ import type {
   AgentPreflightView,
 } from 'shared/types';
 
+import type { OnboardingAgentStatus } from '@/components/onboarding/onboardingAgentModel';
 import type { AgentOperationState } from '@/features/agent-management';
 
 export const ACP_STEPPER_STEPS = ['download', 'install', 'check'] as const;
@@ -98,7 +99,40 @@ export type AgentStatusRowModel = {
   stepperIndex: 0 | 1 | 2;
   connectorAvailable: boolean;
   loggedIn: boolean;
+  badgeStatus: OnboardingAgentStatus;
 };
+
+export function resolveAgentStatusBadge(
+  agent: Pick<
+    AgentManagementView,
+    'acp_version' | 'lifecycle' | 'authentication'
+  >,
+  operation: AgentOperationState | null | undefined
+): OnboardingAgentStatus {
+  const operationInFlight = isAcpInstallOperation(operation);
+  if (operationInFlight || isAcpLifecycleInProgress(agent.lifecycle)) {
+    return 'installing';
+  }
+  if (
+    agent.lifecycle === 'uninstalled' ||
+    agent.lifecycle === 'platform_unsupported' ||
+    agent.lifecycle === 'retired' ||
+    !isAcpConnectorAvailable(agent)
+  ) {
+    return 'uninstalled';
+  }
+  if (agent.lifecycle === 'needs_repair') {
+    return operation?.status === 'failed' ? 'install_failed' : 'uninstalled';
+  }
+  if (
+    agent.lifecycle === 'needs_auth' ||
+    agent.lifecycle === 'needs_config' ||
+    !isAgentLoggedIn(agent.authentication)
+  ) {
+    return 'needs_auth';
+  }
+  return 'ready';
+}
 
 export function presentAgentStatusRow(
   agent: Pick<
@@ -117,5 +151,6 @@ export function presentAgentStatusRow(
       : acpStepperIndexFromLifecycle(agent.lifecycle),
     connectorAvailable: !showStepper && isAcpConnectorAvailable(agent),
     loggedIn: isAgentLoggedIn(agent.authentication),
+    badgeStatus: resolveAgentStatusBadge(agent, operation),
   };
 }

@@ -156,7 +156,7 @@ describe('AgentStatusMenu', () => {
     expect(onOpenAgentSettings).toHaveBeenCalledWith('claude_code');
   });
 
-  it('shows connector and auth without an Agent-ready label', () => {
+  it('merges connector and auth into the onboarding status badge and opens settings on click', () => {
     const onOpenAgentSettings = vi.fn();
     render(
       <AgentStatusMenu
@@ -166,6 +166,24 @@ describe('AgentStatusMenu', () => {
             display_name: 'Grok',
             acp_version: '1.0.0',
             authentication: 'account',
+            lifecycle: 'ready',
+            position: 0,
+          }),
+          agent({
+            agent_id: 'cursor',
+            display_name: 'Cursor',
+            acp_version: '1.0.0',
+            authentication: 'not_logged_in',
+            lifecycle: 'needs_auth',
+            position: 1,
+          }),
+          agent({
+            agent_id: 'pi',
+            display_name: 'Pi',
+            acp_version: null,
+            authentication: 'not_logged_in',
+            lifecycle: 'needs_repair',
+            position: 2,
           }),
         ]}
         defaultAgentId="grok"
@@ -177,19 +195,35 @@ describe('AgentStatusMenu', () => {
       screen.getByRole('button', { name: /默认 Agent：Grok/ })
     );
 
-    expect(screen.getByRole('button', { name: '已登录' })).toBeInTheDocument();
-    expect(screen.queryByText('Agent 可用')).toBeNull();
-    const row = screen.getByRole('listitem', { name: /Grok/ });
-    const name = within(row).getByText('Grok', { selector: 'span' });
-    const connector = within(row).getByRole('button', { name: '连接器可用' });
-    expect(name.parentElement).toBe(row);
-    expect(connector.parentElement).toBe(row);
-    expect(row.className).not.toMatch(/flex-col/);
-    fireEvent.click(screen.getByRole('button', { name: '连接器可用' }));
+    expect(screen.queryByText('连接器可用')).toBeNull();
+    expect(screen.queryByText('已登录')).toBeNull();
+    expect(screen.queryByText('未登录')).toBeNull();
+
+    const grokRow = screen.getByRole('listitem', { name: /Grok/ });
+    const readyButton = within(grokRow).getByRole('button', { name: '已就绪' });
+    expect(within(readyButton).getByRole('status')).toHaveAttribute(
+      'data-status',
+      'ready'
+    );
+
+    const cursorRow = screen.getByRole('listitem', { name: /Cursor/ });
+    expect(
+      within(cursorRow).getByRole('status')
+    ).toHaveAttribute('data-status', 'needs_auth');
+    expect(within(cursorRow).getByText('待鉴权')).toBeInTheDocument();
+
+    const piRow = screen.getByRole('listitem', { name: /Pi/ });
+    expect(within(piRow).getByRole('status')).toHaveAttribute(
+      'data-status',
+      'uninstalled'
+    );
+    expect(within(piRow).getByText('未安装')).toBeInTheDocument();
+
+    fireEvent.click(readyButton);
     expect(onOpenAgentSettings).toHaveBeenCalledWith('grok');
   });
 
-  it('aligns status fields across differently named Agent rows', () => {
+  it('places default beside Agent name, update chip before status badge, and aligns columns', () => {
     render(
       <AgentStatusMenu
         agents={[
@@ -220,16 +254,24 @@ describe('AgentStatusMenu', () => {
     const codex = screen.getByRole('listitem', { name: /Codex/ });
     expect(claude.className).toMatch(/subgrid/);
     expect(codex.className).toMatch(/subgrid/);
-    expect(claude.children).toHaveLength(6);
-    expect(codex.children).toHaveLength(6);
-    expect(claude.children[2]).toHaveTextContent('连接器可用');
-    expect(codex.children[2]).toHaveTextContent('连接器可用');
-    expect(claude.children[3]).toHaveTextContent('已登录');
-    expect(codex.children[3]).toHaveTextContent('已登录');
-    expect(within(claude).getByText('默认')).toBe(claude.children[4]);
-    expect(codex.children[4]).toHaveTextContent('');
-    expect(claude.children[5]).toHaveTextContent('可更新');
-    expect(codex.children[5]).toHaveTextContent('可更新');
+    expect(claude.children).toHaveLength(4);
+    expect(codex.children).toHaveLength(4);
+
+    // Column 2: Agent name + "默认" badge right next to it
+    expect(claude.children[1]).toHaveTextContent('Claude Code');
+    expect(within(claude.children[1] as HTMLElement).getByText('默认')).toBeInTheDocument();
+    expect(codex.children[1]).toHaveTextContent('Codex');
+    expect(within(codex.children[1] as HTMLElement).queryByText('默认')).toBeNull();
+
+    // Column 3: Preflight-style "可更新" component to the left of the status badge
+    expect(claude.children[2]).toHaveTextContent('可更新');
+    expect(claude.children[2].querySelector('svg')).not.toBeNull();
+    expect(codex.children[2]).toHaveTextContent('可更新');
+    expect(codex.children[2].querySelector('svg')).not.toBeNull();
+
+    // Column 4: Merged status badge on the far right
+    expect(claude.children[3]).toHaveTextContent('已就绪');
+    expect(codex.children[3]).toHaveTextContent('已就绪');
   });
 
   it('shows the ACP stepper while an install is running', () => {
@@ -266,7 +308,6 @@ describe('AgentStatusMenu', () => {
     expect(screen.getByText('下载')).toBeInTheDocument();
     expect(screen.getByText('安装')).toBeInTheDocument();
     expect(screen.getByText('检查')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '未登录' })).toBeInTheDocument();
   });
 
   it('shows the ACP stepper from lifecycle when operations are missing', () => {
@@ -378,10 +419,17 @@ describe('AgentStatusMenu', () => {
     );
     expect(onMenuOpen).toHaveBeenCalledTimes(1);
 
-    // Claude Code: 2 quota items -> 1 extra quota row below status row
+    const list = screen.getByRole('list');
+    expect(list.className).toMatch(/gap-y-2/);
+
+    // Claude Code: 2 quota items -> 1 bordered quota box below status row
     const claudeItem = screen.getByRole('listitem', { name: 'Claude Code' });
-    expect(claudeItem.children).toHaveLength(7);
-    const claudeRow0 = within(claudeItem).getByTestId(
+    expect(claudeItem.children).toHaveLength(5);
+    const claudeBox = within(claudeItem).getByTestId(
+      'agent-status-quota-box-claude_code'
+    );
+    expect(claudeBox.className).toMatch(/\bborder\b/);
+    const claudeRow0 = within(claudeBox).getByTestId(
       'agent-status-quota-row-claude_code-0'
     );
     expect(claudeRow0.children).toHaveLength(2);
@@ -392,18 +440,22 @@ describe('AgentStatusMenu', () => {
     ).toBeInTheDocument();
     expect(within(claudeRow0).getByText('72%')).toBeInTheDocument();
     expect(
-      within(claudeItem).queryByTestId('agent-status-quota-row-claude_code-1')
+      within(claudeBox).queryByTestId('agent-status-quota-row-claude_code-1')
     ).toBeNull();
 
-    // Antigravity: 4 quota items -> 2 extra quota rows (2 items per row)
+    // Antigravity: 4 quota items -> 2 quota rows inside 1 bordered quota box
     const antigravityItem = screen.getByRole('listitem', {
       name: 'Antigravity',
     });
-    expect(antigravityItem.children).toHaveLength(8);
-    const antigravityRow0 = within(antigravityItem).getByTestId(
+    expect(antigravityItem.children).toHaveLength(5);
+    const antigravityBox = within(antigravityItem).getByTestId(
+      'agent-status-quota-box-antigravity'
+    );
+    expect(antigravityBox.className).toMatch(/\bborder\b/);
+    const antigravityRow0 = within(antigravityBox).getByTestId(
       'agent-status-quota-row-antigravity-0'
     );
-    const antigravityRow1 = within(antigravityItem).getByTestId(
+    const antigravityRow1 = within(antigravityBox).getByTestId(
       'agent-status-quota-row-antigravity-1'
     );
     expect(antigravityRow0.children).toHaveLength(2);
@@ -424,7 +476,10 @@ describe('AgentStatusMenu', () => {
 
     // Codex (no subscription): strictly status row only, no extra/empty rows
     const codexItem = screen.getByRole('listitem', { name: 'Codex' });
-    expect(codexItem.children).toHaveLength(6);
+    expect(codexItem.children).toHaveLength(4);
+    expect(
+      within(codexItem).queryByTestId('agent-status-quota-box-codex')
+    ).toBeNull();
     expect(
       within(codexItem).queryByTestId(/agent-status-quota-row-codex/)
     ).toBeNull();

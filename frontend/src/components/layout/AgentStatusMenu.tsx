@@ -8,12 +8,14 @@ import type {
 } from 'shared/types';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
+import { AgentUpdateBadge } from '@/components/agents/AgentUpdateBadge';
 import {
   buildPlanQuotaRows,
   clampPercent,
   describeReset,
   describeWindowLabel,
 } from '@/components/kanban/planUsageFormat';
+import { OnboardingAgentStatusBadge } from '@/components/onboarding/OnboardingAgentStatusBadge';
 import type { AgentOperationState } from '@/features/agent-management';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import { AstryxStepper, AstryxStepperItem } from '@/features/basic-guide';
@@ -169,14 +171,14 @@ export function AgentStatusMenu({
 
       {menuOpen && (
         <div className="absolute bottom-full right-0 z-50 pb-1.5">
-          <div className="product-context-menu w-max max-h-[min(28rem,calc(100vh-3rem))] min-w-72 max-w-[min(42rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+          <div className="product-context-menu w-max max-h-[min(28rem,calc(100vh-3rem))] min-w-72 max-w-[min(42rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-popover p-1.5 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
             <div
               id={menuId}
               role="list"
               aria-label={t('agentStatus.enabledAgentsAria', {
                 ns: 'statusbar',
               })}
-              className="grid grid-cols-[auto_auto_auto_auto_minmax(0,1fr)_auto] items-center"
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-y-2"
             >
               {enabledAgents.map((agent) => {
                 const isDefault = agent.agent_id === defaultAgent.agent_id;
@@ -200,8 +202,8 @@ export function AgentStatusMenu({
                     role="listitem"
                     aria-label={agent.display_name}
                     className={cn(
-                      'col-span-full grid grid-cols-subgrid min-h-8 items-center gap-x-2 whitespace-nowrap rounded-md px-2 py-1 text-xs',
-                      quotaRows.length > 0 && 'gap-y-1 pb-1.5'
+                      'col-span-full grid grid-cols-subgrid min-h-8 items-center gap-x-2 whitespace-nowrap rounded-md px-2 py-1.5 text-xs',
+                      quotaRows.length > 0 && 'gap-y-1.5'
                     )}
                   >
                     <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
@@ -214,196 +216,192 @@ export function AgentStatusMenu({
                         )}
                       />
                     </span>
-                    <span className="font-medium text-foreground">
-                      {agent.display_name}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-medium text-foreground">
+                        {agent.display_name}
+                      </span>
+                      {isDefault ? (
+                        <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium leading-4 text-primary">
+                          {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
+                        </span>
+                      ) : null}
+                    </div>
+                    {canUpdate && !row.showStepper ? (
+                      <AgentUpdateBadge
+                        className="justify-self-end"
+                        label={t('agentStatus.updateAvailable', {
+                          ns: 'statusbar',
+                        })}
+                        onClick={onOpenAgentSettings ? openSettings : undefined}
+                      />
+                    ) : (
+                      <span />
+                    )}
                     {row.showStepper ? (
-                      <AstryxStepper
-                        current={row.stepperIndex}
-                        onStepClick={() => openSettings()}
-                      >
-                        <AstryxStepperItem>
-                          {t('agentStatus.acpDownload', { ns: 'statusbar' })}
-                        </AstryxStepperItem>
-                        <AstryxStepperItem>
-                          {t('agentStatus.acpInstall', { ns: 'statusbar' })}
-                        </AstryxStepperItem>
-                        <AstryxStepperItem>
-                          {t('agentStatus.acpCheck', { ns: 'statusbar' })}
-                        </AstryxStepperItem>
-                      </AstryxStepper>
-                    ) : row.connectorAvailable ? (
+                      <div className="justify-self-end">
+                        <AstryxStepper
+                          current={row.stepperIndex}
+                          onStepClick={() => openSettings()}
+                        >
+                          <AstryxStepperItem>
+                            {t('agentStatus.acpDownload', { ns: 'statusbar' })}
+                          </AstryxStepperItem>
+                          <AstryxStepperItem>
+                            {t('agentStatus.acpInstall', { ns: 'statusbar' })}
+                          </AstryxStepperItem>
+                          <AstryxStepperItem>
+                            {t('agentStatus.acpCheck', { ns: 'statusbar' })}
+                          </AstryxStepperItem>
+                        </AstryxStepper>
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        className="justify-self-start rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4 text-foreground outline-none hover:bg-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
+                        className="justify-self-end rounded-full outline-none transition-opacity hover:opacity-85 focus-visible:ring-1 focus-visible:ring-ring"
                         onClick={openSettings}
                       >
-                        {t('agentStatus.connectorReady', { ns: 'statusbar' })}
+                        <OnboardingAgentStatusBadge status={row.badgeStatus} />
                       </button>
-                    ) : (
-                      <span />
                     )}
-                    <button
-                      type="button"
-                      className="justify-self-start rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4 text-muted-foreground outline-none hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-                      onClick={openSettings}
-                    >
-                      {row.loggedIn
-                        ? t('agentStatus.loggedIn', { ns: 'statusbar' })
-                        : t('agentStatus.loggedOut', { ns: 'statusbar' })}
-                    </button>
-                    {isDefault ? (
-                      <span className="justify-self-end rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium leading-4 text-primary">
-                        {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
-                      </span>
-                    ) : (
-                      <span />
-                    )}
-                    {canUpdate ? (
-                      onOpenAgentSettings ? (
-                        <button
-                          type="button"
-                          className="justify-self-end rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring"
-                          onClick={openSettings}
-                        >
-                          {t('agentStatus.updateAvailable', {
-                            ns: 'statusbar',
-                          })}
-                        </button>
-                      ) : (
-                        <span className="justify-self-end text-[10px] font-medium leading-4 text-primary">
-                          {t('agentStatus.updateAvailable', {
-                            ns: 'statusbar',
-                          })}
-                        </span>
-                      )
-                    ) : (
-                      <span />
-                    )}
-                    {quotaRows.map((quotaRow, rowIndex) => (
+                    {quotaRows.length > 0 ? (
                       <div
-                        key={`quota-row-${rowIndex}`}
-                        data-testid={`agent-status-quota-row-${agent.agent_id}-${rowIndex}`}
-                        className="col-span-5 col-start-2 grid min-w-0 grid-cols-2 items-center gap-x-4 leading-4"
+                        data-testid={`agent-status-quota-box-${agent.agent_id}`}
+                        className="col-span-3 col-start-2 flex min-w-0 flex-col gap-1.5 rounded-md border border-border/70 bg-background/50 px-2.5 py-1.5"
                       >
-                        {quotaRow.map((item) => {
-                          if (item.kind === 'credits') {
-                            const creditsText = item.credits.unlimited
-                              ? t('usageDashboard.planUsage.creditsUnlimited', {
-                                  ns: 'tasks',
-                                })
-                              : t('usageDashboard.planUsage.creditsBalance', {
-                                  ns: 'tasks',
-                                  balance: item.credits.balance ?? '--',
-                                });
-                            return (
-                              <div
-                                key={item.id}
-                                title={creditsText}
-                                data-testid={`agent-status-quota-item-${agent.agent_id}-${item.id}`}
-                                className="flex min-w-0 items-center text-muted-foreground"
-                              >
-                                <span className="truncate tabular-nums">
-                                  {creditsText}
-                                </span>
-                              </div>
-                            );
-                          }
+                        {quotaRows.map((quotaRow, rowIndex) => (
+                          <div
+                            key={`quota-row-${rowIndex}`}
+                            data-testid={`agent-status-quota-row-${agent.agent_id}-${rowIndex}`}
+                            className="grid min-w-0 grid-cols-2 items-center gap-x-4 leading-4"
+                          >
+                            {quotaRow.map((item) => {
+                              if (item.kind === 'credits') {
+                                const creditsText = item.credits.unlimited
+                                  ? t(
+                                      'usageDashboard.planUsage.creditsUnlimited',
+                                      {
+                                        ns: 'tasks',
+                                      }
+                                    )
+                                  : t(
+                                      'usageDashboard.planUsage.creditsBalance',
+                                      {
+                                        ns: 'tasks',
+                                        balance: item.credits.balance ?? '--',
+                                      }
+                                    );
+                                return (
+                                  <div
+                                    key={item.id}
+                                    title={creditsText}
+                                    data-testid={`agent-status-quota-item-${agent.agent_id}-${item.id}`}
+                                    className="flex min-w-0 items-center text-muted-foreground"
+                                  >
+                                    <span className="truncate tabular-nums">
+                                      {creditsText}
+                                    </span>
+                                  </div>
+                                );
+                              }
 
-                          const { window: quotaWindow } = item;
-                          const usedPercent = clampPercent(
-                            quotaWindow.usedPercent
-                          );
-                          const remainingPercent =
-                            usedPercent === null
-                              ? null
-                              : Math.max(0, 100 - usedPercent);
-                          const labelDesc = describeWindowLabel(quotaWindow);
-                          const windowLabel = t(
-                            `usageDashboard.planUsage.${labelDesc.key}`,
-                            labelDesc.count === undefined
-                              ? { ns: 'tasks' }
-                              : { ns: 'tasks', count: labelDesc.count }
-                          );
-                          const reset = describeReset(
-                            quotaWindow.resetsAtMs,
-                            Date.now()
-                          );
-                          const resetLabel =
-                            reset === null
-                              ? null
-                              : reset.kind === 'soon'
-                                ? t('usageDashboard.planUsage.resetsSoon', {
-                                    ns: 'tasks',
-                                  })
-                                : t(
-                                    `usageDashboard.planUsage.${
-                                      reset.kind === 'minutes'
-                                        ? 'resetsInMinutes'
-                                        : reset.kind === 'hours'
-                                          ? 'resetsInHours'
-                                          : 'resetsInDays'
-                                    }`,
-                                    { ns: 'tasks', count: reset.count }
-                                  );
-                          const tooltipText = [
-                            windowLabel,
-                            usedPercent !== null
-                              ? t('usageDashboard.planUsage.used', {
-                                  ns: 'tasks',
-                                  percent: usedPercent,
-                                })
-                              : null,
-                            remainingPercent !== null
-                              ? t('usageDashboard.planUsage.remaining', {
-                                  ns: 'tasks',
-                                  percent: remainingPercent,
-                                })
-                              : null,
-                            resetLabel,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ');
+                              const { window: quotaWindow } = item;
+                              const usedPercent = clampPercent(
+                                quotaWindow.usedPercent
+                              );
+                              const remainingPercent =
+                                usedPercent === null
+                                  ? null
+                                  : Math.max(0, 100 - usedPercent);
+                              const labelDesc =
+                                describeWindowLabel(quotaWindow);
+                              const windowLabel = t(
+                                `usageDashboard.planUsage.${labelDesc.key}`,
+                                labelDesc.count === undefined
+                                  ? { ns: 'tasks' }
+                                  : { ns: 'tasks', count: labelDesc.count }
+                              );
+                              const reset = describeReset(
+                                quotaWindow.resetsAtMs,
+                                Date.now()
+                              );
+                              const resetLabel =
+                                reset === null
+                                  ? null
+                                  : reset.kind === 'soon'
+                                    ? t('usageDashboard.planUsage.resetsSoon', {
+                                        ns: 'tasks',
+                                      })
+                                    : t(
+                                        `usageDashboard.planUsage.${
+                                          reset.kind === 'minutes'
+                                            ? 'resetsInMinutes'
+                                            : reset.kind === 'hours'
+                                              ? 'resetsInHours'
+                                              : 'resetsInDays'
+                                        }`,
+                                        { ns: 'tasks', count: reset.count }
+                                      );
+                              const tooltipText = [
+                                windowLabel,
+                                usedPercent !== null
+                                  ? t('usageDashboard.planUsage.used', {
+                                      ns: 'tasks',
+                                      percent: usedPercent,
+                                    })
+                                  : null,
+                                remainingPercent !== null
+                                  ? t('usageDashboard.planUsage.remaining', {
+                                      ns: 'tasks',
+                                      percent: remainingPercent,
+                                    })
+                                  : null,
+                                resetLabel,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ');
 
-                          return (
-                            <div
-                              key={item.id}
-                              title={tooltipText}
-                              data-testid={`agent-status-quota-item-${agent.agent_id}-${item.id}`}
-                              className="flex min-w-0 items-center justify-between gap-2"
-                            >
-                              <span className="min-w-0 truncate text-muted-foreground">
-                                {windowLabel}
-                              </span>
-                              <span className="flex shrink-0 items-center gap-1.5">
-                                <span className="w-14 shrink-0">
-                                  <ProgressBar
-                                    value={usedPercent ?? 0}
-                                    max={100}
-                                    label={`${agent.display_name} ${windowLabel}`}
-                                    isLabelHidden
-                                    hasValueLabel={false}
-                                    variant={
-                                      usedPercent !== null && usedPercent >= 90
-                                        ? 'error'
-                                        : usedPercent !== null &&
-                                            usedPercent >= 70
-                                          ? 'warning'
-                                          : 'accent'
-                                    }
-                                  />
-                                </span>
-                                <span className="w-8 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
-                                  {usedPercent === null
-                                    ? '--'
-                                    : `${usedPercent}%`}
-                                </span>
-                              </span>
-                            </div>
-                          );
-                        })}
+                              return (
+                                <div
+                                  key={item.id}
+                                  title={tooltipText}
+                                  data-testid={`agent-status-quota-item-${agent.agent_id}-${item.id}`}
+                                  className="flex min-w-0 items-center justify-between gap-2"
+                                >
+                                  <span className="min-w-0 truncate text-muted-foreground">
+                                    {windowLabel}
+                                  </span>
+                                  <span className="flex shrink-0 items-center gap-1.5">
+                                    <span className="w-14 shrink-0">
+                                      <ProgressBar
+                                        value={usedPercent ?? 0}
+                                        max={100}
+                                        label={`${agent.display_name} ${windowLabel}`}
+                                        isLabelHidden
+                                        hasValueLabel={false}
+                                        variant={
+                                          usedPercent !== null &&
+                                          usedPercent >= 90
+                                            ? 'error'
+                                            : usedPercent !== null &&
+                                                usedPercent >= 70
+                                              ? 'warning'
+                                              : 'accent'
+                                        }
+                                      />
+                                    </span>
+                                    <span className="w-8 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
+                                      {usedPercent === null
+                                        ? '--'
+                                        : `${usedPercent}%`}
+                                    </span>
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    ) : null}
                   </div>
                 );
               })}

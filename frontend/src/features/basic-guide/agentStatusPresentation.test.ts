@@ -98,6 +98,7 @@ describe('agentStatusPresentation', () => {
     expect(installing.showStepper).toBe(true);
     expect(installing.stepperIndex).toBe(1);
     expect(installing.connectorAvailable).toBe(false);
+    expect(installing.badgeStatus).toBe('installing');
 
     const ready = presentAgentStatusRow(
       {
@@ -110,6 +111,7 @@ describe('agentStatusPresentation', () => {
     expect(ready.showStepper).toBe(false);
     expect(ready.connectorAvailable).toBe(true);
     expect(ready.loggedIn).toBe(true);
+    expect(ready.badgeStatus).toBe('ready');
   });
 
   it('shows the stepper from lifecycle when no operation snapshot is present', () => {
@@ -123,5 +125,59 @@ describe('agentStatusPresentation', () => {
     );
     expect(installing.showStepper).toBe(true);
     expect(installing.stepperIndex).toBe(1);
+    expect(installing.badgeStatus).toBe('installing');
+  });
+
+  it('merges connector and authentication state into onboarding badge status', () => {
+    expect(
+      presentAgentStatusRow(
+        {
+          acp_version: '1.0.0',
+          lifecycle: 'needs_auth',
+          authentication: 'not_logged_in',
+        },
+        null
+      ).badgeStatus
+    ).toBe('needs_auth');
+
+    expect(
+      presentAgentStatusRow(
+        {
+          acp_version: '1.0.0',
+          lifecycle: 'ready',
+          authentication: 'not_logged_in',
+        },
+        null
+      ).badgeStatus
+    ).toBe('needs_auth');
+
+    expect(
+      presentAgentStatusRow(
+        {
+          acp_version: null,
+          lifecycle: 'needs_repair',
+          authentication: 'not_logged_in',
+        },
+        null
+      ).badgeStatus
+    ).toBe('uninstalled');
+
+    expect(
+      presentAgentStatusRow(
+        {
+          acp_version: '1.0.0',
+          lifecycle: 'needs_repair',
+          authentication: 'account',
+        },
+        {
+          operationId: 'op-fail',
+          kind: 'install',
+          status: 'failed',
+          progressPercent: 10,
+          message: 'boom',
+          sequence: 2,
+        }
+      ).badgeStatus
+    ).toBe('install_failed');
   });
 });

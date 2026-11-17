@@ -92,35 +92,34 @@ async function openPicker(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('ProviderCatalogPicker', () => {
-  it('renders a closed combobox instead of a flattened tile grid', () => {
+  it('renders a closed inline search combobox instead of a flattened tile grid', () => {
     renderPicker();
 
     expect(trigger()).toBeVisible();
+    expect(trigger().tagName).toBe('INPUT');
     expect(trigger()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: '按名称' })).toBeVisible();
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('searchbox', { name: '搜索预置' })
-    ).not.toBeInTheDocument();
   });
 
-  it('keeps the search box fixed above the scrollable options', async () => {
+  it('does not render a duplicate search input inside the dropdown menu', async () => {
     const user = userEvent.setup();
     renderPicker();
     await openPicker(user);
 
-    const search = screen.getByRole('searchbox', { name: '搜索预置' });
+    const search = trigger();
     const listbox = screen.getByRole('listbox');
-    const menu = search.closest('.agent-model-provider-catalog-menu');
+    const menu = listbox.closest('.agent-model-provider-catalog-menu');
 
     expect(search.parentElement).not.toHaveClass('raised-control');
     expect(search.closest('label.raised-control')).not.toBeInTheDocument();
-    expect(listbox).not.toContainElement(search);
-    expect(menu).toContainElement(search);
+    expect(menu).not.toBeNull();
     expect(menu).toContainElement(listbox);
-    expect(
-      search.closest('.agent-model-provider-catalog-search')?.nextElementSibling
-    ).toBe(listbox);
+    expect(menu).not.toContainElement(search);
+    expect(menu?.querySelectorAll('input')).toHaveLength(0);
+    expect(document.querySelectorAll('input')).toHaveLength(1);
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(listbox).toHaveClass('agent-model-provider-catalog-list');
   });
 
@@ -174,10 +173,7 @@ describe('ProviderCatalogPicker', () => {
     renderPicker();
     await openPicker(user);
 
-    await user.type(
-      screen.getByRole('searchbox', { name: '搜索预置' }),
-      'nothing-matches'
-    );
+    await user.type(trigger(), 'nothing-matches');
 
     expect(optionLabels()).toEqual(['自定义']);
     expect(screen.getByRole('option', { name: '自定义' })).toHaveClass(
@@ -193,7 +189,7 @@ describe('ProviderCatalogPicker', () => {
     await user.click(screen.getByRole('option', { name: '自定义' }));
 
     expect(onSelect).toHaveBeenCalledWith('custom');
-    expect(trigger()).toHaveTextContent('自定义');
+    expect(trigger()).toHaveValue('自定义');
     expect(trigger()).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -206,34 +202,38 @@ describe('ProviderCatalogPicker', () => {
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(apple);
-    expect(trigger()).toHaveTextContent('Apple');
+    expect(trigger()).toHaveValue('Apple');
+
+    await user.keyboard('{Escape}');
+    await openPicker(user);
+    expect(trigger()).toHaveValue('');
+    expect(trigger()).toHaveAttribute('placeholder', 'Apple');
+    expect(optionLabels()).toEqual(['自定义', 'Zebra', 'Apple', 'Mango']);
   });
 
-  it('filters options with a case-insensitive search', async () => {
+  it('filters options with a case-insensitive search and restores selection on Escape', async () => {
     const user = userEvent.setup();
     renderPicker();
     await openPicker(user);
 
-    await user.type(screen.getByRole('searchbox', { name: '搜索预置' }), 'aPp');
+    await user.type(trigger(), 'aPp');
 
     expect(optionLabels()).toEqual(['自定义', 'Apple']);
 
-    await user.clear(screen.getByRole('searchbox', { name: '搜索预置' }));
-    await user.type(
-      screen.getByRole('searchbox', { name: '搜索预置' }),
-      'mango.example'
-    );
+    await user.clear(trigger());
+    await user.type(trigger(), 'mango.example');
 
     expect(optionLabels()).toEqual(['自定义', 'Mango']);
 
-    await user.clear(screen.getByRole('searchbox', { name: '搜索预置' }));
-    await user.type(
-      screen.getByRole('searchbox', { name: '搜索预置' }),
-      'no-such-preset'
-    );
+    await user.clear(trigger());
+    await user.type(trigger(), 'no-such-preset');
 
     expect(optionLabels()).toEqual(['自定义']);
     expect(screen.getByText('没有匹配的预置。')).toBeVisible();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger()).toHaveValue('');
   });
 
   it('reorders non-custom options by name when A–Z is on', async () => {
@@ -256,22 +256,19 @@ describe('ProviderCatalogPicker', () => {
     expect(optionLabels()).toEqual(['自定义', 'Zebra', 'Apple', 'Mango']);
   });
 
-  it('hides search and A–Z when templates is empty', async () => {
+  it('hides search input and A–Z when templates is empty', async () => {
     const user = userEvent.setup();
     renderPicker({ templates: [] });
 
-    expect(
-      screen.queryByRole('searchbox', { name: '搜索预置' })
-    ).not.toBeInTheDocument();
+    expect(trigger().tagName).toBe('DIV');
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '按名称' })
     ).not.toBeInTheDocument();
 
     await openPicker(user);
 
-    expect(
-      screen.queryByRole('searchbox', { name: '搜索预置' })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '按名称' })
     ).not.toBeInTheDocument();

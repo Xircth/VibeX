@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
+import { toast } from '@/components/ui/toast';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { pickAstryxOption } from './agentSettingsTestUtils';
@@ -11,6 +12,14 @@ import {
   openCodeProviderSurface,
 } from './OpenCodeProviderConnections';
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
+
+vi.mock('@/components/ui/toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
 
 const pluginControl = vi.hoisted(() => ({
   contributionCatalog: vi.fn(),
@@ -171,9 +180,11 @@ describe('OpenCodeProviderConnections', () => {
 
     render(<OpenCodeProviderConnections />);
 
-    await user.click(
-      await screen.findByRole('button', { name: '停用 OpenRouter' })
-    );
+    const disableButton = await screen.findByRole('button', {
+      name: '停用 OpenRouter',
+    });
+    expect(disableButton).not.toHaveAttribute('aria-disabled');
+    await user.click(disableButton);
 
     await waitFor(() =>
       expect(setEnabled).toHaveBeenCalledWith('openrouter', false, 'opencode')
@@ -615,5 +626,179 @@ describe('OpenCodeProviderConnections', () => {
     );
     expect(screen.queryByText('SiliconFlow')).not.toBeInTheDocument();
     expect(pluginControl.providerCatalogList).not.toHaveBeenCalled();
+  });
+
+  it('auto-derives provider_id, preserves typed API key on preset selection, and detects models', async () => {
+    pluginControl.contributionCatalog.mockResolvedValue({
+      generation: 1,
+      items: [
+        {
+          pluginId: 'acme.presets',
+          id: 'opencode',
+          kind: 'provider_model_catalog',
+          label: 'OpenCode presets',
+          generation: 1,
+          metadata: { agents: ['opencode'] },
+        },
+      ],
+    });
+    pluginControl.providerCatalogList.mockResolvedValue({
+      agent_id: 'opencode',
+      generation: 1,
+      templates: [
+        {
+          id: 'siliconflow',
+          plugin_id: 'acme.presets',
+          contribution_id: 'opencode',
+          plugin_label: 'Acme Presets',
+          agent_id: 'opencode',
+          name: 'SiliconFlow',
+          category: 'partner',
+          surface: 'opencode',
+          provider_id: 'siliconflow',
+          npm: '@ai-sdk/openai-compatible',
+          api: 'openai-compatible',
+          base_url: 'https://api.siliconflow.cn/v1',
+          models: [],
+        },
+      ],
+      sources: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviders').mockResolvedValue({
+      providers: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviderCatalog').mockResolvedValue({
+      source: 'bundled',
+      providers: [],
+    });
+    const detectSpy = vi
+      .spyOn(agentManagementApi, 'modelProviderCatalog')
+      .mockResolvedValue({
+        agent_id: 'opencode',
+        source: 'live',
+        models: [
+          {
+            id: 'qwen3-coder',
+            label: 'Qwen3 Coder',
+            context_window: 128000,
+            reasoning_levels: [],
+          },
+        ],
+        default_model: 'qwen3-coder',
+        error: null,
+      });
+    const connectSpy = vi
+      .spyOn(agentManagementApi, 'connectOpenCodeProvider')
+      .mockResolvedValue({ providers: [] });
+    const user = userEvent.setup();
+
+    render(<OpenCodeProviderConnections surface="provider" />);
+    await user.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    );
+
+    await user.type(screen.getByLabelText('API Key'), 'sk-keep-me');
+    await user.click(screen.getByRole('searchbox', { name: '搜索 Provider' }));
+    await user.click(
+      await screen.findByRole('button', { name: '选择 SiliconFlow' })
+    );
+    expect(screen.getByLabelText('API Key')).toHaveValue('sk-keep-me');
+
+    // Clear Provider ID and type a custom name + LAN URL to verify slug auto-derivation & detection
+    await user.clear(screen.getByLabelText('Provider ID'));
+    await user.clear(screen.getByLabelText('显示名称'));
+    await user.type(screen.getByLabelText('显示名称'), 'Local Gateway');
+    await user.clear(screen.getByLabelText('API URL'));
+    await user.type(
+      screen.getByLabelText('API URL'),
+      'http://192.168.1.50:11434/v1'
+    );
+
+    const detectButton = screen.getByRole('button', { name: '检测模型' });
+    expect(detectButton).toBeEnabled();
+    await user.click(detectButton);
+
+    await waitFor(() =>
+      expect(detectSpy).toHaveBeenCalledWith(
+        'opencode',
+        null,
+        'http://192.168.1.50:11434/v1',
+        'sk-keep-me'
+      )
+    );
+    const detectedGroup = await screen.findByRole('group', {
+      name: '可用模型',
+    });
+    expect(detectedGroup).toBeVisible();
+    await user.click(screen.getByRole('checkbox', { name: /Qwen3 Coder/ }));
+    await user.click(screen.getByRole('button', { name: '保存并连接' }));
+
+    await waitFor(() =>
+      expect(connectSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider_id: 'local-gateway',
+          name: 'Local Gateway',
+          base_url: 'http://192.168.1.50:11434/v1',
+          api_key: 'sk-keep-me',
+          models: [
+            { id: 'qwen3-coder', name: 'Qwen3 Coder', previous_id: null },
+          ],
+        }),
+        'opencode'
+      )
+    );
+  });
+
+  it('supports mimo_code model detection without CC Switch import', async () => {
+    vi.mocked(toast.warning).mockClear();
+    vi.spyOn(agentManagementApi, 'openCodeProviders').mockResolvedValue({
+      providers: [],
+    });
+    vi.spyOn(agentManagementApi, 'openCodeProviderCatalog').mockResolvedValue({
+      source: 'bundled',
+      providers: [],
+    });
+    const detectSpy = vi
+      .spyOn(agentManagementApi, 'modelProviderCatalog')
+      .mockResolvedValue({
+        agent_id: 'mimo_code',
+        source: 'live',
+        models: [],
+        default_model: null,
+        error: null,
+      });
+    const user = userEvent.setup();
+
+    render(
+      <OpenCodeProviderConnections agentId="mimo_code" surface="provider" />
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: '模型供应商' })
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '从外部导入' })
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    );
+    await user.click(screen.getByRole('button', { name: '检测模型' }));
+    expect(toast.warning).toHaveBeenCalledWith('请填写 Base URL');
+
+    await user.type(
+      screen.getByLabelText('API URL'),
+      'http://192.168.1.88:8080/v1'
+    );
+    await user.click(screen.getByRole('button', { name: '检测模型' }));
+    await waitFor(() =>
+      expect(detectSpy).toHaveBeenCalledWith(
+        'mimo_code',
+        null,
+        'http://192.168.1.88:8080/v1',
+        null
+      )
+    );
+    expect(toast.warning).toHaveBeenCalledWith('未检测到模型');
   });
 });

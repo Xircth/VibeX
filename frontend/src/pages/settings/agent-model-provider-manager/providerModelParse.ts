@@ -2,7 +2,6 @@ import type {
   AgentId,
   AgentModelCatalogView,
   CodexModelCatalogConfigRequest,
-  CodexModelCatalogConfigView,
 } from 'shared/types';
 
 import {
@@ -12,14 +11,9 @@ import {
   thinkingLevelMapFromUnknown,
 } from '@/lib/piThinking';
 
-import type { CustomModelTestState } from '../CodexModelCatalogEditor';
-
 import { PI_PROTOCOLS } from './constants';
+import type { CustomModelTestState } from '../CodexModelCatalogEditor';
 import type { ClaudeModelSpec, GrokModelSpec, PiModelSpec } from './types';
-
-export function customModelVerified(state: CustomModelTestState | undefined) {
-  return typeof state === 'object' && state.ok;
-}
 
 export function parseCopiedModel(model: string): unknown {
   if (!model.trim()) return null;
@@ -290,13 +284,12 @@ export function serializeSelectedModels(
 export function selectedDetectedIds(
   agentId: AgentId,
   model: string,
-  catalog: AgentModelCatalogView | null,
-  codexConfig: CodexModelCatalogConfigView | null
+  catalog: AgentModelCatalogView | null
 ): string[] {
   const detected = new Set((catalog?.models ?? []).map((item) => item.id));
   if (!detected.size) return [];
   if (agentId === 'codex') {
-    const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
+    const draft = parseCodexModel(model);
     return [
       ...new Set([
         ...draft.customs.map((custom) => custom.slug),
@@ -344,23 +337,4 @@ export function serializeCodexModel(value: CodexModelCatalogConfigRequest) {
     return '';
   }
   return JSON.stringify(value);
-}
-
-export function mergeCodexConfigDraft(
-  draft: CodexModelCatalogConfigRequest,
-  config: CodexModelCatalogConfigView | null
-): CodexModelCatalogConfigRequest {
-  if (
-    draft.default_model ||
-    draft.customs.length ||
-    draft.excluded_officials.length ||
-    !config
-  ) {
-    return draft;
-  }
-  return {
-    customs: config.customs,
-    excluded_officials: config.excluded_officials,
-    default_model: config.default_model,
-  };
 }

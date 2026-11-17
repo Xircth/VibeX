@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 export function ProviderCard({
   provider,
   busy,
+  multiEnable = false,
   canDelete,
   probe,
   onEnable,
@@ -21,6 +22,7 @@ export function ProviderCard({
 }: {
   provider: AgentModelProviderView;
   busy: boolean;
+  multiEnable?: boolean;
   canDelete: boolean;
   probe: AgentModelProviderProbeView | 'loading' | undefined;
   onEnable: () => void;
@@ -56,7 +58,13 @@ export function ProviderCard({
             'agent-model-provider-enable h-7',
             provider.bound && 'is-enabled'
           )}
-          disabled={busy || provider.bound}
+          disabled={busy || (!multiEnable && provider.bound)}
+          aria-pressed={multiEnable ? provider.bound : undefined}
+          title={
+            multiEnable && provider.bound
+              ? t('agents.providerDisable')
+              : undefined
+          }
           onClick={onEnable}
         >
           {provider.bound ? (

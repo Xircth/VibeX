@@ -194,19 +194,27 @@ export function useProviderFormState({
     setApiKeyUrl(null);
   };
 
+  const clearTemplateMetadata = () => {
+    setDetectedCatalog(null);
+    setDetectionError(null);
+    setCustomModelTests({});
+    setEndpointCandidates([]);
+    setWebsiteUrl(null);
+    setApiKeyUrl(null);
+  };
+
   const applyCatalogTemplate = (template: ProviderCatalogTemplateView) => {
     setName(
       template.name.trim() || template.display_name?.trim() || template.id
     );
     setApiUrl(template.api_url?.trim() || '');
-    setApiKey('');
     setModel(template.model ?? '');
     setDetectedCatalog(null);
     setDetectionError(null);
     setCustomModelTests({});
     setEndpointCandidates(template.endpoint_candidates ?? []);
-    setWebsiteUrl(template.website_url ?? null);
-    setApiKeyUrl(template.api_key_url ?? null);
+    setWebsiteUrl(template.website_url?.trim() || null);
+    setApiKeyUrl(template.api_key_url?.trim() || null);
   };
 
   return {
@@ -267,6 +275,7 @@ export function useProviderFormState({
     formDirty,
     load,
     resetForm,
+    clearTemplateMetadata,
     applyCatalogTemplate,
   };
 }

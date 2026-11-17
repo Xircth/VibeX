@@ -58,8 +58,7 @@ export function AgentModelProviderManager({
           catalog={vm.catalog}
           catalogGeneration={vm.catalogGeneration}
           catalogError={vm.catalogError}
-          codexConfig={vm.codexConfig}
-          resetForm={vm.resetForm}
+          clearTemplateMetadata={vm.clearTemplateMetadata}
           applyCatalogTemplate={vm.applyCatalogTemplate}
           closeForm={vm.closeForm}
           detectModels={vm.detectModels}
@@ -73,6 +72,7 @@ export function AgentModelProviderManager({
           t={vm.t}
           busy={vm.busy}
           loading={vm.loading}
+          multiEnable={Boolean(vm.view?.multi_enable)}
           providers={vm.providers}
           probes={vm.probes}
           importPreview={vm.importPreview}

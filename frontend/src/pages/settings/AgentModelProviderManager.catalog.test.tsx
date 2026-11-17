@@ -88,6 +88,7 @@ function savedProvider(name: string, apiUrl: string, model: string) {
       },
     ],
     bound_provider_id: null,
+    multi_enable: false,
   };
 }
 
@@ -109,6 +110,7 @@ describe('AgentModelProviderManager catalog picker', () => {
       agent_id: 'claude_code',
       providers: [],
       bound_provider_id: null,
+      multi_enable: false,
     });
   });
 
@@ -131,8 +133,20 @@ describe('AgentModelProviderManager catalog picker', () => {
     expect(screen.getByLabelText('Provider API URL')).toHaveValue(
       firstBuiltin.api_url
     );
+    const websiteInput = screen.getByRole('textbox', { name: '网站' });
+    expect(websiteInput).toHaveValue(firstBuiltin.website_url);
+    expect(websiteInput).toHaveAttribute('readonly');
+    expect(
+      screen.getByRole('link', { name: `网站: ${firstBuiltin.website_url}` })
+    ).toHaveAttribute('href', firstBuiltin.website_url);
 
-    await user.type(screen.getByLabelText('Provider API Key'), 'secret');
+    const apiKeyInput = screen.getByLabelText('Provider API Key');
+    expect(
+      apiKeyInput.compareDocumentPosition(websiteInput) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    await user.type(apiKeyInput, 'secret');
     await user.click(screen.getByRole('button', { name: '创建 Provider' }));
 
     await waitFor(() => {
@@ -145,6 +159,57 @@ describe('AgentModelProviderManager catalog picker', () => {
         model: firstBuiltin.model,
       });
     });
+  });
+
+  it('shows read-only website and get-key URL inputs alongside endpoints and clears them on custom', async () => {
+    const presetWithLinks = builtinClaudePresets.find(
+      (preset) =>
+        preset.website_url &&
+        preset.api_key_url &&
+        (preset.endpoint_candidates?.length ?? 0) > 1
+    );
+    expect(presetWithLinks).toBeDefined();
+
+    const user = userEvent.setup();
+    await openNewProviderForm(user);
+
+    await pickAstryxOption(
+      user,
+      await screen.findByRole('combobox', { name: '搜索预置' }),
+      presetWithLinks!.name
+    );
+
+    expect(screen.getByRole('textbox', { name: '网站' })).toHaveValue(
+      presetWithLinks!.website_url
+    );
+    expect(
+      screen.getByRole('link', {
+        name: `网站: ${presetWithLinks!.website_url}`,
+      })
+    ).toHaveAttribute('href', presetWithLinks!.website_url);
+
+    const getKeyInput = screen.getByRole('textbox', { name: '获取密钥' });
+    expect(getKeyInput).toHaveValue(presetWithLinks!.api_key_url);
+    expect(getKeyInput).toHaveAttribute('readonly');
+    expect(
+      screen.getByRole('link', {
+        name: `获取密钥: ${presetWithLinks!.api_key_url}`,
+      })
+    ).toHaveAttribute('href', presetWithLinks!.api_key_url);
+
+    expect(
+      screen.getByRole('combobox', { name: '可用端点' })
+    ).toBeInTheDocument();
+
+    await pickAstryxOption(
+      user,
+      screen.getByRole('combobox', { name: '搜索预置' }),
+      '自定义'
+    );
+
+    expect(screen.queryByRole('textbox', { name: '网站' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: '获取密钥' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: '可用端点' })).toBeNull();
   });
 
   it('appends plugin-contributed presets after the built-in ones', async () => {

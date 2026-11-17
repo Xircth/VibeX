@@ -52,10 +52,18 @@ interface AstryxSelectProps {
   /** Custom option body renderer (for example `<SelectorOption ... />`). */
   renderOption?: (option: AstryxSelectOption) => React.ReactNode;
   /** Renders a trailing action (for example edit/delete) inside each option. */
-  renderOptionAction?: (option: AstryxSelectOption) => React.ReactNode;
+  renderOptionAction?: (
+    option: AstryxSelectOption,
+    ctx: { closeMenu: () => void }
+  ) => React.ReactNode;
+  /** Whether clicking an option action automatically closes the dropdown. */
+  closeMenuOnOptionAction?: boolean;
+  /** Fixed, non-scrolling header rendered above the scrollable option list. */
+  renderPinnedTop?: (ctx: { closeMenu: () => void }) => React.ReactNode;
   /** `compact` shrinks the trigger to fit dense toolbar and tab-bar chrome. */
   size?: 'default' | 'compact';
   className?: string;
+  menuClassName?: string;
   /** Label shown in the open menu when `options` is empty. */
   emptyLabel?: string;
   onOpenChange?: (open: boolean) => void;
@@ -81,8 +89,11 @@ export function AstryxSelect({
   showSelectedIcon = false,
   renderOption,
   renderOptionAction,
+  closeMenuOnOptionAction = true,
+  renderPinnedTop,
   size = 'default',
   className,
+  menuClassName,
   emptyLabel,
   onOpenChange,
   occludeNativeSurface = true,
@@ -338,7 +349,11 @@ export function AstryxSelect({
               role="listbox"
               aria-label={ariaLabel}
               data-floating-layer="popover"
-              className="astryx-select-menu product-context-menu border border-border bg-popover font-sans text-[13px] leading-5 text-popover-foreground shadow-none"
+              className={cn(
+                'astryx-select-menu product-context-menu border border-border bg-popover font-sans text-[13px] leading-5 text-popover-foreground shadow-none',
+                renderPinnedTop && 'astryx-select-menu--with-pinned-top',
+                menuClassName
+              )}
               style={{
                 top: position.top,
                 left: position.left,
@@ -354,56 +369,65 @@ export function AstryxSelect({
               }}
             >
               {occludeNativeSurface ? <NativeSurfaceOcclusionHold /> : null}
-              {options.length === 0 ? (
-                <div className="astryx-select-empty">
-                  {emptyLabel ?? placeholder}
+              {renderPinnedTop ? (
+                <div className="astryx-select-pinned-top">
+                  {renderPinnedTop({ closeMenu })}
                 </div>
-              ) : (
-                options.map((option, index) => (
-                  <div
-                    key={option.value}
-                    role="option"
-                    aria-selected={option.value === value}
-                    data-active={activeIndex === index ? 'true' : undefined}
-                    data-disabled={option.disabled ? 'true' : undefined}
-                    className="astryx-select-option"
-                    onClick={() => selectOption(index)}
-                    onMouseEnter={() => {
-                      if (!option.disabled) setActiveIndex(index);
-                    }}
-                  >
-                    {renderOption ? (
-                      renderOption(option)
-                    ) : (
-                      <SelectorOption
-                        icon={option.icon}
-                        label={option.label}
-                        description={option.description}
-                        endContent={option.endContent}
-                        className="astryx-select-option-label"
-                      />
-                    )}
-                    {option.value === value ? (
-                      <Check
-                        aria-hidden="true"
-                        className="astryx-select-option-check"
-                      />
-                    ) : null}
-                    {renderOptionAction ? (
-                      <span
-                        className="astryx-select-option-action"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          closeMenu();
-                        }}
-                      >
-                        {renderOptionAction(option)}
-                      </span>
-                    ) : null}
+              ) : null}
+              <div className="astryx-select-options-scroll">
+                {options.length === 0 ? (
+                  <div className="astryx-select-empty">
+                    {emptyLabel ?? placeholder}
                   </div>
-                ))
-              )}
+                ) : (
+                  options.map((option, index) => (
+                    <div
+                      key={option.value}
+                      role="option"
+                      aria-selected={option.value === value}
+                      data-active={activeIndex === index ? 'true' : undefined}
+                      data-disabled={option.disabled ? 'true' : undefined}
+                      className="astryx-select-option"
+                      onClick={() => selectOption(index)}
+                      onMouseEnter={() => {
+                        if (!option.disabled) setActiveIndex(index);
+                      }}
+                    >
+                      {renderOption ? (
+                        renderOption(option)
+                      ) : (
+                        <SelectorOption
+                          icon={option.icon}
+                          label={option.label}
+                          description={option.description}
+                          endContent={option.endContent}
+                          className="astryx-select-option-label"
+                        />
+                      )}
+                      {option.value === value ? (
+                        <Check
+                          aria-hidden="true"
+                          className="astryx-select-option-check"
+                        />
+                      ) : null}
+                      {renderOptionAction ? (
+                        <span
+                          className="astryx-select-option-action"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (closeMenuOnOptionAction) {
+                              closeMenu();
+                            }
+                          }}
+                        >
+                          {renderOptionAction(option, { closeMenu })}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>,
             container ?? document.body
           )

@@ -1,14 +1,11 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ExternalLink } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { TFunction } from 'i18next';
-import type {
-  AgentId,
-  AgentModelCatalogView,
-  CodexModelCatalogConfigView,
-} from 'shared/types';
+import type { AgentId, AgentModelCatalogView } from 'shared/types';
 
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
+import { openExternal } from '@/features/model-router/openExternal';
 
 import {
   CodexModelConfigFields,
@@ -26,7 +23,6 @@ import { PiProviderModelEditor } from './PiProviderModelEditor';
 import { ProviderModelDetection } from './ProviderModelDetection';
 import { ProviderSecretField } from './ProviderSecretField';
 import {
-  mergeCodexConfigDraft,
   parseCodexModel,
   providerModelChoices,
   selectedDetectedIds,
@@ -64,8 +60,7 @@ export interface ProviderFormProps {
   catalog: ProviderCatalogListView | null;
   catalogGeneration: number;
   catalogError: string | null;
-  codexConfig: CodexModelCatalogConfigView | null;
-  resetForm: () => void;
+  clearTemplateMetadata: () => void;
   applyCatalogTemplate: (template: ProviderCatalogTemplateView) => void;
   closeForm: () => Promise<void>;
   detectModels: (
@@ -108,8 +103,7 @@ export function ProviderForm({
   catalog,
   catalogGeneration,
   catalogError,
-  codexConfig,
-  resetForm,
+  clearTemplateMetadata,
   applyCatalogTemplate,
   closeForm,
   detectModels,
@@ -144,7 +138,7 @@ export function ProviderForm({
           templates={catalog?.templates ?? []}
           onSelect={(next) => {
             if (next === 'custom') {
-              resetForm();
+              clearTemplateMetadata();
               return;
             }
             applyCatalogTemplate(next);
@@ -185,35 +179,6 @@ export function ProviderForm({
             }}
           />
         </label>
-        {endpointCandidates.length > 1 ? (
-          <AstryxSelect
-            disabled={busy}
-            options={endpointCandidates.map((candidate) => ({
-              value: candidate,
-              label: candidate,
-            }))}
-            value={apiUrl}
-            onChange={(value) => {
-              setApiUrl(value);
-              setDetectedCatalog(null);
-              setDetectionError(null);
-            }}
-          />
-        ) : null}
-        {websiteUrl || apiKeyUrl ? (
-          <div className="agent-model-provider-catalog-links">
-            {websiteUrl ? (
-              <a href={websiteUrl} rel="noopener noreferrer" target="_blank">
-                {t('settings:agents.providerCatalogWebsite')}
-              </a>
-            ) : null}
-            {apiKeyUrl ? (
-              <a href={apiKeyUrl} rel="noopener noreferrer" target="_blank">
-                {t('settings:agents.providerCatalogGetKey')}
-              </a>
-            ) : null}
-          </div>
-        ) : null}
         <ProviderSecretField
           key={id ?? 'create'}
           agentId={agentId}
@@ -225,19 +190,91 @@ export function ProviderForm({
             setDetectionError(null);
           }}
         />
+        {websiteUrl ? (
+          <label>
+            <span>{t('settings:agents.providerCatalogWebsite')}</span>
+            <div className="agent-model-provider-secret">
+              <input
+                aria-label={t('settings:agents.providerCatalogWebsite')}
+                disabled={busy}
+                readOnly
+                spellCheck={false}
+                type="url"
+                value={websiteUrl}
+              />
+              <a
+                aria-label={`${t('settings:agents.providerCatalogWebsite')}: ${websiteUrl}`}
+                href={websiteUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+                title={websiteUrl}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void openExternal(websiteUrl);
+                }}
+              >
+                <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </label>
+        ) : null}
+        {endpointCandidates.length > 1 ? (
+          <label>
+            <span>{t('settings:agents.providerCatalogEndpoints')}</span>
+            <AstryxSelect
+              ariaLabel={t('settings:agents.providerCatalogEndpoints')}
+              disabled={busy}
+              options={endpointCandidates.map((candidate) => ({
+                value: candidate,
+                label: candidate,
+              }))}
+              value={apiUrl}
+              onChange={(value) => {
+                setApiUrl(value);
+                setDetectedCatalog(null);
+                setDetectionError(null);
+              }}
+            />
+          </label>
+        ) : null}
+        {apiKeyUrl ? (
+          <label>
+            <span>{t('settings:agents.providerCatalogGetKey')}</span>
+            <div className="agent-model-provider-secret">
+              <input
+                aria-label={t('settings:agents.providerCatalogGetKey')}
+                disabled={busy}
+                readOnly
+                spellCheck={false}
+                type="url"
+                value={apiKeyUrl}
+              />
+              <a
+                aria-label={`${t('settings:agents.providerCatalogGetKey')}: ${apiKeyUrl}`}
+                href={apiKeyUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+                title={apiKeyUrl}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void openExternal(apiKeyUrl);
+                }}
+              >
+                <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </label>
+        ) : null}
         <ProviderModelDetection
           agentId={agentId}
           catalog={detectedCatalog}
           claudeMappingTarget={claudeMappingTarget}
-          disabled={busy || !apiUrl.trim() || (!apiKey.trim() && !id)}
+          disabled={busy}
           error={detectionError}
           loading={detectingModels}
-          selectedIds={selectedDetectedIds(
-            agentId,
-            model,
-            detectedCatalog,
-            codexConfig
-          )}
+          selectedIds={selectedDetectedIds(agentId, model, detectedCatalog)}
           onDetect={() => void detectModels()}
           onMappingTargetChange={setClaudeMappingTarget}
           onToggleModel={toggleDetectedModel}
@@ -282,10 +319,7 @@ export function ProviderForm({
                   (item) => item.id
                 )}
                 disabled={busy}
-                draft={mergeCodexConfigDraft(
-                  parseCodexModel(model),
-                  codexConfig
-                )}
+                draft={parseCodexModel(model)}
                 showOfficialModels={false}
                 customModelTests={customModelTests}
                 onTestCustomModel={(index, slug) =>
@@ -312,12 +346,7 @@ export function ProviderForm({
                   })
                 }
                 onDefaultModelOpen={() => {
-                  if (
-                    detectingModels ||
-                    detectedCatalog ||
-                    !apiUrl.trim() ||
-                    (!apiKey.trim() && !id)
-                  ) {
+                  if (detectingModels || detectedCatalog || !apiUrl.trim()) {
                     return;
                   }
                   void detectModels();

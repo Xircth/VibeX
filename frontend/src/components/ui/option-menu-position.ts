@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { RefObject } from 'react';
 
 /**
@@ -10,6 +16,7 @@ import type { RefObject } from 'react';
 export const OPTION_MENU_GAP = 4;
 export const OPTION_MENU_VIEWPORT_PAD = 8;
 export const OPTION_MENU_MAX_HEIGHT = 320;
+const OPTION_MENU_MIN_SIDE_HEIGHT = 220;
 
 export interface OptionMenuPosition {
   top: number;
@@ -24,7 +31,8 @@ export function getMenuPosition(
   viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight,
   contentHeight = 0,
   viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth,
-  contentWidth = triggerRect.width
+  contentWidth = triggerRect.width,
+  maxHeightRatio = 1
 ): OptionMenuPosition {
   const spaceBelow = Math.max(
     0,
@@ -54,13 +62,20 @@ export function getMenuPosition(
   }
 
   const available = openAbove ? spaceAbove : spaceBelow;
-  let maxHeight = Math.min(knownHeight, available);
+  const ratioCap =
+    maxHeightRatio > 0 && maxHeightRatio < 1 && available >= 260
+      ? Math.max(220, Math.round(available * maxHeightRatio))
+      : available;
+  let maxHeight = Math.min(knownHeight, ratioCap);
   const viewportBudget = Math.max(
     0,
     viewportHeight - OPTION_MENU_VIEWPORT_PAD * 2
   );
-  if (maxHeight < Math.min(knownHeight, viewportBudget)) {
-    // Neither side can hold the list. Cover the viewport and scroll.
+  if (
+    maxHeight < Math.min(knownHeight, OPTION_MENU_MIN_SIDE_HEIGHT) &&
+    maxHeight < Math.min(knownHeight, viewportBudget)
+  ) {
+    // Neither side has comfortable room to scroll. Cover the viewport and scroll.
     maxHeight = Math.min(knownHeight, viewportBudget);
   }
 
@@ -113,14 +128,36 @@ function samePosition(
   );
 }
 
+function measureMenuContentHeight(menu: HTMLElement | null): number {
+  if (!menu) return 0;
+  const style = window.getComputedStyle(menu);
+  const borderHeight =
+    style.boxSizing === 'border-box'
+      ? (Number.parseFloat(style.borderTopWidth) || 0) +
+        (Number.parseFloat(style.borderBottomWidth) || 0)
+      : 0;
+  let innerOverflow = 0;
+  for (const child of Array.from(menu.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    const childStyle = window.getComputedStyle(child);
+    if (childStyle.overflowY === 'auto' || childStyle.overflowY === 'scroll') {
+      innerOverflow += Math.max(0, child.scrollHeight - child.clientHeight);
+    }
+  }
+  return Math.ceil(menu.scrollHeight + innerOverflow + borderHeight);
+}
+
 /** Keep an open option menu inside the viewport as the trigger moves. */
 export function useOptionMenuPlacement(
   open: boolean,
   triggerRef: RefObject<HTMLElement | null>,
   menuRef: RefObject<HTMLElement | null>,
-  preferAbove = false
+  preferAbove = false,
+  options?: { maxHeightRatio?: number }
 ): OptionMenuPosition | null {
+  const maxHeightRatio = options?.maxHeightRatio ?? 1;
   const [position, setPosition] = useState<OptionMenuPosition | null>(null);
+  const postMountPassesRef = useRef(0);
 
   const reposition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -131,38 +168,62 @@ export function useOptionMenuPlacement(
       triggerRect,
       preferAbove,
       window.innerHeight,
-      menu?.scrollHeight ?? 0,
+      measureMenuContentHeight(menu),
       window.innerWidth,
-      menu && menu.offsetWidth > 0 ? menu.offsetWidth : triggerRect.width
+      menu && menu.offsetWidth > 0 ? menu.offsetWidth : triggerRect.width,
+      maxHeightRatio
     );
     setPosition((current) => (samePosition(current, next) ? current : next));
-  }, [menuRef, preferAbove, triggerRef]);
+  }, [maxHeightRatio, menuRef, preferAbove, triggerRef]);
 
   useLayoutEffect(() => {
     if (!open) {
+      postMountPassesRef.current = 0;
       setPosition(null);
       return;
     }
+    postMountPassesRef.current = 0;
     reposition();
   }, [open, reposition]);
 
+  const hasPosition = position !== null;
+
   useLayoutEffect(() => {
-    if (!open || !position) return;
+    if (!open || !hasPosition) return;
+    if (postMountPassesRef.current >= 2) return;
+    postMountPassesRef.current += 1;
     reposition();
-  }, [open, position, reposition]);
+  }, [hasPosition, open, position, reposition]);
 
   useEffect(() => {
     if (!open) return;
+    const menu = menuRef.current;
+    const trigger = triggerRef.current;
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => reposition());
+    if (menu) resizeObserver?.observe(menu);
+    if (trigger) resizeObserver?.observe(trigger);
+    const mutationObserver =
+      menu && typeof MutationObserver !== 'undefined'
+        ? new MutationObserver(() => reposition())
+        : null;
+    if (menu && mutationObserver) {
+      mutationObserver.observe(menu, { childList: true, subtree: true });
+    }
     window.addEventListener('scroll', reposition, {
       capture: true,
       passive: true,
     });
     window.addEventListener('resize', reposition);
     return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener('scroll', reposition, true);
       window.removeEventListener('resize', reposition);
     };
-  }, [open, reposition]);
+  }, [hasPosition, menuRef, open, reposition, triggerRef]);
 
   return open ? position : null;
 }

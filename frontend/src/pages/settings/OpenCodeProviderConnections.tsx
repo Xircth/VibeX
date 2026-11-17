@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ScanSearch,
   Search,
   Trash2,
   Upload,
@@ -16,6 +17,7 @@ import type { SyntheticEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentId,
+  AgentModelCatalogView,
   AgentModelProviderImportPreviewView,
   OpenCodeCatalogProviderView,
   OpenCodeProviderCatalogSource,
@@ -89,6 +91,38 @@ function matchesOpenCodeSurface(
 
 type ProviderModelDraft = OpenCodeProviderModelRequest;
 
+const VALID_PROVIDER_ID = /^[a-z0-9][a-z0-9._-]*$/;
+
+function slugifyProviderSegment(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+function deriveOpenCodeProviderId(
+  providerId: string,
+  name: string,
+  baseUrl: string
+): string {
+  const explicit = providerId.trim().toLowerCase();
+  if (explicit) return explicit;
+  const fromName = slugifyProviderSegment(name);
+  if (fromName) return fromName;
+  const trimmedUrl = baseUrl.trim();
+  if (trimmedUrl) {
+    try {
+      const fromHost = slugifyProviderSegment(new URL(trimmedUrl).hostname);
+      if (fromHost) return fromHost;
+    } catch {
+      const fromUrl = slugifyProviderSegment(trimmedUrl);
+      if (fromUrl) return fromUrl;
+    }
+  }
+  return '';
+}
+
 function pluginCatalogRows(
   templates: ProviderCatalogTemplateView[],
   query: string
@@ -144,16 +178,23 @@ export function OpenCodeProviderConnections({
   const [apiKey, setApiKey] = useState('');
   const [models, setModels] = useState<ProviderModelDraft[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [detectedCatalog, setDetectedCatalog] =
+    useState<AgentModelCatalogView | null>(null);
+  const [detectingModels, setDetectingModels] = useState(false);
+  const [detectionError, setDetectionError] = useState<string | null>(null);
   const formDirty = Boolean(
     providerId || name || npm || api || baseUrl || apiKey || models.length
   );
+  const derivedProviderId = deriveOpenCodeProviderId(providerId, name, baseUrl);
   const existingProvider = view?.providers.find(
-    (provider) => provider.provider_id === providerId.trim().toLowerCase()
+    (provider) => provider.provider_id === derivedProviderId
   );
-  const credentialRequired = !existingProvider?.credential_present;
+  const credentialRequired =
+    !existingProvider?.credential_present && !baseUrl.trim();
   const lockOfficialEndpoint = surface === 'official' || surface === 'go';
   const allowCreate = surface !== 'go';
-  const allowImport = surface === 'provider';
+  const allowModelRouter = surface === 'provider';
+  const allowCcSwitchImport = surface === 'provider' && agentId === 'opencode';
   const pluginCatalogEnabled = surface === 'provider';
   const { catalog: pluginCatalog, catalogError: pluginCatalogError } =
     useProviderCatalogList(agentId, pluginCatalogEnabled);
@@ -275,6 +316,9 @@ export function OpenCodeProviderConnections({
     setBaseUrl('');
     setApiKey('');
     setModels([]);
+    setDetectedCatalog(null);
+    setDetectionError(null);
+    setDetectingModels(false);
     setCatalogQuery('');
     setCatalogOpen(false);
     setEditing(false);
@@ -296,6 +340,8 @@ export function OpenCodeProviderConnections({
         previous_id: null,
       }))
     );
+    setDetectedCatalog(null);
+    setDetectionError(null);
     setCatalogOpen(false);
   };
 
@@ -307,7 +353,6 @@ export function OpenCodeProviderConnections({
     setNpm(template.npm ?? '');
     setApi(template.api ?? '');
     setBaseUrl(template.base_url ?? '');
-    setApiKey('');
     setModels(
       (template.models ?? []).map((model) => ({
         id: model.id,
@@ -315,6 +360,8 @@ export function OpenCodeProviderConnections({
         previous_id: null,
       }))
     );
+    setDetectedCatalog(null);
+    setDetectionError(null);
     setCatalogOpen(false);
   };
 
@@ -333,6 +380,9 @@ export function OpenCodeProviderConnections({
       }))
     );
     setApiKey('');
+    setDetectedCatalog(null);
+    setDetectionError(null);
+    setDetectingModels(false);
     setPage('form');
   };
 
@@ -366,10 +416,93 @@ export function OpenCodeProviderConnections({
     );
   };
 
+  const detectModels = async () => {
+    const nextUrl = baseUrl.trim();
+    const nextId = editing ? providerId.trim().toLowerCase() : null;
+    if (!nextUrl && !nextId) {
+      toast.warning(t('settings:agents.dshProviderUrlRequired'));
+      return;
+    }
+    setDetectingModels(true);
+    setDetectionError(null);
+    try {
+      const nextCatalog = await agentManagementApi.modelProviderCatalog(
+        agentId,
+        nextId,
+        nextUrl,
+        apiKey.trim() || null
+      );
+      setDetectedCatalog(nextCatalog);
+      setDetectionError(nextCatalog.error);
+      if (!nextCatalog.models.length && !nextCatalog.error) {
+        toast.warning(t('settings:agents.providerDetectedModelsEmpty'));
+      }
+    } catch (cause) {
+      setDetectedCatalog(null);
+      setDetectionError(
+        errorMessage(cause, t('settings:agents.providerModelDetectionFailed'))
+      );
+    } finally {
+      setDetectingModels(false);
+    }
+  };
+
+  const toggleDetectedModel = (modelId: string, checked: boolean) => {
+    const detected = detectedCatalog?.models.find(
+      (candidate) => candidate.id === modelId
+    );
+    if (!detected) return;
+    setModels((current) => {
+      const nonEmpty = current.filter(
+        (entry) => entry.id.trim() || entry.name.trim()
+      );
+      if (checked) {
+        if (nonEmpty.some((entry) => entry.id.trim() === detected.id)) {
+          return nonEmpty;
+        }
+        return [
+          ...nonEmpty,
+          {
+            id: detected.id,
+            name: detected.label?.trim() || detected.id,
+            previous_id: null,
+          },
+        ];
+      }
+      return nonEmpty.filter((entry) => entry.id.trim() !== detected.id);
+    });
+  };
+
+  const toggleAllDetected = (checked: boolean) => {
+    const detected = detectedCatalog?.models ?? [];
+    const detectedIds = new Set(detected.map((entry) => entry.id));
+    setModels((current) => {
+      const nonEmpty = current.filter(
+        (entry) => entry.id.trim() || entry.name.trim()
+      );
+      if (!checked) {
+        return nonEmpty.filter((entry) => !detectedIds.has(entry.id.trim()));
+      }
+      const existingIds = new Set(nonEmpty.map((entry) => entry.id.trim()));
+      const additions = detected
+        .filter((entry) => !existingIds.has(entry.id))
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.label?.trim() || entry.id,
+          previous_id: null,
+        }));
+      return [...nonEmpty, ...additions];
+    });
+  };
+
   const connect = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const id = providerId.trim().toLowerCase();
-    if (!id || (credentialRequired && !apiKey.trim())) {
+    const id = deriveOpenCodeProviderId(providerId, name, baseUrl);
+    if (
+      !id ||
+      (providerId.trim() && !VALID_PROVIDER_ID.test(id)) ||
+      (credentialRequired && !apiKey.trim())
+    ) {
       toast.warning(t('settings:agents.openCodeProviderRequired'));
       return;
     }
@@ -503,7 +636,7 @@ export function OpenCodeProviderConnections({
     setSaving(true);
     try {
       const preview = await agentManagementApi.previewModelProviderImport(
-        'opencode',
+        agentId,
         'cc_switch'
       );
       setImportPreview(preview);
@@ -558,7 +691,7 @@ export function OpenCodeProviderConnections({
 
   const toolbar = (
     <div className="agent-model-provider-toolbar">
-      {allowImport ? (
+      {allowModelRouter ? (
         <ModelRouterEntry
           agentId={agentId}
           disabled={busy}
@@ -571,7 +704,7 @@ export function OpenCodeProviderConnections({
           {t('settings:agents.providerCreateButton')}
         </Button>
       ) : null}
-      {allowImport ? (
+      {allowCcSwitchImport ? (
         <div className="agent-model-provider-import">
           <Button
             size="sm"
@@ -719,7 +852,6 @@ export function OpenCodeProviderConnections({
                     provider.enabled && 'is-enabled'
                   )}
                   disabled={busy}
-                  aria-disabled={provider.enabled || undefined}
                   aria-pressed={provider.enabled}
                   aria-label={t(
                     provider.enabled
@@ -981,18 +1113,17 @@ export function OpenCodeProviderConnections({
       {editing ? null : catalogBrowser}
       <form
         className="agent-provider-form"
+        noValidate
         onSubmit={(event) => void connect(event)}
       >
         <div className="agent-provider-form-grid">
-          <ProviderField label="Provider ID" required>
+          <ProviderField label="Provider ID">
             <input
               aria-label="Provider ID"
               autoComplete="off"
               disabled={editing}
               name="provider_id"
-              pattern="[a-z0-9][a-z0-9._-]*"
               placeholder={t('settings:agents.providerIdPlaceholder')}
-              required
               value={providerId}
               onChange={(event) => setProviderId(event.target.value)}
             />
@@ -1039,7 +1170,11 @@ export function OpenCodeProviderConnections({
               readOnly={lockOfficialEndpoint}
               type="url"
               value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
+              onChange={(event) => {
+                setBaseUrl(event.target.value);
+                setDetectedCatalog(null);
+                setDetectionError(null);
+              }}
             />
           </ProviderField>
           <ProviderField label="API Key" required={credentialRequired}>
@@ -1052,10 +1187,13 @@ export function OpenCodeProviderConnections({
                   ? 'settings:agents.openCodeCredentialEditPlaceholder'
                   : 'settings:agents.credentialPlaceholder'
               )}
-              required={credentialRequired}
               type="password"
               value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                setDetectedCatalog(null);
+                setDetectionError(null);
+              }}
             />
           </ProviderField>
           <div className="agent-provider-models">
@@ -1071,6 +1209,114 @@ export function OpenCodeProviderConnections({
                 <Plus aria-hidden="true" className="h-3.5 w-3.5" />
                 {t('settings:agents.openCodeAddModel')}
               </Button>
+            </div>
+            <div className="agent-model-provider-detection">
+              <div className="provider-detected-models-heading">
+                <span className="provider-detected-models-title">
+                  {t('settings:agents.providerDetectedModels')}
+                </span>
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  className="h-8"
+                  aria-busy={detectingModels}
+                  disabled={busy || detectingModels}
+                  onClick={() => void detectModels()}
+                >
+                  {detectingModels ? (
+                    <Loader2
+                      aria-hidden="true"
+                      className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                    />
+                  ) : (
+                    <ScanSearch
+                      aria-hidden="true"
+                      className="mr-1.5 h-3.5 w-3.5"
+                    />
+                  )}
+                  {t('settings:agents.providerDetectModels')}
+                </Button>
+                {detectingModels ? (
+                  <p aria-live="polite">
+                    {t('settings:agents.providerDetectingModels')}
+                  </p>
+                ) : detectedCatalog ? (
+                  <p aria-live="polite">
+                    {detectedCatalog.models.length
+                      ? t('settings:agents.providerDetectedModelCount', {
+                          count: detectedCatalog.models.length,
+                        })
+                      : t('settings:agents.providerDetectedModelsEmpty')}
+                  </p>
+                ) : null}
+                {(detectedCatalog?.models.length ?? 0) > 0 ? (
+                  <div className="provider-detected-models-heading-actions">
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                      className="h-7"
+                      disabled={
+                        busy ||
+                        detectingModels ||
+                        (detectedCatalog?.models ?? []).every((item) =>
+                          models.some((m) => m.id.trim() === item.id)
+                        )
+                      }
+                      onClick={() => toggleAllDetected(true)}
+                    >
+                      {t('settings:agents.providerDetectedSelectAll')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                      className="h-7"
+                      disabled={
+                        busy ||
+                        detectingModels ||
+                        !(detectedCatalog?.models ?? []).some((item) =>
+                          models.some((m) => m.id.trim() === item.id)
+                        )
+                      }
+                      onClick={() => toggleAllDetected(false)}
+                    >
+                      {t('settings:agents.providerDetectedClear')}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+              {(detectedCatalog?.models.length ?? 0) > 0 ? (
+                <div
+                  className="provider-detected-models"
+                  role="group"
+                  aria-label={t('settings:agents.providerDetectedModels')}
+                >
+                  {(detectedCatalog?.models ?? []).map((detected) => (
+                    <label key={detected.id}>
+                      <input
+                        type="checkbox"
+                        checked={models.some(
+                          (entry) => entry.id.trim() === detected.id
+                        )}
+                        disabled={busy || detectingModels}
+                        name={`detected_model_${detected.id}`}
+                        onChange={(event) =>
+                          toggleDetectedModel(detected.id, event.target.checked)
+                        }
+                      />
+                      <span>
+                        <strong>{detected.label}</strong>
+                        {detected.label === detected.id ? null : (
+                          <code title={detected.id}>{detected.id}</code>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+              {detectionError ? <p role="alert">{detectionError}</p> : null}
             </div>
             {models.length ? (
               <div className="agent-provider-model-list">

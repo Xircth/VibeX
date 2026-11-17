@@ -54,8 +54,9 @@ export function useProviderActions(
     importSelected,
   } = state;
 
-  const bind = async (providerId: string) => {
-    if (signedIn) {
+  const bind = async (providerId: string, enabled?: boolean) => {
+    const disabling = enabled === false;
+    if (signedIn && !disabling) {
       const result = await ConfirmDialog.show({
         title: t('settings:agents.authEnableProviderSignsOutTitle'),
         message: t('settings:agents.authEnableProviderSignsOutMessage'),
@@ -69,15 +70,20 @@ export function useProviderActions(
     setError(null);
     try {
       setView(
-        providerInstanceId
+        providerInstanceId || enabled !== undefined
           ? await agentManagementApi.bindModelProvider(
               agentId,
               providerId,
-              providerInstanceId
+              providerInstanceId ?? null,
+              enabled
             )
           : await agentManagementApi.bindModelProvider(agentId, providerId)
       );
-      toast.success(t('settings:agents.providerBound'));
+      toast.success(
+        disabling
+          ? t('settings:agents.providerUnbound')
+          : t('settings:agents.providerBound')
+      );
       await onChanged?.();
     } catch (cause) {
       const message = errorMessage(

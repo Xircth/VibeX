@@ -159,7 +159,7 @@ describe('DshAuthPanel catalog picker', () => {
     expect(screen.getByLabelText('API Key')).toHaveValue('');
 
     await user.type(screen.getByLabelText('API Key'), 'secret');
-    await user.tab();
+    await user.click(screen.getByRole('button', { name: '创建 Provider' }));
 
     await waitFor(() => {
       expect(agentManagementApi.saveDshProvider).toHaveBeenCalledWith({

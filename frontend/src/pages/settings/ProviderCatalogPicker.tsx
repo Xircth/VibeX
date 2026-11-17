@@ -91,7 +91,9 @@ export function ProviderCatalogPicker({
   const [query, setQuery] = useState('');
   const [sortByName, setSortByName] = useState(false);
   const [open, setOpen] = useState(false);
-  const position = useOptionMenuPlacement(open, triggerRef, menuRef);
+  const position = useOptionMenuPlacement(open, triggerRef, menuRef, false, {
+    maxHeightRatio: 0.85,
+  });
   const [activeIndex, setActiveIndex] = useState(-1);
   const [selection, setSelection] = useState<Selection>(null);
 
@@ -118,12 +120,13 @@ export function ProviderCatalogPicker({
     selection?.type === 'template'
       ? templates.find((template) => catalogKey(template) === selection.key)
       : undefined;
-  const triggerLabel =
+  const selectedLabel =
     selection?.type === 'custom'
       ? t('agents.providerCatalogCustom')
       : selectedTemplate
         ? catalogName(selectedTemplate)
-        : t('agents.providerCatalogSearch');
+        : undefined;
+  const triggerLabel = selectedLabel ?? t('agents.providerCatalogSearch');
 
   const optionCount = (showCustomTile ? 1 : 0) + visibleTemplates.length;
   const customIndex = showCustomTile ? 0 : -1;
@@ -131,6 +134,7 @@ export function ProviderCatalogPicker({
 
   const closeMenu = useCallback(() => {
     setOpen(false);
+    setQuery('');
     setActiveIndex(-1);
   }, []);
 
@@ -154,15 +158,6 @@ export function ProviderCatalogPicker({
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [closeMenu, open]);
-
-  useEffect(() => {
-    if (!open || !position) return;
-    if (showToolbar) {
-      searchRef.current?.focus();
-      return;
-    }
-    triggerRef.current?.focus();
-  }, [open, position, showToolbar]);
 
   useEffect(() => {
     if (!open) return;
@@ -227,6 +222,13 @@ export function ProviderCatalogPicker({
   };
 
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!open) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        openMenu();
+      }
+      return;
+    }
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
@@ -243,7 +245,6 @@ export function ProviderCatalogPicker({
       case 'Escape':
         event.preventDefault();
         closeMenu();
-        triggerRef.current?.focus();
         break;
       case 'Home':
         event.preventDefault();
@@ -262,36 +263,109 @@ export function ProviderCatalogPicker({
 
   return (
     <div ref={rootRef} className="agent-model-provider-catalog">
-      <div
-        ref={triggerRef}
-        role="combobox"
-        tabIndex={disabled ? -1 : 0}
-        aria-label={t('agents.providerCatalogSearch')}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={listId}
-        aria-disabled={disabled || undefined}
-        className={cn('astryx-select-trigger', open && 'is-open')}
-        onClick={() => {
-          if (disabled) return;
-          if (open) closeMenu();
-          else openMenu();
-        }}
-        onKeyDown={(event) => {
-          if (disabled) return;
-          handleTriggerKeyDown(event);
-        }}
-      >
-        <span
-          className={cn(
-            'astryx-select-trigger-label',
-            !selection && 'is-placeholder'
-          )}
+      {showToolbar ? (
+        <div ref={triggerRef} className="agent-model-provider-catalog-bar">
+          <div
+            className={cn(
+              'agent-model-provider-catalog-search-field',
+              open && 'is-open'
+            )}
+          >
+            <Search aria-hidden="true" className="h-3.5 w-3.5" />
+            <input
+              ref={searchRef}
+              role="combobox"
+              aria-label={t('agents.providerCatalogSearch')}
+              aria-haspopup="listbox"
+              aria-expanded={open}
+              aria-controls={listId}
+              aria-disabled={disabled || undefined}
+              autoComplete="off"
+              disabled={disabled}
+              placeholder={
+                open
+                  ? (selectedLabel ?? t('agents.providerCatalogSearch'))
+                  : t('agents.providerCatalogSearch')
+              }
+              type="search"
+              value={open ? query : (selectedLabel ?? '')}
+              onClick={() => {
+                if (!disabled && !open) openMenu();
+              }}
+              onFocus={() => {
+                if (!disabled && !open) openMenu();
+              }}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                if (!open) openMenu();
+                setActiveIndex(0);
+              }}
+              onKeyDown={handleSearchKeyDown}
+            />
+            <button
+              aria-hidden="true"
+              className="agent-model-provider-catalog-toggle"
+              disabled={disabled}
+              tabIndex={-1}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                if (disabled) return;
+                if (open) {
+                  closeMenu();
+                } else {
+                  openMenu();
+                  searchRef.current?.focus();
+                }
+              }}
+            >
+              <ChevronDown className="astryx-select-chevron" />
+            </button>
+          </div>
+          <Button
+            aria-pressed={sortByName}
+            className="agent-model-provider-catalog-sort h-8"
+            disabled={disabled}
+            size="sm"
+            type="button"
+            variant="secondary"
+            onClick={() => setSortByName((current) => !current)}
+          >
+            {t('agents.providerCatalogSortName')}
+          </Button>
+        </div>
+      ) : (
+        <div
+          ref={triggerRef}
+          role="combobox"
+          tabIndex={disabled ? -1 : 0}
+          aria-label={t('agents.providerCatalogSearch')}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-disabled={disabled || undefined}
+          className={cn('astryx-select-trigger', open && 'is-open')}
+          onClick={() => {
+            if (disabled) return;
+            if (open) closeMenu();
+            else openMenu();
+          }}
+          onKeyDown={(event) => {
+            if (disabled) return;
+            handleTriggerKeyDown(event);
+          }}
         >
-          {triggerLabel}
-        </span>
-        <ChevronDown aria-hidden="true" className="astryx-select-chevron" />
-      </div>
+          <span
+            className={cn(
+              'astryx-select-trigger-label',
+              !selection && 'is-placeholder'
+            )}
+          >
+            {triggerLabel}
+          </span>
+          <ChevronDown aria-hidden="true" className="astryx-select-chevron" />
+        </div>
+      )}
       {open && position
         ? createPortal(
             <div
@@ -307,38 +381,6 @@ export function ProviderCatalogPicker({
               onPointerDown={(event) => event.stopPropagation()}
             >
               <NativeSurfaceOcclusionHold />
-              {showToolbar ? (
-                <div className="agent-model-provider-catalog-search">
-                  <div className="agent-model-provider-catalog-search-field">
-                    <Search aria-hidden="true" className="h-3.5 w-3.5" />
-                    <input
-                      ref={searchRef}
-                      aria-label={t('agents.providerCatalogSearch')}
-                      autoComplete="off"
-                      disabled={disabled}
-                      placeholder={t('agents.providerCatalogSearch')}
-                      type="search"
-                      value={query}
-                      onChange={(event) => {
-                        setQuery(event.target.value);
-                        setActiveIndex(0);
-                      }}
-                      onKeyDown={handleSearchKeyDown}
-                    />
-                  </div>
-                  <Button
-                    aria-pressed={sortByName}
-                    className="agent-model-provider-catalog-sort h-8"
-                    disabled={disabled}
-                    size="sm"
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setSortByName((current) => !current)}
-                  >
-                    {t('agents.providerCatalogSortName')}
-                  </Button>
-                </div>
-              ) : null}
               <div
                 ref={listRef}
                 id={listId}

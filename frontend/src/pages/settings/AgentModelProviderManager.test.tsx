@@ -64,16 +64,19 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'claude_code',
       providers: [],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
       agent_id: 'claude_code',
       providers: [{ ...gateway }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.bindModelProvider).mockResolvedValue({
       agent_id: 'claude_code',
       providers: [{ ...gateway, bound: true }],
       bound_provider_id: 'provider-1',
+      multi_enable: false,
     });
   });
 
@@ -129,11 +132,13 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'pi',
       providers: [],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
       agent_id: 'pi',
       providers: [{ ...gateway, agent_id: 'pi' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     render(
       <AgentModelProviderManager agentId="pi" disabled={false} embedded />
@@ -186,11 +191,13 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'pi',
       providers: [],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
       agent_id: 'pi',
       providers: [{ ...gateway, agent_id: 'pi' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     render(
       <AgentModelProviderManager agentId="pi" disabled={false} embedded />
@@ -254,11 +261,13 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
       agent_id: 'pi',
       providers: [{ ...gateway, agent_id: 'pi' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'pi',
@@ -302,6 +311,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'pi',
       providers: [],
       bound_provider_id: null,
+      multi_enable: false,
     });
     render(
       <AgentModelProviderManager agentId="pi" disabled={false} embedded />
@@ -343,6 +353,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'pi',
@@ -376,6 +387,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'pi',
       providers: [{ ...gateway, agent_id: 'pi', model: enabled }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'pi',
@@ -419,6 +431,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'pi',
       providers: [{ ...gateway, agent_id: 'pi', model: enabled }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'pi',
@@ -465,6 +478,7 @@ describe('AgentModelProviderManager', () => {
         { ...gateway, agent_id: 'pi', model: '{"id":"a","models":["a"]}' },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'pi',
@@ -516,6 +530,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'grok',
       providers: [{ ...gateway, agent_id: 'grok', model: enabled }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'grok',
@@ -556,6 +571,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'hermes',
       providers: [{ ...gateway, agent_id: 'hermes', model: enabled }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'hermes',
@@ -598,6 +614,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'claude_code',
@@ -686,6 +703,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: 'private',
+      multi_enable: false,
     });
     render(
       <AgentModelProviderManager agentId="pi" disabled={false} embedded />
@@ -715,6 +733,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'claude_code',
       providers: [{ ...gateway }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     const user = userEvent.setup();
     render(
@@ -757,6 +776,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'claude_code',
       providers: [{ ...gateway }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'claude_code',
@@ -826,6 +846,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: 'provider-1',
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -849,6 +870,7 @@ describe('AgentModelProviderManager', () => {
         { ...gateway, agent_id: 'codex', bound: false },
       ],
       bound_provider_id: 'custom',
+      multi_enable: false,
     });
 
     const user = userEvent.setup();
@@ -873,11 +895,13 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'grok',
       providers: [{ ...gateway, agent_id: 'grok' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.bindModelProvider).mockResolvedValue({
       agent_id: 'grok',
       providers: [{ ...gateway, agent_id: 'grok', bound: true }],
       bound_provider_id: 'provider-1',
+      multi_enable: false,
     });
     const user = userEvent.setup();
     render(
@@ -912,6 +936,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -948,6 +973,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: 'provider-1',
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -988,6 +1014,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -1085,6 +1112,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -1125,6 +1153,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'codex',
       providers: [{ ...gateway, agent_id: 'codex' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     const user = userEvent.setup();
     render(
@@ -1146,7 +1175,7 @@ describe('AgentModelProviderManager', () => {
     ]);
   });
 
-  it('requires a connectivity test before saving a Codex custom model', async () => {
+  it('saves a Codex custom model directly and supports connectivity testing', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'codex',
       providers: [
@@ -1158,6 +1187,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -1192,6 +1222,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'codex',
       providers: [{ ...gateway, agent_id: 'codex' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     const user = userEvent.setup();
     render(
@@ -1208,8 +1239,6 @@ describe('AgentModelProviderManager', () => {
     const modelId = screen.getByLabelText('自定义模型 1 模型 ID');
     await user.clear(modelId);
     await user.type(modelId, 'my-gateway-model');
-    await user.click(screen.getByRole('button', { name: '保存修改' }));
-    expect(agentManagementApi.saveModelProvider).not.toHaveBeenCalled();
 
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'codex',
@@ -1249,6 +1278,155 @@ describe('AgentModelProviderManager', () => {
     );
   });
 
+  it('allows detecting models and creating a Codex provider without an API key', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [],
+      bound_provider_id: null,
+      multi_enable: false,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'cache',
+      models: [],
+      default_model: null,
+      error: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
+      customs: [],
+      excluded_officials: [],
+      default_model: null,
+      catalog_path: '/tmp/catalog.json',
+      source_path: '/tmp/source.json',
+      active: false,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'live',
+      models: [
+        {
+          id: 'qwen2.5-coder:32b',
+          label: 'qwen2.5-coder:32b',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'qwen2.5-coder:32b',
+      error: null,
+    });
+    vi.mocked(agentManagementApi.saveModelProvider).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'codex',
+          name: 'Local Ollama',
+          api_url: 'http://192.168.1.50:11434/v1',
+          api_key: '',
+          credential_present: false,
+        },
+      ],
+      bound_provider_id: null,
+      multi_enable: false,
+    });
+
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
+
+    await user.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    );
+    await user.type(screen.getByLabelText('Provider 名称'), 'Local Ollama');
+    await user.type(
+      screen.getByLabelText('Provider API URL'),
+      'http://192.168.1.50:11434/v1'
+    );
+
+    const detectButton = screen.getByRole('button', { name: '检测模型' });
+    expect(detectButton).toBeEnabled();
+    await user.click(detectButton);
+    expect(agentManagementApi.modelProviderCatalog).toHaveBeenCalledWith(
+      'codex',
+      null,
+      'http://192.168.1.50:11434/v1',
+      null
+    );
+    await user.click(screen.getByRole('button', { name: '创建 Provider' }));
+    expect(agentManagementApi.saveModelProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent_id: 'codex',
+        name: 'Local Ollama',
+        api_url: 'http://192.168.1.50:11434/v1',
+        api_key: '',
+      })
+    );
+  });
+
+  it('toggles multiple enabled providers independently when multi_enable is true', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'omp',
+      providers: [
+        {
+          ...gateway,
+          id: 'p1',
+          name: 'One',
+          agent_id: 'omp',
+          bound: true,
+        },
+        {
+          ...gateway,
+          id: 'p2',
+          name: 'Two',
+          agent_id: 'omp',
+          bound: true,
+        },
+      ],
+      bound_provider_id: 'p1',
+      multi_enable: true,
+    });
+    vi.mocked(agentManagementApi.bindModelProvider).mockResolvedValue({
+      agent_id: 'omp',
+      providers: [
+        {
+          ...gateway,
+          id: 'p1',
+          name: 'One',
+          agent_id: 'omp',
+          bound: false,
+        },
+        {
+          ...gateway,
+          id: 'p2',
+          name: 'Two',
+          agent_id: 'omp',
+          bound: true,
+        },
+      ],
+      bound_provider_id: 'p2',
+      multi_enable: true,
+    });
+
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="omp" disabled={false} embedded />
+    );
+
+    const enabledButtons = await screen.findAllByRole('button', {
+      name: '已启用',
+    });
+    expect(enabledButtons).toHaveLength(2);
+    expect(enabledButtons[0]).toBeEnabled();
+    await user.click(enabledButtons[0]);
+    expect(agentManagementApi.bindModelProvider).toHaveBeenCalledWith(
+      'omp',
+      'p1',
+      null,
+      false
+    );
+  });
+
   it('lists Codex providers when catalog config loading fails', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'codex',
@@ -1259,6 +1437,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockRejectedValue(
       new Error('无法读取官方模型目录')
@@ -1304,6 +1483,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'claude_code',
       providers: [{ ...gateway, name: 'DeepSeek' }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     const user = userEvent.setup();
     render(
@@ -1334,6 +1514,7 @@ describe('AgentModelProviderManager', () => {
       agent_id: 'claude_code',
       providers: [{ ...gateway }],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
       agent_id: 'claude_code',
@@ -1385,6 +1566,7 @@ describe('AgentModelProviderManager', () => {
         },
       ],
       bound_provider_id: null,
+      multi_enable: false,
     });
     vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
       agent_id: 'codex',

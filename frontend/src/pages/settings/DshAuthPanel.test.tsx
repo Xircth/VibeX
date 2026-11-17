@@ -4,11 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DshProvidersView } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
+import { toast } from '@/components/ui/toast';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
 import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { DshAuthPanel } from './DshAuthPanel';
+
+vi.mock('@/components/ui/toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
 
 const pluginControl = vi.hoisted(() => ({
   contributionCatalog: vi.fn(),
@@ -65,6 +74,7 @@ const view: DshProvidersView = {
 
 describe('DshAuthPanel', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     pluginControl.contributionCatalog.mockResolvedValue({
       generation: 0,
       items: [],
@@ -302,20 +312,8 @@ describe('DshAuthPanel', () => {
       api_key: null,
       provider_id: 'custom-2',
     });
-    expect(agentManagementApi.saveDshProvider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'custom-2',
-        base_url: 'https://second.example.com/v1',
-        models: discoveredModels,
-        default_model: 'deepseek-chat',
-      })
-    );
+    expect(agentManagementApi.saveDshProvider).not.toHaveBeenCalled();
 
-    // Re-open edit to toggle available models and verify default model updates
-    const updatedEditButtons = await screen.findAllByRole('button', {
-      name: '编辑 Provider',
-    });
-    await user.click(updatedEditButtons[1]);
     const group = await screen.findByRole('group', { name: '可用模型' });
     expect(group).toBeVisible();
     const chatCheckbox = screen.getByRole('checkbox', {
@@ -323,6 +321,9 @@ describe('DshAuthPanel', () => {
     });
     expect(chatCheckbox).toBeChecked();
     await user.click(chatCheckbox);
+    expect(agentManagementApi.saveDshProvider).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
 
     expect(agentManagementApi.saveDshProvider).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -331,5 +332,64 @@ describe('DshAuthPanel', () => {
         default_model: 'deepseek-reasoner',
       })
     );
+  });
+
+  it('saves a keyless LAN custom provider via the explicit create button', async () => {
+    const user = userEvent.setup();
+    vi.mocked(agentManagementApi.authMode).mockResolvedValue({
+      agent_id: 'deepseek_harness',
+      mode: 'custom',
+      modes: ['deepseek', 'custom'],
+      options: [],
+      credential_env: 'DEEPSEEK_API_KEY',
+      credential_present: false,
+    });
+    render(<DshAuthPanel />);
+
+    await user.click(await screen.findByRole('button', { name: '新建供应商' }));
+    await user.type(screen.getByLabelText('显示名称'), 'LAN Ollama');
+    await user.type(
+      screen.getByLabelText('Base URL'),
+      'http://192.168.1.50:11434/v1'
+    );
+    await user.click(screen.getByRole('button', { name: '创建 Provider' }));
+
+    expect(agentManagementApi.saveDshProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'custom-gateway',
+        display_name: 'LAN Ollama',
+        base_url: 'http://192.168.1.50:11434/v1',
+        api_key: null,
+      })
+    );
+  });
+
+  it('warns instead of disabling create when Base URL is empty and warns on empty discovery', async () => {
+    const user = userEvent.setup();
+    vi.mocked(toast.warning).mockClear();
+    vi.mocked(agentManagementApi.authMode).mockResolvedValue({
+      agent_id: 'deepseek_harness',
+      mode: 'custom',
+      modes: ['deepseek', 'custom'],
+      options: [],
+      credential_env: 'DEEPSEEK_API_KEY',
+      credential_present: false,
+    });
+    vi.mocked(agentManagementApi.discoverDshModels).mockResolvedValue([]);
+    render(<DshAuthPanel />);
+
+    await user.click(await screen.findByRole('button', { name: '新建供应商' }));
+    const createBtn = screen.getByRole('button', { name: '创建 Provider' });
+    expect(createBtn).toBeEnabled();
+    await user.click(createBtn);
+    expect(toast.warning).toHaveBeenCalledWith('请填写 Base URL');
+    expect(agentManagementApi.saveDshProvider).not.toHaveBeenCalled();
+
+    await user.type(
+      screen.getByLabelText('Base URL'),
+      'http://192.168.1.50:11434/v1'
+    );
+    await user.click(screen.getByRole('button', { name: '拉取模型' }));
+    expect(toast.warning).toHaveBeenCalledWith('未检测到模型');
   });
 });

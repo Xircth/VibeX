@@ -12,8 +12,6 @@ import { piReasoningIssue } from '@/lib/piThinking';
 
 import type { CustomModelTestState } from '../CodexModelCatalogEditor';
 import {
-  customModelVerified,
-  mergeCodexConfigDraft,
   parseClaudeModel,
   parseCodexModel,
   parsePiModel,
@@ -57,13 +55,11 @@ export function useProviderFormActions(
     setDetectedCatalog,
     setDetectingModels,
     setDetectionError,
-    customModelTests,
     setCustomModelTests,
     claudeMappingTarget,
     formDirty,
     resetForm,
     codexCatalog,
-    codexConfig,
   } = state;
   const detectGenerationRef = useRef(0);
   useEffect(() => {
@@ -93,10 +89,7 @@ export function useProviderFormActions(
     setDetectionError(null);
     setCustomModelTests({});
     setSurface('form');
-    if (
-      provider.api_url.trim() &&
-      (provider.api_key.trim() || provider.credential_present)
-    ) {
+    if (provider.api_url.trim()) {
       void detectModels(
         provider.api_url.trim(),
         provider.api_key.trim() || null,
@@ -127,6 +120,10 @@ export function useProviderFormActions(
     nextKey = apiKey.trim() || null,
     nextId = id
   ) => {
+    if (!nextUrl && !nextId) {
+      toast.warning(t('settings:agents.dshProviderUrlRequired'));
+      return;
+    }
     const generation = ++detectGenerationRef.current;
     setDetectingModels(true);
     setDetectionError(null);
@@ -179,7 +176,7 @@ export function useProviderFormActions(
       return;
     }
     if (agentId === 'codex') {
-      const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
+      const draft = parseCodexModel(model);
       const index = draft.customs.findIndex(
         (candidate) => candidate.slug === detected.id
       );
@@ -246,7 +243,7 @@ export function useProviderFormActions(
       return;
     }
     if (agentId === 'codex') {
-      const draft = mergeCodexConfigDraft(parseCodexModel(model), codexConfig);
+      const draft = parseCodexModel(model);
       const detectedIds = new Set(models.map((item) => item.id));
       const handwritten = draft.customs.filter(
         (custom) => !detectedIds.has(custom.slug)
@@ -294,7 +291,7 @@ export function useProviderFormActions(
       toast.warning(t('settings:agents.providerCustomModelTestNeedId'));
       return;
     }
-    if (!apiUrl.trim() || (!apiKey.trim() && !id)) {
+    if (!apiUrl.trim()) {
       toast.warning(t('settings:agents.providerRequiredFields'));
       return;
     }
@@ -347,7 +344,7 @@ export function useProviderFormActions(
   };
 
   const save = async () => {
-    if (!name.trim() || !apiUrl.trim() || (!id && !apiKey.trim())) {
+    if (!name.trim() || !apiUrl.trim()) {
       toast.warning(t('settings:agents.providerRequiredFields'));
       return;
     }
@@ -363,22 +360,6 @@ export function useProviderFormActions(
         return;
       }
     }
-    if (agentId === 'codex') {
-      const draft = parseCodexModel(model);
-      const detectedIds = new Set(
-        (detectedCatalog?.models ?? []).map((item) => item.id)
-      );
-      const untested = draft.customs.some(
-        (custom, index) =>
-          Boolean(custom.slug.trim()) &&
-          !detectedIds.has(custom.slug.trim()) &&
-          !customModelVerified(customModelTests[index])
-      );
-      if (untested) {
-        toast.warning(t('settings:agents.providerCustomModelTestRequired'));
-        return;
-      }
-    }
     setSaving(true);
     setError(null);
     try {
@@ -388,7 +369,7 @@ export function useProviderFormActions(
           name: name.trim(),
           agent_id: agentId,
           api_url: apiUrl.trim(),
-          api_key: apiKey.trim() || null,
+          api_key: apiKey.trim(),
           model: model.trim(),
           ...(providerInstanceId ? { providerInstanceId } : {}),
         })

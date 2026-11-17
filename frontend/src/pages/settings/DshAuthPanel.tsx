@@ -282,16 +282,27 @@ export function DshAuthPanel({
     );
   };
 
-  const save = async (next: Draft = draftRef.current) => {
+  const save = async (
+    next: Draft = draftRef.current,
+    options: { explicit?: boolean } = {}
+  ) => {
+    if (saving) return;
+    const explicit = Boolean(options.explicit);
     const isOfficial = next.mode !== 'custom';
     const credentialPresent = Boolean(
       isOfficial
         ? official?.credential_present
         : editingCustom?.credential_present
     );
-    if (!draftChanged(next)) return;
-    if (!isOfficial && !next.baseUrl.trim()) return;
-    if (!next.apiKey.trim() && !credentialPresent) return;
+    if (!explicit && !draftChanged(next)) return;
+    if (!isOfficial && !next.baseUrl.trim()) {
+      if (explicit) toast.warning(t('settings:agents.dshProviderUrlRequired'));
+      return;
+    }
+    if (isOfficial && !next.apiKey.trim() && !credentialPresent) {
+      if (explicit) toast.warning(t('settings:agents.dshProviderKeyRequired'));
+      return;
+    }
     onDirtyChange?.(false);
     setSaving(true);
     try {
@@ -301,7 +312,9 @@ export function DshAuthPanel({
         next.apiKey.trim() || null
       );
       const savedView = await agentManagementApi.saveDshProvider({
-        id: isOfficial ? OFFICIAL_ID : editingId || custom?.id || CUSTOM_ID,
+        id: isOfficial
+          ? OFFICIAL_ID
+          : editingId || nextCustomProviderId(view?.providers),
         display_name: isOfficial
           ? 'DeepSeek'
           : next.displayName.trim() || CUSTOM_ID,
@@ -337,7 +350,11 @@ export function DshAuthPanel({
   };
 
   const handleFieldBlur = () => {
-    if (skipBlurSaveRef.current || discovering) {
+    if (
+      skipBlurSaveRef.current ||
+      discovering ||
+      draftRef.current.mode === 'custom'
+    ) {
       skipBlurSaveRef.current = false;
       return;
     }
@@ -360,20 +377,25 @@ export function DshAuthPanel({
         api_key: draftRef.current.apiKey.trim() || null,
         provider_id: isOfficial
           ? OFFICIAL_ID
-          : editingId || custom?.id || CUSTOM_ID,
+          : editingId || nextCustomProviderId(view?.providers),
       });
-      const models = discovered.length ? discovered : draftRef.current.models;
-      setAvailableModels(models);
+      if (discovered.length === 0) {
+        toast.warning(t('settings:agents.providerDetectedModelsEmpty'));
+        return;
+      }
+      setAvailableModels(discovered);
       const next = {
         ...draftRef.current,
-        models,
-        model: models.some((entry) => entry.id === draftRef.current.model)
+        models: discovered,
+        model: discovered.some((entry) => entry.id === draftRef.current.model)
           ? draftRef.current.model
-          : (models[0]?.id ?? ''),
+          : (discovered[0]?.id ?? ''),
       };
       draftRef.current = next;
       setDraft(next);
-      void save(next);
+      if (isOfficial) {
+        void save(next);
+      }
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.dshProviderDiscoverFailed'))
@@ -407,7 +429,10 @@ export function DshAuthPanel({
     )
       ? draftRef.current.model
       : (nextModels[0]?.id ?? '');
-    patchDraft({ models: nextModels, model: nextDefaultModel }, true);
+    patchDraft(
+      { models: nextModels, model: nextDefaultModel },
+      draftRef.current.mode !== 'custom'
+    );
   };
 
   const toggleAllAvailableModels = (checked: boolean) => {
@@ -417,7 +442,10 @@ export function DshAuthPanel({
     )
       ? draftRef.current.model
       : (nextModels[0]?.id ?? '');
-    patchDraft({ models: nextModels, model: nextDefaultModel }, true);
+    patchDraft(
+      { models: nextModels, model: nextDefaultModel },
+      draftRef.current.mode !== 'custom'
+    );
   };
 
   const selectedModelIds = useMemo(
@@ -459,7 +487,6 @@ export function DshAuthPanel({
     const next: Draft = {
       ...draftRef.current,
       mode: 'custom',
-      apiKey: '',
       displayName: template.display_name?.trim() || template.name,
       notes: template.notes ?? '',
       baseUrl: template.base_url?.trim() || '',
@@ -727,7 +754,7 @@ export function DshAuthPanel({
             ariaLabel={t('settings:agents.dshProviderDefaultModel')}
             options={modelOptions}
             value={draft.model}
-            onChange={(model) => patchDraft({ model }, true)}
+            onChange={(model) => patchDraft({ model }, officialMode)}
           />
         ) : (
           <TextInput
@@ -893,18 +920,6 @@ export function DshAuthPanel({
                       onSelect={(next) => {
                         if (next === 'custom') {
                           setEndpointCandidates([]);
-                          setAvailableModels([]);
-                          const cleared: Draft = {
-                            ...draftRef.current,
-                            apiKey: '',
-                            displayName: '',
-                            notes: '',
-                            baseUrl: '',
-                            model: '',
-                            models: [],
-                          };
-                          draftRef.current = cleared;
-                          setDraft(cleared);
                           return;
                         }
                         applyCatalogTemplate(next);
@@ -963,11 +978,24 @@ export function DshAuthPanel({
                         label: candidate,
                       }))}
                       value={draft.baseUrl}
-                      onChange={(value) => patchDraft({ baseUrl: value }, true)}
+                      onChange={(value) => patchDraft({ baseUrl: value })}
                     />
                   ) : null}
                   {renderSecretKeyInput(editingCustom?.credential_present)}
                   {renderModelSelection()}
+                  <Button
+                    size="sm"
+                    type="button"
+                    className="h-8 self-end"
+                    disabled={saving || locked}
+                    onClick={() =>
+                      void save(draftRef.current, { explicit: true })
+                    }
+                  >
+                    {editingId
+                      ? t('settings:agents.saveChanges')
+                      : t('settings:agents.providerCreate')}
+                  </Button>
                 </div>
               ) : (
                 <div className="agent-model-provider-manager is-embedded">
@@ -1084,6 +1112,16 @@ function mergeModelLists(
     merged.push(item);
   }
   return merged;
+}
+
+function nextCustomProviderId(
+  providers: DshProvidersView['providers'] | undefined
+): string {
+  const existing = new Set((providers ?? []).map((entry) => entry.id));
+  if (!existing.has(CUSTOM_ID)) return CUSTOM_ID;
+  let index = 2;
+  while (existing.has(`custom-${index}`)) index += 1;
+  return `custom-${index}`;
 }
 
 function emptyDraft(mode: string): Draft {

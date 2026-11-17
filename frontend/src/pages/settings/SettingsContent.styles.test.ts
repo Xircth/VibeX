@@ -722,4 +722,35 @@ describe('settings page alignment', () => {
       'var(--surface-raised-control)'
     );
   });
+
+  it('keeps ProviderCatalogPicker rows non-overlapping, icons horizontal, and search input padded past its icons', () => {
+    const bar = declarationsFor('.agent-model-provider-catalog-bar');
+    const toggle = declarationsFor('.agent-model-provider-catalog-toggle');
+    const list = declarationsFor('.agent-model-provider-catalog-list');
+    const option = declarationsFor('.agent-model-provider-catalog-option');
+    const main = declarationsFor('.agent-model-provider-catalog-option-main');
+    const searchInput = declarationsFor(
+      '.agent-model-provider-catalog-search-field input'
+    );
+
+    expect(bar.get('display')).toBe('flex');
+    expect(bar.get('align-items')).toBe('center');
+    expect(toggle.get('right')).toBe('4px');
+    expect(list.get('display')).toBe('flex');
+    expect(list.get('flex-direction')).toBe('column');
+    expect(list.get('overflow-y')).toBe('auto');
+    expect(list.get('padding')).toBe('4px');
+    expect(option.get('flex')).toBe('0 0 auto');
+    expect(option.get('min-height')).toBeUndefined();
+    expect(main.get('display')).toBe('flex');
+    expect(main.get('align-items')).toBe('center');
+    expect(searchInput.get('padding-inline')).toBe('28px');
+
+    const urlOpenLink = declarationsFor(
+      '.settings-page .agent-model-provider-secret > a'
+    );
+    expect(urlOpenLink.get('display')).toBe('inline-flex');
+    expect(urlOpenLink.get('width')).toBe('32px');
+    expect(urlOpenLink.get('height')).toBe('32px');
+  });
 });

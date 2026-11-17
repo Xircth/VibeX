@@ -6,6 +6,7 @@ export const CLAUDE_MODEL_FIELDS = [
   ['haiku', 'providerModelHaiku', 'model'],
   ['sonnet', 'providerModelSonnet', 'model'],
   ['opus', 'providerModelOpus', 'model'],
+  ['fable', 'providerModelFable', 'model'],
   ['customOption', 'providerModelCustomId', 'model'],
   ['customOptionName', 'providerModelCustomName', 'text'],
   ['customOptionDescription', 'providerModelCustomDescription', 'text'],

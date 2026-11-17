@@ -116,6 +116,7 @@ export function ProviderList({
   t,
   busy,
   loading,
+  multiEnable = false,
   providers,
   probes,
   importPreview,
@@ -133,6 +134,7 @@ export function ProviderList({
   t: TFunction;
   busy: boolean;
   loading: boolean;
+  multiEnable?: boolean;
   providers: AgentModelProviderView[];
   probes: Record<string, AgentModelProviderProbeView | 'loading'>;
   importPreview: ImportPreviewModel | null;
@@ -140,7 +142,7 @@ export function ProviderList({
   setImportSelected: Dispatch<SetStateAction<string[]>>;
   setImportPreview: Dispatch<SetStateAction<ImportPreviewModel | null>>;
   openCreate: () => void;
-  bind: (providerId: string) => Promise<void>;
+  bind: (providerId: string, enabled?: boolean) => Promise<void>;
   openEdit: (provider: AgentModelProviderView) => void;
   testConnection: (provider: AgentModelProviderView) => Promise<void>;
   copyConfig: (provider: AgentModelProviderView) => Promise<void>;
@@ -194,9 +196,12 @@ export function ProviderList({
               key={provider.id}
               provider={provider}
               busy={busy}
+              multiEnable={multiEnable}
               canDelete={!provider.bound && providers.length > 1}
               probe={probes[provider.id]}
-              onEnable={() => void bind(provider.id)}
+              onEnable={() =>
+                void bind(provider.id, multiEnable ? !provider.bound : undefined)
+              }
               onEdit={() => openEdit(provider)}
               onTest={() => void testConnection(provider)}
               onCopy={() => void copyConfig(provider)}

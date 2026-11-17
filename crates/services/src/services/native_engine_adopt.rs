@@ -41,7 +41,17 @@ pub async fn adopt_native_engine_if_needed(
     probed_version: Option<&str>,
     sha256: Option<&str>,
 ) -> anyhow::Result<bool> {
-    let engine_mode = std::env::var("DIMO_ENGINE_MODE").ok();
+    let setting_engine_mode: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .flatten()
+    .and_then(|raw| serde_json::from_str::<BTreeMap<String, String>>(&raw).ok())
+    .and_then(|env| env.get("DIMO_ENGINE_MODE").cloned())
+    .filter(|value| !value.trim().is_empty());
+    let engine_mode = setting_engine_mode.or_else(|| std::env::var("DIMO_ENGINE_MODE").ok());
     let catalog = BuiltInProfileCatalog::bundled();
     let Some(profile) = catalog.profile(agent_id) else {
         return Ok(false);

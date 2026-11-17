@@ -12,14 +12,19 @@ use agents::secret_resolution::{
 };
 use application::ApplicationError;
 use db::models::provider_instance::{
-    CreateProviderInstanceInput, ProviderInstanceRecord, ProviderInstanceStoreError,
-    UpdateProviderInstanceInput,
+    CreateProviderInstanceInput, LOCAL_PROVIDER_INSTANCE_ID, ProviderInstanceRecord,
+    ProviderInstanceStoreError, UpdateProviderInstanceInput, candidate_provider_agent_ids,
+    canonical_provider_agent_id,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::domains::{ServerApplicationDomains, internal_error, parse, serialize};
+
+fn canonical_agent_id(raw: &str) -> Result<String, ApplicationError> {
+    canonical_provider_agent_id(raw).map_err(|err| ApplicationError::bad_request(err.to_string()))
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,6 +175,12 @@ async fn mark_provider_agent_sessions_stale(
     raw_agent_id: &str,
 ) {
     if let Ok(agent_id) = agents::AgentId::parse(raw_agent_id.trim()) {
+        if let Err(err) =
+            conversations::invalidate_open_capability_catalog(domains.writer_pool(), &agent_id)
+                .await
+        {
+            tracing::warn!(%err, agent = %agent_id, "failed to invalidate capability catalog after provider instance mutation");
+        }
         domains
             .conversations
             .agent_runtime
@@ -300,6 +311,7 @@ pub(crate) async fn create(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let input: UpsertProviderInstanceArgs = parse(unwrap_request(args))?;
+    let canonical_agent = canonical_agent_id(&input.agent_id)?;
     let display_name = input
         .display_name
         .as_deref()
@@ -317,7 +329,7 @@ pub(crate) async fn create(
         .auth_mode
         .unwrap_or_else(|| json!({ "mode": "OfficialOAuth" }));
     let auth_mode_json = sanitize_and_store_auth_mode(
-        &input.agent_id,
+        &canonical_agent,
         &instance_id,
         raw_auth_mode,
         input.api_key_secret.as_deref(),
@@ -328,7 +340,7 @@ pub(crate) async fn create(
         domains.writer_pool(),
         CreateProviderInstanceInput {
             id: input.id.as_deref(),
-            agent_id: &input.agent_id,
+            agent_id: &canonical_agent,
             instance_id: &instance_id,
             display_name,
             auth_mode: &auth_mode_json,
@@ -337,6 +349,12 @@ pub(crate) async fn create(
     )
     .await
     .map_err(map_store_error)?;
+
+    let parsed_agent = agents::AgentId::parse(&created.agent_id).map_err(internal_error)?;
+    super::management::instance_scope::ensure_custom_instance_dirs(
+        &parsed_agent,
+        &created.instance_id,
+    )?;
 
     if created.is_default {
         mark_provider_agent_sessions_stale(domains, &created.agent_id).await;
@@ -350,6 +368,7 @@ pub(crate) async fn update(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let input: UpsertProviderInstanceArgs = parse(unwrap_request(args))?;
+    let canonical_agent = canonical_agent_id(&input.agent_id)?;
     let instance_id = input
         .instance_id
         .as_deref()
@@ -360,7 +379,7 @@ pub(crate) async fn update(
     let next_auth_mode = match input.auth_mode {
         Some(raw_mode) => Some(
             sanitize_and_store_auth_mode(
-                &input.agent_id,
+                &canonical_agent,
                 instance_id,
                 raw_mode,
                 input.api_key_secret.as_deref(),
@@ -372,7 +391,7 @@ pub(crate) async fn update(
 
     let updated = ProviderInstanceRecord::update(
         domains.writer_pool(),
-        &input.agent_id,
+        &canonical_agent,
         instance_id,
         UpdateProviderInstanceInput {
             display_name: input.display_name.as_deref(),
@@ -393,11 +412,15 @@ pub(crate) async fn set_default(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let input: InstanceIdentityArgs = parse(unwrap_request(args))?;
-    let _ =
-        ProviderInstanceRecord::set_default(domains.writer_pool(), &input.agent_id, &input.instance_id)
-            .await
-            .map_err(map_store_error)?;
-    mark_provider_agent_sessions_stale(domains, &input.agent_id).await;
+    let canonical_agent = canonical_agent_id(&input.agent_id)?;
+    let _ = ProviderInstanceRecord::set_default(
+        domains.writer_pool(),
+        &canonical_agent,
+        &input.instance_id,
+    )
+    .await
+    .map_err(map_store_error)?;
+    mark_provider_agent_sessions_stale(domains, &canonical_agent).await;
     Ok(Value::Null)
 }
 
@@ -406,10 +429,39 @@ pub(crate) async fn delete(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let input: InstanceIdentityArgs = parse(unwrap_request(args))?;
-    ProviderInstanceRecord::delete(domains.writer_pool(), &input.agent_id, &input.instance_id)
+    let canonical_agent = canonical_agent_id(&input.agent_id)?;
+    ProviderInstanceRecord::delete(domains.writer_pool(), &canonical_agent, &input.instance_id)
         .await
         .map_err(map_store_error)?;
-    mark_provider_agent_sessions_stale(domains, &input.agent_id).await;
+    let candidates = candidate_provider_agent_ids(&canonical_agent);
+    let placeholders = vec!["?"; candidates.len()].join(", ");
+    let reset_sql = format!(
+        "UPDATE sessions SET provider_instance_id = NULL WHERE provider_instance_id = ? AND agent_id IN ({placeholders})"
+    );
+    let mut reset_q = sqlx::query(&reset_sql).bind(input.instance_id.trim());
+    for candidate in &candidates {
+        reset_q = reset_q.bind(candidate);
+    }
+    reset_q
+        .execute(domains.writer_pool())
+        .await
+        .map_err(internal_error)?;
+    if let Ok(parsed_agent) = agents::AgentId::parse(&canonical_agent)
+        && let Some(dir) = conversations::host_isolation::isolated_instance_root(
+            &parsed_agent,
+            &input.instance_id,
+            None,
+        )
+        && dir.exists()
+        && let Err(err) = tokio::fs::remove_dir_all(&dir).await
+    {
+        tracing::warn!(
+            %err,
+            path = %dir.display(),
+            "failed to remove deleted provider instance directory"
+        );
+    }
+    mark_provider_agent_sessions_stale(domains, &canonical_agent).await;
     Ok(Value::Null)
 }
 
@@ -418,6 +470,7 @@ pub(crate) async fn test_connection(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let input: TestConnectionArgs = parse(unwrap_request(args))?;
+    let canonical_agent = canonical_agent_id(&input.agent_id)?;
     let started = Instant::now();
 
     let resolved_mode_value = if let Some(inline_mode) = input.auth_mode {
@@ -426,11 +479,11 @@ pub(crate) async fn test_connection(
         .instance_id
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case(LOCAL_PROVIDER_INSTANCE_ID))
     {
         match ProviderInstanceRecord::find_by_instance(
             domains.writer_pool(),
-            &input.agent_id,
+            &canonical_agent,
             instance_id,
         )
         .await
@@ -444,8 +497,7 @@ pub(crate) async fn test_connection(
                     latency_ms: started.elapsed().as_millis() as u64,
                     account_email: None,
                     error: Some(format!(
-                        "Provider instance '{instance_id}' not found for agent '{}'",
-                        input.agent_id
+                        "Provider instance '{instance_id}' not found for agent '{canonical_agent}'"
                     )),
                 });
             }
@@ -492,12 +544,37 @@ pub(crate) async fn test_connection(
                     error: Some(err.to_string()),
                 },
             },
-            None => ProviderConnectionTestWireResult {
-                ok: true,
-                latency_ms: started.elapsed().as_millis() as u64,
-                account_email,
-                error: None,
-            },
+            None => {
+                let parsed_agent =
+                    agents::AgentId::parse(&canonical_agent).map_err(internal_error)?;
+                let scope = super::management::instance_scope::resolve_management_instance_scope(
+                    domains.writer_pool(),
+                    &parsed_agent,
+                    input.instance_id.as_deref(),
+                )
+                .await?;
+                let env = super::management::instance_scope::scoped_environment(
+                    domains.writer_pool(),
+                    &scope,
+                    &parsed_agent,
+                )
+                .await?;
+                let home = dirs::home_dir()
+                    .ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+                let present =
+                    agents::official_account_present(&home, &parsed_agent, &env).await;
+                let resolved_email =
+                    agents::resolve_account_label_with_env(Some(&home), &parsed_agent, &env)
+                        .await;
+                ProviderConnectionTestWireResult {
+                    ok: present,
+                    latency_ms: started.elapsed().as_millis() as u64,
+                    account_email: resolved_email.or(account_email),
+                    error: (!present).then(|| {
+                        "No active official OAuth session found for this instance".to_string()
+                    }),
+                }
+            }
         },
         ProviderAuthMode::ApiKey { key_ref } => {
             if let Some(secret) = input

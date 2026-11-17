@@ -21,6 +21,8 @@ use crate::{ConversationEventAppender, ConversationInputControlError};
 
 #[path = "turn/binding.rs"]
 pub(crate) mod binding;
+#[path = "turn/binding_controls.rs"]
+mod binding_controls;
 #[path = "turn/commit.rs"]
 mod commit;
 #[path = "turn/continuation.rs"]
@@ -35,6 +37,7 @@ mod start;
 mod steer;
 
 pub use binding::remember_creation_session_controls;
+pub use continuation::continuation_key_instance_id;
 pub use commit::{
     PreparedCheckpointFileChanges, commit_checkpoint_metadata_on_connection,
     finalize_checkpoint_file_changes, prepare_checkpoint_file_changes,

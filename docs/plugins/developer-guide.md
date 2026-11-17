@@ -204,7 +204,7 @@ STDIO 服务必须回答 MCP `server/discover`（`2026-07-28`：`resultType`、`
 
 `provider.model.importSource` 的 handler 返回 `{ providers: [...] }` 或直接一个数组，每项要有 `name` 和 `apiUrl`，`apiKey` 缺失时 Host 会列出但禁止勾选。导入只写预设，不会替用户绑定 Agent；绑定要走 `provider.presets.bind`，那条路径每次都弹确认框。
 
-`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。官方插件是 `dimo.provider-switch`，源码仓库登记在 `dimo-plugin.json`。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
+`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。Host 自带一份内置预置（[ADR-0088](../adr/0088-built-in-provider-presets.md)），插件贡献的目录追加在其后。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
 
 ## CLI
 

@@ -5,11 +5,17 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { openExternal } from '@/features/model-router/openExternal';
+
 import {
   ProviderCatalogPicker,
   type ProviderCatalogPickerProps,
 } from './ProviderCatalogPicker';
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
+
+vi.mock('@/features/model-router/openExternal', () => ({
+  openExternal: vi.fn(),
+}));
 
 const pickerSource = readFileSync(
   resolve(process.cwd(), 'src/pages/settings/ProviderCatalogPicker.tsx'),
@@ -21,9 +27,9 @@ function template(
     Pick<ProviderCatalogTemplateView, 'id' | 'name'>
 ): ProviderCatalogTemplateView {
   return {
-    plugin_id: 'dimo.provider-switch',
-    contribution_id: 'claude-code',
-    plugin_label: 'ProviderSwitch',
+    plugin_id: 'dimo.builtin',
+    contribution_id: 'dimo.builtin',
+    plugin_label: '',
     agent_id: 'claude_code',
     category: 'community',
     surface: 'reusable',
@@ -41,11 +47,14 @@ const apple = template({
   id: 'apple',
   name: 'Apple',
   api_url: 'https://apple.example/v1',
+  icon: 'openai',
   website_url: 'https://apple.example',
 });
 const mango = template({
   id: 'mango',
   name: 'Mango',
+  plugin_id: 'acme.presets',
+  plugin_label: 'Acme Presets',
   base_url: 'https://mango.example/v1',
   api_url: null,
   surface: 'dsh',
@@ -124,17 +133,56 @@ describe('ProviderCatalogPicker', () => {
     expect(optionLabels().slice(1)).toEqual(['Zebra', 'Apple', 'Mango']);
   });
 
-  it('shows provider name and endpoint on each option', async () => {
+  it('shows icon, name, endpoint and a website button on each option', async () => {
     const user = userEvent.setup();
-    renderPicker();
+    const { onSelect } = renderPicker();
     await openPicker(user);
 
     const option = screen.getByRole('option', { name: 'Apple' });
     expect(option.querySelector('.astryx-selector-option')).not.toBeNull();
+    expect(option.querySelector('.provider-preset-icon.is-ink')).not.toBeNull();
     expect(within(option).getByText('Apple')).toBeVisible();
     expect(within(option).getByText('https://apple.example/v1')).toBeVisible();
-    expect(within(option).getByText('预置 · ProviderSwitch')).toBeVisible();
-    expect(within(option).getByRole('link', { name: '网站' })).toBeVisible();
+
+    await user.click(
+      within(option).getByRole('button', { name: 'Apple 网站' })
+    );
+    expect(openExternal).toHaveBeenCalledWith('https://apple.example');
+    expect(onSelect).not.toHaveBeenCalled();
+
+    const zebraOption = screen.getByRole('option', { name: 'Zebra' });
+    expect(within(zebraOption).getByText('Z')).toBeVisible();
+    expect(within(zebraOption).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('labels plugin-contributed rows with their plugin', async () => {
+    const user = userEvent.setup();
+    renderPicker();
+    await openPicker(user);
+
+    const option = screen.getByRole('option', { name: 'Mango' });
+    expect(within(option).getByText('Acme Presets')).toBeVisible();
+    expect(
+      within(screen.getByRole('option', { name: 'Apple' })).queryByText(
+        'Acme Presets'
+      )
+    ).not.toBeInTheDocument();
+  });
+
+  it('pins Custom above the scrolling presets while searching', async () => {
+    const user = userEvent.setup();
+    renderPicker();
+    await openPicker(user);
+
+    await user.type(
+      screen.getByRole('searchbox', { name: '搜索预置' }),
+      'nothing-matches'
+    );
+
+    expect(optionLabels()).toEqual(['自定义']);
+    expect(screen.getByRole('option', { name: '自定义' })).toHaveClass(
+      'is-pinned'
+    );
   });
 
   it('calls onSelect with custom when Custom is clicked', async () => {

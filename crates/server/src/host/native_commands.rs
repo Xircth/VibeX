@@ -2,10 +2,10 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
     AgentId, BuiltInProfileCatalog, NativeConfigProvider, TokioNativeFileSystem,
-    apply_built_in_auth_mode_policy, built_in_auth_mode_policy,
+    apply_built_in_auth_mode_policy,
 };
 use api_types::{
-    AgentAuthenticationStatus, AgentModelProviderImportRequest, AgentModelProviderImportSource,
+    AgentModelProviderImportRequest, AgentModelProviderImportSource,
     AgentModelProviderSaveRequest, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
     AgentNativeConfigFileView, AgentNativeConfigFormat, AgentNativeConfigOptionView,
     AgentNativeConfigSurface, AgentNativeConfigView, CodexModelCatalogConfigRequest,
@@ -18,7 +18,13 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 
 use super::{
-    management,
+    management::{
+        self,
+        instance_scope::{
+            extract_provider_instance_id, resolve_native_scope_context, scoped_logged_in,
+            sync_model_provider_auth_overlay_scoped, sync_native_config_auth_summary,
+        },
+    },
     native::{
         apply_native_file_mutations, catalog_cache_dir, codex_device_auth, dsh_configuration,
         grok_plugins, json_document_mutation, model_catalogs, model_provider_import,
@@ -51,27 +57,6 @@ async fn env_for(
     agent_id: &AgentId,
 ) -> Result<HashMap<String, String>, ApplicationError> {
     management::read_agent_environment(pool, agent_id).await
-}
-
-async fn sync_model_provider_auth_overlay(
-    pool: &SqlitePool,
-    agent_id: &AgentId,
-    bound: bool,
-) -> Result<(), ApplicationError> {
-    let Some(policy) = built_in_auth_mode_policy(agent_id) else {
-        return Ok(());
-    };
-    if !policy.modes.contains(&"model_provider") {
-        return Ok(());
-    }
-    let mut environment = env_for(pool, agent_id).await?;
-    if bound {
-        environment.insert(policy.mode_env.to_string(), "model_provider".to_string());
-        apply_built_in_auth_mode_policy(agent_id, &mut environment);
-    } else {
-        environment.remove(policy.mode_env);
-    }
-    management::persist_agent_environment(pool, agent_id, &environment).await
 }
 
 fn invalidate(channel: &str) {
@@ -166,27 +151,18 @@ pub async fn dispatch_codex_poll_device_code(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let args: DevicePollArgs = parse_request(args)?;
     let agent_id = AgentId::parse("codex").map_err(internal_error)?;
-    let env = env_for(pool, &agent_id).await?;
-    let home = require_home()?;
+    let (scope, home, env, _) =
+        resolve_native_scope_context(pool, &agent_id, instance_id.as_deref()).await?;
     let codex_home = resolve_agent_home(&home, &env, "CODEX_HOME", ".codex");
     let result =
         codex_device_auth::poll_device_code(&codex_home, args.device_auth_id, args.user_code)
             .await
             .map_err(bad)?;
     if result.status == "success" {
-        let service = services::services::agent_management::AgentManagementApplicationService::new(
-            pool.clone(),
-        );
-        service
-            .sync_authentication(&agent_id, AgentAuthenticationStatus::Account, None)
-            .await
-            .map_err(internal_error)?;
-        service
-            .set_account_signed_out(&agent_id, false)
-            .await
-            .map_err(internal_error)?;
+        management::instance_scope::after_codex_device_login(pool, &scope, &agent_id, &env).await?;
         invalidate("agent-management-snapshot-invalidated");
     }
     serialize(result)
@@ -243,6 +219,7 @@ pub async fn dispatch_model_catalog(
             )
         }
         "codex_model_catalog" => {
+            let instance_id = extract_provider_instance_id(&args);
             let args: CatalogArgs = parse_request(args).unwrap_or(CatalogArgs {
                 agent_id: AgentId::parse("codex").map_err(internal_error)?,
                 provider_id: None,
@@ -251,7 +228,8 @@ pub async fn dispatch_model_catalog(
                 force_refresh: Some(false),
             });
             let agent_id = AgentId::parse("codex").map_err(internal_error)?;
-            let env = env_for(pool, &agent_id).await?;
+            let (_, _, env, _) =
+                resolve_native_scope_context(pool, &agent_id, instance_id.as_deref()).await?;
             let program =
                 management::resolve_management_program(pool, &agent_id, "codex", &env).await;
             let cache_path = catalog_cache_dir().join("codex-bundled.json");
@@ -265,10 +243,10 @@ pub async fn dispatch_model_catalog(
             )
         }
         _ => {
+            let instance_id = extract_provider_instance_id(&args);
             let args: CatalogArgs = parse_request(args)?;
-            let store = provider_store_path();
-            let home = require_home()?;
-            let env = env_for(pool, &args.agent_id).await?;
+            let (_, home, env, store) =
+                resolve_native_scope_context(pool, &args.agent_id, instance_id.as_deref()).await?;
             let (api_url, api_key) = model_providers::resolve_probe_target(
                 &store,
                 &home,
@@ -326,47 +304,45 @@ pub async fn dispatch_model_providers(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let args: AgentIdArgs = parse_request(args)?;
-    let home = require_home()?;
-    let env = env_for(pool, &args.agent_id).await?;
+    let (_, home, env, store_path) =
+        resolve_native_scope_context(pool, &args.agent_id, instance_id.as_deref()).await?;
     let native_home = native_home_for(&home, &env, &args.agent_id);
     serialize(
-        model_providers::list_with_native(
-            &provider_store_path(),
-            args.agent_id,
-            Some(&native_home),
-        )
-        .await
-        .map_err(bad)?,
+        model_providers::list_with_native(&store_path, args.agent_id, Some(&native_home))
+            .await
+            .map_err(bad)?,
     )
 }
 
 pub async fn dispatch_model_provider_save(
     pool: &SqlitePool,
     args: Value,
-) -> Result<(AgentId, Value), ApplicationError> {
+) -> Result<(AgentId, Option<String>, Value), ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let request: AgentModelProviderSaveRequest = parse_request(args)?;
     let agent_id = request.agent_id.clone();
-    let home = require_home()?;
-    let env = env_for(pool, &agent_id).await?;
-    let store_path = provider_store_path();
-    // Editing a Provider never changes which one is bound, so it must not touch
-    // the mode: re-asserting Provider routing here would silently undo a mode
-    // the user chose in Dimo. Binding and deleting keep the two in step.
+    let (scope, home, env, store_path) =
+        resolve_native_scope_context(pool, &agent_id, instance_id.as_deref()).await?;
     let view = model_providers::save(&store_path, &home, &env, request)
         .await
         .map_err(bad)?;
-    if view.bound_provider_id.is_some() {
+    if view.bound_provider_id.is_some() && !scope.is_custom() {
         let _ = management::persist_observed_authentication(pool, &agent_id).await;
     }
     invalidate("agent-management-snapshot-invalidated");
-    Ok((agent_id, serialize(view)?))
+    Ok((
+        agent_id,
+        scope.instance_id().map(str::to_string),
+        serialize(view)?,
+    ))
 }
 
 pub async fn dispatch_model_provider_delete(
     pool: &SqlitePool,
     args: Value,
-) -> Result<(AgentId, Value), ApplicationError> {
+) -> Result<(AgentId, Option<String>, Value), ApplicationError> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct DeleteArgs {
@@ -375,10 +351,10 @@ pub async fn dispatch_model_provider_delete(
         #[serde(alias = "provider_id")]
         provider_id: String,
     }
+    let instance_id = extract_provider_instance_id(&args);
     let args: DeleteArgs = parse_request(args)?;
-    let home = require_home()?;
-    let env = env_for(pool, &args.agent_id).await?;
-    let store_path = provider_store_path();
+    let (scope, home, env, store_path) =
+        resolve_native_scope_context(pool, &args.agent_id, instance_id.as_deref()).await?;
     let native_home = native_home_for(&home, &env, &args.agent_id);
     let was_bound =
         model_providers::list_with_native(&store_path, args.agent_id.clone(), Some(&native_home))
@@ -397,19 +373,26 @@ pub async fn dispatch_model_provider_delete(
     .await
     .map_err(bad)?;
     if was_bound
-        && let Err(error) = sync_model_provider_auth_overlay(pool, &args.agent_id, false).await
+        && let Err(error) =
+            sync_model_provider_auth_overlay_scoped(pool, &scope, &args.agent_id, false).await
     {
         tracing::warn!(%error, "删除 Model Provider 后同步鉴权模式失败");
     }
-    let _ = management::persist_observed_authentication(pool, &args.agent_id).await;
+    if !scope.is_custom() {
+        let _ = management::persist_observed_authentication(pool, &args.agent_id).await;
+    }
     invalidate("agent-management-snapshot-invalidated");
-    Ok((args.agent_id, serialize(view)?))
+    Ok((
+        args.agent_id,
+        scope.instance_id().map(str::to_string),
+        serialize(view)?,
+    ))
 }
 
 pub async fn dispatch_model_provider_bind(
     pool: &SqlitePool,
     args: Value,
-) -> Result<(AgentId, Value), ApplicationError> {
+) -> Result<(AgentId, Option<String>, Value), ApplicationError> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct BindArgs {
@@ -418,14 +401,14 @@ pub async fn dispatch_model_provider_bind(
         #[serde(alias = "provider_id")]
         provider_id: Option<String>,
     }
+    let instance_id = extract_provider_instance_id(&args);
     let args: BindArgs = parse_request(args)?;
     let provider_id = args
         .provider_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let home = require_home()?;
-    let env = env_for(pool, &args.agent_id).await?;
-    let store_path = provider_store_path();
+    let (scope, home, env, store_path) =
+        resolve_native_scope_context(pool, &args.agent_id, instance_id.as_deref()).await?;
     let native_home = native_home_for(&home, &env, &args.agent_id);
     let previous_binding =
         model_providers::list_with_native(&store_path, args.agent_id.clone(), Some(&native_home))
@@ -435,38 +418,43 @@ pub async fn dispatch_model_provider_bind(
     let view = model_providers::bind(&store_path, &home, &env, args.agent_id.clone(), provider_id)
         .await
         .map_err(bad)?;
-    if let Err(error) =
-        sync_model_provider_auth_overlay(pool, &args.agent_id, view.bound_provider_id.is_some())
-            .await
+    if let Err(error) = sync_model_provider_auth_overlay_scoped(
+        pool,
+        &scope,
+        &args.agent_id,
+        view.bound_provider_id.is_some(),
+    )
+    .await
     {
-        if let Err(rollback_error) = model_providers::bind(
+        let _ = model_providers::bind(
             &store_path,
             &home,
             &env,
             args.agent_id.clone(),
             previous_binding,
         )
-        .await
-        {
-            return Err(ApplicationError::internal(format!(
-                "{error}; rollback failed: {rollback_error}"
-            )));
-        }
+        .await;
         return Err(error);
     }
-    let _ = management::persist_observed_authentication(pool, &args.agent_id).await;
+    if !scope.is_custom() {
+        let _ = management::persist_observed_authentication(pool, &args.agent_id).await;
+    }
     invalidate("agent-management-snapshot-invalidated");
-    Ok((args.agent_id, serialize(view)?))
+    Ok((
+        args.agent_id,
+        scope.instance_id().map(str::to_string),
+        serialize(view)?,
+    ))
 }
 
 pub async fn dispatch_model_provider_probe(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let args: CatalogArgs = parse_request(args)?;
-    let store = provider_store_path();
-    let home = require_home()?;
-    let env = env_for(pool, &args.agent_id).await?;
+    let (_, home, env, store) =
+        resolve_native_scope_context(pool, &args.agent_id, instance_id.as_deref()).await?;
     let started = std::time::Instant::now();
     let (api_url, api_key) = model_providers::resolve_probe_target(
         &store,
@@ -517,31 +505,27 @@ pub async fn dispatch_model_provider_import_preview(
         agent_id: AgentId,
         source: AgentModelProviderImportSource,
     }
+    let instance_id = extract_provider_instance_id(&args);
     let args: ImportPreviewArgs = parse_request(args)?;
-    let home = require_home()?;
-    let env = env_for(pool, &args.agent_id).await?;
+    let (_, home, env, store_path) =
+        resolve_native_scope_context(pool, &args.agent_id, instance_id.as_deref()).await?;
     serialize(
-        model_providers::preview_import(
-            &provider_store_path(),
-            &home,
-            &env,
-            args.agent_id,
-            args.source,
-        )
-        .await
-        .map_err(bad)?,
+        model_providers::preview_import(&store_path, &home, &env, args.agent_id, args.source)
+            .await
+            .map_err(bad)?,
     )
 }
 
 pub async fn dispatch_model_provider_import(
     pool: &SqlitePool,
     args: Value,
-) -> Result<(AgentId, Value), ApplicationError> {
+) -> Result<(AgentId, Option<String>, Value), ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let request: AgentModelProviderImportRequest = parse_request(args)?;
-    let home = require_home()?;
-    let env = env_for(pool, &request.agent_id).await?;
+    let (scope, home, env, store_path) =
+        resolve_native_scope_context(pool, &request.agent_id, instance_id.as_deref()).await?;
     let view = model_providers::apply_import(
-        &provider_store_path(),
+        &store_path,
         &home,
         &env,
         request.agent_id.clone(),
@@ -551,7 +535,11 @@ pub async fn dispatch_model_provider_import(
     .await
     .map_err(bad)?;
     invalidate("agent-management-snapshot-invalidated");
-    Ok((request.agent_id, serialize(view)?))
+    Ok((
+        request.agent_id,
+        scope.instance_id().map(str::to_string),
+        serialize(view)?,
+    ))
 }
 
 pub async fn dispatch_pi_configuration(pool: &SqlitePool) -> Result<Value, ApplicationError> {
@@ -1104,26 +1092,20 @@ pub async fn dispatch_native_config_read(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let args: AgentIdArgs = parse_request(args)?;
-    serialize(native_config_view(pool, args.agent_id).await?)
+    serialize(native_config_view(pool, args.agent_id, instance_id.as_deref()).await?)
 }
 
 pub async fn dispatch_native_config_write(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let request: api_types::AgentNativeConfigPatchRequest = parse_request(args)?;
-    let home = require_home()?;
-    let env = env_for(pool, &request.agent_id).await?;
-    let recorded = sqlx::query_scalar::<_, String>(
-        "SELECT authentication FROM agent_probe WHERE agent_id = ?",
-    )
-    .bind(request.agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-    let logged_in = recorded.as_deref() == Some("account");
+    let (scope, home, env, _) =
+        resolve_native_scope_context(pool, &request.agent_id, instance_id.as_deref()).await?;
+    let logged_in = scoped_logged_in(pool, &scope, &request.agent_id, &env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
@@ -1131,12 +1113,13 @@ pub async fn dispatch_native_config_write(
     );
     let patch = agents::NativeConfigPatch {
         base_field_revisions: request.base_field_revisions,
-        values: request.fields,
+        values: request.fields.clone(),
     };
     let result = provider
         .save(&request.agent_id, patch, logged_in)
         .await
         .map_err(|error| bad(error.to_string()))?;
+    sync_native_config_auth_summary(pool, &scope, &request.agent_id, &request.fields).await?;
     invalidate("agent-management-snapshot-invalidated");
     serialize(map_native_config_view(request.agent_id, result.snapshot))
 }
@@ -1145,18 +1128,11 @@ pub async fn dispatch_native_config_file_write(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = extract_provider_instance_id(&args);
     let request: api_types::AgentNativeConfigFileWriteRequest = parse_request(args)?;
-    let home = require_home()?;
-    let env = env_for(pool, &request.agent_id).await?;
-    let recorded = sqlx::query_scalar::<_, String>(
-        "SELECT authentication FROM agent_probe WHERE agent_id = ?",
-    )
-    .bind(request.agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-    let logged_in = recorded.as_deref() == Some("account");
+    let (scope, home, env, _) =
+        resolve_native_scope_context(pool, &request.agent_id, instance_id.as_deref()).await?;
+    let logged_in = scoped_logged_in(pool, &scope, &request.agent_id, &env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
@@ -1181,18 +1157,11 @@ pub async fn dispatch_native_config_file_write(
 async fn native_config_view(
     pool: &SqlitePool,
     agent_id: AgentId,
+    instance_id: Option<&str>,
 ) -> Result<AgentNativeConfigView, ApplicationError> {
-    let home = require_home()?;
-    let env = env_for(pool, &agent_id).await?;
-    let recorded = sqlx::query_scalar::<_, String>(
-        "SELECT authentication FROM agent_probe WHERE agent_id = ?",
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-    let logged_in = recorded.as_deref() == Some("account");
+    let (scope, home, env, _) =
+        resolve_native_scope_context(pool, &agent_id, instance_id).await?;
+    let logged_in = scoped_logged_in(pool, &scope, &agent_id, &env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,

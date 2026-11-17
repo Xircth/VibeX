@@ -46,6 +46,7 @@ impl HeadlessDelegationRuntime {
         conversation_context: ConversationContext,
         official_mcp: Arc<OfficialMcpRuntime>,
         events: Arc<crate::HostEventBus>,
+        command_host: crate::ProductMcpCommandHost,
     ) -> (Self, Arc<InMemoryCompanionFeatures>, Arc<DelegationBroker>) {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
@@ -69,7 +70,7 @@ impl HeadlessDelegationRuntime {
             tokens.set_product_gate(move |product| match product {
                 "delegation" => official_mcp.allow_delegation_mcp(),
                 "session" => official_mcp.allow_session_mcp(),
-                "workflow" => official_mcp.allow_workflow_mcp(),
+                "workflow" | "pulse" | "superagent" => true,
                 _ => false,
             });
         }
@@ -131,6 +132,7 @@ impl HeadlessDelegationRuntime {
                     runtime: gateway_runtime,
                     pool: pool.clone(),
                 }),
+                command_host,
             )
             .await;
         });
@@ -475,12 +477,45 @@ impl DelegationMetaWriter for NoopMetaWriter {
     }
 }
 
+#[derive(Clone)]
+pub enum SpaceSessionLookup {
+    Sync(Arc<dyn Fn(Uuid) -> bool + Send + Sync>),
+    Pool(SqlitePool),
+}
+
+impl SpaceSessionLookup {
+    pub fn sync<F>(lookup: F) -> Self
+    where
+        F: Fn(Uuid) -> bool + Send + Sync + 'static,
+    {
+        Self::Sync(Arc::new(lookup))
+    }
+
+    pub async fn is_space_session(&self, conversation_id: Uuid) -> bool {
+        match self {
+            Self::Sync(lookup) => lookup(conversation_id),
+            Self::Pool(pool) => {
+                conversations::collaboration::conversation_is_space_session(pool, conversation_id)
+                    .await
+                    .unwrap_or(false)
+            }
+        }
+    }
+
+    fn is_space_session_sync(&self, conversation_id: Uuid) -> bool {
+        match self {
+            Self::Sync(lookup) => lookup(conversation_id),
+            Self::Pool(_) => false,
+        }
+    }
+}
+
 pub struct DimoDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
     pub official_mcp: Arc<OfficialMcpRuntime>,
     pub locate_binary: fn(&str) -> Option<PathBuf>,
-    pub space_session: Arc<dyn Fn(Uuid) -> bool + Send + Sync>,
+    pub space_session: SpaceSessionLookup,
 }
 
 impl std::fmt::Debug for DimoDelegationInjector {
@@ -516,81 +551,35 @@ impl DelegationInjector for DimoDelegationInjector {
                 code: "delegation_parent_unsupported",
             };
         }
-        let mut servers = Vec::new();
-        let mut missing_binary = false;
-        for binding in self.official_mcp.bindings() {
-            match binding.product.as_str() {
-                "delegation" => {
-                    let space = (self.space_session)(context.parent_conversation_id);
-                    match self.product_server(
-                        context,
-                        "dimo-delegation-mcp",
-                        "dimo-mcp",
-                        plugins::delegation_mcp_features(space),
-                        TokenPermissions {
-                            delegation: true,
-                            session_info: true,
-                            workspace_write: true,
-                            collaboration: true,
-                            space_session: space,
-                            ..TokenPermissions::default()
-                        },
-                        "delegation",
-                    ) {
-                        Some(server) => servers.push(server),
-                        None => missing_binary = true,
-                    }
-                }
-                "session" => {
-                    let bits = binding.features;
-                    let features = plugins::session_feature_arg(bits);
-                    if !features.is_empty() {
-                        match self.product_server(
-                            context,
-                            "dimo-session-mcp",
-                            "dimo-mcp",
-                            &features,
-                            TokenPermissions {
-                                feedback: bits & SESSION_FEAT_FEEDBACK != 0,
-                                ask: bits & SESSION_FEAT_ASK != 0,
-                                session_info: bits & SESSION_FEAT_SESSIONS != 0,
-                                session_control: bits & SESSION_FEAT_SESSION_CONTROL != 0,
-                                ..TokenPermissions::default()
-                            },
-                            "session",
-                        ) {
-                            Some(server) => servers.push(server),
-                            None => missing_binary = true,
-                        }
-                    }
-                }
-                "workflow" => match self.product_server(
-                    context,
-                    "dimo-workflow-mcp",
-                    "dimo-workflow-mcp",
-                    "",
-                    TokenPermissions::default(),
-                    "workflow",
-                ) {
-                    Some(mut server) => {
-                        server.args.clear();
-                        servers.push(server);
-                    }
-                    None => missing_binary = true,
-                },
-                _ => {}
+        let delegation_on = self.official_mcp.allow_delegation_mcp();
+        let space = delegation_on
+            && self
+                .space_session
+                .is_space_session_sync(context.parent_conversation_id);
+        self.build_injected_stdio_servers(context, delegation_on, space)
+    }
+
+    fn injected_stdio_servers_async<'a>(
+        &'a self,
+        context: CompanionInjectionContext<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CompanionInjectionList> + Send + 'a>>
+    {
+        Box::pin(async move {
+            if !context.capabilities.accepts_session_mcp_servers {
+                return CompanionInjectionList::Unsupported {
+                    code: "delegation_parent_unsupported",
+                };
             }
-        }
-        if servers.is_empty() {
-            return CompanionInjectionList::Unsupported {
-                code: if missing_binary {
-                    "companion_binary_missing"
-                } else {
-                    "official_product_mcp_disabled"
-                },
+            let delegation_on = self.official_mcp.allow_delegation_mcp();
+            let space = if delegation_on {
+                self.space_session
+                    .is_space_session(context.parent_conversation_id)
+                    .await
+            } else {
+                false
             };
-        }
-        CompanionInjectionList::Injected(servers)
+            self.build_injected_stdio_servers(context, delegation_on, space)
+        })
     }
 
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
@@ -639,7 +628,11 @@ impl DelegationInjector for DimoDelegationInjector {
             .filter(|(id, _)| {
                 !matches!(
                     id.as_str(),
-                    "dimo-delegation-mcp" | "dimo-session-mcp" | "dimo-workflow-mcp"
+                    plugins::SUPERAGENT_MCP_NAME
+                        | "dimo-superagent-mcp"
+                        | "dimo-delegation-mcp"
+                        | "dimo-session-mcp"
+                        | "dimo-workflow-mcp"
                 )
             })
             .filter_map(|(id, spec)| {
@@ -683,17 +676,45 @@ impl DelegationInjector for DimoDelegationInjector {
 }
 
 impl DimoDelegationInjector {
-    pub fn space_session_lookup(pool: SqlitePool) -> Arc<dyn Fn(Uuid) -> bool + Send + Sync> {
-        let handle = tokio::runtime::Handle::current();
-        Arc::new(move |conversation_id| {
-            tokio::task::block_in_place(|| {
-                handle.block_on(conversations::collaboration::conversation_is_space_session(
-                    &pool,
-                    conversation_id,
-                ))
-            })
-            .unwrap_or(false)
-        })
+    pub fn space_session_lookup(pool: SqlitePool) -> SpaceSessionLookup {
+        SpaceSessionLookup::Pool(pool)
+    }
+
+    fn build_injected_stdio_servers(
+        &self,
+        context: CompanionInjectionContext<'_>,
+        delegation_on: bool,
+        space: bool,
+    ) -> CompanionInjectionList {
+        let session_bits = if self.official_mcp.allow_session_mcp() {
+            self.official_mcp.session_features()
+        } else {
+            0
+        };
+        let features = plugins::superagent_mcp_features(delegation_on, space, session_bits);
+        let permissions = TokenPermissions {
+            delegation: delegation_on,
+            feedback: session_bits & SESSION_FEAT_FEEDBACK != 0,
+            ask: session_bits & SESSION_FEAT_ASK != 0,
+            session_info: delegation_on || (session_bits & SESSION_FEAT_SESSIONS != 0),
+            session_control: session_bits & SESSION_FEAT_SESSION_CONTROL != 0,
+            workspace_write: delegation_on,
+            collaboration: delegation_on,
+            space_session: space,
+        };
+        let Some(server) = self.product_server(
+            context,
+            plugins::SUPERAGENT_MCP_NAME,
+            "dimo-mcp",
+            &features,
+            permissions,
+            "superagent",
+        ) else {
+            return CompanionInjectionList::Unsupported {
+                code: "companion_binary_missing",
+            };
+        };
+        CompanionInjectionList::Injected(vec![server])
     }
 
     fn product_server(
@@ -728,26 +749,19 @@ impl DimoDelegationInjector {
             features.to_string(),
             "--conversation-id".to_string(),
             context.parent_conversation_id.to_string(),
+            "--workspace-root".to_string(),
+            context.working_root.to_string_lossy().into_owned(),
             "--parent-pid".to_string(),
             std::process::id().to_string(),
+            "--product".to_string(),
+            product.to_string(),
         ];
         if let Some(url) = self.official_mcp.http_base() {
             args.push("--server-url".to_string());
             args.push(url);
-            if name == "dimo-delegation-mcp" {
-                args.push("--product".to_string());
-                args.push("delegation".to_string());
-                if let Some(plugin_token) = self.official_mcp.delegation_token() {
-                    args.push("--server-token".to_string());
-                    args.push(plugin_token);
-                }
-            } else {
-                args.push("--product".to_string());
-                args.push("session".to_string());
-                if let Some(plugin_token) = self.official_mcp.session_token() {
-                    args.push("--server-token".to_string());
-                    args.push(plugin_token);
-                }
+            if let Some(plugin_token) = self.official_mcp.token_for_product(product) {
+                args.push("--server-token".to_string());
+                args.push(plugin_token);
             }
         }
         Some(InjectedMcpServer {
@@ -855,14 +869,14 @@ mod official_mcp_tests {
     }
 
     #[test]
-    fn headless_companion_stays_off_until_a_host_family_binding_is_published() {
+    fn headless_companion_injects_unified_superagent_mcp() {
         let gate = Arc::new(OfficialMcpRuntime::default());
         let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate.clone(),
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
-            space_session: Arc::new(|_| false),
+            space_session: SpaceSessionLookup::sync(|_| false),
         };
         let agent_id = AgentId::parse("vendor.capable-agent").unwrap();
         let context = CompanionInjectionContext {
@@ -875,14 +889,6 @@ mod official_mcp_tests {
             },
         };
 
-        assert_eq!(
-            injector.companion(context),
-            CompanionInjection::Unsupported {
-                code: "official_product_mcp_disabled"
-            }
-        );
-
-        gate.publish_binding(binding("delegation"));
         if utils::host_bin::locate_runnable_host_family_binary("dimo-mcp").is_none() {
             assert_eq!(
                 injector.companion(context),
@@ -897,20 +903,20 @@ mod official_mcp_tests {
             CompanionInjection::Injected(_)
         ));
 
-        gate.reset();
         gate.publish_binding(binding("delegation"));
         gate.publish_binding(binding("session"));
         let agents::CompanionInjectionList::Injected(servers) =
             injector.injected_stdio_servers(context)
         else {
-            panic!("expected both product servers");
+            panic!("expected unified superagent server");
         };
-        assert_eq!(
-            servers
-                .iter()
-                .map(|server| server.name.as_str())
-                .collect::<Vec<_>>(),
-            ["dimo-delegation-mcp", "dimo-session-mcp"]
-        );
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, plugins::SUPERAGENT_MCP_NAME);
+        assert!(servers[0].args.windows(2).any(|w| {
+            w == [
+                "--features",
+                "delegation,sessions,collaboration,feedback,ask,session-control,pulse,workflow",
+            ]
+        }));
     }
 }

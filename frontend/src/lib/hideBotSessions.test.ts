@@ -54,6 +54,7 @@ describe('hideBotSessions', () => {
         threadId: 'direct:mem-1',
         threadKind: 'dm' as const,
         threadName: 'Bot A',
+        threadMembers: [],
       },
     };
 

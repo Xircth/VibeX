@@ -371,11 +371,13 @@ impl WorkflowCore {
         }
         let (output, schema_digest) = match input.output.as_ref() {
             Some(output) => {
-                let digest =
-                    validate_step_output_bytes(&run, step.spec.output_schema(), Some(output))?;
+                let digest = validate_step_output(&run, &step.spec, Some(output))?;
                 (Some(output), digest)
             }
-            None => (None, None),
+            None => {
+                let _ = validate_step_output(&run, &step.spec, None)?;
+                (None, None)
+            }
         };
         self.store
             .complete_step(
@@ -410,8 +412,7 @@ impl WorkflowCore {
                 "only agent steps produce candidate outputs".to_string(),
             ));
         }
-        let schema_digest =
-            validate_step_output_bytes(&run, step.spec.output_schema(), input.output.as_ref())?;
+        let schema_digest = validate_step_output(&run, &step.spec, input.output.as_ref())?;
         self.store
             .stage_step_candidate(
                 input.run_id,
@@ -951,8 +952,7 @@ impl WorkflowCore {
                         "only agent steps can accept review evidence".to_string(),
                     ));
                 }
-                let schema_digest =
-                    validate_step_output_bytes(&run, step.spec.output_schema(), output.as_ref())?;
+                let schema_digest = validate_step_output(&run, &step.spec, output.as_ref())?;
                 self.store
                     .accept_review_step(
                         input.run_id,
@@ -1029,11 +1029,26 @@ fn validate_source_path(source_path: &str) -> Result<(), WorkflowError> {
     Ok(())
 }
 
-fn validate_step_output_bytes(
+fn enforced_output_schema(spec: &WorkflowStepSpec) -> Option<&serde_json::Value> {
+    match spec {
+        WorkflowStepSpec::Agent(agent)
+            if agent
+                .output_description
+                .as_deref()
+                .is_some_and(|description| !description.trim().is_empty()) =>
+        {
+            None
+        }
+        _ => spec.output_schema(),
+    }
+}
+
+fn validate_step_output(
     run: &WorkflowRunView,
-    output_schema: Option<&serde_json::Value>,
+    spec: &WorkflowStepSpec,
     output: Option<&serde_json::Value>,
 ) -> Result<Option<String>, WorkflowError> {
+    let schema = enforced_output_schema(spec);
     match output {
         Some(output) => {
             let bytes = serde_json::to_vec(output)?;
@@ -1044,14 +1059,24 @@ fn validate_step_output_bytes(
                     policy.max_output_bytes
                 )));
             }
+            if let Some(schema) = schema {
+                validate_json_value(schema, output)?;
+            }
             Ok(Some(
-                output_schema
+                schema
                     .map(digest_json)
                     .transpose()?
                     .unwrap_or_else(|| "raw-text:v1".to_string()),
             ))
         }
-        None => Ok(None),
+        None => {
+            if schema.is_some() {
+                return Err(WorkflowError::Validation(
+                    "step output is required when outputSchema is defined".to_string(),
+                ));
+            }
+            Ok(None)
+        }
     }
 }
 

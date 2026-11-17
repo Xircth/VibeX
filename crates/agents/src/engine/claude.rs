@@ -115,9 +115,18 @@ impl ClaudeSidecarClient {
         )?;
 
         let mut cmd = new_hidden_tokio_command(&node_binary, [&script_path]);
-        cmd.current_dir(&spec.working_dir)
-            .envs(&isolation_env)
-            .envs(&spec.env);
+        cmd.current_dir(&spec.working_dir);
+        for key in crate::codex_shadow_home::AMBIENT_PROVIDER_CREDENTIAL_ENV_KEYS {
+            if !spec.env.contains_key(*key) {
+                cmd.env_remove(key);
+            }
+        }
+        if !spec.env.contains_key("CLAUDE_CONFIG_DIR")
+            && !isolation_env.contains_key("CLAUDE_CONFIG_DIR")
+        {
+            cmd.env_remove("CLAUDE_CONFIG_DIR");
+        }
+        cmd.envs(&isolation_env).envs(&spec.env);
         for key in &spec.scrubbed_env_keys {
             cmd.env_remove(key);
         }

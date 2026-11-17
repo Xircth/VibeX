@@ -352,6 +352,7 @@ mod tests {
         CreateSession {
             executor: None,
             agent_id: Some(AgentId::parse(agent).expect("valid agent id")),
+            provider_instance_id: None,
             task_id: None,
             name: None,
             initial_prompt: None,

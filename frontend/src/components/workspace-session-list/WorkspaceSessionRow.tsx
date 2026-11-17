@@ -24,8 +24,8 @@ import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { CollaborationSessionBadge } from '@/features/collaboration/CollaborationSessionBadge';
-import { openCollaborationSessionFromList } from '@/features/collaboration/sessionCollaboration';
+import { CollaborationSessionTitle } from '@/features/collaboration/CollaborationSessionTitle';
+import { collaborationSessionMenuAction } from '@/features/collaboration/sessionCollaboration';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
 import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
@@ -227,7 +227,11 @@ export function WorkspaceSessionRow({
     t,
     onRestore,
     restoreLabel: t('workspaceSessionList.restore'),
-    onRename: onRename ? beginRename : undefined,
+    openCollaboration: collaborationSessionMenuAction(
+      session.id,
+      session.collaboration
+    ),
+    onRename: onRename && !session.collaboration ? beginRename : undefined,
     onCopySessionInfo: () => {
       void writeClipboardViaBridge(
         formatSessionInfoForCopy({
@@ -401,7 +405,15 @@ export function WorkspaceSessionRow({
                         sessionTitleIsCjk(title) && 'is-cjk'
                       )}
                     >
-                      {title}
+                      {session.collaboration ? (
+                        <CollaborationSessionTitle
+                          conversationId={session.id}
+                          collaboration={session.collaboration}
+                          className="inline-flex max-w-full align-middle"
+                        />
+                      ) : (
+                        title
+                      )}
                       {isPinned ? (
                         <Pin
                           className="ml-1 inline h-3 w-3 text-primary"
@@ -433,7 +445,14 @@ export function WorkspaceSessionRow({
                         sessionTitleIsCjk(title) && 'is-cjk'
                       )}
                     >
-                      {title}
+                      {session.collaboration ? (
+                        <CollaborationSessionTitle
+                          conversationId={session.id}
+                          collaboration={session.collaboration}
+                        />
+                      ) : (
+                        title
+                      )}
                     </span>
                     {isPinned ? (
                       <Pin
@@ -442,20 +461,6 @@ export function WorkspaceSessionRow({
                       />
                     ) : null}
                     <span className="workspace-session-meta-idle gap-1.5">
-                      {session.collaboration ? (
-                        <CollaborationSessionBadge
-                          memberName={session.collaboration.memberName}
-                          conversationId={session.id}
-                          onOpen={() => {
-                            const collaboration = session.collaboration;
-                            if (!collaboration) return;
-                            openCollaborationSessionFromList({
-                              conversationId: session.id,
-                              collaboration,
-                            });
-                          }}
-                        />
-                      ) : null}
                       <WorkspaceSessionStatusIndicator
                         tone={tone}
                         className="workspace-session-row-status"

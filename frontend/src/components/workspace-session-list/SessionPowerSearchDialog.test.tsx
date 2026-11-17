@@ -98,6 +98,7 @@ describe('sessionListFilters', () => {
         threadId: 'direct:1',
         threadKind: 'direct',
         threadName: 'UI设计师',
+        threadMembers: [],
       },
     });
     const staleIdleSession = makeSession({
@@ -170,6 +171,7 @@ describe('matchesPowerSearchFilters', () => {
       threadId: 'direct:1',
       threadKind: 'direct',
       threadName: 'UI设计师',
+      threadMembers: [],
     },
   });
 

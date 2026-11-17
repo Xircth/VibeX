@@ -120,7 +120,7 @@ impl ProviderPresetHost for HostProviderPresetHost {
     ) -> Result<ProviderPreset, ProviderPresetError> {
         let api_url = draft.api_url.trim().to_owned();
         let agent_id = draft.agent_id.clone();
-        let (_id, value) = dispatch_model_provider_save(
+        let (_id, _instance_id, value) = dispatch_model_provider_save(
             &self.pool,
             json!({
                 "id": draft.id,

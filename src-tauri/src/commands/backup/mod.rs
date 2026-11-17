@@ -11,8 +11,6 @@ use tauri::{AppHandle, Emitter};
 
 use crate::error::AppError;
 
-mod crypto;
-
 const BACKUP_FORMAT: &str = "dimo-portable-backup";
 const BACKUP_VERSION: u32 = 1;
 const BACKUP_PROGRESS_EVENT: &str = "dimo://backup-progress";
@@ -20,21 +18,16 @@ const BACKUP_PROGRESS_EVENT: &str = "dimo://backup-progress";
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct BackupCreateOptions {
     pub path: String,
-    /// When set (non-empty), the backup is encrypted with this passphrase (P3-4).
-    #[serde(default)]
-    pub passphrase: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackupInspectOptions {
     pub path: String,
-    pub passphrase: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackupRestoreStagePayload {
     pub path: String,
-    pub passphrase: Option<String>,
     pub confirmed: bool,
 }
 
@@ -304,27 +297,10 @@ fn validate_backup(backup: &PortableBackup) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Trim a caller-supplied passphrase, treating blank as absent.
-fn normalize_passphrase(passphrase: Option<&str>) -> Option<&str> {
-    passphrase.map(str::trim).filter(|value| !value.is_empty())
-}
-
-fn read_backup_file(path: &Path, passphrase: Option<&str>) -> Result<PortableBackup, AppError> {
-    let raw = fs::read(path).map_err(|error| {
+fn read_backup_file(path: &Path) -> Result<PortableBackup, AppError> {
+    let bytes = fs::read(path).map_err(|error| {
         AppError::Internal(format!("Failed to read backup {}: {error}", path.display()))
     })?;
-
-    // Auto-detect the envelope: an encrypted backup requires a passphrase; a
-    // plaintext (legacy / unencrypted) backup parses directly and must NOT be
-    // handed a passphrase silently ignored.
-    let bytes = if crypto::is_encrypted(&raw) {
-        let pass = normalize_passphrase(passphrase).ok_or_else(|| {
-            AppError::BadRequest("This backup is encrypted; a passphrase is required".to_string())
-        })?;
-        crypto::decrypt_bytes(&raw, pass)?
-    } else {
-        raw
-    };
 
     let backup: PortableBackup = serde_json::from_slice(&bytes).map_err(|error| {
         AppError::BadRequest(format!(
@@ -444,15 +420,6 @@ pub async fn backup_create(
 
     let content = serde_json::to_vec_pretty(&backup)
         .map_err(|error| AppError::Internal(format!("Failed to serialize backup: {error}")))?;
-    // Encrypt the payload when a passphrase was supplied (P3-4); otherwise write
-    // the plaintext JSON as before.
-    let content = match normalize_passphrase(options.passphrase.as_deref()) {
-        Some(passphrase) => {
-            emit_progress(&app, "create", "encrypt", total, total, "Encrypting backup");
-            crypto::encrypt_bytes(&content, passphrase)?
-        }
-        None => content,
-    };
     fs::write(&backup_path, content).map_err(|error| {
         AppError::Internal(format!(
             "Failed to write backup {}: {error}",
@@ -481,7 +448,7 @@ pub async fn backup_inspect(options: BackupInspectOptions) -> Result<BackupPrevi
         ));
     }
 
-    let backup = read_backup_file(&path, options.passphrase.as_deref())?;
+    let backup = read_backup_file(&path)?;
     Ok(preview_from_backup(&backup))
 }
 
@@ -523,7 +490,7 @@ pub async fn backup_restore_stage(
         ));
     }
 
-    let backup = read_backup_file(&path, payload.passphrase.as_deref())?;
+    let backup = read_backup_file(&path)?;
     let preview = preview_from_backup(&backup);
     let total = backup.entries.len();
 

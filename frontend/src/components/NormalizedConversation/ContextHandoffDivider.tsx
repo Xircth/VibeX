@@ -43,13 +43,16 @@ function agentAccentColor(agentId: string): string {
  * stripping leading vendor prefixes and trailing 8-digit release dates while
  * preserving already human-readable ACP option labels untouched.
  */
-export function formatHandoffModelLabel(raw: string | null | undefined): string | null {
+export function formatHandoffModelLabel(
+  raw: string | null | undefined
+): string | null {
   const trimmed = raw?.trim() ?? '';
   if (!trimmed) return null;
   if (trimmed.includes(' ')) {
-    return trimmed
-      .replace(/^(?:Claude|Anthropic|Google|Gemini)\s+/i, '')
-      .trim() || trimmed;
+    return (
+      trimmed.replace(/^(?:Claude|Anthropic|Google|Gemini)\s+/i, '').trim() ||
+      trimmed
+    );
   }
 
   const withoutProvider = trimmed.includes('/')
@@ -84,6 +87,21 @@ export function formatHandoffModelLabel(raw: string | null | undefined): string 
   return formatted.join(' ');
 }
 
+export function formatHandoffTokens(
+  tokens: number | null | undefined
+): string | null {
+  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) {
+    return null;
+  }
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M Tokens`;
+  }
+  if (tokens >= 1_000) {
+    return `${(tokens / 1_000).toFixed(1).replace(/\.0$/, '')}K Tokens`;
+  }
+  return `${Math.round(tokens)} Tokens`;
+}
+
 export type ContextHandoffDividerProps = {
   fromAgent: AgentKind | string;
   toAgent: AgentKind | string;
@@ -91,6 +109,7 @@ export type ContextHandoffDividerProps = {
   toLabel: string;
   fromIcon?: AgentVisualMeta;
   toIcon?: AgentVisualMeta;
+  handoffTokens?: number | null;
   continuationPolicy?: 'portable' | 'fresh';
   className?: string;
 };
@@ -102,6 +121,7 @@ export function ContextHandoffDivider({
   toLabel,
   fromIcon,
   toIcon,
+  handoffTokens = null,
   continuationPolicy = 'portable',
   className,
 }: ContextHandoffDividerProps) {
@@ -110,6 +130,8 @@ export function ContextHandoffDivider({
     continuationPolicy === 'fresh'
       ? t('app:continuation.fresh')
       : t('app:continuation.handoff');
+  const formattedTokens =
+    continuationPolicy === 'fresh' ? null : formatHandoffTokens(handoffTokens);
 
   return (
     <div
@@ -125,7 +147,20 @@ export function ContextHandoffDivider({
       <div className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1">
         <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-muted-foreground">
           <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>{title}</span>
+          <span>
+            {title}
+            {formattedTokens ? (
+              <>
+                {' '}
+                <span
+                  data-testid="context-handoff-tokens"
+                  className="tabular-nums"
+                >
+                  {formattedTokens}
+                </span>
+              </>
+            ) : null}
+          </span>
         </span>
         <span className="inline-flex min-w-0 items-center gap-1.5 font-medium">
           <AgentIcon
@@ -201,6 +236,7 @@ export function TimelineAgentHandoffRow({
     toAgent: string;
     fromModel: string | null;
     toModel: string | null;
+    handoffTokens?: number | null;
     continuationPolicy: 'portable' | 'fresh';
   };
 }) {
@@ -210,8 +246,7 @@ export function TimelineAgentHandoffRow({
   const fromAgentName =
     fromMeta?.displayName ?? getAgentName(handoff.fromAgent);
   const toAgentName = toMeta?.displayName ?? getAgentName(handoff.toAgent);
-  const fromLabel =
-    formatHandoffModelLabel(handoff.fromModel) ?? fromAgentName;
+  const fromLabel = formatHandoffModelLabel(handoff.fromModel) ?? fromAgentName;
   const toLabel = formatHandoffModelLabel(handoff.toModel) ?? toAgentName;
 
   return (
@@ -222,6 +257,7 @@ export function TimelineAgentHandoffRow({
       toLabel={toLabel}
       fromIcon={fromMeta}
       toIcon={toMeta}
+      handoffTokens={handoff.handoffTokens}
       continuationPolicy={handoff.continuationPolicy}
     />
   );
@@ -279,7 +315,9 @@ export function ConversationTailHandoff({
   );
   const fromLabel =
     formatHandoffModelLabel(
-      pendingHandoff.fromModelLabel ?? resolvedLiveFromModel ?? fallbackFromModel
+      pendingHandoff.fromModelLabel ??
+        resolvedLiveFromModel ??
+        fallbackFromModel
     ) ?? fromAgentName;
   const toLabel =
     formatHandoffModelLabel(pendingHandoff.toModelLabel) ?? toAgentName;
@@ -292,6 +330,7 @@ export function ConversationTailHandoff({
       toLabel={toLabel}
       fromIcon={fromMeta}
       toIcon={toMeta}
+      handoffTokens={pendingHandoff.handoffTokens}
       continuationPolicy={pendingHandoff.continuationPolicy}
     />
   );

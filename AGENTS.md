@@ -18,7 +18,7 @@ Dimo is an all-in-one **Agent-Native Development Platform & Vibe Coding Toolkit*
 - `src-tauri/` — Native Tauri v2 desktop shell, multi-window host, CEF integration, and IPC adapter over `HostRuntime`.
 - `crates/` — 25 Tauri-agnostic Rust workspace crates (`application`, `server`, `remote-protocol`, `agents`, `conversations`, `delegation`, `delegation-proto`, `dimo-mcp`, `workflows`, `dimo-workflow-mcp`, `automation`, `plugins`, `plugin-sdk`, `tool-runtime`, `artifacts`, `browser-host`, `git`, `services`, `db`, `deployment`, `local-deployment`, `executors`, `review`, `api-types`, `utils`). **Agent integration rule ([ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md))**: inside `crates/agents`, prioritize **dedicated native Agent engine adapters** (official SDKs / native `app-server` protocols & native state/auth) first; treat **ACP (v1/v2 + Registry)** as the secondary compatibility fallback. Never run coding agents through `crates/executors`.
 - `shared/` — Generated Rust→TS contracts (`shared/types.ts`) and Host command definitions (`shared/hostCommands.ts`).
-- `packages/` & `plugins/` — `@dimoai/plugin-sdk`, `dimo-plugin` CLI, `@dimo/plugin-contract`, Python Worker SDK, and 17 official full-trust v4 plugins.
+- `packages/` & `plugins/` — `@dimoai/plugin-sdk`, `dimo-plugin` CLI, `@dimo/plugin-contract`, Python Worker SDK, and 16 official full-trust v4 plugins.
 - `npx-cli/` & `mobile/` — `@omnione/dimo` CLI (`serve`, `list/install`, headless control, `plugin`) and native iOS (`mobile/ios`) & Android (`mobile/android`) Companion apps.
 - `docs/` — Consolidated documentation (`docs/README.md`), protocol schemas (`docs/protocol/v1/`), specs (`docs/specs/`), and ADRs (`docs/adr/`).
 

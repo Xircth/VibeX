@@ -44,6 +44,8 @@ export function notifyLocalMcpServersChanged() {
 }
 
 const INTERNAL_MCP_SERVER_IDS = new Set([
+  'Dimo-superagent-mcp',
+  'dimo-superagent-mcp',
   'dimo-delegation-mcp',
   'dimo-session-mcp',
   'dimo-workflow-mcp',

@@ -3,6 +3,7 @@ import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -35,130 +36,154 @@ export interface FolderPickerDialogProps {
   extensions?: string[];
 }
 
-const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
-  ({
-    value = '',
-    title = i18n.t('panels:shellA11y.selectFolder', {
-      defaultValue: 'Select Folder',
-    }),
-    description = i18n.t('panels:shellA11y.selectFolderHint', {
-      defaultValue: 'Choose a folder for your project',
-    }),
-    selectFile = false,
-    extensions,
-  }) => {
-    const modal = useModal();
-    const { t } = useTranslation(['dialogs', 'common']);
-    const [currentPath, setCurrentPath] = useState<string>('');
-    const [entries, setEntries] = useState<DirectoryEntry[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [manualPath, setManualPath] = useState(value);
-    const [searchTerm, setSearchTerm] = useState('');
+function FolderPickerBody({
+  value = '',
+  title = i18n.t('panels:shellA11y.selectFolder', {
+    defaultValue: 'Select Folder',
+  }),
+  description = i18n.t('panels:shellA11y.selectFolderHint', {
+    defaultValue: 'Choose a folder for your project',
+  }),
+  selectFile = false,
+  extensions,
+  multiSelect = false,
+}: FolderPickerDialogProps & { multiSelect?: boolean }) {
+  const modal = useModal();
+  const { t, i18n: i18nInstance } = useTranslation(['dialogs', 'common']);
+  const isZh = (i18nInstance.resolvedLanguage ?? i18nInstance.language ?? '').startsWith('zh');
+  const [currentPath, setCurrentPath] = useState<string>('');
+  const [entries, setEntries] = useState<DirectoryEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [manualPath, setManualPath] = useState(value);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
 
-    const filteredEntries = useMemo(() => {
-      if (!searchTerm.trim()) return entries;
-      return entries.filter((entry) =>
-        entry.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }, [entries, searchTerm]);
+  const filteredEntries = useMemo(() => {
+    if (!searchTerm.trim()) return entries;
+    return entries.filter((entry) =>
+      entry.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [entries, searchTerm]);
 
-    useEffect(() => {
-      if (modal.visible) {
-        setManualPath(value);
-        loadDirectory();
-      }
-    }, [modal.visible, value]);
-
-    const loadDirectory = async (path?: string) => {
-      setLoading(true);
-      setError('');
-
-      try {
-        const result: DirectoryListResponse = await fileSystemApi.list(path);
-
-        // Ensure result exists and has the expected structure
-        if (!result || typeof result !== 'object') {
-          throw new Error('Invalid response from file system API');
-        }
-        // Safely access entries, ensuring it's an array
-        const entries = Array.isArray(result.entries) ? result.entries : [];
-        setEntries(entries);
-        const newPath = result.current_path || '';
-        setCurrentPath(newPath);
-        // Update manual path if we have a specific path (not for initial home directory load)
-        if (path) {
-          setManualPath(newPath);
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : 'Failed to load directory'
-        );
-        // Reset entries to empty array on error
-        setEntries([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const extensionAllowed = (name: string) => {
-      if (!extensions?.length) return true;
-      const lower = name.toLowerCase();
-      return extensions.some((ext) => lower.endsWith(`.${ext.toLowerCase()}`));
-    };
-
-    const handleFolderClick = (entry: DirectoryEntry) => {
-      if (entry.is_directory) {
-        setSearchTerm('');
-        loadDirectory(entry.path);
-        setManualPath(entry.path);
-        return;
-      }
-      if (selectFile && extensionAllowed(entry.name)) {
-        setManualPath(entry.path);
-      }
-    };
-
-    const handleParentDirectory = () => {
-      const newPath = parentDirectory(currentPath);
-      loadDirectory(newPath);
-      setManualPath(newPath);
-    };
-
-    const handleHomeDirectory = () => {
-      loadDirectory();
-      // Don't set manual path here since home directory path varies by system
-    };
-
-    const handleManualPathChange = (value: string) => {
+  useEffect(() => {
+    if (modal.visible) {
       setManualPath(value);
-    };
+      setSelectedPaths(value ? [value] : []);
+      loadDirectory();
+    }
+  }, [modal.visible, value]);
 
-    const handleManualPathSubmit = () => {
-      loadDirectory(manualPath);
-    };
+  const loadDirectory = async (path?: string) => {
+    setLoading(true);
+    setError('');
 
-    const handleSelectCurrent = () => {
-      const selectedPath = manualPath || currentPath;
-      modal.resolve(selectedPath);
-      modal.hide();
-    };
+    try {
+      const result: DirectoryListResponse = await fileSystemApi.list(path);
 
-    const handleSelectManual = () => {
-      modal.resolve(manualPath);
-      modal.hide();
-    };
-
-    const handleCancel = () => {
-      modal.resolve(null);
-      modal.hide();
-    };
-
-    const handleOpenChange = (open: boolean) => {
-      if (!open) {
-        handleCancel();
+      if (!result || typeof result !== 'object') {
+        throw new Error('Invalid response from file system API');
       }
-    };
+      const nextEntries = Array.isArray(result.entries) ? result.entries : [];
+      setEntries(nextEntries);
+      const newPath = result.current_path || '';
+      setCurrentPath(newPath);
+      if (path) {
+        setManualPath(newPath);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load directory');
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const extensionAllowed = (name: string) => {
+    if (!extensions?.length) return true;
+    const lower = name.toLowerCase();
+    return extensions.some((ext) => lower.endsWith(`.${ext.toLowerCase()}`));
+  };
+
+  const toggleSelectedPath = (path: string) => {
+    setSelectedPaths((current) =>
+      current.includes(path)
+        ? current.filter((item) => item !== path)
+        : [...current, path]
+    );
+  };
+
+  const handleFolderClick = (entry: DirectoryEntry) => {
+    if (entry.is_directory) {
+      setSearchTerm('');
+      loadDirectory(entry.path);
+      setManualPath(entry.path);
+      return;
+    }
+    if (selectFile && extensionAllowed(entry.name)) {
+      setManualPath(entry.path);
+    }
+  };
+
+  const handleParentDirectory = () => {
+    const newPath = parentDirectory(currentPath);
+    loadDirectory(newPath);
+    setManualPath(newPath);
+  };
+
+  const handleHomeDirectory = () => {
+    loadDirectory();
+  };
+
+  const handleManualPathChange = (nextValue: string) => {
+    setManualPath(nextValue);
+  };
+
+  const handleManualPathSubmit = () => {
+    loadDirectory(manualPath);
+  };
+
+  const handleSelectCurrent = () => {
+    const selectedPath = manualPath || currentPath;
+    if (multiSelect) {
+      const next =
+        selectedPaths.length > 0
+          ? selectedPaths
+          : selectedPath
+            ? [selectedPath]
+            : [];
+      modal.resolve(next.length > 0 ? next : null);
+    } else {
+      modal.resolve(selectedPath);
+    }
+    modal.hide();
+  };
+
+  const handleSelectManual = () => {
+    if (multiSelect) {
+      const next =
+        selectedPaths.length > 0
+          ? selectedPaths
+          : manualPath.trim()
+            ? [manualPath.trim()]
+            : [];
+      modal.resolve(next.length > 0 ? next : null);
+    } else {
+      modal.resolve(manualPath);
+    }
+    modal.hide();
+  };
+
+  const handleCancel = () => {
+    modal.resolve(null);
+    modal.hide();
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      handleCancel();
+    }
+  };
 
     return (
       <div className="fixed inset-0 z-[10000] pointer-events-none [&>*]:pointer-events-auto">
@@ -289,6 +314,10 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                       const isSelectable =
                         entry.is_directory ||
                         (selectFile && extensionAllowed(entry.name));
+                      const isChecked =
+                        multiSelect &&
+                        entry.is_directory &&
+                        selectedPaths.includes(entry.path);
                       return (
                         <div
                           key={index}
@@ -308,8 +337,23 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                               handleFolderClick(entry);
                             }
                           }}
-                          title={entry.name} // Show full name on hover
+                          title={entry.name}
                         >
+                          {multiSelect && entry.is_directory ? (
+                            <span
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="flex items-center"
+                            >
+                              <Checkbox
+                                checked={isChecked}
+                                aria-label={entry.name}
+                                onCheckedChange={() =>
+                                  toggleSelectedPath(entry.path)
+                                }
+                              />
+                            </span>
+                          ) : null}
                           {entry.is_directory ? (
                             entry.is_git_repo ? (
                               <FolderOpen className="h-4 w-4 text-success flex-shrink-0" />
@@ -343,19 +387,39 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                 type="submit"
                 data-dialog-primary="true"
                 onClick={handleSelectManual}
-                disabled={!manualPath.trim()}
+                disabled={
+                  multiSelect
+                    ? selectedPaths.length === 0 && !manualPath.trim()
+                    : !manualPath.trim()
+                }
               >
-                {t('folderPicker.selectPath')}
+                {multiSelect && selectedPaths.length > 0
+                  ? isZh
+                    ? `导入已选 (${selectedPaths.length})`
+                    : `Select (${selectedPaths.length})`
+                  : t('folderPicker.selectPath')}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
     );
-  }
+}
+
+const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
+  (props) => <FolderPickerBody {...props} />
+);
+
+const MultiFolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
+  (props) => <FolderPickerBody {...props} multiSelect />
 );
 
 export const FolderPickerDialog = defineModal<
   FolderPickerDialogProps,
   string | null
 >(FolderPickerDialogImpl);
+
+export const MultiFolderPickerDialog = defineModal<
+  FolderPickerDialogProps,
+  string[] | null
+>(MultiFolderPickerDialogImpl);

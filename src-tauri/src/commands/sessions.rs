@@ -24,6 +24,15 @@ pub struct SessionCollaborationRef {
     pub thread_id: String,
     pub thread_kind: String,
     pub thread_name: String,
+    /// Active members of a group thread in join order; empty for direct threads.
+    pub thread_members: Vec<SessionCollaborationMemberRef>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct SessionCollaborationMemberRef {
+    pub member_id: String,
+    pub name: String,
+    pub conversation_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

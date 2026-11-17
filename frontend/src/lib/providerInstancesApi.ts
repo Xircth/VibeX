@@ -30,6 +30,12 @@ export type ProviderAuthMode =
       opReference: string;
     };
 
+export const LOCAL_PROVIDER_INSTANCE_ID = 'local';
+export const PROVIDER_INSTANCES_CHANGED_EVENT =
+  'dimo:provider-instances-changed';
+
+export type SupportedMultiInstanceAgentId = 'claude_code' | 'codex';
+
 export interface ProviderInstanceConfig {
   id?: string;
   instanceId: string;
@@ -50,6 +56,14 @@ export interface UpsertProviderInstanceInput {
   isDefault?: boolean;
 }
 
+export interface UpdateProviderInstanceInput {
+  agentId: string;
+  displayName?: string;
+  authMode?: ProviderAuthMode;
+  apiKeySecret?: string;
+  isDefault?: boolean;
+}
+
 export interface ProviderConnectionTestResult {
   ok: boolean;
   latencyMs?: number;
@@ -58,11 +72,15 @@ export interface ProviderConnectionTestResult {
 }
 
 export interface ProviderInstancesApi {
-  list(): Promise<ProviderInstanceConfig[]>;
-  create(input: UpsertProviderInstanceInput): Promise<ProviderInstanceConfig>;
+  list(agentId?: string): Promise<ProviderInstanceConfig[]>;
+  create(
+    input: Omit<UpsertProviderInstanceInput, 'authMode'> & {
+      authMode?: ProviderAuthMode;
+    }
+  ): Promise<ProviderInstanceConfig>;
   update(
     instanceId: string,
-    input: UpsertProviderInstanceInput
+    input: UpdateProviderInstanceInput
   ): Promise<ProviderInstanceConfig>;
   setDefault(agentId: string, instanceId: string): Promise<void>;
   remove(agentId: string, instanceId: string): Promise<void>;
@@ -73,6 +91,15 @@ export interface ProviderInstancesApi {
   ): Promise<ProviderConnectionTestResult>;
 }
 
+export interface AgentInstanceOption {
+  instanceId: string;
+  agentId: SupportedMultiInstanceAgentId;
+  displayName: string;
+  isLocal: boolean;
+  isDefault: boolean;
+  raw: ProviderInstanceConfig | null;
+}
+
 export const DEFAULT_PROVIDER_AGENTS: ReadonlyArray<{
   agentId: string;
   label: string;
@@ -80,6 +107,80 @@ export const DEFAULT_PROVIDER_AGENTS: ReadonlyArray<{
   { agentId: 'claude-code', label: 'Claude Code' },
   { agentId: 'codex', label: 'Codex' },
 ];
+
+export function canonicalProviderAgentId(
+  agentId: string | null | undefined
+): SupportedMultiInstanceAgentId | null {
+  if (typeof agentId !== 'string') return null;
+  const normalized = agentId.trim().toLowerCase().replace(/-/g, '_');
+  if (
+    normalized === 'claude' ||
+    normalized === 'claude_code' ||
+    normalized === 'claudecode' ||
+    normalized === 'claude_native'
+  ) {
+    return 'claude_code';
+  }
+  if (
+    normalized === 'codex' ||
+    normalized === 'codex_cli' ||
+    normalized === 'openai_codex' ||
+    normalized === 'codex_native'
+  ) {
+    return 'codex';
+  }
+  return null;
+}
+
+export function supportsAgentInstances(
+  agentId: string | null | undefined
+): boolean {
+  return canonicalProviderAgentId(agentId) !== null;
+}
+
+export function normalizeProviderInstanceIdForApi(
+  instanceId: string | null | undefined
+): string | null {
+  if (typeof instanceId !== 'string') return null;
+  const trimmed = instanceId.trim();
+  if (!trimmed || trimmed.toLowerCase() === LOCAL_PROVIDER_INSTANCE_ID) {
+    return null;
+  }
+  return trimmed;
+}
+
+export function buildAgentInstanceOptions(
+  agentId: string | null | undefined,
+  instances: ReadonlyArray<ProviderInstanceConfig>,
+  localLabel = '本地实例'
+): AgentInstanceOption[] {
+  const canonical = canonicalProviderAgentId(agentId);
+  if (!canonical) return [];
+  const customForAgent = instances.filter(
+    (item) =>
+      canonicalProviderAgentId(item.agentId) === canonical &&
+      item.instanceId.trim().toLowerCase() !== LOCAL_PROVIDER_INSTANCE_ID
+  );
+  const hasCustomDefault = customForAgent.some((item) => item.isDefault);
+  return [
+    {
+      instanceId: LOCAL_PROVIDER_INSTANCE_ID,
+      agentId: canonical,
+      displayName: localLabel,
+      isLocal: true,
+      isDefault: !hasCustomDefault,
+      raw: null,
+    },
+    ...customForAgent.map((item) => ({
+      instanceId: item.instanceId,
+      agentId: canonical,
+      displayName: item.displayName,
+      isLocal: false,
+      isDefault: item.isDefault,
+      raw: item,
+    })),
+  ];
+}
 
 export function formatAgentDisplayLabel(agentId: string): string {
   const normalized = agentId.trim().toLowerCase().replace(/_/g, '-');
@@ -270,6 +371,15 @@ function isUnimplementedError(error: unknown): boolean {
   );
 }
 
+function emitProviderInstancesChanged(agentId?: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(PROVIDER_INSTANCES_CHANGED_EVENT, {
+      detail: { agentId: agentId ?? null },
+    })
+  );
+}
+
 export function createProviderInstancesApi(
   transport: BackendTransport
 ): ProviderInstancesApi {
@@ -279,12 +389,15 @@ export function createProviderInstancesApi(
   ): Promise<T> => transport.call(command, args) as Promise<T>;
 
   return {
-    async list(): Promise<ProviderInstanceConfig[]> {
+    async list(agentId?: string): Promise<ProviderInstanceConfig[]> {
       if (isUnavailableProviderTransport(transport)) {
         return [];
       }
       try {
-        const rows = await call<unknown[]>('provider_instances_list');
+        const rows = await call<unknown[]>(
+          'provider_instances_list',
+          agentId ? { request: { agentId } } : undefined
+        );
         return Array.isArray(rows)
           ? rows.map(normalizeProviderInstanceConfig)
           : [];
@@ -297,34 +410,42 @@ export function createProviderInstancesApi(
     },
 
     async create(
-      input: UpsertProviderInstanceInput
+      input: Omit<UpsertProviderInstanceInput, 'authMode'> & {
+        authMode?: ProviderAuthMode;
+      }
     ): Promise<ProviderInstanceConfig> {
       const created = await call<unknown>('provider_instance_create', {
         request: input,
       });
-      return normalizeProviderInstanceConfig(created);
+      const normalized = normalizeProviderInstanceConfig(created);
+      emitProviderInstancesChanged(normalized.agentId);
+      return normalized;
     },
 
     async update(
       instanceId: string,
-      input: UpsertProviderInstanceInput
+      input: UpdateProviderInstanceInput
     ): Promise<ProviderInstanceConfig> {
       const updated = await call<unknown>('provider_instance_update', {
         request: { ...input, instanceId },
       });
-      return normalizeProviderInstanceConfig(updated);
+      const normalized = normalizeProviderInstanceConfig(updated);
+      emitProviderInstancesChanged(normalized.agentId);
+      return normalized;
     },
 
     async setDefault(agentId: string, instanceId: string): Promise<void> {
       await call('provider_instance_set_default', {
         request: { agentId, instanceId },
       });
+      emitProviderInstancesChanged(agentId);
     },
 
     async remove(agentId: string, instanceId: string): Promise<void> {
       await call('provider_instance_delete', {
         request: { agentId, instanceId },
       });
+      emitProviderInstancesChanged(agentId);
     },
 
     async testConnection(

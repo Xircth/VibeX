@@ -1,5 +1,6 @@
 mod auth_projection;
 mod diagnostics_and_env;
+pub(in crate::host) mod instance_scope;
 mod native_preflight;
 
 use std::{
@@ -137,37 +138,73 @@ pub async fn dispatch_environment_diagnostics(
 }
 
 pub async fn dispatch_actions(pool: &SqlitePool, args: Value) -> Result<Value, ApplicationError> {
+    let instance_id = instance_scope::extract_provider_instance_id(&args);
     let args: AgentIdArgs = parse(args)?;
-    serialize(actions(pool, args.agent_id).await?)
+    match instance_scope::resolve_management_instance_scope(pool, &args.agent_id, instance_id.as_deref()).await? {
+        scope @ instance_scope::ManagementInstanceScope::Custom(_) => {
+            serialize(instance_scope::scoped_actions(pool, args.agent_id, &scope).await?)
+        }
+        instance_scope::ManagementInstanceScope::Local => serialize(actions(pool, args.agent_id).await?),
+    }
 }
 
 pub async fn dispatch_run_action(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = instance_scope::extract_provider_instance_id(&args);
     let args: RunActionArgs = parse(args)?;
-    serialize(run_action(pool, args.agent_id, args.action_id).await?)
+    match instance_scope::resolve_management_instance_scope(pool, &args.agent_id, instance_id.as_deref()).await? {
+        instance_scope::ManagementInstanceScope::Custom(record) => {
+            serialize(instance_scope::custom_run_action(pool, &record, args.agent_id, args.action_id).await?)
+        }
+        instance_scope::ManagementInstanceScope::Local => {
+            serialize(run_action(pool, args.agent_id, args.action_id).await?)
+        }
+    }
 }
 
 pub async fn dispatch_account_flow(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = instance_scope::extract_provider_instance_id(&args);
     let args: AgentIdArgs = parse(args)?;
-    serialize(account_flow_status(pool, args.agent_id).await?)
+    match instance_scope::resolve_management_instance_scope(pool, &args.agent_id, instance_id.as_deref()).await? {
+        instance_scope::ManagementInstanceScope::Custom(record) => {
+            serialize(instance_scope::custom_account_flow_status(pool, &record, args.agent_id).await?)
+        }
+        instance_scope::ManagementInstanceScope::Local => {
+            serialize(account_flow_status(pool, args.agent_id).await?)
+        }
+    }
 }
 
 pub async fn dispatch_auth_mode(pool: &SqlitePool, args: Value) -> Result<Value, ApplicationError> {
+    let instance_id = instance_scope::extract_provider_instance_id(&args);
     let args: AgentIdArgs = parse(args)?;
-    serialize(auth_mode(pool, args.agent_id).await?)
+    match instance_scope::resolve_management_instance_scope(pool, &args.agent_id, instance_id.as_deref()).await? {
+        instance_scope::ManagementInstanceScope::Custom(record) => {
+            serialize(instance_scope::custom_auth_mode(pool, &record, args.agent_id).await?)
+        }
+        instance_scope::ManagementInstanceScope::Local => serialize(auth_mode(pool, args.agent_id).await?),
+    }
 }
 
 pub async fn dispatch_auth_mode_set(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
+    let instance_id = instance_scope::extract_provider_instance_id(&args);
     let args: AuthModeSetArgs = parse(args)?;
-    serialize(auth_mode_set(pool, args.agent_id, args.mode, args.api_key).await?)
+    match instance_scope::resolve_management_instance_scope(pool, &args.agent_id, instance_id.as_deref()).await? {
+        instance_scope::ManagementInstanceScope::Custom(record) => serialize(
+            instance_scope::custom_auth_mode_set(pool, &record, args.agent_id, args.mode, args.api_key).await?,
+        ),
+        instance_scope::ManagementInstanceScope::Local => {
+            serialize(auth_mode_set(pool, args.agent_id, args.mode, args.api_key).await?)
+        }
+    }
 }
 
 pub async fn check_update(

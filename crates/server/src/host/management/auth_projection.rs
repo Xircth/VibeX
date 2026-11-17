@@ -8,7 +8,7 @@ use agents::{
     AgentId, NativeConfigProvider, NativeConfigSnapshot, TokioNativeFileSystem,
     auth_mode_credential_env, auth_mode_kind, built_in_auth_mode_policy, headless_account_env,
     native_uses_custom_endpoint, official_api_url, project_codex_auth_mode, resolve_account_label,
-    resolve_built_in_auth_mode,
+    resolve_account_label_with_env, resolve_built_in_auth_mode,
 };
 use api_types::{
     AgentAuthModeOptionView, AgentAuthModeView, AgentAuthenticationStatus, AgentPreflightItemView,
@@ -133,7 +133,9 @@ fn credential_present_for_mode(
     match (agent_id.as_str(), mode) {
         (_, "model_provider") => model_provider_credential_present(providers, snapshot),
         ("claude_code", "official_api" | "custom") => {
-            snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key"))
+            env.get(credential_env)
+                .is_some_and(|value| !value.trim().is_empty())
+                || snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key"))
         }
         ("grok", "api_key" | "custom") => {
             snapshot.is_some_and(|snapshot| snapshot.field_present("grok_api_key"))
@@ -315,6 +317,17 @@ pub(super) async fn with_account_label(
 ) -> Result<AgentAuthModeView, ApplicationError> {
     Ok(AgentAuthModeView {
         account_label: resolve_account_label(&view.agent_id).await,
+        ..view
+    })
+}
+
+pub(super) async fn with_account_label_env(
+    view: AgentAuthModeView,
+    home: &Path,
+    env: &HashMap<String, String>,
+) -> Result<AgentAuthModeView, ApplicationError> {
+    Ok(AgentAuthModeView {
+        account_label: resolve_account_label_with_env(Some(home), &view.agent_id, env).await,
         ..view
     })
 }

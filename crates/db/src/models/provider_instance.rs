@@ -115,6 +115,95 @@ pub async fn ensure_provider_instances_schema(pool: &SqlitePool) -> Result<(), s
     Ok(())
 }
 
+pub const LOCAL_PROVIDER_INSTANCE_ID: &str = "local";
+
+const RESERVED_INSTANCE_IDS: &[&str] = &[
+    "local",
+    "__proto__",
+    "constructor",
+    "toString",
+    "valueOf",
+    "hasOwnProperty",
+];
+
+/// Canonicalizes supported multi-instance agent IDs (`claude_code` and `codex`).
+pub fn canonical_provider_agent_id(raw: &str) -> Result<String, ProviderInstanceStoreError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ProviderInstanceStoreError::InvalidInput(
+            "agent_id must not be empty".into(),
+        ));
+    }
+    let normalized = trimmed.to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "claude" | "claude_code" | "claudecode" | "claude_native" => Ok("claude_code".to_string()),
+        "codex" | "codex_cli" | "openai_codex" | "codex_native" => Ok("codex".to_string()),
+        _ => Err(ProviderInstanceStoreError::InvalidInput(format!(
+            "multi-instance providers are currently only supported for claude_code and codex (got '{trimmed}')"
+        ))),
+    }
+}
+
+/// Candidate `agent_id` strings for backwards-compatible lookups of legacy rows.
+pub fn candidate_provider_agent_ids(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    match canonical_provider_agent_id(trimmed) {
+        Ok(canonical) if canonical == "claude_code" => vec![
+            "claude_code".to_string(),
+            "claude-code".to_string(),
+            "claude".to_string(),
+        ],
+        Ok(canonical) if canonical == "codex" => vec![
+            "codex".to_string(),
+            "codex_cli".to_string(),
+            "openai_codex".to_string(),
+        ],
+        _ => vec![trimmed.to_string()],
+    }
+}
+
+/// Strict T3Code-compatible `instanceId` validation:
+/// `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`, rejecting `"local"` and JS prototype keys.
+pub fn validate_instance_id(raw: &str) -> Result<String, ProviderInstanceStoreError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ProviderInstanceStoreError::InvalidInput(
+            "instance_id must not be empty".into(),
+        ));
+    }
+    if trimmed.len() > 64 {
+        return Err(ProviderInstanceStoreError::InvalidInput(
+            "instance_id must be at most 64 characters".into(),
+        ));
+    }
+    let mut chars = trimmed.chars();
+    let Some(first) = chars.next() else {
+        return Err(ProviderInstanceStoreError::InvalidInput(
+            "instance_id must not be empty".into(),
+        ));
+    };
+    if !first.is_ascii_alphabetic()
+        || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return Err(ProviderInstanceStoreError::InvalidInput(format!(
+            "instance_id '{trimmed}' must match ^[a-zA-Z][a-zA-Z0-9_-]{{0,63}}$"
+        )));
+    }
+    if trimmed.eq_ignore_ascii_case(LOCAL_PROVIDER_INSTANCE_ID)
+        || RESERVED_INSTANCE_IDS
+            .iter()
+            .any(|reserved| *reserved == trimmed || reserved.eq_ignore_ascii_case(trimmed))
+    {
+        return Err(ProviderInstanceStoreError::InvalidInput(format!(
+            "instance_id '{trimmed}' is reserved"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
 fn validate_non_empty(field: &str, value: &str) -> Result<String, ProviderInstanceStoreError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -192,13 +281,18 @@ impl ProviderInstanceRecord {
 
     pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Self>, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let rows = sqlx::query_as::<_, Self>(&format!(
+        let mut rows = sqlx::query_as::<_, Self>(&format!(
             r#"SELECT {PROVIDER_INSTANCE_COLUMNS}
                FROM provider_instances
                ORDER BY agent_id ASC, is_default DESC, created_at ASC, instance_id ASC"#
         ))
         .fetch_all(pool)
         .await?;
+        for row in &mut rows {
+            if let Ok(canonical) = canonical_provider_agent_id(&row.agent_id) {
+                row.agent_id = canonical;
+            }
+        }
         Ok(rows)
     }
 
@@ -207,15 +301,27 @@ impl ProviderInstanceRecord {
         agent_id: &str,
     ) -> Result<Vec<Self>, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let rows = sqlx::query_as::<_, Self>(&format!(
+        let candidates = candidate_provider_agent_ids(agent_id);
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+        let sql = format!(
             r#"SELECT {PROVIDER_INSTANCE_COLUMNS}
                FROM provider_instances
-               WHERE agent_id = ?
+               WHERE agent_id IN ({placeholders})
                ORDER BY is_default DESC, created_at ASC, instance_id ASC"#
-        ))
-        .bind(agent_id.trim())
-        .fetch_all(pool)
-        .await?;
+        );
+        let mut query = sqlx::query_as::<_, Self>(&sql);
+        for candidate in &candidates {
+            query = query.bind(candidate);
+        }
+        let mut rows = query.fetch_all(pool).await?;
+        if let Ok(canonical) = canonical_provider_agent_id(agent_id) {
+            for row in &mut rows {
+                row.agent_id = canonical.clone();
+            }
+        }
         Ok(rows)
     }
 
@@ -225,15 +331,31 @@ impl ProviderInstanceRecord {
         instance_id: &str,
     ) -> Result<Option<Self>, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let row = sqlx::query_as::<_, Self>(&format!(
+        let trimmed_id = instance_id.trim();
+        if trimmed_id.is_empty() || trimmed_id.eq_ignore_ascii_case(LOCAL_PROVIDER_INSTANCE_ID) {
+            return Ok(None);
+        }
+        let candidates = candidate_provider_agent_ids(agent_id);
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+        let sql = format!(
             r#"SELECT {PROVIDER_INSTANCE_COLUMNS}
                FROM provider_instances
-               WHERE agent_id = ? AND instance_id = ?"#
-        ))
-        .bind(agent_id.trim())
-        .bind(instance_id.trim())
-        .fetch_optional(pool)
-        .await?;
+               WHERE agent_id IN ({placeholders}) AND instance_id = ?
+               LIMIT 1"#
+        );
+        let mut query = sqlx::query_as::<_, Self>(&sql);
+        for candidate in &candidates {
+            query = query.bind(candidate);
+        }
+        let mut row = query.bind(trimmed_id).fetch_optional(pool).await?;
+        if let Some(ref mut rec) = row
+            && let Ok(canonical) = canonical_provider_agent_id(agent_id)
+        {
+            rec.agent_id = canonical;
+        }
         Ok(row)
     }
 
@@ -242,16 +364,28 @@ impl ProviderInstanceRecord {
         agent_id: &str,
     ) -> Result<Option<Self>, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let row = sqlx::query_as::<_, Self>(&format!(
+        let candidates = candidate_provider_agent_ids(agent_id);
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+        let sql = format!(
             r#"SELECT {PROVIDER_INSTANCE_COLUMNS}
                FROM provider_instances
-               WHERE agent_id = ?
-               ORDER BY is_default DESC, created_at ASC
+               WHERE agent_id IN ({placeholders}) AND is_default != 0
+               ORDER BY updated_at DESC, created_at ASC
                LIMIT 1"#
-        ))
-        .bind(agent_id.trim())
-        .fetch_optional(pool)
-        .await?;
+        );
+        let mut query = sqlx::query_as::<_, Self>(&sql);
+        for candidate in &candidates {
+            query = query.bind(candidate);
+        }
+        let mut row = query.fetch_optional(pool).await?;
+        if let Some(ref mut rec) = row
+            && let Ok(canonical) = canonical_provider_agent_id(agent_id)
+        {
+            rec.agent_id = canonical;
+        }
         Ok(row)
     }
 
@@ -260,8 +394,8 @@ impl ProviderInstanceRecord {
         input: CreateProviderInstanceInput<'_>,
     ) -> Result<Self, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let agent_id = validate_non_empty("agent_id", input.agent_id)?;
-        let instance_id = validate_non_empty("instance_id", input.instance_id)?;
+        let agent_id = canonical_provider_agent_id(input.agent_id)?;
+        let instance_id = validate_instance_id(input.instance_id)?;
         let display_name = validate_non_empty("display_name", input.display_name)?;
         let auth_mode = validate_auth_mode_json(input.auth_mode)?;
         let id = input
@@ -271,15 +405,19 @@ impl ProviderInstanceRecord {
             .map(str::to_owned)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
+        let candidates = candidate_provider_agent_ids(&agent_id);
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+
         let mut tx = pool.begin().await?;
 
-        let existing: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM provider_instances WHERE agent_id = ? AND instance_id = ?",
-        )
-        .bind(&agent_id)
-        .bind(&instance_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let existing_sql = format!(
+            "SELECT COUNT(*) FROM provider_instances WHERE agent_id IN ({placeholders}) AND instance_id = ?"
+        );
+        let mut existing_q = sqlx::query_scalar::<_, i64>(&existing_sql);
+        for candidate in &candidates {
+            existing_q = existing_q.bind(candidate);
+        }
+        let existing = existing_q.bind(&instance_id).fetch_one(&mut *tx).await?;
         if existing > 0 {
             return Err(ProviderInstanceStoreError::DuplicateInstance {
                 agent_id,
@@ -287,23 +425,19 @@ impl ProviderInstanceRecord {
             });
         }
 
-        let sibling_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM provider_instances WHERE agent_id = ?")
-                .bind(&agent_id)
-                .fetch_one(&mut *tx)
-                .await?;
-
-        // First instance for an agent automatically becomes default if none exists yet.
-        let make_default = input.is_default || sibling_count == 0;
+        // `"local"` is the built-in default instance; only mark a custom instance default when requested.
+        let make_default = input.is_default;
         if make_default {
-            sqlx::query(
+            let clear_sql = format!(
                 "UPDATE provider_instances \
                  SET is_default = 0, updated_at = datetime('now') \
-                 WHERE agent_id = ? AND is_default != 0",
-            )
-            .bind(&agent_id)
-            .execute(&mut *tx)
-            .await?;
+                 WHERE agent_id IN ({placeholders}) AND is_default != 0"
+            );
+            let mut clear_q = sqlx::query(&clear_sql);
+            for candidate in &candidates {
+                clear_q = clear_q.bind(candidate);
+            }
+            clear_q.execute(&mut *tx).await?;
         }
 
         let created = sqlx::query_as::<_, Self>(&format!(
@@ -333,8 +467,8 @@ impl ProviderInstanceRecord {
         input: UpdateProviderInstanceInput<'_>,
     ) -> Result<Self, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let agent_id = validate_non_empty("agent_id", agent_id)?;
-        let instance_id = validate_non_empty("instance_id", instance_id)?;
+        let canonical_agent = canonical_provider_agent_id(agent_id)?;
+        let instance_id = validate_instance_id(instance_id)?;
         let next_display_name = match input.display_name {
             Some(name) => Some(validate_non_empty("display_name", name)?),
             None => None,
@@ -344,152 +478,178 @@ impl ProviderInstanceRecord {
             None => None,
         };
 
+        let candidates = candidate_provider_agent_ids(&canonical_agent);
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+
         let mut tx = pool.begin().await?;
 
-        let current = sqlx::query_as::<_, Self>(&format!(
+        let find_sql = format!(
             r#"SELECT {PROVIDER_INSTANCE_COLUMNS}
                FROM provider_instances
-               WHERE agent_id = ? AND instance_id = ?"#
-        ))
-        .bind(&agent_id)
-        .bind(&instance_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| ProviderInstanceStoreError::NotFound {
-            agent_id: agent_id.clone(),
-            instance_id: instance_id.clone(),
-        })?;
+               WHERE agent_id IN ({placeholders}) AND instance_id = ?
+               LIMIT 1"#
+        );
+        let mut find_q = sqlx::query_as::<_, Self>(&find_sql);
+        for candidate in &candidates {
+            find_q = find_q.bind(candidate);
+        }
+        let current = find_q
+            .bind(&instance_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ProviderInstanceStoreError::NotFound {
+                agent_id: canonical_agent.clone(),
+                instance_id: instance_id.clone(),
+            })?;
 
         let target_default = input.is_default.unwrap_or(current.is_default);
         if target_default && !current.is_default {
-            sqlx::query(
+            let clear_sql = format!(
                 "UPDATE provider_instances \
                  SET is_default = 0, updated_at = datetime('now') \
-                 WHERE agent_id = ? AND is_default != 0",
-            )
-            .bind(&agent_id)
-            .execute(&mut *tx)
-            .await?;
+                 WHERE agent_id IN ({placeholders}) AND is_default != 0"
+            );
+            let mut clear_q = sqlx::query(&clear_sql);
+            for candidate in &candidates {
+                clear_q = clear_q.bind(candidate);
+            }
+            clear_q.execute(&mut *tx).await?;
         }
 
-        let updated = sqlx::query_as::<_, Self>(&format!(
+        let mut updated = sqlx::query_as::<_, Self>(&format!(
             r#"UPDATE provider_instances
-               SET display_name = COALESCE(?, display_name),
+               SET agent_id = ?,
+                   display_name = COALESCE(?, display_name),
                    auth_mode = COALESCE(?, auth_mode),
                    is_default = ?,
                    updated_at = datetime('now')
-               WHERE agent_id = ? AND instance_id = ?
+               WHERE id = ?
                RETURNING {PROVIDER_INSTANCE_COLUMNS}"#
         ))
+        .bind(&canonical_agent)
         .bind(next_display_name.as_deref())
         .bind(next_auth_mode.as_deref())
         .bind(target_default)
-        .bind(&agent_id)
-        .bind(&instance_id)
+        .bind(&current.id)
         .fetch_one(&mut *tx)
         .await?;
+        updated.agent_id = canonical_agent;
 
         tx.commit().await?;
         Ok(updated)
     }
 
-    /// Atomically clear `is_default` across all instances of `agent_id` and promote `instance_id`.
+    /// Clear `is_default` across all custom instances of `agent_id` so `"local"` becomes default.
+    pub async fn clear_default(
+        pool: &SqlitePool,
+        agent_id: &str,
+    ) -> Result<(), ProviderInstanceStoreError> {
+        ensure_provider_instances_schema(pool).await?;
+        let canonical_agent = canonical_provider_agent_id(agent_id)?;
+        let candidates = candidate_provider_agent_ids(&canonical_agent);
+        let placeholders = vec!["?"; candidates.len()].join(", ");
+        let clear_sql = format!(
+            "UPDATE provider_instances \
+             SET is_default = 0, updated_at = datetime('now') \
+             WHERE agent_id IN ({placeholders}) AND is_default != 0"
+        );
+        let mut clear_q = sqlx::query(&clear_sql);
+        for candidate in &candidates {
+            clear_q = clear_q.bind(candidate);
+        }
+        clear_q.execute(pool).await?;
+        Ok(())
+    }
+
+    /// Atomically clear `is_default` across all instances of `agent_id` and promote `instance_id`
+    /// (or revert default to `"local"` when `instance_id` is `"local"`).
     pub async fn set_default(
         pool: &SqlitePool,
         agent_id: &str,
         instance_id: &str,
-    ) -> Result<Self, ProviderInstanceStoreError> {
+    ) -> Result<Option<Self>, ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let agent_id = validate_non_empty("agent_id", agent_id)?;
-        let instance_id = validate_non_empty("instance_id", instance_id)?;
+        let canonical_agent = canonical_provider_agent_id(agent_id)?;
+        let trimmed_id = instance_id.trim();
+        if trimmed_id.eq_ignore_ascii_case(LOCAL_PROVIDER_INSTANCE_ID) {
+            Self::clear_default(pool, &canonical_agent).await?;
+            return Ok(None);
+        }
+        let instance_id = validate_instance_id(trimmed_id)?;
+        let candidates = candidate_provider_agent_ids(&canonical_agent);
+        let placeholders = vec!["?"; candidates.len()].join(", ");
 
         let mut tx = pool.begin().await?;
-        let exists: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM provider_instances WHERE agent_id = ? AND instance_id = ?",
-        )
-        .bind(&agent_id)
-        .bind(&instance_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if exists == 0 {
+        let find_sql = format!(
+            "SELECT id FROM provider_instances WHERE agent_id IN ({placeholders}) AND instance_id = ? LIMIT 1"
+        );
+        let mut find_q = sqlx::query_scalar::<_, String>(&find_sql);
+        for candidate in &candidates {
+            find_q = find_q.bind(candidate);
+        }
+        let Some(row_id) = find_q.bind(&instance_id).fetch_optional(&mut *tx).await? else {
             return Err(ProviderInstanceStoreError::NotFound {
-                agent_id,
+                agent_id: canonical_agent,
                 instance_id,
             });
-        }
+        };
 
-        sqlx::query(
+        let clear_sql = format!(
             "UPDATE provider_instances \
              SET is_default = 0, updated_at = datetime('now') \
-             WHERE agent_id = ?",
-        )
-        .bind(&agent_id)
-        .execute(&mut *tx)
-        .await?;
+             WHERE agent_id IN ({placeholders})"
+        );
+        let mut clear_q = sqlx::query(&clear_sql);
+        for candidate in &candidates {
+            clear_q = clear_q.bind(candidate);
+        }
+        clear_q.execute(&mut *tx).await?;
 
-        let promoted = sqlx::query_as::<_, Self>(&format!(
+        let mut promoted = sqlx::query_as::<_, Self>(&format!(
             r#"UPDATE provider_instances
                SET is_default = 1, updated_at = datetime('now')
-               WHERE agent_id = ? AND instance_id = ?
+               WHERE id = ?
                RETURNING {PROVIDER_INSTANCE_COLUMNS}"#
         ))
-        .bind(&agent_id)
-        .bind(&instance_id)
+        .bind(&row_id)
         .fetch_one(&mut *tx)
         .await?;
+        promoted.agent_id = canonical_agent;
 
         tx.commit().await?;
-        Ok(promoted)
+        Ok(Some(promoted))
     }
 
-    /// Delete `(agent_id, instance_id)`, rejecting deletion of a default instance while
-    /// sibling instances still exist for the same `agent_id`.
+    /// Delete `(agent_id, instance_id)`. If it was default, default naturally falls back to `"local"`.
     pub async fn delete(
         pool: &SqlitePool,
         agent_id: &str,
         instance_id: &str,
     ) -> Result<(), ProviderInstanceStoreError> {
         ensure_provider_instances_schema(pool).await?;
-        let agent_id = validate_non_empty("agent_id", agent_id)?;
-        let instance_id = validate_non_empty("instance_id", instance_id)?;
+        let canonical_agent = canonical_provider_agent_id(agent_id)?;
+        let instance_id = validate_instance_id(instance_id)?;
+        let candidates = candidate_provider_agent_ids(&canonical_agent);
+        let placeholders = vec!["?"; candidates.len()].join(", ");
 
         let mut tx = pool.begin().await?;
 
-        let target = sqlx::query_as::<_, Self>(&format!(
-            r#"SELECT {PROVIDER_INSTANCE_COLUMNS}
-               FROM provider_instances
-               WHERE agent_id = ? AND instance_id = ?"#
-        ))
-        .bind(&agent_id)
-        .bind(&instance_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| ProviderInstanceStoreError::NotFound {
-            agent_id: agent_id.clone(),
-            instance_id: instance_id.clone(),
-        })?;
-
-        if target.is_default {
-            let sibling_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM provider_instances WHERE agent_id = ? AND instance_id != ?",
-            )
-            .bind(&agent_id)
-            .bind(&instance_id)
-            .fetch_one(&mut *tx)
-            .await?;
-            if sibling_count > 0 {
-                return Err(
-                    ProviderInstanceStoreError::CannotDeleteDefaultWithSiblings {
-                        agent_id,
-                        instance_id,
-                    },
-                );
-            }
+        let find_sql = format!(
+            "SELECT id FROM provider_instances WHERE agent_id IN ({placeholders}) AND instance_id = ? LIMIT 1"
+        );
+        let mut find_q = sqlx::query_scalar::<_, String>(&find_sql);
+        for candidate in &candidates {
+            find_q = find_q.bind(candidate);
         }
+        let Some(row_id) = find_q.bind(&instance_id).fetch_optional(&mut *tx).await? else {
+            return Err(ProviderInstanceStoreError::NotFound {
+                agent_id: canonical_agent,
+                instance_id,
+            });
+        };
 
-        sqlx::query("DELETE FROM provider_instances WHERE agent_id = ? AND instance_id = ?")
-            .bind(&agent_id)
-            .bind(&instance_id)
+        sqlx::query("DELETE FROM provider_instances WHERE id = ?")
+            .bind(&row_id)
             .execute(&mut *tx)
             .await?;
 
@@ -519,8 +679,34 @@ mod tests {
         pool
     }
 
+    #[test]
+    fn validates_instance_ids_and_agent_canonicalization() {
+        assert_eq!(canonical_provider_agent_id("claude").unwrap(), "claude_code");
+        assert_eq!(canonical_provider_agent_id("claude-code").unwrap(), "claude_code");
+        assert_eq!(canonical_provider_agent_id("codex").unwrap(), "codex");
+        assert!(canonical_provider_agent_id("cursor").is_err());
+
+        assert!(validate_instance_id("work-1").is_ok());
+        assert!(validate_instance_id("Inst_Alpha").is_ok());
+        for bad in [
+            "",
+            "local",
+            "LOCAL",
+            "1abc",
+            "-abc",
+            "../etc",
+            "__proto__",
+            "constructor",
+            "toString",
+            "valueOf",
+            "hasOwnProperty",
+        ] {
+            assert!(validate_instance_id(bad).is_err(), "expected {bad} to fail");
+        }
+    }
+
     #[tokio::test]
-    async fn crud_atomic_default_switch_and_default_deletion_guard() {
+    async fn crud_atomic_default_switch_and_local_fallback() {
         let pool = test_pool().await;
 
         let sub = ProviderInstanceRecord::create(
@@ -536,55 +722,71 @@ mod tests {
         )
         .await
         .expect("create first instance");
-        // First instance for an agent is promoted to default automatically.
-        assert!(sub.is_default);
+        // Implicit `"local"` stays default unless explicitly promoted.
+        assert!(!sub.is_default);
+        assert_eq!(sub.agent_id, "claude_code");
+        assert!(
+            ProviderInstanceRecord::find_default_for_agent(&pool, "claude_code")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let api = ProviderInstanceRecord::create(
             &pool,
             CreateProviderInstanceInput {
                 id: None,
-                agent_id: "claude",
+                agent_id: "claude_code",
                 instance_id: "claude-api",
                 display_name: "Claude API Key",
                 auth_mode: r#"{"type":"api_key","env_var_name":"ANTHROPIC_API_KEY"}"#,
-                is_default: false,
+                is_default: true,
             },
         )
         .await
         .expect("create second instance");
-        assert!(!api.is_default);
+        assert!(api.is_default);
 
-        // Deleting default while sibling exists must fail.
-        let err = ProviderInstanceRecord::delete(&pool, "claude", "claude-sub")
+        // Promote `claude-sub` atomically; `claude-api` loses `is_default`.
+        let promoted = ProviderInstanceRecord::set_default(&pool, "claude_code", "claude-sub")
             .await
-            .expect_err("must reject deleting default with siblings");
-        assert!(matches!(
-            err,
-            ProviderInstanceStoreError::CannotDeleteDefaultWithSiblings { .. }
-        ));
-
-        // Promote `claude-api` atomically; `claude-sub` loses `is_default`.
-        let promoted = ProviderInstanceRecord::set_default(&pool, "claude", "claude-api")
-            .await
-            .expect("set_default");
+            .expect("set_default")
+            .expect("custom promoted");
         assert!(promoted.is_default);
 
-        let all = ProviderInstanceRecord::list_by_agent(&pool, "claude")
+        let all = ProviderInstanceRecord::list_by_agent(&pool, "claude-code")
             .await
             .expect("list_by_agent");
         assert_eq!(all.len(), 2);
         assert_eq!(all.iter().filter(|r| r.is_default).count(), 1);
-        assert_eq!(all[0].instance_id, "claude-api");
+        assert_eq!(all[0].instance_id, "claude-sub");
 
-        // Now `claude-sub` is non-default and can be deleted; then sole remaining default can be deleted.
-        ProviderInstanceRecord::delete(&pool, "claude", "claude-sub")
-            .await
-            .expect("delete non-default");
-        ProviderInstanceRecord::delete(&pool, "claude", "claude-api")
-            .await
-            .expect("delete sole remaining default");
+        // Switch default back to implicit `"local"`.
+        assert!(
+            ProviderInstanceRecord::set_default(&pool, "claude_code", "local")
+                .await
+                .expect("set_default local")
+                .is_none()
+        );
+        assert!(
+            ProviderInstanceRecord::find_default_for_agent(&pool, "claude_code")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
-        let empty = ProviderInstanceRecord::list_by_agent(&pool, "claude")
+        // Deleting a default or non-default instance succeeds cleanly and leaves siblings intact.
+        ProviderInstanceRecord::set_default(&pool, "claude_code", "claude-sub")
+            .await
+            .unwrap();
+        ProviderInstanceRecord::delete(&pool, "claude_code", "claude-sub")
+            .await
+            .expect("delete default");
+        ProviderInstanceRecord::delete(&pool, "claude_code", "claude-api")
+            .await
+            .expect("delete remaining");
+
+        let empty = ProviderInstanceRecord::list_by_agent(&pool, "claude_code")
             .await
             .expect("list empty");
         assert!(empty.is_empty());

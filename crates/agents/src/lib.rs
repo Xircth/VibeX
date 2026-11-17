@@ -19,6 +19,7 @@ pub mod checkpoint_ref;
 pub mod cli_exposure;
 mod codex_auth;
 pub mod codex_goal;
+pub mod codex_shadow_home;
 mod community_acp_presets;
 pub mod contribution_capability;
 pub mod conversation;
@@ -101,7 +102,8 @@ pub use account_session::{
     account_session_from_codex_http, account_session_from_http, account_still_present,
     authentication_from_account_command, authentication_with_bound_provider,
     confirm_account_session, extract_codex_access_token, jwt_identity, official_account_present,
-    prefer_recorded_account_over_residue, resolve_account_label, resolve_observed_authentication,
+    prefer_recorded_account_over_residue, resolve_account_label, resolve_account_label_with_env,
+    resolve_observed_authentication,
 };
 pub use antigravity_auth::{
     AntigravitySyncReport, AntigravitySyncStatus, apply_antigravity_env_policy,

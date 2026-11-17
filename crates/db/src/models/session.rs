@@ -49,6 +49,8 @@ pub struct Session {
     pub external_session_id: Option<String>,
     /// Stable open Agent identity used by new sessions and history.
     pub agent_id: Option<AgentId>,
+    /// Optional provider instance identifier (`None` = implicit `"local"` instance).
+    pub provider_instance_id: Option<String>,
     /// Multi-agent delegation linkage. All NULL for a regular (non-delegated)
     /// session: `parent_session_id` points at the parent that delegated this
     /// child, `parent_tool_use_id` is the parent's `delegate_to_agent` tool-call
@@ -58,6 +60,28 @@ pub struct Session {
     pub delegation_call_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Normalize a requested `provider_instance_id` for custom-instance lookup: blank or `"local"` collapses to `None`.
+pub fn normalize_provider_instance_id(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("local"))
+        .map(str::to_string)
+}
+
+/// Normalize a `provider_instance_id` for persistence on `sessions`: blank collapses to `None`,
+/// while `"local"` is canonicalized and retained so an explicit `"local"` choice overrides any
+/// custom default instance.
+pub fn normalize_provider_instance_storage_id(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if value.eq_ignore_ascii_case("local") {
+                "local".to_string()
+            } else {
+                value.to_string()
+            }
+        })
 }
 
 impl Session {
@@ -91,10 +115,12 @@ pub fn untitled_fallback_numbers(sessions: &[Session]) -> HashMap<Uuid, usize> {
         .collect()
 }
 
-#[derive(Debug, Deserialize, TS)]
+#[derive(Debug, Default, Deserialize, TS)]
 pub struct CreateSession {
     pub executor: Option<String>,
     pub agent_id: Option<AgentId>,
+    #[serde(default)]
+    pub provider_instance_id: Option<String>,
     pub task_id: Option<Uuid>,
     pub name: Option<String>,
     pub initial_prompt: Option<String>,
@@ -113,6 +139,7 @@ impl Session {
                       executor,
                       external_session_id,
                       agent_id,
+                      provider_instance_id,
                       parent_session_id,
                       parent_tool_use_id,
                       delegation_call_id,
@@ -140,6 +167,7 @@ impl Session {
                       executor,
                       external_session_id,
                       agent_id,
+                      provider_instance_id,
                       parent_session_id,
                       parent_tool_use_id,
                       delegation_call_id,
@@ -170,6 +198,7 @@ impl Session {
                       s.executor,
                       s.external_session_id,
                       s.agent_id,
+                      s.provider_instance_id,
                       s.parent_session_id,
                       s.parent_tool_use_id,
                       s.delegation_call_id,
@@ -203,6 +232,7 @@ impl Session {
                       s.executor,
                       s.external_session_id,
                       s.agent_id,
+                      s.provider_instance_id,
                       s.parent_session_id,
                       s.parent_tool_use_id,
                       s.delegation_call_id,
@@ -244,10 +274,12 @@ impl Session {
         id: Uuid,
         workspace_id: Uuid,
     ) -> Result<Self, SessionError> {
+        let normalized_instance =
+            normalize_provider_instance_storage_id(data.provider_instance_id.as_deref());
         sqlx::query_as::<_, Session>(
             r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor,
-                                     agent_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                     agent_id, provider_instance_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id,
                          workspace_id,
                          task_id,
@@ -257,6 +289,7 @@ impl Session {
                          executor,
                          external_session_id,
                          agent_id,
+                         provider_instance_id,
                          parent_session_id,
                          parent_tool_use_id,
                          delegation_call_id,
@@ -275,6 +308,7 @@ impl Session {
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
         .bind(data.agent_id.as_ref().map(AgentId::as_str))
+        .bind(normalized_instance)
         .fetch_one(&mut *conn)
         .await
         .map_err(SessionError::from)
@@ -318,10 +352,12 @@ impl Session {
         parent_tool_use_id: &str,
         delegation_call_id: &str,
     ) -> Result<Self, SessionError> {
+        let normalized_instance =
+            normalize_provider_instance_storage_id(data.provider_instance_id.as_deref());
         sqlx::query_as::<_, Session>(
             r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor,
-                                     agent_id, parent_session_id, parent_tool_use_id, delegation_call_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     agent_id, provider_instance_id, parent_session_id, parent_tool_use_id, delegation_call_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id,
                          workspace_id,
                          task_id,
@@ -331,6 +367,7 @@ impl Session {
                          executor,
                          external_session_id,
                          agent_id,
+                         provider_instance_id,
                          parent_session_id,
                          parent_tool_use_id,
                          delegation_call_id,
@@ -349,6 +386,7 @@ impl Session {
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
         .bind(data.agent_id.as_ref().map(AgentId::as_str))
+        .bind(normalized_instance)
         .bind(parent_session_id)
         .bind(parent_tool_use_id)
         .bind(delegation_call_id)
@@ -374,6 +412,7 @@ impl Session {
                       executor,
                       external_session_id,
                       agent_id,
+                      provider_instance_id,
                       parent_session_id,
                       parent_tool_use_id,
                       delegation_call_id,
@@ -398,6 +437,25 @@ impl Session {
                WHERE id = ?"#,
         )
         .bind(executor)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_provider_instance_id(
+        pool: &SqlitePool,
+        id: Uuid,
+        provider_instance_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let normalized = normalize_provider_instance_storage_id(provider_instance_id);
+        sqlx::query(
+            r#"UPDATE sessions
+               SET provider_instance_id = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(normalized)
         .bind(id)
         .execute(pool)
         .await?;
@@ -559,6 +617,7 @@ mod tests {
             executor: None,
             external_session_id: None,
             agent_id: None,
+            provider_instance_id: None,
             parent_session_id: None,
             parent_tool_use_id: None,
             delegation_call_id: None,
@@ -601,6 +660,7 @@ mod tests {
                 AgentId::parse(executor.to_ascii_lowercase())
                     .expect("test executor has a valid AgentId"),
             ),
+            provider_instance_id: None,
             task_id: None,
             name: None,
             initial_prompt: None,

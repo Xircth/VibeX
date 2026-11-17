@@ -21,7 +21,6 @@ const CATALOG_JSON: &str = include_str!("../../../dimo-plugin.json");
 /// Canonical `(directory_name, plugin_id)` pairs for all official and built-in
 /// capability plugins managed in the monorepo `plugins/<directory_name>` workspace.
 pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
-    ("provider-switch", "dimo.provider-switch"),
     ("plugin-development", "dimo.plugin-development"),
     ("session-enhance", "dimo.session-enhance"),
     ("browser", "dimo.browser"),

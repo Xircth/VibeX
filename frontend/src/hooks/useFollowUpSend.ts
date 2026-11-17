@@ -20,6 +20,7 @@ import {
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { fileExtension, mimeForMediaExtension } from '@/utils/mediaAttachments';
+import { normalizeProviderInstanceIdForApi } from '@/lib/providerInstancesApi';
 
 function formatOptimisticFileRefLabel(ref: {
   path: string;
@@ -187,9 +188,14 @@ export function useFollowUpSend({
         setFollowUpError(null);
 
         if (shouldCreateNewSession) {
+          const normalizedInstanceId =
+            normalizeProviderInstanceIdForApi(providerInstanceId);
           const session = await sessionsApi.create({
             workspace_id: targetWorkspaceId,
             executor: executorProfileId.executor,
+            ...(normalizedInstanceId
+              ? { provider_instance_id: normalizedInstanceId }
+              : {}),
             name: newSessionName?.trim() ? newSessionName.trim() : null,
             initial_prompt: displayPrompt,
           });

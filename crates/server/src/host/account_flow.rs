@@ -19,15 +19,73 @@ fn pending_flows() -> &'static Mutex<HashMap<String, PendingAccountFlow>> {
     FLOWS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn account_flow_key(agent_id: &AgentId, instance_id: Option<&str>) -> String {
+    match instance_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("local"))
+    {
+        Some(instance_id) => format!("{}::{instance_id}", agent_id.as_str()),
+        None => agent_id.as_str().to_string(),
+    }
+}
+
+fn sanitize_path_token(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 pub fn account_flow_result_path(agent_id: &AgentId) -> PathBuf {
-    utils::path::get_dimo_temp_dir().join(format!("dimo-account-flow-{}.exit", agent_id.as_str()))
+    account_flow_result_path_for_instance(agent_id, None)
+}
+
+pub fn account_flow_result_path_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+) -> PathBuf {
+    match instance_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("local"))
+    {
+        Some(instance_id) => utils::path::get_dimo_temp_dir().join(format!(
+            "dimo-account-flow-{}-{}.exit",
+            agent_id.as_str(),
+            sanitize_path_token(instance_id)
+        )),
+        None => utils::path::get_dimo_temp_dir()
+            .join(format!("dimo-account-flow-{}.exit", agent_id.as_str())),
+    }
 }
 
 pub fn launcher_script_path(agent_id: &AgentId, action_id: &str) -> PathBuf {
-    utils::path::get_dimo_temp_dir().join(format!(
-        "dimo-management-{}-{action_id}.cmd",
-        agent_id.as_str()
-    ))
+    launcher_script_path_for_instance(agent_id, None, action_id)
+}
+
+pub fn launcher_script_path_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+    action_id: &str,
+) -> PathBuf {
+    match instance_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("local"))
+    {
+        Some(instance_id) => utils::path::get_dimo_temp_dir().join(format!(
+            "dimo-management-{}-{}-{action_id}.cmd",
+            agent_id.as_str(),
+            sanitize_path_token(instance_id)
+        )),
+        None => utils::path::get_dimo_temp_dir().join(format!(
+            "dimo-management-{}-{action_id}.cmd",
+            agent_id.as_str()
+        )),
+    }
 }
 
 /// The argument a management terminal runs to perform one account action.
@@ -47,6 +105,19 @@ pub async fn prepare_management_launch(
     assignments: &[String],
     result_path: Option<&Path>,
 ) -> std::io::Result<String> {
+    prepare_management_launch_for_instance(agent_id, None, action_id, command, assignments, result_path)
+        .await
+}
+
+#[cfg_attr(not(windows), allow(unused_variables))]
+pub async fn prepare_management_launch_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+    action_id: &str,
+    command: &str,
+    assignments: &[String],
+    result_path: Option<&Path>,
+) -> std::io::Result<String> {
     #[cfg(not(windows))]
     {
         let wrapped = match result_path {
@@ -61,7 +132,7 @@ pub async fn prepare_management_launch(
     }
     #[cfg(windows)]
     {
-        let script_path = launcher_script_path(agent_id, action_id);
+        let script_path = launcher_script_path_for_instance(agent_id, instance_id, action_id);
         let mut script = String::from("@echo off\r\n");
         for assignment in assignments {
             script.push_str(assignment);
@@ -111,9 +182,19 @@ pub fn register_account_flow(
     kind: ProfileManagementActionKind,
     result_path: PathBuf,
 ) {
+    register_account_flow_for_instance(agent_id, None, action_id, kind, result_path);
+}
+
+pub fn register_account_flow_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+    action_id: impl Into<String>,
+    kind: ProfileManagementActionKind,
+    result_path: PathBuf,
+) {
     if let Ok(mut flows) = pending_flows().lock() {
         flows.insert(
-            agent_id.as_str().to_string(),
+            account_flow_key(agent_id, instance_id),
             PendingAccountFlow {
                 action_id: action_id.into(),
                 kind,
@@ -124,26 +205,44 @@ pub fn register_account_flow(
 }
 
 pub fn take_account_flow(agent_id: &AgentId) -> Option<PendingAccountFlow> {
+    take_account_flow_for_instance(agent_id, None)
+}
+
+pub fn take_account_flow_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+) -> Option<PendingAccountFlow> {
     pending_flows()
         .lock()
         .ok()
-        .and_then(|mut flows| flows.remove(agent_id.as_str()))
+        .and_then(|mut flows| flows.remove(&account_flow_key(agent_id, instance_id)))
 }
 
 /// Forget a registration whose action never launched. Without this the pending
 /// view outlives the failed launch and authentication management polls an exit
 /// code that will never be written.
 pub fn cancel_account_flow(agent_id: &AgentId) {
+    cancel_account_flow_for_instance(agent_id, None);
+}
+
+pub fn cancel_account_flow_for_instance(agent_id: &AgentId, instance_id: Option<&str>) {
     if let Ok(mut flows) = pending_flows().lock() {
-        flows.remove(agent_id.as_str());
+        flows.remove(&account_flow_key(agent_id, instance_id));
     }
 }
 
 pub fn peek_account_flow(agent_id: &AgentId) -> Option<PendingAccountFlow> {
+    peek_account_flow_for_instance(agent_id, None)
+}
+
+pub fn peek_account_flow_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+) -> Option<PendingAccountFlow> {
     pending_flows()
         .lock()
         .ok()
-        .and_then(|flows| flows.get(agent_id.as_str()).cloned())
+        .and_then(|flows| flows.get(&account_flow_key(agent_id, instance_id)).cloned())
 }
 
 pub fn idle_account_flow(agent_id: AgentId) -> AgentAccountFlowView {

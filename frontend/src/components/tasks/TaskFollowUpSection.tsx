@@ -39,13 +39,6 @@ import {
 } from '@/features/conversation/conversationTimelineRegistry';
 import { sessionsApi } from '@/lib/api';
 import { listenToConversationEvents } from '@/features/conversation/events';
-import {
-  composerSessionControlDisplay,
-  liveSessionControlsSnapshot,
-  loadAgentSessionControlsCatalog,
-  sessionControlsQueryKey,
-  sessionControlsSchemaQueryKey,
-} from '@/features/agents/sessionControlsQuery';
 
 import type { Session, Workspace } from 'shared/types';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
@@ -56,11 +49,11 @@ import { useParams } from 'react-router-dom';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
-import {
-  ComposerEngineHandoffModal,
-  useComposerEngineHandoff,
-} from './follow-up/ComposerEngineHandoffControl';
-import { resolveSessionModelDisplayLabel } from './follow-up/SessionSettingsSummary';
+import { useComposerEngineHandoff } from './follow-up/ComposerEngineHandoffControl';
+import type { SessionProviderInstanceConfig } from './follow-up/SessionSettingsSummary';
+import { useComposerProviderInstances } from './follow-up/useComposerProviderInstances';
+import { useComposerSessionControlsQuery } from './follow-up/useComposerSessionControlsQuery';
+import { normalizeProviderInstanceIdForApi } from '@/lib/providerInstancesApi';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
@@ -68,10 +61,7 @@ import { PermissionRequestCard } from '@/components/NormalizedConversation/conve
 import { RateLimitRecoveryBanner } from '@/components/NormalizedConversation/RateLimitRecoveryBanner';
 import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
 import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
-import {
-  sanitizeDependentConfigValues,
-  visibleSessionConfigOptions,
-} from './follow-up/SessionConfigOptionSelectors';
+import { sanitizeDependentConfigValues } from './follow-up/SessionConfigOptionSelectors';
 import {
   SessionComposerAttachmentDrawer,
   SessionComposerInput,
@@ -444,9 +434,14 @@ export function TaskFollowUpSection({
     setSelectedExecutorProfile,
     effectiveExecutorProfile,
   } = useSessionComposerProfileSelection(defaultExecutorProfile);
-  const targetExecutor = effectiveExecutorProfile?.executor ?? resolvedSessionExecutor;
-  const isChangingAgent = Boolean(resolvedSessionExecutor && targetExecutor !== resolvedSessionExecutor);
-  const [continuationPolicy, setContinuationPolicy] = useState<'portable' | 'fresh'>('portable');
+  const targetExecutor =
+    effectiveExecutorProfile?.executor ?? resolvedSessionExecutor;
+  const isChangingAgent = Boolean(
+    resolvedSessionExecutor && targetExecutor !== resolvedSessionExecutor
+  );
+  const [continuationPolicy, setContinuationPolicy] = useState<
+    'portable' | 'fresh'
+  >('portable');
 
   // Publish the composer's effective profile so the conversation's reset-to-here
   // retry re-sends with the SAME model/variant selection (keeping the create form,
@@ -470,6 +465,22 @@ export function TaskFollowUpSection({
     saveToScratch,
   });
 
+  const [instanceSwitchedScope, setInstanceSwitchedScope] = useState<
+    string | null
+  >(null);
+  const providerInstances = useComposerProviderInstances({
+    sessionId,
+    agentId: targetExecutor ?? null,
+    persistedInstanceId: session?.provider_instance_id,
+    isChangingAgent,
+  });
+  const selectedProviderInstanceId = providerInstances.scopedProviderInstanceId;
+  const instanceScopeKey = `${sessionId ?? '__new__'}::${targetExecutor ?? ''}::${selectedProviderInstanceId ?? 'local'}`;
+  const isChangingInstance = instanceSwitchedScope === instanceScopeKey;
+  useEffect(() => {
+    setInstanceSwitchedScope(null);
+  }, [sessionId, targetExecutor, sessionModes, sessionConfigOptions]);
+
   const {
     selectedMode,
     setSelectedMode,
@@ -480,16 +491,11 @@ export function TaskFollowUpSection({
     sessionId,
     targetExecutor,
     resolvedSessionExecutor,
+    providerInstanceId: selectedProviderInstanceId,
   });
-  const [selectedProviderInstanceId, setSelectedProviderInstanceId] = useState<
-    string | null
-  >(null);
   const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(
     () => new Set()
   );
-  useEffect(() => {
-    setSelectedProviderInstanceId(null);
-  }, [sessionId, targetExecutor, resolvedSessionExecutor]);
   useEffect(() => {
     setContinuationPolicy('portable');
     setDismissedQuestionIds(new Set());
@@ -573,13 +579,44 @@ export function TaskFollowUpSection({
       return next;
     });
   }, []);
+  const setSelectedInstanceOverride =
+    providerInstances.setSelectedInstanceOverride;
+  const handleApplyProviderInstanceId = useCallback(
+    (instanceId: string | null, targetAgentId?: string | null) => {
+      setSelectedInstanceOverride(instanceId, targetAgentId);
+      if (targetAgentId && targetAgentId === targetExecutor) {
+        const normalized =
+          normalizeProviderInstanceIdForApi(instanceId) ?? 'local';
+        setInstanceSwitchedScope(
+          `${sessionId ?? '__new__'}::${targetAgentId}::${normalized}`
+        );
+      }
+    },
+    [sessionId, setSelectedInstanceOverride, targetExecutor]
+  );
   const engineHandoff = useComposerEngineHandoff({
     sessionId,
-    hasExistingTurns: Boolean(sessionId && entries.length > 0),
     currentExecutor:
       effectiveExecutorProfile?.executor ?? resolvedSessionExecutor ?? null,
+    currentProviderInstanceId: selectedProviderInstanceId,
     onApplyExecutorProfile: setSelectedExecutorProfile,
+    onApplyProviderInstanceId: handleApplyProviderInstanceId,
+    resolveTargetInstanceIdForAgent:
+      providerInstances.resolveTargetInstanceIdForAgent,
   });
+  const handleSelectProviderInstance = useCallback(
+    (nextInstanceId: string) => {
+      if (targetExecutor) {
+        const normalized =
+          normalizeProviderInstanceIdForApi(nextInstanceId) ?? 'local';
+        setInstanceSwitchedScope(
+          `${sessionId ?? '__new__'}::${targetExecutor}::${normalized}`
+        );
+      }
+      engineHandoff.handleChangeProviderInstance(nextInstanceId);
+    },
+    [engineHandoff, sessionId, targetExecutor]
+  );
   const autoCreatedNewSessionRef = useRef(false);
   useEffect(() => {
     if (!isNewSessionMode) {
@@ -595,6 +632,9 @@ export function TaskFollowUpSection({
       .create({
         workspace_id: workspaceId,
         executor: executorId,
+        ...(selectedProviderInstanceId
+          ? { provider_instance_id: selectedProviderInstanceId }
+          : {}),
       })
       .then((created) => {
         markAutoCreatedSession(created.id, executorId);
@@ -614,68 +654,26 @@ export function TaskFollowUpSection({
     handleSelectSession,
     isNewSessionMode,
     markAutoCreatedSession,
+    selectedProviderInstanceId,
     workspaceId,
   ]);
   const executor = targetExecutor ?? null;
-  const catalogQuery = useQuery({
-    queryKey: sessionControlsQueryKey(executor ?? '', null),
-    queryFn: () => loadAgentSessionControlsCatalog(executor),
-    enabled: Boolean(executor),
-    staleTime: 60_000,
-    gcTime: Infinity,
-    retry: false,
+  const {
+    catalogQuery,
+    displaySessionModes,
+    liveModeId,
+    displaySessionConfigOptions,
+    fromModelLabel,
+    toModelLabel,
+  } = useComposerSessionControlsQuery({
+    executor,
+    workspaceId,
+    selectedProviderInstanceId,
+    sessionModes,
+    sessionConfigOptions,
+    selectedConfigValues,
+    ignoreLiveControls: isChangingAgent || isChangingInstance,
   });
-  const workspaceControlsQuery = useQuery({
-    queryKey: sessionControlsQueryKey(executor ?? '', workspaceId ?? ''),
-    queryFn: () => loadAgentSessionControlsCatalog(executor!),
-    enabled: false,
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-  });
-  const schemaQuery = useQuery({
-    queryKey: sessionControlsSchemaQueryKey(executor ?? ''),
-    queryFn: () => loadAgentSessionControlsCatalog(executor!),
-    enabled: false,
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-  });
-  const displayControls = useMemo(
-    () =>
-      composerSessionControlDisplay([
-        isChangingAgent ? null : liveSessionControlsSnapshot(sessionModes, sessionConfigOptions),
-        workspaceControlsQuery.data,
-        catalogQuery.data,
-        schemaQuery.data,
-      ]),
-    [
-      sessionModes,
-      isChangingAgent,
-      sessionConfigOptions,
-      workspaceControlsQuery.data,
-      catalogQuery.data,
-      schemaQuery.data,
-    ]
-  );
-  const displaySessionModes = displayControls.sessionModes;
-  const liveModeId = displaySessionModes.current;
-  const displaySessionConfigOptions = useMemo(
-    () => visibleSessionConfigOptions(displayControls.sessionConfigOptions),
-    [displayControls.sessionConfigOptions]
-  );
-  const fromModelLabel = useMemo(
-    () => resolveSessionModelDisplayLabel(sessionConfigOptions, {}),
-    [sessionConfigOptions]
-  );
-  const toModelLabel = useMemo(
-    () =>
-      resolveSessionModelDisplayLabel(
-        displaySessionConfigOptions,
-        selectedConfigValues
-      ),
-    [displaySessionConfigOptions, selectedConfigValues]
-  );
   useEffect(() => {
     if (
       !isNewSessionMode &&
@@ -715,7 +713,7 @@ export function TaskFollowUpSection({
   const { handleSelectMode, handleSelectConfigOption } =
     useSessionComposerControlSync({
       sessionId,
-      isChangingAgent,
+      isChangingAgent: isChangingAgent || isChangingInstance,
       liveModeId,
       displaySessionConfigOptions,
       selectedConfigValues,
@@ -1205,6 +1203,25 @@ export function TaskFollowUpSection({
     [continuationPolicy, entries.length, sessionId]
   );
 
+  const providerInstanceConfig = useMemo<SessionProviderInstanceConfig | null>(
+    () =>
+      providerInstances.hasMultipleInstances
+        ? {
+            options: providerInstances.options,
+            selectedInstanceId: providerInstances.selectedInstanceId,
+            disabled: !isEditable,
+            onSelectInstance: handleSelectProviderInstance,
+          }
+        : null,
+    [
+      handleSelectProviderInstance,
+      isEditable,
+      providerInstances.hasMultipleInstances,
+      providerInstances.options,
+      providerInstances.selectedInstanceId,
+    ]
+  );
+
   const hasDraft = Boolean(localMessage?.trim());
 
   if (!workspaceId) return null;
@@ -1219,7 +1236,9 @@ export function TaskFollowUpSection({
       >
         {/* Scrollable content area */}
         <div className="min-h-0 overflow-y-auto px-3">
-          <div className={cn('mx-auto w-full space-y-2', composerMaxWidthClass)}>
+          <div
+            className={cn('mx-auto w-full space-y-2', composerMaxWidthClass)}
+          >
             <ReviewCommentsPreview reviewMarkdown={reviewMarkdown} />
 
             {branchStatus && (
@@ -1229,9 +1248,7 @@ export function TaskFollowUpSection({
                 branchStatus={branchStatus}
                 enableResolve={conflictActionState.enableResolve}
                 enableAbort={conflictActionState.enableAbort}
-                conflictResolutionInstructions={
-                  conflictResolutionInstructions
-                }
+                conflictResolutionInstructions={conflictResolutionInstructions}
               />
             )}
 
@@ -1368,8 +1385,7 @@ export function TaskFollowUpSection({
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={engineHandoff.handleChangeExecutorProfile}
-            selectedProviderInstanceId={selectedProviderInstanceId}
-            onSelectProviderInstance={setSelectedProviderInstanceId}
+            providerInstanceConfig={providerInstanceConfig}
             sessionModes={displaySessionModes}
             selectedMode={selectedMode}
             onSelectMode={handleSelectMode}
@@ -1410,7 +1426,6 @@ export function TaskFollowUpSection({
             onRestoreDraft={handleRestoreDraft}
           />
         </SessionComposerFrame>
-        <ComposerEngineHandoffModal controller={engineHandoff} />
       </div>
     </TooltipProvider>
   );

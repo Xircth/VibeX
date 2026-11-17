@@ -18,17 +18,26 @@ vi.mock('./collaborationLayoutStore', () => ({
 }));
 
 import {
-  collaborationStoredSessionName,
+  collaborationSessionTitle,
   openCollaborationSessionFromList,
 } from './sessionCollaboration';
 
-describe('collaborationStoredSessionName', () => {
-  it('treats a stored title that equals the member nickname as unset', () => {
-    expect(collaborationStoredSessionName('小A', '小A')).toBeNull();
-    expect(collaborationStoredSessionName(' 小A ', '小A')).toBeNull();
-    expect(collaborationStoredSessionName('修登录', '小A')).toBe('修登录');
-    expect(collaborationStoredSessionName(null, '小A')).toBeNull();
-    expect(collaborationStoredSessionName('   ', '小A')).toBeNull();
+describe('collaborationSessionTitle', () => {
+  it('names direct chats User → Bot and group seats Group → Bot', () => {
+    expect(
+      collaborationSessionTitle({
+        threadKind: 'direct',
+        threadName: '',
+        memberName: 'Master',
+      })
+    ).toBe('User → Master');
+    expect(
+      collaborationSessionTitle({
+        threadKind: 'group',
+        threadName: '后端工程师群',
+        memberName: 'Master',
+      })
+    ).toBe('后端工程师群 → Master');
   });
 });
 
@@ -46,6 +55,7 @@ describe('openCollaborationSessionFromList', () => {
         threadId: 's1',
         threadKind: 'group',
         threadName: '设计',
+        threadMembers: [],
       },
     });
     expect(mocks.requestSessionFocus).toHaveBeenCalledWith({

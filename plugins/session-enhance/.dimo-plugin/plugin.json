@@ -72,14 +72,5 @@
       "entry": "app/main.js",
       "protocol": "2.0"
     }
-  },
-  "dependencies": [
-    {
-      "kind": "plugin",
-      "id": "dimo.provider-switch",
-      "publisher": "dimo",
-      "versionRange": "^1.0.0 || ^2.0.0",
-      "required": true
-    }
-  ]
+  }
 }

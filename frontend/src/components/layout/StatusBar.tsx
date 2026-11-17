@@ -17,6 +17,7 @@ import {
 } from '@/features/agent-management';
 import { PluginUpdateBadge } from './PluginUpdateBadge';
 import { PluginStatusItems } from '@/components/plugins/PluginStatusItems';
+import { BasicGuideExitButton } from '@/features/basic-guide';
 
 export function StatusBar() {
   const { config } = useUserSystem();
@@ -30,6 +31,7 @@ export function StatusBar() {
     <div className="workspace-chrome relative z-20 flex h-9 shrink-0 select-none items-center justify-between gap-2 overflow-visible px-2 text-xs text-secondary-foreground">
       <div className="flex min-w-0 items-center gap-2 overflow-visible">
         <AccountStatusMenu />
+        <BasicGuideExitButton />
         <BackgroundProjectStatusStrip />
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2">

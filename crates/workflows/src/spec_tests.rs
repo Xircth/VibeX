@@ -177,3 +177,34 @@ fn rejects_malformed_schema_constraint_types_and_ranges() {
         assert!(validate_json_schema(&schema).is_err(), "accepted {schema}");
     }
 }
+
+#[test]
+fn validate_json_value_collects_all_violations_without_failing_fast() {
+    let schema = serde_json::json!({
+        "type": "object",
+        "required": ["summary", "count", "status"],
+        "additionalProperties": false,
+        "properties": {
+            "summary": { "type": "string", "minLength": 5 },
+            "count": { "type": "integer", "minimum": 1 },
+            "status": { "type": "string", "enum": ["ok", "warn"] }
+        }
+    });
+    let errors = validate_json_value_errors(
+        &schema,
+        &serde_json::json!({
+            "summary": "no",
+            "status": "bad",
+            "extra": true
+        }),
+    );
+    assert!(
+        errors.len() >= 4,
+        "expected >= 4 violations collected, got: {errors:?}"
+    );
+    let joined = errors.join("; ");
+    assert!(joined.contains("`count`"), "{joined}");
+    assert!(joined.contains("minLength"), "{joined}");
+    assert!(joined.contains("enum"), "{joined}");
+    assert!(joined.contains("`extra`"), "{joined}");
+}

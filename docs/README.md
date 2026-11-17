@@ -27,7 +27,7 @@ Welcome to the Dimo documentation hub. Every document here describes **current `
 | [`docs/plugins/README.md`](plugins/README.md) | Entry point for plugin users, authors, and platform contributors. |
 | [`docs/plugins/user-guide.md`](plugins/user-guide.md) | Installing, enabling, configuring, updating, and removing plugins via UI or `dimo plugin` CLI. |
 | [`docs/plugins/developer-guide.md`](plugins/developer-guide.md) | Authoring full-trust v4 packages with `@dimoai/plugin-sdk` (`^2.0.0`), Python/Rust Worker SDKs, `dimo-plugin` CLI, and live `--dev` linking. |
-| [`docs/plugins/official-plugins.md`](plugins/official-plugins.md) | Reference guide to Dimo's 17 official plugins (`plugins/*` & `dimo-plugin.json`) and built-in Collaboration Space. |
+| [`docs/plugins/official-plugins.md`](plugins/official-plugins.md) | Reference guide to Dimo's 16 official plugins (`plugins/*` & `dimo-plugin.json`) and built-in Collaboration Space. |
 | [`docs/plugins/package-v4.md`](plugins/package-v4.md) | Normative `.dimo-plugin/plugin.json` v4 package layout, `README.md` summary frontmatter, `contents/`, `depends/`, and `config.json`. |
 | [`docs/plugins/sdk-and-cli.md`](plugins/sdk-and-cli.md) | `@dimoai/plugin-sdk` API surface, `dimo-plugin` author CLI commands, and linked development workflow. |
 | [`docs/plugins/platform-architecture.md`](plugins/platform-architecture.md) | Plugin Kernel internals: Activation Generations, Runtime locks, Full-Trust Worker/App surfaces, and Remote Host execution seam. |

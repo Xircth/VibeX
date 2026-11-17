@@ -406,6 +406,8 @@ describe('AccountSettings', () => {
       expect(setEnabledSpy).toHaveBeenCalledWith('CODEX', true);
     });
     expect(window.localStorage.getItem('dimo:ui-zoom')).toBe('1.15');
-    expect(screen.getByTestId('provider-instance-manager')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('provider-instance-manager')
+    ).not.toBeInTheDocument();
   });
 });

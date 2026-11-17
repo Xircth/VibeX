@@ -31,7 +31,6 @@ mod remote_desktop;
 mod settings_watcher;
 mod state;
 mod tray;
-mod workflow_mcp_gateway;
 mod workspace_paths;
 
 use state::AppState;
@@ -452,21 +451,6 @@ pub fn run() {
 
         let state = tauri::async_runtime::block_on(AppState::new(app.handle().clone()))
             .expect("Failed to initialize app state");
-        let _workflow_mcp_ready =
-            match tauri::async_runtime::block_on(workflow_mcp_gateway::start(&state)) {
-                Ok(connection) => {
-                    tracing::info!(
-                        endpoint = %connection.endpoint,
-                        "Workflow Plugin MCP gateway is ready"
-                    );
-                    app.manage(connection);
-                    true
-                }
-                Err(error) => {
-                    tracing::error!(%error, "Workflow Plugin MCP gateway failed to start");
-                    false
-                }
-            };
         tauri::async_runtime::block_on(
             commands::plugin_control::refresh_enabled_plugin_projections(&state),
         );

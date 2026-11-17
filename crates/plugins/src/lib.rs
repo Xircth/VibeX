@@ -135,12 +135,12 @@ pub use official_mcp::{
     OfficialMcpBinding, OfficialMcpRuntime, OfficialProductMcpState, PLUGIN_DEV_MCP_NAME,
     PluginMcpHeadline, PluginMcpPluginStatus, PluginMcpServerStatus, PluginMcpStatusReport,
     PluginMcpToolStatus, SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK,
-    SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME,
-    advertised_mcp_tools, binding_has_delegation_mcp, delegation_mcp_features,
+    SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, SUPERAGENT_MCP_NAME,
+    WORKFLOW_MCP_NAME, advertised_mcp_tools, binding_has_delegation_mcp, delegation_mcp_features,
     host_collaboration_mcp_row, host_family_product, host_family_stdio_spec,
     legacy_projected_mcp_server_id, official_product_mcp_name, plugin_mcp_status_report,
     projected_mcp_server_id, session_feature_arg, session_features_from_config,
-    with_host_collaboration_mcp,
+    superagent_mcp_features, with_host_collaboration_mcp,
 };
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,

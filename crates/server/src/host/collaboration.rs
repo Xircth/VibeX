@@ -1898,8 +1898,13 @@ impl HostCollaborationHost {
         let Ok(agent_id) = AgentId::parse(&raw) else {
             return Ok(json!({ "available": false }));
         };
-        let snapshot = match conversations::load_capability_catalog_for_session_defaults(
-            &self.pool, runtime, &agent_id,
+        let raw_instance_id = text(input, &["providerInstanceId", "provider_instance_id"]);
+        let provider_instance_id = (!raw_instance_id.is_empty()).then_some(raw_instance_id.as_str());
+        let snapshot = match conversations::load_capability_catalog_for_session_defaults_for_provider_instance(
+            &self.pool,
+            runtime,
+            &agent_id,
+            provider_instance_id,
         )
         .await
         {
@@ -2147,6 +2152,7 @@ mod tests {
             &CreateSession {
                 executor: None,
                 agent_id: Some(AgentId::parse("codex").unwrap()),
+                provider_instance_id: None,
                 task_id: None,
                 name: Some(title.to_string()),
                 initial_prompt: None,

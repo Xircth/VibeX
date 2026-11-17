@@ -46,6 +46,7 @@ const attempt: WorkspaceWithSession = {
     executor: null,
     external_session_id: null,
     agent_id: null,
+    provider_instance_id: null,
     parent_session_id: null,
     parent_tool_use_id: null,
     delegation_call_id: null,

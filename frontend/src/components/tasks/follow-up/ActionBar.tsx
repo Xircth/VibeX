@@ -13,12 +13,12 @@ import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
-import { ComposerProviderInstanceSlot } from './ComposerEngineHandoffControl';
 import { ComposerStashMenu } from './ComposerStashMenu';
 import {
   SessionSettingsSummary,
   type SessionContinuationConfig,
   type SessionPersona,
+  type SessionProviderInstanceConfig,
 } from './SessionSettingsSummary';
 
 interface ActionBarProps {
@@ -26,8 +26,7 @@ interface ActionBarProps {
   effectiveExecutorProfile: ExecutorProfileId | null;
   onChangeExecutorProfile: (profile: ExecutorProfileId | null) => void;
   showProfileControls?: boolean;
-  selectedProviderInstanceId?: string | null;
-  onSelectProviderInstance?: (instanceId: string) => void;
+  providerInstanceConfig?: SessionProviderInstanceConfig | null;
   /** Agent-advertised session modes for the composer's mode picker. */
   sessionModes?: ConversationSessionModesState;
   /** The user's pending mode selection for the next turn. */
@@ -79,8 +78,7 @@ export const ActionBar = memo(function ActionBar({
   effectiveExecutorProfile,
   onChangeExecutorProfile,
   showProfileControls = true,
-  selectedProviderInstanceId,
-  onSelectProviderInstance,
+  providerInstanceConfig = null,
   sessionModes,
   selectedMode = null,
   onSelectMode,
@@ -203,15 +201,6 @@ export const ActionBar = memo(function ActionBar({
 
       <div className="flex-1" />
 
-      {showProfileControls ? (
-        <ComposerProviderInstanceSlot
-          agentId={currentAgentId}
-          disabled={!isEditable}
-          selectedInstanceId={selectedProviderInstanceId}
-          onSelectInstance={onSelectProviderInstance}
-        />
-      ) : null}
-
       <SessionSettingsSummary
         sessionModes={sessionModes}
         selectedMode={selectedMode}
@@ -231,6 +220,7 @@ export const ActionBar = memo(function ActionBar({
         agentIconDark={currentAgentIcons?.iconDark ?? null}
         agentIconSvg={currentAgentIcons?.iconSvg ?? null}
         agentRail={agentRail}
+        providerInstanceConfig={showProfileControls ? providerInstanceConfig : null}
         continuation={continuation}
         controlsLoading={sessionControlsLoading}
       />

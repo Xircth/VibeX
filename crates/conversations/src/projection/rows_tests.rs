@@ -1576,6 +1576,7 @@
                     "fromAgent": "claude_code",
                     "fromModel": "claude-opus-4-6",
                     "toAgent": "codex",
+                    "handoffTokens": 2200,
                     "switchedAt": "2026-11-15T12:00:00Z",
                 })),
             },
@@ -1611,6 +1612,7 @@
                     serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
                 assert_eq!(parsed["fromAgent"], "claude_code");
                 assert_eq!(parsed["toAgent"], "codex");
+                assert_eq!(parsed["handoffTokens"], 2200);
             }
             other => panic!("expected session_notice row, got {other:?}"),
         }

@@ -178,36 +178,272 @@ pub struct LegacyDataDirAdoption {
     pub target_dir: PathBuf,
 }
 
-/// Returns the adoption to perform at startup, if any. Only release builds
-/// without an explicit data directory (`DIMO_DATA_DIR` or `bootstrap.json`)
-/// adopt, and only when the legacy directory holds a database.
-///
-/// Both the pre-rename (`VibeX`) directory and the older in-roaming default are
-/// candidates; the pre-rename directory wins because it is the one an upgrading
-/// user actually has populated.
-pub fn pending_legacy_data_dir_adoption() -> Option<LegacyDataDirAdoption> {
+const ADOPTED_LEGACY_MARKER_FILE: &str = ".adopted-legacy-source";
+
+fn same_path_for_adoption(a: &Path, b: &Path) -> bool {
+    let norm_a = crate::path::normalize_windows_extended_path_prefix(
+        std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf()),
+    );
+    let norm_b = crate::path::normalize_windows_extended_path_prefix(
+        std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf()),
+    );
+    if cfg!(windows) {
+        norm_a
+            .to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .eq_ignore_ascii_case(norm_b.to_string_lossy().trim_end_matches(['\\', '/']))
+    } else {
+        norm_a == norm_b
+    }
+}
+
+fn push_unique_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    let normalized = crate::path::normalize_windows_extended_path_prefix(candidate);
+    if !candidates
+        .iter()
+        .any(|existing| same_path_for_adoption(existing, &normalized))
+    {
+        candidates.push(normalized);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_vibex_registry_install_dirs() -> Vec<PathBuf> {
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+
+    let mut dirs = Vec::new();
+    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let root = RegKey::predef(hive);
+        if let Ok(uninst) = root.open_subkey_with_flags(
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeX",
+            KEY_READ,
+        ) && let Ok(raw) = uninst.get_value::<String, _>("InstallLocation")
+        {
+            let trimmed = raw.trim().trim_matches('"').trim();
+            if !trimmed.is_empty() {
+                dirs.push(PathBuf::from(trimmed));
+            }
+        }
+        for subkey in [
+            r"Software\vibex\VibeX",
+            r"Software\VibeX\VibeX",
+            r"Software\Dimo\VibeX",
+            r"Software\DimoADE\VibeX",
+        ] {
+            if let Ok(key) = root.open_subkey_with_flags(subkey, KEY_READ)
+                && let Ok(raw) = key.get_value::<String, _>("")
+            {
+                let trimmed = raw.trim().trim_matches('"').trim();
+                if !trimmed.is_empty() {
+                    dirs.push(PathBuf::from(trimmed));
+                }
+            }
+        }
+    }
+    dirs
+}
+
+/// Discovers `<VibeX_install_dir>/data` (and legacy bundle dirs) where the
+/// pre-rename `VibeX` desktop app stored its database and settings before
+/// `Dimo` was installed into its own directory.
+pub fn pre_rename_install_data_dir_candidates_for(
+    current_exe: Option<&Path>,
+    local_app_data: Option<&Path>,
+    program_files: Option<&Path>,
+    program_files_x86: Option<&Path>,
+    home_dir: Option<&Path>,
+    app_data_dir: Option<&Path>,
+    registry_install_dirs: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    for install_root in registry_install_dirs {
+        push_unique_candidate(&mut candidates, install_root.join("data"));
+    }
+
+    if let Some(exe_dir) = current_exe.and_then(|exe| exe.parent())
+        && !is_cargo_build_or_test_dir(exe_dir)
+    {
+        if cfg!(target_os = "macos") {
+            // `Dimo.app/Contents/MacOS` -> sibling `VibeX.app/Contents/MacOS/data`
+            if let Some(apps_dir) = exe_dir
+                .parent()
+                .and_then(|contents| contents.parent())
+                .and_then(|bundle| bundle.parent())
+            {
+                push_unique_candidate(
+                    &mut candidates,
+                    apps_dir
+                        .join("VibeX.app")
+                        .join("Contents")
+                        .join("MacOS")
+                        .join("data"),
+                );
+            }
+        } else if let Some(parent) = exe_dir.parent() {
+            push_unique_candidate(&mut candidates, parent.join("VibeX").join("data"));
+            if cfg!(target_os = "linux") {
+                push_unique_candidate(&mut candidates, parent.join("vibex").join("data"));
+            }
+        }
+    }
+
+    if cfg!(target_os = "windows") {
+        if let Some(local) = local_app_data {
+            push_unique_candidate(&mut candidates, local.join("VibeX").join("data"));
+            push_unique_candidate(
+                &mut candidates,
+                local.join("Programs").join("VibeX").join("data"),
+            );
+        }
+        if let Some(pf) = program_files {
+            push_unique_candidate(&mut candidates, pf.join("VibeX").join("data"));
+        }
+        if let Some(pf86) = program_files_x86 {
+            push_unique_candidate(&mut candidates, pf86.join("VibeX").join("data"));
+        }
+    } else if cfg!(target_os = "macos") {
+        if let Some(home) = home_dir {
+            push_unique_candidate(
+                &mut candidates,
+                home.join("Applications")
+                    .join("VibeX.app")
+                    .join("Contents")
+                    .join("MacOS")
+                    .join("data"),
+            );
+        }
+        push_unique_candidate(
+            &mut candidates,
+            PathBuf::from("/Applications/VibeX.app/Contents/MacOS/data"),
+        );
+    }
+
+    if let Some(data_dir) = app_data_dir {
+        push_unique_candidate(&mut candidates, data_dir.join("com.vibex.app"));
+        push_unique_candidate(&mut candidates, data_dir.join("VibeX"));
+    }
+
+    candidates
+}
+
+pub fn pre_rename_install_data_dir_candidates() -> Vec<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let registry_dirs = windows_vibex_registry_install_dirs();
+    #[cfg(not(target_os = "windows"))]
+    let registry_dirs: Vec<PathBuf> = Vec::new();
+
+    let current_exe = std::env::current_exe().ok();
+    let local_app_data = std::env::var_os("LOCALAPPDATA")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::data_local_dir);
+    let program_files = std::env::var_os("ProgramFiles")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let program_files_x86 = std::env::var_os("ProgramFiles(x86)")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let home_dir = dirs::home_dir();
+    let app_data_dir = dirs::data_dir();
+
+    pre_rename_install_data_dir_candidates_for(
+        current_exe.as_deref(),
+        local_app_data.as_deref(),
+        program_files.as_deref(),
+        program_files_x86.as_deref(),
+        home_dir.as_deref(),
+        app_data_dir.as_deref(),
+        &registry_dirs,
+    )
+}
+
+/// Ordered candidate directories that may hold pre-migration VibeX or legacy
+/// Dimo user data (`db.sqlite`, `settings.json`, worktrees, attachments).
+pub fn legacy_data_dir_candidates() -> Vec<PathBuf> {
+    let mut candidates = pre_rename_install_data_dir_candidates();
+    push_unique_candidate(&mut candidates, pre_rename_data_dir());
+    push_unique_candidate(&mut candidates, legacy_roaming_data_dir());
+    candidates
+}
+
+pub fn read_adopted_legacy_sources(target_dir: &Path) -> Vec<PathBuf> {
+    let marker = target_dir.join(ADOPTED_LEGACY_MARKER_FILE);
+    let Ok(raw) = std::fs::read_to_string(marker) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+pub fn record_adopted_legacy_source(target_dir: &Path, legacy_dir: &Path) -> std::io::Result<()> {
+    let normalized = crate::path::normalize_windows_extended_path_prefix(
+        std::fs::canonicalize(legacy_dir).unwrap_or_else(|_| legacy_dir.to_path_buf()),
+    );
+    let mut recorded = read_adopted_legacy_sources(target_dir);
+    if recorded
+        .iter()
+        .any(|existing| same_path_for_adoption(existing, &normalized))
+    {
+        return Ok(());
+    }
+    recorded.push(normalized);
+    std::fs::create_dir_all(target_dir)?;
+    let content = recorded
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(target_dir.join(ADOPTED_LEGACY_MARKER_FILE), content)
+}
+
+fn is_already_adopted_legacy_source(target_dir: &Path, legacy_dir: &Path) -> bool {
+    read_adopted_legacy_sources(target_dir)
+        .into_iter()
+        .any(|recorded| same_path_for_adoption(&recorded, legacy_dir))
+}
+
+/// Returns all legacy data directories holding a `db.sqlite` that are eligible
+/// for adoption into the release default data directory.
+pub fn pending_legacy_data_dir_adoptions() -> Vec<LegacyDataDirAdoption> {
     if cfg!(debug_assertions)
         || renamed_env_var("DIMO_DATA_DIR").is_some()
         || read_custom_data_dir().is_some()
     {
-        return None;
+        return Vec::new();
     }
-    let target_dir = install_data_dir()?;
-    [pre_rename_data_dir(), legacy_roaming_data_dir()]
+    let target_dir = release_default_data_dir();
+    legacy_data_dir_candidates()
         .into_iter()
-        .find_map(|dir| legacy_data_dir_adoption(dir, target_dir.clone()))
+        .filter_map(|dir| legacy_data_dir_adoption(dir, target_dir.clone()))
+        .collect()
+}
+
+/// Returns the adoption to perform at startup, if any. Only release builds
+/// without an explicit data directory (`DIMO_DATA_DIR` or `bootstrap.json`)
+/// adopt, and only when the legacy directory holds a database.
+///
+/// Pre-rename (`VibeX`) install and Roaming directories as well as the older
+/// Dimo Roaming default are all checked.
+pub fn pending_legacy_data_dir_adoption() -> Option<LegacyDataDirAdoption> {
+    pending_legacy_data_dir_adoptions().into_iter().next()
 }
 
 pub fn legacy_data_dir_adoption(
     legacy_dir: PathBuf,
     target_dir: PathBuf,
 ) -> Option<LegacyDataDirAdoption> {
-    (legacy_dir != target_dir && legacy_dir.join("db.sqlite").is_file()).then_some(
-        LegacyDataDirAdoption {
-            legacy_dir,
-            target_dir,
-        },
-    )
+    (!same_path_for_adoption(&legacy_dir, &target_dir)
+        && !is_already_adopted_legacy_source(&target_dir, &legacy_dir)
+        && legacy_dir.join("db.sqlite").is_file())
+    .then_some(LegacyDataDirAdoption {
+        legacy_dir,
+        target_dir,
+    })
 }
 
 pub fn default_data_dir_without_custom() -> PathBuf {
@@ -317,11 +553,13 @@ pub fn config_path() -> PathBuf {
     host_data_dir().join("config.json")
 }
 
-/// Settings live next to the Host database. `~/.dimo/settings.json` (or
-/// pre-rename `~/.vibex/settings.json`) is copied once if the Host file does
-/// not exist yet.
-pub fn settings_path() -> PathBuf {
-    let dest = host_data_dir().join("settings.json");
+/// Copy `settings.json` (or legacy `config.json`) from known VibeX / home
+/// locations into `target_dir` if `target_dir/settings.json` does not exist yet.
+pub fn adopt_legacy_settings_into(target_dir: &Path) {
+    let dest = target_dir.join("settings.json");
+    if dest.exists() {
+        return;
+    }
     adopt_legacy_file(
         dirs::home_dir().map(|home| home.join(".dimo").join("settings.json")),
         &dest,
@@ -330,11 +568,43 @@ pub fn settings_path() -> PathBuf {
         dirs::home_dir().map(|home| home.join(".vibex").join("settings.json")),
         &dest,
     );
+    for legacy_dir in pre_rename_install_data_dir_candidates()
+        .into_iter()
+        .chain(std::iter::once(pre_rename_data_dir()))
+    {
+        if same_path_for_adoption(&legacy_dir, target_dir) {
+            continue;
+        }
+        adopt_legacy_file(Some(legacy_dir.join("settings.json")), &dest);
+        if dest.exists() {
+            return;
+        }
+    }
+}
+
+/// Settings live next to the Host database. `~/.dimo/settings.json` (or
+/// pre-rename `~/.vibex/settings.json` and VibeX data directories in release
+/// builds) is copied once if the Host file does not exist yet.
+pub fn settings_path() -> PathBuf {
+    let data_dir = host_data_dir();
+    let dest = data_dir.join("settings.json");
+    adopt_legacy_file(
+        dirs::home_dir().map(|home| home.join(".dimo").join("settings.json")),
+        &dest,
+    );
+    adopt_legacy_file(
+        dirs::home_dir().map(|home| home.join(".vibex").join("settings.json")),
+        &dest,
+    );
+    if !cfg!(debug_assertions) {
+        adopt_legacy_settings_into(&data_dir);
+    }
     dest
 }
 
 pub fn im_env_path() -> PathBuf {
-    let dest = host_data_dir().join(".env");
+    let data_dir = host_data_dir();
+    let dest = data_dir.join(".env");
     adopt_legacy_file(
         dirs::home_dir().map(|home| home.join(".dimo").join(".env")),
         &dest,
@@ -343,6 +613,16 @@ pub fn im_env_path() -> PathBuf {
         dirs::home_dir().map(|home| home.join(".vibex").join(".env")),
         &dest,
     );
+    if !cfg!(debug_assertions) {
+        for legacy_dir in pre_rename_install_data_dir_candidates()
+            .into_iter()
+            .chain(std::iter::once(pre_rename_data_dir()))
+        {
+            if !same_path_for_adoption(&legacy_dir, &data_dir) {
+                adopt_legacy_file(Some(legacy_dir.join(".env")), &dest);
+            }
+        }
+    }
     dest
 }
 
@@ -745,5 +1025,52 @@ mod tests {
         )
         .unwrap();
         assert_eq!(super::read_custom_data_dir_from(&bootstrap), Some(custom));
+    }
+
+    #[test]
+    fn pre_rename_install_candidates_include_registry_sibling_and_standard_vibex_dirs() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = root.path().join("Apps").join("Dimo").join("dimo.exe");
+        let reg_dir = root.path().join("CustomVibeX");
+        let local = root.path().join("LocalAppData");
+        let pf = root.path().join("ProgramFiles");
+        let pf86 = root.path().join("ProgramFilesX86");
+        let home = root.path().join("Home");
+        let app_data = root.path().join("Roaming");
+
+        let candidates = super::pre_rename_install_data_dir_candidates_for(
+            Some(&exe),
+            Some(&local),
+            Some(&pf),
+            Some(&pf86),
+            Some(&home),
+            Some(&app_data),
+            std::slice::from_ref(&reg_dir),
+        );
+
+        assert!(candidates.contains(&reg_dir.join("data")));
+        if !cfg!(target_os = "macos") {
+            assert!(candidates.contains(&root.path().join("Apps").join("VibeX").join("data")));
+        }
+        if cfg!(target_os = "windows") {
+            assert!(candidates.contains(&local.join("VibeX").join("data")));
+            assert!(candidates.contains(&local.join("Programs").join("VibeX").join("data")));
+            assert!(candidates.contains(&pf.join("VibeX").join("data")));
+        }
+        assert!(candidates.contains(&app_data.join("com.vibex.app")));
+    }
+
+    #[test]
+    fn recorded_adopted_legacy_source_prevents_repeated_adoption() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("vibex").join("data");
+        let target = root.path().join("dimo").join("data");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(legacy.join("db.sqlite"), b"sqlite").unwrap();
+
+        assert!(super::legacy_data_dir_adoption(legacy.clone(), target.clone()).is_some());
+        super::record_adopted_legacy_source(&target, &legacy).unwrap();
+        assert_eq!(super::legacy_data_dir_adoption(legacy, target), None);
     }
 }

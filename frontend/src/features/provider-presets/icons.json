@@ -1,0 +1,390 @@
+{
+  "88api": {
+    "file": "88api.png"
+  },
+  "9527code": {
+    "file": "9527code.svg",
+    "ink": true
+  },
+  "a6api": {
+    "file": "a6api.png",
+    "backing": true
+  },
+  "aicodemirror": {
+    "file": "aicodemirror.svg"
+  },
+  "aicodewith": {
+    "file": "aicodewith.svg",
+    "ink": true
+  },
+  "aicoding": {
+    "file": "aicoding.svg",
+    "backing": true
+  },
+  "aicoming": {
+    "file": "aicoming.svg"
+  },
+  "aigocode": {
+    "file": "aigocode.svg"
+  },
+  "aihubmix": {
+    "file": "aihubmix.svg"
+  },
+  "alltokens": {
+    "file": "alltokens.png"
+  },
+  "alltokens-si": {
+    "file": "alltokens-si.png",
+    "backing": true
+  },
+  "amux": {
+    "file": "amux.svg",
+    "ink": true
+  },
+  "apikeyfun": {
+    "file": "apikeyfun.png"
+  },
+  "apinebula": {
+    "file": "apinebula.png"
+  },
+  "astron": {
+    "file": "astron.png"
+  },
+  "atlascloud": {
+    "file": "atlascloud.png",
+    "backing": true
+  },
+  "aws": {
+    "file": "aws.svg"
+  },
+  "azure": {
+    "file": "azure.svg"
+  },
+  "baidu": {
+    "file": "baidu.svg"
+  },
+  "bailing": {
+    "file": "bailing.png",
+    "backing": true
+  },
+  "baseten": {
+    "file": "baseten.svg",
+    "ink": true
+  },
+  "botcf": {
+    "file": "botcf.svg"
+  },
+  "buytoken": {
+    "file": "buytoken.svg"
+  },
+  "byteplus": {
+    "file": "byteplus.png",
+    "backing": true
+  },
+  "ccsub": {
+    "file": "ccsub.svg"
+  },
+  "cherryin": {
+    "file": "cherryin.png"
+  },
+  "claudeapi": {
+    "file": "claudeapi.png",
+    "backing": true
+  },
+  "claudecn": {
+    "file": "claudecn.png"
+  },
+  "cline": {
+    "file": "cline.svg",
+    "ink": true
+  },
+  "cloudflare": {
+    "file": "cloudflare.svg"
+  },
+  "code0": {
+    "file": "code0.png",
+    "backing": true
+  },
+  "commandcode": {
+    "file": "commandcode.svg"
+  },
+  "crazyrouter": {
+    "file": "crazyrouter.svg",
+    "ink": true
+  },
+  "cubence": {
+    "file": "cubence.svg",
+    "backing": true
+  },
+  "deepinfra": {
+    "file": "deepinfra.svg",
+    "ink": true
+  },
+  "deepseek": {
+    "file": "deepseek.svg"
+  },
+  "digitalocean": {
+    "file": "digitalocean.svg",
+    "ink": true
+  },
+  "dmxapi": {
+    "file": "dmxapi.png",
+    "backing": true
+  },
+  "doubao": {
+    "file": "doubao.svg"
+  },
+  "eflowcode": {
+    "file": "eflowcode.png"
+  },
+  "fenno": {
+    "file": "fenno.png",
+    "backing": true
+  },
+  "fireworks": {
+    "file": "fireworks.svg",
+    "ink": true
+  },
+  "fluxa": {
+    "file": "fluxa.png"
+  },
+  "genesis": {
+    "file": "genesis.svg",
+    "backing": true
+  },
+  "grooroute": {
+    "file": "grooroute.jpg"
+  },
+  "groq": {
+    "file": "groq.svg",
+    "ink": true
+  },
+  "haoai": {
+    "file": "haoai.svg"
+  },
+  "hermes": {
+    "file": "hermes.png",
+    "backing": true
+  },
+  "huggingface": {
+    "file": "huggingface.svg",
+    "backing": true
+  },
+  "hunyuan": {
+    "file": "hunyuan.svg"
+  },
+  "huoshan": {
+    "file": "huoshan.png",
+    "backing": true
+  },
+  "ikuncode": {
+    "file": "ikuncode.jpg"
+  },
+  "jiekou": {
+    "file": "jiekou.svg",
+    "backing": true
+  },
+  "kimi": {
+    "file": "kimi.svg"
+  },
+  "llamacpp": {
+    "file": "llamacpp.svg"
+  },
+  "lmstudio": {
+    "file": "lmstudio.svg",
+    "ink": true
+  },
+  "longcat": {
+    "file": "longcat.svg"
+  },
+  "meta": {
+    "file": "meta.svg"
+  },
+  "micu": {
+    "file": "micu.svg",
+    "ink": true
+  },
+  "minimax": {
+    "file": "minimax.svg"
+  },
+  "mistral": {
+    "file": "mistral.svg"
+  },
+  "moark": {
+    "file": "moark.svg",
+    "ink": true
+  },
+  "modelflare": {
+    "file": "modelflare.jpg"
+  },
+  "modelscope": {
+    "file": "modelscope.svg"
+  },
+  "nebius": {
+    "file": "nebius.svg",
+    "ink": true
+  },
+  "nekocode": {
+    "file": "nekocode.png",
+    "backing": true
+  },
+  "novita": {
+    "file": "novita.svg"
+  },
+  "nvidia": {
+    "file": "nvidia.svg"
+  },
+  "ollama": {
+    "file": "ollama.svg",
+    "ink": true
+  },
+  "openai": {
+    "file": "openai.svg",
+    "ink": true
+  },
+  "opencode": {
+    "file": "opencode.svg",
+    "backing": true
+  },
+  "openmodel": {
+    "file": "openmodel.jpg"
+  },
+  "openrouter": {
+    "file": "openrouter.svg",
+    "ink": true
+  },
+  "ospreyai": {
+    "file": "ospreyai.png",
+    "backing": true
+  },
+  "packycode": {
+    "file": "packycode.svg",
+    "ink": true
+  },
+  "pateway": {
+    "file": "pateway.jpg"
+  },
+  "pipellm": {
+    "file": "pipellm.png"
+  },
+  "ppio": {
+    "file": "ppio.svg"
+  },
+  "qianwenai": {
+    "file": "qianwenai.svg"
+  },
+  "qiniu": {
+    "file": "qiniu.png"
+  },
+  "qwencloud": {
+    "file": "qwencloud.svg"
+  },
+  "rc": {
+    "file": "rc.svg"
+  },
+  "relaxcode": {
+    "file": "relaxcode.png"
+  },
+  "runapi": {
+    "file": "runapi.jpg"
+  },
+  "runtoken": {
+    "file": "runtoken.jpg"
+  },
+  "sambanova": {
+    "file": "sambanova.svg"
+  },
+  "shengsuanyun": {
+    "file": "shengsuanyun.svg"
+  },
+  "siliconflow": {
+    "file": "siliconflow.svg"
+  },
+  "soleapi": {
+    "file": "soleapi.svg",
+    "ink": true
+  },
+  "soruxgpt": {
+    "file": "soruxgpt.jpg"
+  },
+  "soshow": {
+    "file": "soshow.png",
+    "backing": true
+  },
+  "sssaicode": {
+    "file": "sssaicode.svg"
+  },
+  "stepfun": {
+    "file": "stepfun.svg"
+  },
+  "streamlake": {
+    "file": "streamlake.svg",
+    "backing": true
+  },
+  "subrouter": {
+    "file": "subrouter.svg"
+  },
+  "sudocode": {
+    "file": "sudocode.png"
+  },
+  "sudocode-us": {
+    "file": "sudocode-us.png",
+    "backing": true
+  },
+  "teamorouter": {
+    "file": "teamorouter.png"
+  },
+  "tencent": {
+    "file": "tencent.svg"
+  },
+  "therouter": {
+    "file": "therouter.svg",
+    "ink": true
+  },
+  "together": {
+    "file": "together.svg"
+  },
+  "tokenfactory": {
+    "file": "tokenfactory.svg"
+  },
+  "tokenflux": {
+    "file": "tokenflux.jpg"
+  },
+  "tokenplus": {
+    "file": "tokenplus.png"
+  },
+  "tuzi": {
+    "file": "tuzi.png"
+  },
+  "ucloud": {
+    "file": "ucloud.svg"
+  },
+  "vapi": {
+    "file": "vapi.svg"
+  },
+  "vercel": {
+    "file": "vercel.svg",
+    "ink": true
+  },
+  "vllm": {
+    "file": "vllm.svg"
+  },
+  "xai": {
+    "file": "xai.svg",
+    "ink": true
+  },
+  "xiaomimimo": {
+    "file": "xiaomimimo.svg"
+  },
+  "xycai": {
+    "file": "xycai.png",
+    "backing": true
+  },
+  "yylx": {
+    "file": "yylx.svg",
+    "ink": true
+  },
+  "zhipu": {
+    "file": "zhipu.svg"
+  }
+}

@@ -81,7 +81,12 @@ export const configApi = {
     return backendCall<string>('get_settings_file_path');
   },
   saveConfig: async (config: Config): Promise<Config> => {
-    return backendCall<Config>('update_config', { newConfig: config });
+    const { withSelfTriggeredSettingsWrite } = await import(
+      '@/lib/frontendPreferences'
+    );
+    return withSelfTriggeredSettingsWrite(() =>
+      backendCall<Config>('update_config', { newConfig: config })
+    );
   },
   checkEditorAvailability: async (
     editorType: EditorType
@@ -307,18 +312,14 @@ export interface UpdateSystemDataDirResult {
 
 export interface BackupCreateOptions {
   path: string;
-  /** When set (non-empty), the backup is encrypted with this passphrase (P3-4). */
-  passphrase?: string | null;
 }
 
 export interface BackupInspectOptions {
   path: string;
-  passphrase?: string | null;
 }
 
 export interface BackupRestoreStagePayload {
   path: string;
-  passphrase?: string | null;
   confirmed: boolean;
 }
 

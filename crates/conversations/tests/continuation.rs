@@ -1026,6 +1026,21 @@ async fn handoff_budget_exceeded_degrades_gracefully_instead_of_blocking_switch(
 async fn provider_instance_id_isolates_continuation_key_and_switches_binding() {
     let f = Fixture::new().await;
     let pool = &f.ctx.deployment.db().pool;
+    for instance_id in ["inst-a", "inst-b"] {
+        db::models::provider_instance::ProviderInstanceRecord::create(
+            pool,
+            db::models::provider_instance::CreateProviderInstanceInput {
+                id: None,
+                agent_id: "codex",
+                instance_id,
+                display_name: instance_id,
+                auth_mode: r#"{"mode":"OfficialOAuth"}"#,
+                is_default: false,
+            },
+        )
+        .await
+        .unwrap();
+    }
 
     let mut first_input = f.input("codex", "first on instance a");
     first_input.provider_instance_id = Some("inst-a".to_string());

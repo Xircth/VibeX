@@ -16,11 +16,13 @@ import { accountSessionMatchesAction } from './agentSettingsPreflightHelpers';
 
 export function useAgentAccountFlowWatcher({
   selectedAgentId,
+  providerInstanceId = null,
   registryOpen,
   refreshAuthentication,
   setConfig,
 }: {
   selectedAgentId: AgentId | null;
+  providerInstanceId?: string | null;
   registryOpen: boolean;
   refreshAuthentication: () => Promise<AgentAuthenticationStatus | null>;
   setConfig: Dispatch<SetStateAction<AgentNativeConfigView | null>>;
@@ -33,7 +35,8 @@ export function useAgentAccountFlowWatcher({
     async (
       agentId: string,
       expectPending: boolean,
-      expectedAction?: string
+      expectedAction?: string,
+      targetInstanceId: string | null = providerInstanceId
     ) => {
       const watchId = ++authWatchGeneration.current;
       const deadline = Date.now() + 15 * 60 * 1000;
@@ -46,7 +49,12 @@ export function useAgentAccountFlowWatcher({
           if (!completedAction) {
             let flow;
             try {
-              flow = await agentManagementApi.accountFlow(agentId);
+              flow = targetInstanceId
+                ? await agentManagementApi.accountFlow(
+                    agentId,
+                    targetInstanceId
+                  )
+                : await agentManagementApi.accountFlow(agentId);
               consecutiveErrors = 0;
             } catch (error) {
               consecutiveErrors += 1;
@@ -100,7 +108,7 @@ export function useAgentAccountFlowWatcher({
         }
       }
     },
-    [refreshAuthentication, t]
+    [providerInstanceId, refreshAuthentication, t]
   );
 
   useEffect(() => {
@@ -109,12 +117,12 @@ export function useAgentAccountFlowWatcher({
     return () => {
       authWatchGeneration.current += 1;
     };
-  }, [selectedAgentId]);
+  }, [providerInstanceId, selectedAgentId]);
 
   useEffect(() => {
     if (!selectedAgentId || registryOpen) return;
-    void watchAccountFlow(selectedAgentId, false);
-  }, [registryOpen, selectedAgentId, watchAccountFlow]);
+    void watchAccountFlow(selectedAgentId, false, undefined, providerInstanceId);
+  }, [providerInstanceId, registryOpen, selectedAgentId, watchAccountFlow]);
 
   const runManagementAction = useCallback(
     async (actionId: string) => {
@@ -122,9 +130,24 @@ export function useAgentAccountFlowWatcher({
       const watchIdAtStart = authWatchGeneration.current;
       setActionRunning(actionId);
       try {
-        await agentManagementApi.runAction(selectedAgentId, actionId);
+        if (providerInstanceId) {
+          await agentManagementApi.runAction(
+            selectedAgentId,
+            actionId,
+            providerInstanceId
+          );
+        } else {
+          await agentManagementApi.runAction(selectedAgentId, actionId);
+        }
         if (selectedAgentId === 'kimi_code' && actionId === 'login') {
-          setConfig(await agentManagementApi.readConfig(selectedAgentId));
+          setConfig(
+            providerInstanceId
+              ? await agentManagementApi.readConfig(
+                  selectedAgentId,
+                  providerInstanceId
+                )
+              : await agentManagementApi.readConfig(selectedAgentId)
+          );
         }
         toast.success(
           actionId === 'subscription'
@@ -134,7 +157,12 @@ export function useAgentAccountFlowWatcher({
               : t('settings:agents.terminalFlowStarted')
         );
         if (actionId === 'login' || actionId === 'logout') {
-          await watchAccountFlow(selectedAgentId, true, actionId);
+          await watchAccountFlow(
+            selectedAgentId,
+            true,
+            actionId,
+            providerInstanceId
+          );
         }
       } catch (error) {
         toast.error(
@@ -149,7 +177,7 @@ export function useAgentAccountFlowWatcher({
         }
       }
     },
-    [selectedAgentId, setConfig, t, watchAccountFlow]
+    [providerInstanceId, selectedAgentId, setConfig, t, watchAccountFlow]
   );
 
   return {

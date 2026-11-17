@@ -943,18 +943,26 @@ fn agent_handoff_notice(
         .and_then(serde_json::Value::as_str)
         .filter(|p| matches!(*p, "portable" | "fresh"))
         .unwrap_or("portable");
+    let handoff_tokens = payload
+        .get("handoffTokens")
+        .or_else(|| payload.get("handoff_tokens"))
+        .or_else(|| payload.get("totalTokens"))
+        .or_else(|| payload.get("total_tokens"))
+        .and_then(serde_json::Value::as_u64)
+        .filter(|&tokens| tokens > 0);
     let structured = serde_json::json!({
         "kind": "agent_handoff",
         "fromAgent": from_agent,
         "toAgent": to_agent,
         "fromModel": from_model,
         "toModel": to_model,
+        "handoffTokens": handoff_tokens,
         "continuationPolicy": continuation_policy,
     });
     Some(AgentHandoffRowAction::Upsert {
         row_id: row_id.clone(),
         notice: Box::new(ConversationSessionNotice {
-            title: "上下文接力".into(),
+            title: "交接".into(),
             message: Some(structured.to_string()),
             severity: "info".into(),
             announcement_id: Some(row_id),

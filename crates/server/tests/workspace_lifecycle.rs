@@ -197,6 +197,7 @@ async fn workspace_hooks_preserve_root_mode_and_failures_are_visible_and_retryab
         &db::models::session::CreateSession {
             executor: None,
             agent_id: None,
+            provider_instance_id: None,
             task_id: None,
             name: None,
             initial_prompt: None,

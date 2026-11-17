@@ -533,37 +533,38 @@ async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, ena
     let Some(http_base) = gate.http_base().filter(|value| !value.trim().is_empty()) else {
         return;
     };
-    if !enabled {
-        let _ = services::services::mcp::uninstall_server(plugins::DELEGATION_MCP_NAME.to_string())
-            .await;
-        return;
+    let existing = services::services::mcp::scan_local_sync().unwrap_or_default();
+    for legacy in [
+        plugins::DELEGATION_MCP_NAME,
+        plugins::SESSION_MCP_NAME,
+        plugins::WORKFLOW_MCP_NAME,
+    ] {
+        if existing.iter().any(|server| server.id == legacy) {
+            let _ = services::services::mcp::uninstall_server(legacy.to_string()).await;
+        }
     }
     let Some(command) = utils::host_bin::locate_runnable_host_family_binary("dimo-mcp") else {
-        tracing::warn!("skipping host delegation native MCP sync; dimo-mcp sidecar is missing");
+        tracing::warn!("skipping superagent native MCP sync; dimo-mcp sidecar is missing");
         return;
     };
-    let Some(token) = gate
-        .token_for_product("delegation")
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return;
-    };
+    let token = gate.superagent_token();
+    let features = plugins::superagent_mcp_features(enabled, false, gate.session_features());
     let spec = plugins::host_family_stdio_spec(
         &command.to_string_lossy(),
-        "delegation",
-        plugins::DELEGATION_MCP_FEATURES,
+        "superagent",
+        &features,
         Some(&http_base),
         Some(&token),
     );
     if let Err(error) = services::services::mcp::upsert_local_server(
-        plugins::DELEGATION_MCP_NAME.to_string(),
+        plugins::SUPERAGENT_MCP_NAME.to_string(),
         spec,
         true,
         Vec::new(),
     )
     .await
     {
-        tracing::warn!(%error, "host delegation native MCP sync failed");
+        tracing::warn!(%error, "host superagent native MCP sync failed");
     }
 }
 
@@ -599,6 +600,9 @@ pub(crate) fn apply_host_multi_agent(
     }
     if let Err(error) = skills::sync_host_multi_agent_skill(config.multi_agent_enabled) {
         tracing::warn!(%error, "multi-agent skill projection failed");
+    }
+    if let Err(error) = skills::sync_builtin_workflow_pulse_skills() {
+        tracing::warn!(%error, "built-in workflow/pulse skill projection failed");
     }
 }
 
@@ -691,9 +695,6 @@ pub async fn reconcile_disabled_and_uninstalled_plugin_projections(
     let Ok(catalog) = plane.catalog().await else {
         return;
     };
-    let gate = plane.official_product_mcp_gate();
-    let allow_host_delegation = gate.allow_delegation_mcp();
-
     let enabled_plugins = catalog
         .iter()
         .filter(|plugin| plugin.activation == plugins::PluginActivation::Enabled)
@@ -717,9 +718,7 @@ pub async fn reconcile_disabled_and_uninstalled_plugin_projections(
                 })
         })
         .collect::<BTreeSet<_>>();
-    if allow_host_delegation {
-        active_mcp_server_ids.insert(plugins::DELEGATION_MCP_NAME.to_owned());
-    }
+    active_mcp_server_ids.insert(plugins::SUPERAGENT_MCP_NAME.to_owned());
 
     let mut stale_mcp_server_ids = BTreeSet::new();
 
@@ -1155,6 +1154,9 @@ fn materialize_host_family_binary_mcp(
             "managed MCP `{server_id}` hostFamilyBinary requires a known product"
         )));
     };
+    if matches!(product, "session" | "delegation" | "workflow") {
+        return Ok(None);
+    }
     let gate = control_plane.official_product_mcp_gate();
     if !gate
         .bindings()

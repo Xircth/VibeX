@@ -1,0 +1,428 @@
+[
+  {
+    "name": "workflow_source_read",
+    "description": "Read a workspace Workflow source artifact and its CAS revision.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Project-relative path or ~/.dimo/workflows/*.dimo-workflow.json"
+        }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_source_write",
+    "description": "Validate and atomically save a Workflow source artifact. Existing files require the revision returned by workflow_source_read.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Project-relative *.dimo-workflow.json path"
+        },
+        "definition": {
+          "type": "object"
+        },
+        "expectedRevision": {
+          "type": "string",
+          "description": "sha256 revision for an existing source"
+        }
+      },
+      "required": ["path", "definition"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_graph_patch",
+    "description": "Declaratively patch a Dual-Primitive Pulse Workflow graph (add_step, update_step, remove_step, connect_steps, disconnect_steps, apply_preset) across ephemeral session nodes (fresh context) and persistent bot nodes (fixed memberId context), group_stage, user_gate, bounded_loop (validating maxIterations exhaustively), wait_for_event, and outbox_action. Validates the entire DAG exhaustively (No Fail-Fast) and optionally writes *.dimo-workflow.json with CAS expectedRevision.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional project-relative *.dimo-workflow.json or ~/.dimo/workflows/*.dimo-workflow.json source path."
+        },
+        "expectedRevision": {
+          "type": "string",
+          "description": "Optional sha256:<hex> CAS revision required when writing back to an existing source file."
+        },
+        "write": {
+          "type": "boolean",
+          "description": "Whether to persist the patched definition to `path` when valid (defaults to true when `path` is set and `definition` is omitted)."
+        },
+        "definition": {
+          "type": "object",
+          "description": "Optional inline workflow definition object to patch in memory."
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional workflow name when creating a new definition."
+        },
+        "operations": {
+          "type": "array",
+          "description": "Ordered declarative graph patch operations to apply before exhaustive validation.",
+          "items": {
+            "type": "object",
+            "required": ["op"],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "add_step",
+                  "update_step",
+                  "remove_step",
+                  "connect_steps",
+                  "disconnect_steps",
+                  "apply_preset"
+                ]
+              },
+              "step": { "type": "object" },
+              "stepId": { "type": "string" },
+              "step_id": { "type": "string" },
+              "patch": { "type": "object" },
+              "fromStepId": { "type": "string" },
+              "from_step_id": { "type": "string" },
+              "toStepId": { "type": "string" },
+              "to_step_id": { "type": "string" },
+              "bindingKey": { "type": "string" },
+              "bindingExpr": { "type": "string" },
+              "preset": {
+                "type": "string",
+                "enum": [
+                  "direct_reflex",
+                  "superagent_router",
+                  "hybrid_pipeline",
+                  "event_saga",
+                  "window_aggregator"
+                ]
+              },
+              "params": { "type": "object" }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "workflow_validate",
+    "description": "Validate and normalize a Workflow definition without publishing it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "definition": { "type": "object" }
+      },
+      "required": ["definition"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_publish",
+    "description": "Publish an immutable version from a valid source definition.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "definition": { "type": "object" },
+        "sourcePath": {
+          "type": "string",
+          "description": "Project-relative source identity"
+        },
+        "definitionId": {
+          "type": "string",
+          "description": "Existing reusable Workflow definition ID"
+        }
+      },
+      "required": ["definition", "sourcePath"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_catalog",
+    "description": "List reusable Workflow definitions and optionally their version history.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "definitionId": {
+          "type": "string",
+          "description": "Definition ID whose versions should be returned"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_run_inspect",
+    "description": "Inspect one durable Run, all latest/previous step attempts, and its complete event history.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_start",
+    "description": "Start a durable Workflow Run from a published immutable version.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "definitionVersionId": {
+          "type": "string",
+          "description": "Published Workflow version ID"
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Dimo workspace ID"
+        },
+        "input": {},
+        "policyOverride": {
+          "type": ["object", "null"]
+        },
+        "debugStepId": {
+          "type": "string",
+          "description": "Optional Agent Step to test with only its required ancestors"
+        }
+      },
+      "required": ["definitionVersionId", "workspaceId", "input"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_debug_source",
+    "description": "Test the current source definition through an unpublished durable debug Run. Reuses completed ancestors when parentRunId is provided and never publishes or retargets an Automation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "definition": { "type": "object" },
+        "sourcePath": {
+          "type": "string",
+          "description": "Project-relative source identity"
+        },
+        "definitionId": {
+          "type": "string",
+          "description": "Existing reusable Workflow definition ID"
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Dimo workspace ID; required only for the first debug Run"
+        },
+        "input": {},
+        "policyOverride": {
+          "type": ["object", "null"]
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Agent Step to test"
+        },
+        "parentRunId": {
+          "type": "string",
+          "description": "Prior debug Run whose unchanged completed ancestors should be reused"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["node", "downstream"]
+        }
+      },
+      "required": ["definition", "sourcePath", "stepId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_debug_from_step",
+    "description": "Create a derived debug Run that preserves unchanged completed ancestors and reruns one node or its transitive downstream.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "parentRunId": {
+          "type": "string",
+          "description": "Existing parent Run ID"
+        },
+        "definitionVersionId": {
+          "type": "string",
+          "description": "Published version to debug"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Agent Step ID"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["node", "downstream"]
+        }
+      },
+      "required": ["parentRunId", "definitionVersionId", "stepId", "scope"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_pause_run",
+    "description": "Pause the DAG and cancel active Turns without marking the Run failed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Audit reason"
+        }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_cancel_run",
+    "description": "Permanently terminate a Workflow Run and its active Agent Turns.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Audit reason"
+        }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_resume_run",
+    "description": "Resume a paused DAG from its paused nodes with new Turns.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_pause_step",
+    "description": "Pause only the active Turn in one Agent Step Conversation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Agent Step ID"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Audit reason"
+        }
+      },
+      "required": ["runId", "stepId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_continue_step",
+    "description": "Continue a paused Agent Step by adding a new Turn in the same Conversation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Agent Step ID"
+        },
+        "text": {
+          "type": "string",
+          "description": "Additional user guidance"
+        }
+      },
+      "required": ["runId", "stepId", "text"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_accept_candidate",
+    "description": "Accept a manual-gate Agent Step candidate output and unlock downstream nodes.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Agent Step ID"
+        }
+      },
+      "required": ["runId", "stepId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_review_step",
+    "description": "Resolve a needs-review Agent Step after interruption or evidence review.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Agent Step ID"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["retry", "accept", "skip"]
+        },
+        "output": {}
+      },
+      "required": ["runId", "stepId", "action"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "workflow_decide_approval",
+    "description": "Submit a JSON decision to an Approval Step.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Workflow Run ID"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "Approval Step ID"
+        },
+        "decision": {}
+      },
+      "required": ["runId", "stepId", "decision"],
+      "additionalProperties": false
+    }
+  }
+]

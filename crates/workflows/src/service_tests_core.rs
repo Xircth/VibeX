@@ -277,12 +277,9 @@ async fn manual_agent_output_waits_for_acceptance_before_unlocking_downstream() 
         .stage_step_candidate(StageWorkflowStepCandidate {
             run_id: run.id,
             step_id: "draft".to_string(),
-            // The schema is an Agent-facing example, not a runtime gate.
-            // Persist and forward the final Assistant text even when it is
-            // not JSON and does not resemble the example.
-            output: Some(serde_json::Value::String(
-                "plain-text result that violates the example".to_string(),
-            )),
+            output: Some(serde_json::json!({
+                "summary": "structured candidate ready for review"
+            })),
         })
         .await
         .unwrap();
@@ -317,7 +314,7 @@ async fn manual_agent_output_waits_for_acceptance_before_unlocking_downstream() 
     assert_eq!(draft.status, "completed");
     assert_eq!(
         draft.output_json.as_deref(),
-        Some("\"plain-text result that violates the example\"")
+        Some("{\"summary\":\"structured candidate ready for review\"}")
     );
     assert_eq!(
         steps
@@ -1082,3 +1079,252 @@ async fn delete_definition_and_rename_persists_cleanly() {
     assert!(store.definitions(10).await.unwrap().is_empty());
     assert!(store.run(run.id).await.is_err());
 }
+
+#[tokio::test]
+async fn complete_step_strictly_validates_output_schema_unless_output_description_overrides() {
+    let (core, store) = setup().await;
+    let mut def = definition();
+    def.steps = vec![
+        WorkflowStep {
+            id: "strict".to_string(),
+            depends_on: Vec::new(),
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::Session(crate::SessionStepSpec {
+                agent_id: "codex".to_string(),
+                prompt_template: "diagnose".to_string(),
+                workspace_access: WorkspaceAccess::ReadOnlyShared,
+                model_override: None,
+                subscribe_thread: false,
+                completion: CompletionPolicy::Automatic,
+                output_schema: Some(serde_json::json!({
+                    "type": "object",
+                    "required": ["summary", "fixed"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "summary": { "type": "string" },
+                        "fixed": { "type": "boolean" }
+                    }
+                })),
+            }),
+        },
+        WorkflowStep {
+            id: "prose".to_string(),
+            depends_on: Vec::new(),
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::Agent(AgentStepSpec {
+                agent_id: "codex".to_string(),
+                prompt: "summarize".to_string(),
+                executor_profile_id: None,
+                mode_override: None,
+                config_overrides: BTreeMap::new(),
+                output_language: None,
+                output_description: Some("A short prose summary".to_string()),
+                output_schema: Some(serde_json::json!({
+                    "type": "object",
+                    "required": ["summary"],
+                    "properties": {"summary": {"type": "string"}}
+                })),
+                workspace_access: WorkspaceAccess::ReadOnlyShared,
+                side_effect_class: SideEffectClass::ReadOnly,
+                allow_one_repair: false,
+                allow_skip_on_review: false,
+                completion_policy: CompletionPolicy::Automatic,
+            }),
+        },
+    ];
+    let version = core
+        .publish(PublishWorkflow {
+            definition_id: None,
+            definition: def,
+            source_path: None,
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+    let run = core
+        .start(StartWorkflow {
+            definition_version_id: version.id,
+            workspace_id: Uuid::new_v4(),
+            input: serde_json::json!({"repo": "acme/dimo"}),
+            policy_override: None,
+            debug_step_id: None,
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+    store.enable_dispatch(run.id).await.unwrap();
+
+    let claim_prose = store
+        .claim_ready(4, chrono::Duration::seconds(30))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claim_prose.step.step_id, "prose");
+    store
+        .mark_started(
+            run.id,
+            &claim_prose.step.step_id,
+            claim_prose.claim_token,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    core.complete_step(CompleteWorkflowStep {
+        run_id: run.id,
+        step_id: "prose".to_string(),
+        output: Some(serde_json::Value::String("Natural language prose".to_string())),
+    })
+    .await
+    .unwrap();
+
+    let claim_strict = store
+        .claim_ready(4, chrono::Duration::seconds(30))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claim_strict.step.step_id, "strict");
+    store
+        .mark_started(
+            run.id,
+            &claim_strict.step.step_id,
+            claim_strict.claim_token,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let err = core
+        .complete_step(CompleteWorkflowStep {
+            run_id: run.id,
+            step_id: "strict".to_string(),
+            output: Some(serde_json::json!({ "unexpected": 123 })),
+        })
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("`summary`"), "{msg}");
+    assert!(msg.contains("`fixed`"), "{msg}");
+    assert!(msg.contains("`unexpected`"), "{msg}");
+
+    core.complete_step(CompleteWorkflowStep {
+        run_id: run.id,
+        step_id: "strict".to_string(),
+        output: Some(serde_json::json!({ "summary": "ok", "fixed": true })),
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn notify_dependency_resolves_and_user_gate_renders_steps_output_template() {
+    let (core, store) = setup().await;
+    let mut def = definition();
+    def.steps = vec![
+        WorkflowStep {
+            id: "intake-trigger".to_string(),
+            depends_on: Vec::new(),
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::Notify(crate::NotifyStepSpec {
+                title: "CI Failed".to_string(),
+            }),
+        },
+        WorkflowStep {
+            id: "diagnose".to_string(),
+            depends_on: vec!["intake-trigger".to_string()],
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::Session(crate::SessionStepSpec {
+                agent_id: "codex".to_string(),
+                prompt_template: "Fix".to_string(),
+                workspace_access: WorkspaceAccess::ReadOnlyShared,
+                model_override: None,
+                subscribe_thread: false,
+                completion: CompletionPolicy::Automatic,
+                output_schema: Some(serde_json::json!({
+                    "type": "object",
+                    "required": ["summary"],
+                    "properties": { "summary": { "type": "string" } }
+                })),
+            }),
+        },
+        WorkflowStep {
+            id: "notify-owner".to_string(),
+            depends_on: vec!["diagnose".to_string()],
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::UserGate(crate::UserGateStepSpec {
+                interaction_kind: crate::UserInteractionKind::Notify,
+                title_template: "Result".to_string(),
+                body_template: "Summary: {{steps.diagnose.output.summary}}".to_string(),
+                approval_options: Vec::new(),
+                form_schema: None,
+                sla_timeout_seconds: None,
+            }),
+        },
+    ];
+
+    let version = core
+        .publish(PublishWorkflow {
+            definition_id: None,
+            definition: def,
+            source_path: None,
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+    let run = core
+        .start(StartWorkflow {
+            definition_version_id: version.id,
+            workspace_id: Uuid::new_v4(),
+            input: serde_json::json!({"repo": "acme/dimo"}),
+            policy_override: None,
+            debug_step_id: None,
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+    store.enable_dispatch(run.id).await.unwrap();
+
+    let claim = store
+        .claim_ready(1, chrono::Duration::seconds(30))
+        .await
+        .unwrap()
+        .expect("diagnose must become ready after notify dependency");
+    assert_eq!(claim.step.step_id, "diagnose");
+    let def = version.definition().unwrap();
+    let diagnose_step = def.steps.iter().find(|s| s.id == "diagnose").unwrap();
+    let resolved = store.resolve_step_input(run.id, diagnose_step).await.unwrap();
+    assert_eq!(resolved.values["intake-trigger"], serde_json::json!({"notified": true}));
+
+    store
+        .mark_started(run.id, "diagnose", claim.claim_token, None, None)
+        .await
+        .unwrap();
+    core.complete_step(CompleteWorkflowStep {
+        run_id: run.id,
+        step_id: "diagnose".to_string(),
+        output: Some(serde_json::json!({ "summary": "Patched flaky test" })),
+    })
+    .await
+    .unwrap();
+
+    let body: String = sqlx::query_scalar(
+        "SELECT body FROM pulse_user_interactions WHERE workflow_run_id = ? AND step_id = 'notify-owner'",
+    )
+    .bind(run.id.to_string())
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(body, "Summary: Patched flaky test");
+}
+

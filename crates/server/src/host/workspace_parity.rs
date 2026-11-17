@@ -944,6 +944,7 @@ impl ServerApplicationDomains {
             &CreateSession {
                 executor: Some(payload.executor_profile_id.executor.to_string()),
                 agent_id: parsed_agent_id,
+                provider_instance_id: None,
                 task_id: Some(task.id),
                 name: Some(task.title.clone()),
                 initial_prompt: task.description.clone(),
@@ -1100,6 +1101,7 @@ async fn ensure_workspace_session(
         &CreateSession {
             executor: None,
             agent_id: None,
+            provider_instance_id: None,
             task_id: None,
             name: None,
             initial_prompt: None,

@@ -163,6 +163,7 @@ export type ConversationRateLimitCancelWaitRequest = {
 export type ConversationEngineHandoffRequest = {
   conversationId: string;
   targetEngine: string;
+  targetProviderInstanceId?: string | null;
   tokenBudget?: number;
 };
 

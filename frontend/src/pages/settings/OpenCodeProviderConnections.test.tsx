@@ -10,6 +10,7 @@ import {
   OpenCodeProviderConnections,
   openCodeProviderSurface,
 } from './OpenCodeProviderConnections';
+import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
 
 const pluginControl = vi.hoisted(() => ({
   contributionCatalog: vi.fn(),
@@ -24,7 +25,17 @@ vi.mock('@/lib/api/plugins', () => ({
   }),
 }));
 
+const builtinPresets = vi.hoisted(() => ({
+  rows: [] as ProviderCatalogTemplateView[],
+}));
+
+vi.mock('@/features/provider-presets/builtinProviderPresets', () => ({
+  hasBuiltinProviderPresets: () => true,
+  loadBuiltinProviderPresets: async () => builtinPresets.rows,
+}));
+
 function emptyPluginCatalog() {
+  builtinPresets.rows = [];
   pluginControl.contributionCatalog.mockResolvedValue({
     generation: 0,
     items: [],
@@ -389,12 +400,31 @@ describe('OpenCodeProviderConnections', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('appends plugin catalog rows after models.dev without sharing the slice window', async () => {
+  it('appends built-in and plugin preset rows after models.dev without sharing the slice window', async () => {
+    builtinPresets.rows = [
+      {
+        id: 'deepseek',
+        plugin_id: 'dimo.builtin',
+        contribution_id: 'dimo.builtin',
+        plugin_label: '',
+        agent_id: 'opencode',
+        name: 'DeepSeek',
+        icon: 'deepseek',
+        website_url: 'https://platform.deepseek.com/',
+        category: 'community',
+        surface: 'opencode',
+        provider_id: 'deepseek',
+        npm: '@ai-sdk/openai-compatible',
+        api: 'openai-compatible',
+        base_url: 'https://api.deepseek.com/v1',
+        models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
+      },
+    ];
     pluginControl.contributionCatalog.mockResolvedValue({
       generation: 4,
       items: [
         {
-          pluginId: 'dimo.provider-switch',
+          pluginId: 'acme.presets',
           id: 'opencode',
           kind: 'provider_model_catalog',
           label: 'OpenCode presets',
@@ -409,9 +439,9 @@ describe('OpenCodeProviderConnections', () => {
       templates: [
         {
           id: 'openrouter',
-          plugin_id: 'dimo.provider-switch',
+          plugin_id: 'acme.presets',
           contribution_id: 'opencode',
-          plugin_label: 'ProviderSwitch',
+          plugin_label: 'Acme Presets',
           agent_id: 'opencode',
           name: 'OpenRouter',
           category: 'community',
@@ -424,9 +454,9 @@ describe('OpenCodeProviderConnections', () => {
         },
         {
           id: 'siliconflow',
-          plugin_id: 'dimo.provider-switch',
+          plugin_id: 'acme.presets',
           contribution_id: 'opencode',
-          plugin_label: 'ProviderSwitch',
+          plugin_label: 'Acme Presets',
           agent_id: 'opencode',
           name: 'SiliconFlow',
           category: 'partner',
@@ -483,8 +513,17 @@ describe('OpenCodeProviderConnections', () => {
     const items = list.querySelectorAll(':scope > li');
     expect(
       [...items].map((item) => item.querySelector('code')?.textContent)
-    ).toEqual(['openai', 'openrouter', 'openrouter', 'siliconflow']);
-    expect(screen.getAllByText('预置 · ProviderSwitch')).toHaveLength(2);
+    ).toEqual([
+      'openai',
+      'openrouter',
+      'deepseek',
+      'openrouter',
+      'siliconflow',
+    ]);
+    expect(screen.getAllByText('预置 · Acme Presets')).toHaveLength(2);
+    expect(
+      screen.getByRole('button', { name: 'DeepSeek 网站' })
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '按名称' })
     ).not.toBeInTheDocument();
@@ -516,7 +555,7 @@ describe('OpenCodeProviderConnections', () => {
       generation: 4,
       items: [
         {
-          pluginId: 'dimo.provider-switch',
+          pluginId: 'acme.presets',
           id: 'opencode',
           kind: 'provider_model_catalog',
           label: 'OpenCode presets',
@@ -531,9 +570,9 @@ describe('OpenCodeProviderConnections', () => {
       templates: [
         {
           id: 'siliconflow',
-          plugin_id: 'dimo.provider-switch',
+          plugin_id: 'acme.presets',
           contribution_id: 'opencode',
-          plugin_label: 'ProviderSwitch',
+          plugin_label: 'Acme Presets',
           agent_id: 'opencode',
           name: 'SiliconFlow',
           category: 'partner',

@@ -101,6 +101,19 @@ export function isSelfTriggeredSettingsChange(now = Date.now()): boolean {
   );
 }
 
+export async function withSelfTriggeredSettingsWrite<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  inFlightPreferenceWrites += 1;
+  lastLocalPreferenceWriteAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    inFlightPreferenceWrites = Math.max(0, inFlightPreferenceWrites - 1);
+    lastLocalPreferenceWriteAt = Date.now();
+  }
+}
+
 export function resetSelfTriggeredSettingsStateForTests(): void {
   inFlightPreferenceWrites = 0;
   lastLocalPreferenceWriteAt = 0;

@@ -142,6 +142,7 @@ pub async fn host_create_space_member(
             &CreateSession {
                 executor: None,
                 agent_id: Some(agent_id),
+                provider_instance_id: None,
                 task_id: None,
                 name: None,
                 initial_prompt: None,

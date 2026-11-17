@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentAuthModeView,
   AgentDiagnosticView,
   AgentId,
   AgentManagementActionsView,
-  AgentNativeConfigFileWriteRequest,
-  AgentNativeConfigPatchRequest,
   AgentNativeConfigView,
   AgentOperationKind,
   AgentPreflightView,
@@ -35,6 +34,7 @@ import { agentHasAcpUpdate } from '@/features/agent-management/agentVersion';
 
 import { AgentBar } from './AgentBar';
 import { defaultAgentIdFromOrder, sortAgentsForBar } from './agentBarOrder';
+import { AgentInstanceSwitcher } from './AgentInstanceSwitcher';
 import {
   isAuthPreflightItem,
   mergePreflightItems,
@@ -57,10 +57,18 @@ import {
   applyCachedUpdateToPreflight,
   applyInstallationToPreflight,
   applyUpdateCheckToPreflight,
-  isConfigConflict,
 } from './agentSettingsPreflightHelpers';
 import type { PluginEcosystem } from './PluginsSettings';
 import { useAgentAccountFlowWatcher } from './useAgentAccountFlowWatcher';
+import {
+  agentInspectCacheKey,
+  type ConfigConflictState,
+  useAgentNativeConfigActions,
+} from './useAgentNativeConfigActions';
+import {
+  deriveCustomInstanceAuthStatus,
+  useAgentProviderInstances,
+} from './useAgentProviderInstances';
 import {
   MODEL_ROUTER_IMPORT_EVENT,
   type PendingModelRouterImport,
@@ -90,19 +98,8 @@ export function AgentSettings() {
   const [environmentDiagnosticsAgentId, setEnvironmentDiagnosticsAgentId] =
     useState<AgentId | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
-  const [configConflict, setConfigConflict] = useState<
-    | {
-        kind: 'fields';
-        message: string;
-        request: AgentNativeConfigPatchRequest;
-      }
-    | {
-        kind: 'file';
-        message: string;
-        request: AgentNativeConfigFileWriteRequest;
-      }
-    | null
-  >(null);
+  const [configConflict, setConfigConflict] =
+    useState<ConfigConflictState>(null);
   const [updateCheck, setUpdateCheck] = useState<AgentUpdateCheckView | null>(
     null
   );
@@ -118,9 +115,27 @@ export function AgentSettings() {
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
-  const { setDirtySource, confirmDiscardConfig } =
+  const { setDirtySource, confirmDiscardConfig, resetDirty } =
     useUnsavedAgentSettingsGuard(selectedAgentId, t);
+  const providerInstances = useAgentProviderInstances({
+    selectedAgentId,
+    confirmDiscardConfig,
+  });
+  const activeProviderInstanceId = providerInstances.activeProviderInstanceId;
+  const isCustomInstance = providerInstances.isCustomInstance;
+  const inspectKey = selectedAgentId
+    ? agentInspectCacheKey(selectedAgentId, activeProviderInstanceId)
+    : null;
+  const [customAuthView, setCustomAuthView] =
+    useState<AgentAuthModeView | null>(null);
+  const authenticationOverride = isCustomInstance
+    ? deriveCustomInstanceAuthStatus(customAuthView)
+    : undefined;
   const selectAgent = management.select;
+  useEffect(() => {
+    setCustomAuthView(null);
+    resetDirty();
+  }, [inspectKey, resetDirty]);
   useEffect(() => {
     const applyFocus = () => {
       const focus = consumeAgentSettingsFocus();
@@ -161,8 +176,8 @@ export function AgentSettings() {
   const authRefreshGeneration = useRef(0);
   const inspectGeneration = useRef(0);
   const inspectCacheRef = useRef({
-    config: new Map<AgentId, AgentNativeConfigView>(),
-    actions: new Map<AgentId, AgentManagementActionsView>(),
+    config: new Map<string, AgentNativeConfigView>(),
+    actions: new Map<string, AgentManagementActionsView>(),
     diagnostics: new Map<AgentId, AgentDiagnosticView[]>(),
     updateCheck: new Map<AgentId, AgentUpdateCheckView>(),
   });
@@ -197,11 +212,37 @@ export function AgentSettings() {
   }, [loadRegistry, registry, registryOpen]);
 
   useEffect(() => {
-    if (!selectedAgentId || registryOpen) return;
+    if (!selectedAgentId || !inspectKey || registryOpen) return;
     let active = true;
     const watchId = ++inspectGeneration.current;
     const authGenAtStart = authRefreshGeneration.current;
     const cache = inspectCacheRef.current;
+    setConfig(cache.config.get(inspectKey) ?? null);
+    setActions(cache.actions.get(inspectKey) ?? null);
+    setConfigConflict(null);
+    if (isCustomInstance) {
+      setPreflight(null);
+      setDiagnostics([]);
+      setUpdateCheck(null);
+      setChecking(false);
+      void Promise.allSettled([
+        agentManagementApi.readConfig(selectedAgentId, activeProviderInstanceId),
+        agentManagementApi.actions(selectedAgentId, activeProviderInstanceId),
+      ]).then(([configResult, actionsResult]) => {
+        if (!active) return;
+        if (configResult.status === 'fulfilled') {
+          cache.config.set(inspectKey, configResult.value);
+          setConfig(configResult.value);
+        }
+        if (actionsResult.status === 'fulfilled') {
+          cache.actions.set(inspectKey, actionsResult.value);
+          setActions(actionsResult.value);
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }
     const cachedUpdateCheck = cache.updateCheck.get(selectedAgentId) ?? null;
     const cachedAcpUpdate = readCachedAgentAcpUpdate(selectedAgentId);
     const snapshot = readPreflightSnapshot(selectedAgentId);
@@ -214,11 +255,8 @@ export function AgentSettings() {
           )
         : null
     );
-    setConfig(cache.config.get(selectedAgentId) ?? null);
-    setActions(cache.actions.get(selectedAgentId) ?? null);
     setDiagnostics(cache.diagnostics.get(selectedAgentId) ?? []);
     setUpdateCheck(cachedUpdateCheck);
-    setConfigConflict(null);
     setChecking(!snapshot);
     void (async () => {
       try {
@@ -269,7 +307,7 @@ export function AgentSettings() {
     ]).then(([configResult, diagnosticResult, actionsResult]) => {
       if (!active) return;
       if (configResult.status === 'fulfilled') {
-        cache.config.set(selectedAgentId, configResult.value);
+        cache.config.set(inspectKey, configResult.value);
         setConfig(configResult.value);
       }
       if (diagnosticResult.status === 'fulfilled') {
@@ -280,14 +318,21 @@ export function AgentSettings() {
         setDiagnostics(unread);
       }
       if (actionsResult.status === 'fulfilled') {
-        cache.actions.set(selectedAgentId, actionsResult.value);
+        cache.actions.set(inspectKey, actionsResult.value);
         setActions(actionsResult.value);
       }
     });
     return () => {
       active = false;
     };
-  }, [refreshManagement, registryOpen, selectedAgentId]);
+  }, [
+    activeProviderInstanceId,
+    inspectKey,
+    isCustomInstance,
+    refreshManagement,
+    registryOpen,
+    selectedAgentId,
+  ]);
 
   useEffect(() => {
     if (
@@ -686,11 +731,32 @@ export function AgentSettings() {
     t,
   ]);
 
+  const reloadProviderInstances = providerInstances.reload;
   const refreshAuthentication = useCallback(async () => {
-    if (!selectedAgentId) return null;
+    if (!selectedAgentId || !inspectKey) return null;
     authRefreshGeneration.current += 1;
     const generation = authRefreshGeneration.current;
     try {
+      if (isCustomInstance) {
+        const [nextConfig, nextActions, nextAuthView] = await Promise.all([
+          agentManagementApi.readConfig(
+            selectedAgentId,
+            activeProviderInstanceId
+          ),
+          agentManagementApi.actions(selectedAgentId, activeProviderInstanceId),
+          agentManagementApi
+            .authMode(selectedAgentId, activeProviderInstanceId)
+            .catch(() => null),
+        ]);
+        if (authRefreshGeneration.current !== generation) return null;
+        inspectCacheRef.current.config.set(inspectKey, nextConfig);
+        inspectCacheRef.current.actions.set(inspectKey, nextActions);
+        setConfig(nextConfig);
+        setActions(nextActions);
+        if (nextAuthView) setCustomAuthView(nextAuthView);
+        await reloadProviderInstances();
+        return deriveCustomInstanceAuthStatus(nextAuthView) ?? 'not_logged_in';
+      }
       const report = await agentManagementApi.preflight(
         selectedAgentId,
         'authentication'
@@ -706,8 +772,8 @@ export function AgentSettings() {
         agentManagementApi.actions(selectedAgentId),
       ]);
       if (authRefreshGeneration.current !== generation) return null;
-      inspectCacheRef.current.config.set(selectedAgentId, nextConfig);
-      inspectCacheRef.current.actions.set(selectedAgentId, nextActions);
+      inspectCacheRef.current.config.set(inspectKey, nextConfig);
+      inspectCacheRef.current.actions.set(inspectKey, nextActions);
       setConfig(nextConfig);
       setActions(nextActions);
       const agents = await refreshManagement();
@@ -719,7 +785,14 @@ export function AgentSettings() {
     } catch {
       return null;
     }
-  }, [refreshManagement, selectedAgentId]);
+  }, [
+    activeProviderInstanceId,
+    inspectKey,
+    isCustomInstance,
+    refreshManagement,
+    reloadProviderInstances,
+    selectedAgentId,
+  ]);
 
   const notifyAuthenticationChanged = useCallback(() => {
     void refreshAuthentication();
@@ -737,6 +810,7 @@ export function AgentSettings() {
 
   const { actionRunning, runManagementAction } = useAgentAccountFlowWatcher({
     selectedAgentId,
+    providerInstanceId: activeProviderInstanceId,
     registryOpen,
     refreshAuthentication,
     setConfig,
@@ -1223,125 +1297,20 @@ export function AgentSettings() {
     }
   }, [management, selectedAgent?.display_name, selectedAgentId, t]);
 
-  const saveConfig = useCallback(
-    async (
-      request: AgentNativeConfigPatchRequest,
-      options?: { refreshAuth?: boolean }
-    ) => {
-      setSavingConfig(true);
-      try {
-        setConfig(await agentManagementApi.writeConfig(request));
-        setConfigConflict(null);
-        if (options?.refreshAuth) await refreshAuthentication();
-        else await management.refresh();
-      } catch (error) {
-        if (isConfigConflict(error)) {
-          const external = await agentManagementApi.readConfig(
-            request.agent_id
-          );
-          setConfig(external);
-          setConfigConflict({
-            kind: 'fields',
-            message: errorMessage(
-              error,
-              t('settings:agents.configExternallyModified')
-            ),
-            request,
-          });
-          toast.warning(t('settings:agents.configConflictDetected'));
-        } else {
-          toast.error(
-            errorMessage(error, t('settings:agents.configSaveFailed'))
-          );
-        }
-      } finally {
-        setSavingConfig(false);
-      }
-    },
-    [management, refreshAuthentication, t]
-  );
-
-  const saveConfigFile = useCallback(
-    async (request: AgentNativeConfigFileWriteRequest) => {
-      setSavingConfig(true);
-      try {
-        setConfig(await agentManagementApi.writeConfigFile(request));
-        setConfigConflict(null);
-        toast.success(t('settings:agents.configFileSaved'));
-        await management.refresh();
-      } catch (error) {
-        if (isConfigConflict(error)) {
-          setConfig(await agentManagementApi.readConfig(request.agent_id));
-          setConfigConflict({
-            kind: 'file',
-            message: errorMessage(
-              error,
-              t('settings:agents.configExternallyModified')
-            ),
-            request,
-          });
-          toast.warning(t('settings:agents.configConflictDetected'));
-        } else {
-          toast.error(
-            errorMessage(error, t('settings:agents.configFileSaveFailed'))
-          );
-        }
-      } finally {
-        setSavingConfig(false);
-      }
-    },
-    [management, t]
-  );
-
-  const reloadConflict = useCallback(async () => {
-    if (!selectedAgentId) return;
-    try {
-      setConfig(await agentManagementApi.readConfig(selectedAgentId));
-      toast.success(t('settings:agents.configReloaded'));
-    } catch (error) {
-      toast.error(errorMessage(error, t('settings:agents.configReloadFailed')));
-    }
-  }, [selectedAgentId, t]);
-
-  const overwriteConflict = useCallback(async () => {
-    if (!configConflict || !config) return;
-    setSavingConfig(true);
-    try {
-      if (configConflict.kind === 'fields') {
-        const revisions = Object.fromEntries(
-          config.fields
-            .filter((field) => field.id in configConflict.request.fields)
-            .map((field) => [field.id, field.revision])
-        );
-        setConfig(
-          await agentManagementApi.writeConfig({
-            ...configConflict.request,
-            base_field_revisions: revisions,
-          })
-        );
-      } else {
-        const file = config.files.find(
-          (candidate) => candidate.path === configConflict.request.path
-        );
-        if (!file) throw new Error(t('settings:agents.configFileMissing'));
-        setConfig(
-          await agentManagementApi.writeConfigFile({
-            ...configConflict.request,
-            base_revision: file.revision,
-          })
-        );
-      }
-      setConfigConflict(null);
-      toast.success(t('settings:agents.configOverwritten'));
-      await management.refresh();
-    } catch (error) {
-      toast.error(
-        errorMessage(error, t('settings:agents.configOverwriteFailed'))
-      );
-    } finally {
-      setSavingConfig(false);
-    }
-  }, [config, configConflict, management, t]);
+  const { saveConfig, saveConfigFile, reloadConflict, overwriteConflict } =
+    useAgentNativeConfigActions({
+      selectedAgentId,
+      activeProviderInstanceId,
+      config,
+      configConflict,
+      setConfig,
+      setConfigConflict,
+      setSavingConfig,
+      refreshAuthentication,
+      refreshManagement: isCustomInstance
+        ? reloadProviderInstances
+        : refreshManagement,
+    });
 
   const exportDiagnostics = useCallback(() => {
     if (!selectedAgentId) return;
@@ -1421,6 +1390,26 @@ export function AgentSettings() {
       ) : selectedAgent ? (
         <AgentSettingsDetailSections
           selectedAgent={selectedAgent}
+          providerInstanceId={activeProviderInstanceId}
+          isCustomInstance={isCustomInstance}
+          authenticationOverride={authenticationOverride}
+          onAuthViewChange={setCustomAuthView}
+          instanceSwitcher={
+            providerInstances.supportsInstances ? (
+              <AgentInstanceSwitcher
+                agentDisplayName={selectedAgent.display_name}
+                instances={providerInstances.instances}
+                selectedInstanceId={providerInstances.selectedInstanceId}
+                disabled={operationActive || Boolean(actionRunning)}
+                mutating={providerInstances.mutating}
+                onSelectInstance={providerInstances.selectInstance}
+                onCreateInstance={providerInstances.createInstance}
+                onRenameInstance={providerInstances.renameInstance}
+                onSetDefaultInstance={providerInstances.setDefaultInstance}
+                onDeleteInstance={providerInstances.deleteInstance}
+              />
+            ) : null
+          }
           liveConfig={liveConfig}
           config={config}
           hasAuthenticationMode={hasAuthenticationMode}

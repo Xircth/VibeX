@@ -491,7 +491,7 @@ impl ServerApplicationDomains {
                         ))
                     })?;
 
-                if let (Some(raw_run_id), Some(step_id)) = (
+                let resolved = if let (Some(raw_run_id), Some(step_id)) = (
                     existing.view.workflow_run_id.as_deref(),
                     existing.view.step_id.as_deref(),
                 ) && let Ok(wf_run_id) = Uuid::parse_str(raw_run_id)
@@ -510,19 +510,25 @@ impl ServerApplicationDomains {
                         .await
                         .map_err(|err| ApplicationError::bad_request(err.to_string()))?;
                     notify_workflow_work();
-                }
-
-                let resolution = json!({
-                    "optionId": input.option_id,
-                    "note": input.note,
-                    "formValues": input.form_values,
-                });
-                let resolved = engine
-                    .store()
-                    .resolve_user_interaction(&input.interaction_id, &resolution, &now_iso)
-                    .await
-                    .map_err(map_sqlx_error)?
-                    .unwrap_or(existing);
+                    engine
+                        .store()
+                        .get_user_interaction(&input.interaction_id)
+                        .await
+                        .map_err(map_sqlx_error)?
+                        .unwrap_or(existing)
+                } else {
+                    let resolution = json!({
+                        "optionId": input.option_id,
+                        "note": input.note,
+                        "formValues": input.form_values,
+                    });
+                    engine
+                        .store()
+                        .resolve_user_interaction(&input.interaction_id, &resolution, &now_iso)
+                        .await
+                        .map_err(map_sqlx_error)?
+                        .unwrap_or(existing)
+                };
 
                 self.emit_pulse_deck_changed();
                 to_json_value(resolved.view)

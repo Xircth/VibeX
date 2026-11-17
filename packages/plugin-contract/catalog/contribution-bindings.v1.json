@@ -109,9 +109,9 @@
     {
       "kind": "provider.model.catalog",
       "consumer": "frontend/src/features/plugins/providers/hostProviderServices.ts",
-      "example_plugin": "dimo.provider-switch",
+      "example_plugin": "none",
       "status": "ready",
-      "notes": ""
+      "notes": "Host ships built-in presets; plugins may append more."
     },
     {
       "kind": "app.panel",

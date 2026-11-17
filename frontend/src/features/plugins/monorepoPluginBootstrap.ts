@@ -15,7 +15,6 @@ interface MonorepoPluginDescriptor {
   readonly dirName: string;
   readonly name: string;
   readonly version: string;
-  readonly dependencies?: DeclarativePluginSpec['dependencies'];
   readonly loader: MonorepoPluginModuleLoader;
 }
 
@@ -27,12 +26,6 @@ function resolveMonorepoPluginId(dirName: string): string {
 
 const MONOREPO_PLUGIN_DESCRIPTORS: readonly MonorepoPluginDescriptor[] = [
   {
-    dirName: 'provider-switch',
-    name: 'Provider Switch',
-    version: '2.0.0',
-    loader: () => import('../../../../plugins/provider-switch/app/main.js'),
-  },
-  {
     dirName: 'plugin-development',
     name: 'Plugin Development',
     version: '2.0.0',
@@ -42,14 +35,6 @@ const MONOREPO_PLUGIN_DESCRIPTORS: readonly MonorepoPluginDescriptor[] = [
     dirName: 'session-enhance',
     name: 'Session Enhance',
     version: '2.0.0',
-    dependencies: [
-      {
-        kind: 'plugin',
-        id: resolveMonorepoPluginId('provider-switch'),
-        versionRange: '^2.0.0',
-        required: true,
-      },
-    ],
     loader: () => import('../../../../plugins/session-enhance/app/main.js'),
   },
   {
@@ -146,9 +131,6 @@ function createMonorepoPluginBundle(
     id: pluginId,
     name: descriptor.name,
     version: descriptor.version,
-    ...(descriptor.dependencies
-      ? { dependencies: descriptor.dependencies }
-      : {}),
   };
   const bundle: MonorepoPluginBundle = {
     id: pluginId,
@@ -222,16 +204,6 @@ export async function activateMonorepoPlugin(
   ensureCoreFoundationPluginsBootstrapped();
   const bundle = MONOREPO_BUNDLE_BY_ID.get(pluginId);
   if (!bundle) return false;
-  for (const dep of bundle.spec.dependencies ?? []) {
-    if (
-      dep.kind === 'plugin' &&
-      dep.required !== false &&
-      dep.id !== bundle.id &&
-      !pluginRuntimeLoader.isActive(dep.id)
-    ) {
-      await activateMonorepoPlugin(dep.id, options);
-    }
-  }
   const loadedModule = await bundle.loadModule();
   await pluginRuntimeLoader.activateModule(bundle.id, loadedModule, {
     spec: bundle.spec,

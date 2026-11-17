@@ -41,13 +41,6 @@
       "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。"
     },
     {
-      "id": "dimo.provider-switch",
-      "publisher": "dimo",
-      "repository": "https://github.com/DimoADE/Dimo-plugin-provider-switch",
-      "category": "ai-enhancement",
-      "summary": "在新建供应商表单中提供按 Agent 分组的预置模板。"
-    },
-    {
       "id": "dimo.remote-ssh",
       "publisher": "dimo",
       "repository": "https://github.com/DimoADE/Dimo-plugin-remote-ssh",

@@ -4,11 +4,13 @@ import type { AgentId, ExecutorProfileId } from 'shared/types';
 
 import { getAgentName } from '@/components/agents/AgentIcon';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
+import { useComposerEngineHandoff } from '@/components/tasks/follow-up/ComposerEngineHandoffControl';
 import {
-  ComposerEngineHandoffModal,
-  ComposerProviderInstanceSlot,
-  useComposerEngineHandoff,
-} from '@/components/tasks/follow-up/ComposerEngineHandoffControl';
+  SessionSettingsSummary,
+  type SessionProviderInstanceConfig,
+} from '@/components/tasks/follow-up/SessionSettingsSummary';
+import { useComposerProviderInstances } from '@/components/tasks/follow-up/useComposerProviderInstances';
+import { normalizeProviderInstanceIdForApi } from '@/lib/providerInstancesApi';
 import {
   advertisedSessionConfigValues,
   presentableSessionConfigOptions,
@@ -18,7 +20,6 @@ import {
   selectConfigOptionValue,
   visibleSessionConfigOptions,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
-import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
 import {
   composerSessionControlDisplay,
@@ -142,9 +143,9 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   const [selectedConfigValues, setSelectedConfigValues] = useState<
     Record<string, string>
   >({});
-  const [selectedInstanceByAgent, setSelectedInstanceByAgent] = useState<
-    Record<string, string>
-  >({});
+  const [instanceSwitchedScope, setInstanceSwitchedScope] = useState<
+    string | null
+  >(null);
   const personaPromptRef = useRef<string | null>(null);
   const persistedConfigValuesRef = useRef<Record<string, string>>({});
   const persistedModeRef = useRef<string | null>(null);
@@ -159,7 +160,7 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     switchedAgentIdRef.current = null;
     setSelectedMode(null);
     setSelectedConfigValues({});
-    setSelectedInstanceByAgent({});
+    setInstanceSwitchedScope(null);
     persistedConfigValuesRef.current = {};
     persistedModeRef.current = null;
     personaPromptRef.current = null;
@@ -257,7 +258,8 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     if (activeBotConversationId) {
       const fromConv = conversationById.get(activeBotConversationId)?.agent_id;
       if (fromConv) return fromConv;
-      const fromDraft = draftMemberMetaByConvId[activeBotConversationId]?.agentId;
+      const fromDraft =
+        draftMemberMetaByConvId[activeBotConversationId]?.agentId;
       if (fromDraft) return fromDraft;
     }
     const fromSidebar = String(sidebarMember?.agent ?? '').trim();
@@ -282,14 +284,43 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   );
   effectiveAgentIdRef.current = effectiveAgentId;
 
+  const persistedConvAgentId = activeBotConversationId
+    ? (conversationById.get(activeBotConversationId)?.agent_id ?? null)
+    : null;
+  const isChangingAgent = Boolean(
+    persistedConvAgentId &&
+      effectiveAgentId &&
+      canonicalSessionAgentId(persistedConvAgentId) !== effectiveAgentId
+  );
+  const persistedConvInstanceId = activeBotConversationId
+    ? conversationById.get(activeBotConversationId)?.provider_instance_id
+    : undefined;
+
+  const providerInstances = useComposerProviderInstances({
+    sessionId: activeBotConversationId || null,
+    agentId: effectiveAgentId || null,
+    persistedInstanceId: persistedConvInstanceId,
+    isChangingAgent,
+  });
+  const selectedProviderInstanceId = providerInstances.scopedProviderInstanceId;
+  const currentInstanceScopeKey = `${activeBotConversationId ?? '__new__'}::${effectiveAgentId}::${selectedProviderInstanceId ?? 'local'}`;
+  const isChangingInstance = instanceSwitchedScope === currentInstanceScopeKey;
+  useEffect(() => {
+    setInstanceSwitchedScope(null);
+  }, [
+    activeBotConversationId,
+    effectiveAgentId,
+    activeBotTimeline?.sessionModes,
+    activeBotTimeline?.sessionConfigOptions,
+  ]);
+
   const selectableAgents = useMemo<SelectableAgent[]>(() => {
     if (managementSelectableAgents.length > 0) {
       return managementSelectableAgents;
     }
     return agents.map((agent) => ({
       agentId: agent.agent_id as AgentId,
-      displayName:
-        getAgentName(agent.agent_id) || agent.name || agent.agent_id,
+      displayName: getAgentName(agent.agent_id) || agent.name || agent.agent_id,
       iconLight: null,
       iconDark: null,
       iconSvg: null,
@@ -314,9 +345,16 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   const catalogQuery = useQuery({
     queryKey: sessionControlsQueryKey(
       effectiveAgentId || null,
-      activeBotConversationId || null
+      activeBotConversationId || null,
+      selectedProviderInstanceId
     ),
-    queryFn: () => loadAgentSessionControlsCatalog(effectiveAgentId),
+    queryFn: () =>
+      selectedProviderInstanceId
+        ? loadAgentSessionControlsCatalog(
+            effectiveAgentId,
+            selectedProviderInstanceId
+          )
+        : loadAgentSessionControlsCatalog(effectiveAgentId),
     enabled: Boolean(effectiveAgentId),
     staleTime: 60_000,
     gcTime: Infinity,
@@ -324,8 +362,17 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   });
 
   const schemaQuery = useQuery({
-    queryKey: sessionControlsSchemaQueryKey(effectiveAgentId || null),
-    queryFn: () => loadAgentSessionControlsCatalog(effectiveAgentId),
+    queryKey: sessionControlsSchemaQueryKey(
+      effectiveAgentId || null,
+      selectedProviderInstanceId
+    ),
+    queryFn: () =>
+      selectedProviderInstanceId
+        ? loadAgentSessionControlsCatalog(
+            effectiveAgentId,
+            selectedProviderInstanceId
+          )
+        : loadAgentSessionControlsCatalog(effectiveAgentId),
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -333,41 +380,63 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   });
 
   const catalogFreshnessQuery = useQuery({
-    queryKey: ['agentCapabilityCatalogFreshness', effectiveAgentId],
-    queryFn: () => agentsApi.capabilityCatalogFresh(effectiveAgentId),
+    queryKey: [
+      'agentCapabilityCatalogFreshness',
+      effectiveAgentId,
+      selectedProviderInstanceId ?? 'local',
+    ],
+    queryFn: () =>
+      selectedProviderInstanceId
+        ? agentsApi.capabilityCatalogFresh(
+            effectiveAgentId,
+            selectedProviderInstanceId
+          )
+        : agentsApi.capabilityCatalogFresh(effectiveAgentId),
     enabled: Boolean(effectiveAgentId && catalogQuery.data),
     staleTime: 0,
     retry: false,
   });
 
+  const refreshScopeKey = `${effectiveAgentId}:${selectedProviderInstanceId ?? 'local'}`;
   const backgroundRefreshAgent = useRef<string | null>(null);
   useEffect(() => {
     if (
       !effectiveAgentId ||
       catalogFreshnessQuery.data !== false ||
-      backgroundRefreshAgent.current === effectiveAgentId
+      backgroundRefreshAgent.current === refreshScopeKey
     ) {
       return;
     }
-    backgroundRefreshAgent.current = effectiveAgentId;
-    void agentsApi
-      .refreshCapabilityCatalog(effectiveAgentId)
+    backgroundRefreshAgent.current = refreshScopeKey;
+    void (selectedProviderInstanceId
+      ? agentsApi.refreshCapabilityCatalog(
+          effectiveAgentId,
+          selectedProviderInstanceId
+        )
+      : agentsApi.refreshCapabilityCatalog(effectiveAgentId)
+    )
       .then(async (refreshed) => {
         if (!refreshed) return;
         await catalogQuery.refetch();
         await catalogFreshnessQuery.refetch();
       })
       .catch(() => undefined);
-  }, [catalogFreshnessQuery, catalogQuery, effectiveAgentId]);
+  }, [
+    catalogFreshnessQuery,
+    catalogQuery,
+    effectiveAgentId,
+    refreshScopeKey,
+    selectedProviderInstanceId,
+  ]);
 
   useEffect(() => {
     backgroundRefreshAgent.current = null;
-  }, [effectiveAgentId]);
+  }, [refreshScopeKey]);
 
   const displayControls = useMemo(
     () =>
       composerSessionControlDisplay([
-        activeBotConversationId
+        activeBotConversationId && !isChangingAgent && !isChangingInstance
           ? liveSessionControlsSnapshot(
               activeBotTimeline?.sessionModes ?? { current: null, modes: [] },
               activeBotTimeline?.sessionConfigOptions ?? []
@@ -381,6 +450,8 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
       activeBotTimeline?.sessionConfigOptions,
       activeBotTimeline?.sessionModes,
       catalogQuery.data,
+      isChangingAgent,
+      isChangingInstance,
       schemaQuery.data,
     ]
   );
@@ -424,11 +495,14 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     );
     return Object.fromEntries(
       Object.entries(sanitized).filter(
-        ([key]) =>
-          presentableKeys.has(key) && key in selectedConfigValues
+        ([key]) => presentableKeys.has(key) && key in selectedConfigValues
       )
     );
-  }, [displaySessionConfigOptions, displaySessionModes.modes, selectedConfigValues]);
+  }, [
+    displaySessionConfigOptions,
+    displaySessionModes.modes,
+    selectedConfigValues,
+  ]);
 
   const mergePersistedConfigValues = useCallback(
     (
@@ -559,11 +633,30 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     [activeBotConversationId, memberId, persistMemberConfig, refreshSidebar]
   );
 
+  const setSelectedInstanceOverride =
+    providerInstances.setSelectedInstanceOverride;
+  const handleApplyProviderInstanceId = useCallback(
+    (instanceId: string | null, targetAgentId?: string | null) => {
+      setSelectedInstanceOverride(instanceId, targetAgentId);
+      if (targetAgentId && canonicalSessionAgentId(targetAgentId) === effectiveAgentId) {
+        const normalized =
+          normalizeProviderInstanceIdForApi(instanceId) ?? 'local';
+        setInstanceSwitchedScope(
+          `${activeBotConversationId ?? '__new__'}::${effectiveAgentId}::${normalized}`
+        );
+      }
+    },
+    [activeBotConversationId, effectiveAgentId, setSelectedInstanceOverride]
+  );
+
   const engineHandoff = useComposerEngineHandoff({
     sessionId: activeBotConversationId || null,
-    hasExistingTurns: (activeBotTimeline?.timeline?.length ?? 0) > 0,
     currentExecutor: effectiveAgentId || null,
+    currentProviderInstanceId: selectedProviderInstanceId,
     onApplyExecutorProfile: handleApplyExecutorProfile,
+    onApplyProviderInstanceId: handleApplyProviderInstanceId,
+    resolveTargetInstanceIdForAgent:
+      providerInstances.resolveTargetInstanceIdForAgent,
   });
 
   const handleSelectExecutorProfile = useCallback(
@@ -667,20 +760,40 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     ]
   );
 
-  const selectedInstanceId = effectiveAgentId
-    ? (selectedInstanceByAgent[effectiveAgentId] ?? null)
-    : null;
-
   const handleSelectInstance = useCallback(
     (instanceId: string) => {
       if (!effectiveAgentId) return;
-      setSelectedInstanceByAgent((prev) =>
-        prev[effectiveAgentId] === instanceId
-          ? prev
-          : { ...prev, [effectiveAgentId]: instanceId }
+      const normalized =
+        normalizeProviderInstanceIdForApi(instanceId) ?? 'local';
+      setInstanceSwitchedScope(
+        `${activeBotConversationId ?? '__new__'}::${effectiveAgentId}::${normalized}`
       );
+      setSelectedMode(null);
+      setSelectedConfigValues({});
+      persistedConfigValuesRef.current = {};
+      persistedModeRef.current = null;
+      engineHandoff.handleChangeProviderInstance(instanceId);
     },
-    [effectiveAgentId]
+    [activeBotConversationId, effectiveAgentId, engineHandoff]
+  );
+
+  const providerInstanceConfig = useMemo<SessionProviderInstanceConfig | null>(
+    () =>
+      providerInstances.hasMultipleInstances
+        ? {
+            options: providerInstances.options,
+            selectedInstanceId: providerInstances.selectedInstanceId,
+            disabled,
+            onSelectInstance: handleSelectInstance,
+          }
+        : null,
+    [
+      disabled,
+      handleSelectInstance,
+      providerInstances.hasMultipleInstances,
+      providerInstances.options,
+      providerInstances.selectedInstanceId,
+    ]
   );
 
   if (!effectiveAgentId && selectableAgents.length === 0) {
@@ -688,30 +801,22 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   }
 
   return (
-    <>
-      <ComposerProviderInstanceSlot
-        agentId={effectiveAgentId || null}
-        disabled={disabled}
-        selectedInstanceId={selectedInstanceId}
-        onSelectInstance={handleSelectInstance}
-      />
-      <SessionSettingsSummary
-        sessionModes={displaySessionModes}
-        selectedMode={selectedMode}
-        onSelectMode={handleSelectMode}
-        options={displaySessionConfigOptions}
-        pending={effectiveConfigOverrides}
-        onSelectConfigOption={handleSelectConfigOption}
-        disabled={disabled}
-        dropdownAlign="end"
-        agentIcon={effectiveAgentId || null}
-        agentIconLight={currentAgentIcons?.iconLight ?? null}
-        agentIconDark={currentAgentIcons?.iconDark ?? null}
-        agentIconSvg={currentAgentIcons?.iconSvg ?? null}
-        agentRail={agentRail}
-        controlsLoading={catalogQuery.isLoading}
-      />
-      <ComposerEngineHandoffModal controller={engineHandoff} />
-    </>
+    <SessionSettingsSummary
+      sessionModes={displaySessionModes}
+      selectedMode={selectedMode}
+      onSelectMode={handleSelectMode}
+      options={displaySessionConfigOptions}
+      pending={effectiveConfigOverrides}
+      onSelectConfigOption={handleSelectConfigOption}
+      disabled={disabled}
+      dropdownAlign="end"
+      agentIcon={effectiveAgentId || null}
+      agentIconLight={currentAgentIcons?.iconLight ?? null}
+      agentIconDark={currentAgentIcons?.iconDark ?? null}
+      agentIconSvg={currentAgentIcons?.iconSvg ?? null}
+      agentRail={agentRail}
+      providerInstanceConfig={providerInstanceConfig}
+      controlsLoading={catalogQuery.isLoading}
+    />
   );
 });

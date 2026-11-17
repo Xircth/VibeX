@@ -31,9 +31,6 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('dimo.remote-ssh', 'fallback', t)).toBe(
       'Remote SSH'
     );
-    expect(officialPluginName('dimo.provider-switch', 'fallback', t)).toBe(
-      '供应商预置'
-    );
     expect(officialPluginName('dimo.science', 'fallback', t)).toBe('科学研究');
     expect(officialPluginName('dimo-plugin-computer-use', 'fallback', t)).toBe(
       '电脑控制'
@@ -60,9 +57,6 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('dimo.remote-ssh', 'fallback', en)).toBe(
       'Remote SSH'
-    );
-    expect(officialPluginName('dimo.provider-switch', 'fallback', en)).toBe(
-      'Provider catalog'
     );
     expect(officialPluginName('dimo.science', 'fallback', en)).toBe(
       'Scientific Research'

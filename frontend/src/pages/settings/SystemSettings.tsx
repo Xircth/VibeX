@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Archive,
+  Cpu,
   Download,
-  FileJson2,
   FolderOpen,
-  Gauge,
+  HardDrive,
   Loader2,
-  Network,
-  RefreshCw,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
@@ -33,7 +32,12 @@ import {
   type SystemRenderingSettings,
 } from '@/lib/api';
 import { desktopApi } from '@/lib/api/misc';
-import { pickHostDirectory } from '@/lib/hostFs';
+import {
+  pickHostDirectory,
+  pickHostFile,
+  pickHostSavePath,
+} from '@/lib/hostFs';
+import { formatStorageBytes } from '@/lib/dbHealthApi';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 import { getInvokeErrorMessage } from '@/lib/errors';
@@ -57,23 +61,7 @@ const DEFAULT_PROXY_SETTINGS: SystemProxySettings = {
 const DEFAULT_RENDERING_SETTINGS: SystemRenderingSettings = {
   acceleration_mode: 'auto',
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-}
+const BACKUP_EXTENSION = 'dimobak';
 
 function deepMerge<T extends Record<string, unknown>>(
   target: T,
@@ -196,19 +184,7 @@ export function SystemSettings() {
         );
       }
     });
-  const [backupPath, setBackupPath] = useState('');
-  const [restorePath, setRestorePath] = useState('');
-  const [backupPassphrase, setBackupPassphrase] = useState('');
-  const [restorePassphrase, setRestorePassphrase] = useState('');
-  // The preview's already_exists flag is only meaningful for an inspect/restore
-  // preview (on a create preview every entry trivially exists), so track the source.
-  const [previewIsRestore, setPreviewIsRestore] = useState(false);
-  const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(
-    null
-  );
-  const [backupPreviewPath, setBackupPreviewPath] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
-  const [restoreBusy, setRestoreBusy] = useState(false);
   const [settingsPath, setSettingsPath] = useState('~/.dimo/settings.json');
   const [dataDir, setDataDir] = useState('');
   const [savedDataDir, setSavedDataDir] = useState('');
@@ -311,80 +287,46 @@ export function SystemSettings() {
     else writeProxyNow(next);
   };
 
-  const handleCreateBackup = async () => {
-    const path = backupPath.trim();
-    if (!path) {
-      toast.error(t('system.backupPathRequired'));
+  const handleExportBackup = async () => {
+    const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+    let path: string | null;
+    try {
+      path = await pickHostSavePath({
+        title: t('system.exportBackup'),
+        defaultName: `dimo-backup-${date}.${BACKUP_EXTENSION}`,
+        extensions: [BACKUP_EXTENSION],
+      });
+    } catch (error) {
+      toast.error(
+        getInvokeErrorMessage(error).trim() || t('system.backupExportFailed')
+      );
       return;
     }
+    if (!path) return;
 
     setBackupBusy(true);
     const toastId = toast.loading(t('system.backupExporting'));
     try {
-      const preview = await backupApi.create({
-        path,
-        passphrase: backupPassphrase.trim() || null,
+      await backupApi.create({ path });
+      toast.success(t('system.backupExported'), {
+        id: toastId,
+        description: path,
       });
-      setBackupPreview(preview);
-      setBackupPreviewPath(path);
-      setPreviewIsRestore(false);
-      toast.success(t('system.backupExported'), { id: toastId });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('system.backupExportFailed'),
-        {
-          id: toastId,
-        }
+        getInvokeErrorMessage(error).trim() || t('system.backupExportFailed'),
+        { id: toastId }
       );
     } finally {
       setBackupBusy(false);
     }
   };
 
-  const handleInspectBackup = async () => {
-    const path = restorePath.trim();
-    if (!path) {
-      toast.error(t('system.restorePathRequired'));
-      return;
-    }
-
-    setRestoreBusy(true);
-    try {
-      const preview = await backupApi.inspect({
-        path,
-        passphrase: restorePassphrase.trim() || null,
-      });
-      setBackupPreview(preview);
-      setBackupPreviewPath(path);
-      setPreviewIsRestore(true);
-      toast.success(t('system.backupPreviewLoaded'));
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('system.backupPreviewFailed')
-      );
-    } finally {
-      setRestoreBusy(false);
-    }
-  };
-
-  const restoreInspectedBackup = async () => {
-    const path = restorePath.trim();
-    if (!path || !backupPreview || backupPreviewPath !== path) {
-      toast.error(t('system.previewBeforeRestore'));
-      return;
-    }
-
-    setRestoreBusy(true);
+  const restoreBackup = async (path: string) => {
+    setBackupBusy(true);
     const toastId = toast.loading(t('system.backupRestoring'));
     try {
-      const result = await backupApi.restoreStage({
-        path,
-        passphrase: restorePassphrase.trim() || null,
-        confirmed: true,
-      });
-      setBackupPreview(result.preview);
-      setBackupPreviewPath(path);
-      setPreviewIsRestore(true);
+      const result = await backupApi.restoreStage({ path, confirmed: true });
       toast.success(
         result.requires_reload
           ? t('system.backupRestoredReload')
@@ -393,35 +335,47 @@ export function SystemSettings() {
       );
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t('system.backupRestoreFailed'),
-        {
-          id: toastId,
-        }
+        getInvokeErrorMessage(error).trim() || t('system.backupRestoreFailed'),
+        { id: toastId }
       );
     } finally {
-      setRestoreBusy(false);
+      setBackupBusy(false);
     }
   };
 
-  const handleRestoreBackup = () => {
-    if (
-      !restorePath.trim() ||
-      !backupPreview ||
-      backupPreviewPath !== restorePath.trim()
-    ) {
-      toast.error(t('system.previewBeforeRestore'));
+  const handleImportBackup = async () => {
+    let path: string | null = null;
+    let preview: BackupPreview;
+    try {
+      path = await pickHostFile({
+        title: t('system.importBackup'),
+        extensions: [BACKUP_EXTENSION],
+      });
+      if (!path) return;
+      setBackupBusy(true);
+      preview = await backupApi.inspect({ path });
+    } catch (error) {
+      toast.error(
+        getInvokeErrorMessage(error).trim() || t('system.backupReadFailed')
+      );
       return;
+    } finally {
+      setBackupBusy(false);
     }
 
+    const restorePath = path;
     const toastId = toast.warning(t('system.confirmRestore'), {
-      duration: 8000,
+      duration: 12000,
+      description: t('system.confirmRestoreDetail', {
+        count: preview.manifest.entry_count,
+        size: formatStorageBytes(preview.manifest.total_bytes),
+        date: new Date(preview.manifest.created_at).toLocaleString(),
+      }),
       action: {
         label: t('system.restore'),
         onClick: () => {
           toast.dismiss(toastId);
-          void restoreInspectedBackup();
+          void restoreBackup(restorePath);
         },
       },
       cancel: {
@@ -478,17 +432,15 @@ export function SystemSettings() {
       if (!trimmed || trimmed === savedDataDir) return;
 
       setDataDirBusy(true);
-      const toastId = toast.loading(
-        t('system.dataDirMigrating', '正在迁移数据并切换存储位置...')
-      );
+      const toastId = toast.loading(t('system.dataDirMigrating'));
       try {
         const result = await systemSettingsApi.updateDataDir(trimmed);
         setDataDir(result.current_data_dir);
         setSavedDataDir(result.current_data_dir);
         toast.success(
           result.requires_reload
-            ? t('system.dataDirSavedReload', '数据存储位置已更新，建议重启应用')
-            : t('system.dataDirSaved', '数据存储位置已更新'),
+            ? t('system.dataDirSavedReload')
+            : t('system.dataDirSaved'),
           { id: toastId }
         );
         if (
@@ -499,10 +451,7 @@ export function SystemSettings() {
         }
       } catch (error) {
         const message = getInvokeErrorMessage(error).trim();
-        toast.error(
-          message || t('system.dataDirSaveFailed', '数据存储位置更新失败'),
-          { id: toastId }
-        );
+        toast.error(message || t('system.dataDirSaveFailed'), { id: toastId });
       } finally {
         setDataDirBusy(false);
       }
@@ -515,26 +464,20 @@ export function SystemSettings() {
       const trimmed = targetDir.trim();
       if (!trimmed || trimmed === savedDataDir) return;
 
-      const toastId = toast.warning(
-        t(
-          'system.confirmDataDirChange',
-          '确认将数据存储位置更改并迁移至新目录？'
-        ),
-        {
-          duration: 8000,
-          action: {
-            label: t('system.confirmMigrate', '确认迁移'),
-            onClick: () => {
-              toast.dismiss(toastId);
-              void applyDataDirChange(trimmed);
-            },
+      const toastId = toast.warning(t('system.confirmDataDirChange'), {
+        duration: 8000,
+        action: {
+          label: t('system.confirmMigrate'),
+          onClick: () => {
+            toast.dismiss(toastId);
+            void applyDataDirChange(trimmed);
           },
-          cancel: {
-            label: t('common:cancel'),
-            onClick: () => toast.dismiss(toastId),
-          },
-        }
-      );
+        },
+        cancel: {
+          label: t('common:cancel'),
+          onClick: () => toast.dismiss(toastId),
+        },
+      });
     },
     [applyDataDirChange, savedDataDir, t]
   );
@@ -542,7 +485,7 @@ export function SystemSettings() {
   const handlePickDataDir = useCallback(async () => {
     try {
       const selected = await pickHostDirectory({
-        title: t('system.dataDirTitle', '数据存储位置'),
+        title: t('system.dataDirTitle'),
         value: dataDir,
       });
       if (selected && selected.trim()) {
@@ -551,9 +494,7 @@ export function SystemSettings() {
       }
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t('system.dataDirSaveFailed', '数据存储位置更新失败')
+        error instanceof Error ? error.message : t('system.dataDirSaveFailed')
       );
     }
   }, [dataDir, handleConfirmDataDirChange, t]);
@@ -569,81 +510,88 @@ export function SystemSettings() {
   return (
     <div className="settings-content">
       <div className="space-y-7">
-        <SettingsSection
-          icon={FileJson2}
-          title={t('system.jsonTitle')}
-          description={t('system.jsonDescription')}
-        >
-          <div className="settings-row block px-4 py-3">
+        <SettingsSection icon={HardDrive} title={t('system.storageTitle')}>
+          <div className="settings-row settings-row--stacked">
+            <div className="settings-row__stack">
+              <Label className="settings-row__label">
+                {t('system.dataDirTitle')}
+              </Label>
+              <p className="settings-row__description">
+                {t('system.dataDirDescription')}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <TextInput
+                label={t('system.dataDirTitle')}
+                isLabelHidden
+                value={dataDir}
+                placeholder="~/.dimo"
+                onChange={setDataDir}
+                isDisabled={dataDirBusy}
+                width="100%"
+                className="[&_input]:font-mono [&_input]:text-xs"
+              />
+              {dataDir.trim() && dataDir.trim() !== savedDataDir ? (
+                <Button
+                  className="shrink-0"
+                  onClick={() => handleConfirmDataDirChange(dataDir)}
+                  disabled={dataDirBusy}
+                >
+                  {dataDirBusy ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  {t('system.applyDataDir')}
+                </Button>
+              ) : null}
+              <Button
+                variant="outline"
+                className="shrink-0"
+                onClick={() => void handlePickDataDir()}
+                disabled={dataDirBusy}
+              >
+                {t('system.changeDataDir')}
+              </Button>
+              {localDesktopHost ? (
+                <Button
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => {
+                    const target = dataDir.trim();
+                    if (!target) return;
+                    void desktopApi
+                      .revealInFileManager(target)
+                      .catch((error) => {
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : t('system.openInFolderFailed')
+                        );
+                      });
+                  }}
+                  disabled={!dataDir.trim() || dataDirBusy}
+                >
+                  <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                  {t('system.openInFolder')}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="settings-row settings-row--stacked">
+            <div className="settings-row__stack">
+              <Label className="settings-row__label">
+                {t('system.jsonTitle')}
+              </Label>
+              <p className="settings-row__description">
+                {t('system.jsonDescription')}
+              </p>
+            </div>
             <code className="select-all break-all font-mono text-xs text-foreground">
               {settingsPath}
             </code>
           </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={FolderOpen}
-          title={t('system.dataDirTitle', '数据存储位置')}
-          description={t(
-            'system.dataDirDescription',
-            'Dimo 本地数据库、协作空间与附件统一保存在此目录。更改后将自动迁移现有数据。'
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <TextInput
-              label={t('system.dataDirTitle', '数据存储位置')}
-              isLabelHidden
-              value={dataDir}
-              placeholder="~/.dimo"
-              onChange={setDataDir}
-              isDisabled={dataDirBusy}
-              width="100%"
-              className="[&_input]:font-mono [&_input]:text-xs"
-            />
-            {dataDir.trim() && dataDir.trim() !== savedDataDir ? (
-              <Button
-                className="shrink-0"
-                onClick={() => handleConfirmDataDirChange(dataDir)}
-                disabled={dataDirBusy}
-              >
-                {dataDirBusy ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                {t('system.applyDataDir', '迁移并应用')}
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              className="shrink-0"
-              onClick={() => void handlePickDataDir()}
-              disabled={dataDirBusy}
-            >
-              {t('system.changeDataDir', '更改目录…')}
-            </Button>
-            {localDesktopHost ? (
-              <Button
-                variant="outline"
-                className="shrink-0"
-                onClick={() => {
-                  const target = dataDir.trim();
-                  if (!target) return;
-                  void desktopApi
-                    .revealInFileManager(target)
-                    .catch((error) => {
-                      toast.error(
-                        error instanceof Error
-                          ? error.message
-                          : t('system.openInFolderFailed', '无法在文件夹中打开')
-                      );
-                    });
-                }}
-                disabled={!dataDir.trim() || dataDirBusy}
-              >
-                <FolderOpen className="mr-1 h-3.5 w-3.5" />
-                {t('system.openInFolder', '在文件夹中打开')}
-              </Button>
-            ) : null}
-          </div>
+          <DatabaseHealthSection />
         </SettingsSection>
 
         <AppUpdaterSection
@@ -653,305 +601,154 @@ export function SystemSettings() {
           }
         />
 
-        <SettingsSection
-          icon={Network}
-          title={t('system.proxyTitle')}
-          description={t('system.proxyDescription')}
-        >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label htmlFor="system-proxy-mode">
-                  {t('system.proxyMode')}
+        <SettingsSection icon={Cpu} title={t('system.featuresTitle')}>
+          <div className="settings-row">
+            <div className="min-w-0">
+              <Label htmlFor="system-proxy-mode">
+                {t('system.proxyTitle')}
+              </Label>
+              <p className="settings-row__description">
+                {proxyDraft.mode === 'auto'
+                  ? proxyDetectionCopy(proxyDraft, t)
+                  : t('system.proxyManualHint')}
+              </p>
+            </div>
+            <Select
+              value={proxyDraft.mode}
+              onValueChange={(value: SystemProxySettings['mode']) => {
+                const previous = proxyDraftRef.current;
+                updateProxyDraft({
+                  ...previous,
+                  mode: value,
+                  proxy_url:
+                    value === 'manual' &&
+                    !previous.proxy_url?.trim() &&
+                    previous.detected_source !== 'pac'
+                      ? (previous.detected_url ?? previous.proxy_url)
+                      : previous.proxy_url,
+                });
+              }}
+              disabled={proxyLoading}
+            >
+              <SelectTrigger id="system-proxy-mode" className="!w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="auto">
+                  {t('system.proxyModeAuto')}
+                </SelectItem>
+                <SelectItem value="manual">
+                  {t('system.proxyModeManual')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {proxyDraft.mode === 'manual' ? (
+            <div className="settings-row settings-row--stacked">
+              <TextInput
+                label={t('system.proxyUrl')}
+                isLabelHidden
+                value={proxyDraft.proxy_url ?? ''}
+                placeholder="http://127.0.0.1:7890"
+                isDisabled={proxyLoading}
+                onChange={(value) =>
+                  updateProxyDraft(
+                    {
+                      ...proxyDraftRef.current,
+                      proxy_url: value,
+                    },
+                    true
+                  )
+                }
+                onBlur={() => void flushProxy()}
+                width="100%"
+                className="[&_input]:text-sm"
+              />
+              <p className="settings-row__description">
+                {t('system.proxyProtocolHint')}
+              </p>
+            </div>
+          ) : null}
+
+          {localDesktopHost ? (
+            <div className="settings-row">
+              <div className="min-w-0">
+                <Label htmlFor="system-acceleration-mode">
+                  {t('system.renderingTitle')}
                 </Label>
                 <p className="settings-row__description">
-                  {proxyDraft.mode === 'auto'
-                    ? proxyDetectionCopy(proxyDraft, t)
-                    : t('system.proxyManualHint')}
+                  {t('system.accelerationModeDesc')}
                 </p>
               </div>
               <Select
-                value={proxyDraft.mode}
-                onValueChange={(value: SystemProxySettings['mode']) => {
-                  const previous = proxyDraftRef.current;
-                  updateProxyDraft({
-                    ...previous,
-                    mode: value,
-                    proxy_url:
-                      value === 'manual' &&
-                      !previous.proxy_url?.trim() &&
-                      previous.detected_source !== 'pac'
-                        ? (previous.detected_url ?? previous.proxy_url)
-                        : previous.proxy_url,
-                  });
+                value={renderingDraft.acceleration_mode}
+                onValueChange={(
+                  value: SystemRenderingSettings['acceleration_mode']
+                ) => {
+                  const next = { acceleration_mode: value };
+                  renderingDraftRef.current = next;
+                  setRenderingDraft(next);
+                  writeRenderingNow(next);
                 }}
-                disabled={proxyLoading}
+                disabled={renderingLoading}
               >
-                <SelectTrigger id="system-proxy-mode" className="!w-40">
+                <SelectTrigger id="system-acceleration-mode" className="!w-40">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
                   <SelectItem value="auto">
-                    {t('system.proxyModeAuto')}
+                    {t('system.accelerationAuto')}
                   </SelectItem>
-                  <SelectItem value="manual">
-                    {t('system.proxyModeManual')}
+                  <SelectItem value="force_gpu">
+                    {t('system.accelerationForceGpu')}
+                  </SelectItem>
+                  <SelectItem value="disable_gpu">
+                    {t('system.accelerationDisableGpu')}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
-            {proxyDraft.mode === 'manual' ? (
-              <div className="space-y-1.5">
-                <Label>{t('system.proxyUrl')}</Label>
-                <TextInput
-                  label={t('system.proxyUrl')}
-                  isLabelHidden
-                  value={proxyDraft.proxy_url ?? ''}
-                  placeholder="http://127.0.0.1:7890"
-                  isDisabled={proxyLoading}
-                  onChange={(value) =>
-                    updateProxyDraft(
-                      {
-                        ...proxyDraftRef.current,
-                        proxy_url: value,
-                      },
-                      true
-                    )
-                  }
-                  onBlur={() => void flushProxy()}
-                  width="100%"
-                  className="[&_input]:text-sm"
-                />
-                <p className="settings-row__description">
-                  {t('system.proxyProtocolHint')}
-                </p>
-              </div>
-            ) : null}
-          </div>
+          ) : null}
         </SettingsSection>
 
         {localDesktopHost ? (
-          <>
-            <SettingsSection
-              icon={Gauge}
-              title={t('system.renderingTitle')}
-              description={t('system.renderingDescription')}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <Label>{t('system.accelerationMode')}</Label>
-                  <p className="settings-row__description">
-                    {t('system.accelerationModeDesc')}
-                  </p>
-                </div>
-                <Select
-                  value={renderingDraft.acceleration_mode}
-                  onValueChange={(
-                    value: SystemRenderingSettings['acceleration_mode']
-                  ) => {
-                    const next = { acceleration_mode: value };
-                    renderingDraftRef.current = next;
-                    setRenderingDraft(next);
-                    writeRenderingNow(next);
-                  }}
-                  disabled={renderingLoading}
+          <SettingsSection icon={Archive} title={t('system.backupTitle')}>
+            <div className="settings-row">
+              <div className="min-w-0">
+                <Label className="settings-row__label">
+                  {t('system.backupDataLabel')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('system.backupDescription')}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => void handleExportBackup()}
+                  disabled={backupBusy}
                 >
-                  <SelectTrigger className="!w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    <SelectItem value="auto">
-                      {t('system.accelerationAuto')}
-                    </SelectItem>
-                    <SelectItem value="force_gpu">
-                      {t('system.accelerationForceGpu')}
-                    </SelectItem>
-                    <SelectItem value="disable_gpu">
-                      {t('system.accelerationDisableGpu')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                  <Download className="mr-1 h-3.5 w-3.5" />
+                  {t('system.exportBackup')}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void handleImportBackup()}
+                  disabled={backupBusy}
+                >
+                  {backupBusy ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {t('system.importBackup')}
+                </Button>
               </div>
-            </SettingsSection>
-
-            <SettingsSection
-              icon={Archive}
-              title={t('system.backupTitle')}
-              description={t('system.backupDescription')}
-            >
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm">{t('system.exportBackup')}</Label>
-                  <div className="flex gap-2">
-                    <TextInput
-                      label="C:\\Users\\Administrator\\Desktop\\dimo-backup.dimobak"
-                      isLabelHidden
-                      value={backupPath}
-                      placeholder="C:\\Users\\Administrator\\Desktop\\dimo-backup.dimobak"
-                      onChange={setBackupPath}
-                      isDisabled={backupBusy}
-                      width="100%"
-                      className="[&_input]:text-sm"
-                    />
-                    <Button
-                      className="shrink-0"
-                      onClick={() => void handleCreateBackup()}
-                      disabled={backupBusy}
-                    >
-                      {backupBusy ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Download className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      {t('system.export')}
-                    </Button>
-                  </div>
-                  <TextInput
-                    label={t('system.encryptPassphrasePlaceholder')}
-                    isLabelHidden
-                    type="password"
-                    value={backupPassphrase}
-                    placeholder={t('system.encryptPassphrasePlaceholder')}
-                    onChange={setBackupPassphrase}
-                    isDisabled={backupBusy}
-                    width="100%"
-                    className="[&_input]:text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm">{t('system.restoreBackup')}</Label>
-                  <div className="flex gap-2">
-                    <TextInput
-                      label={t('system.restorePathPlaceholder')}
-                      isLabelHidden
-                      value={restorePath}
-                      placeholder={t('system.restorePathPlaceholder')}
-                      onChange={setRestorePath}
-                      isDisabled={restoreBusy}
-                      width="100%"
-                      className="[&_input]:text-sm"
-                    />
-                    <Button
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={() => void handleInspectBackup()}
-                      disabled={restoreBusy}
-                    >
-                      <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                      {t('system.preview')}
-                    </Button>
-                    <Button
-                      className="shrink-0"
-                      onClick={handleRestoreBackup}
-                      disabled={
-                        restoreBusy ||
-                        !backupPreview ||
-                        backupPreviewPath !== restorePath.trim()
-                      }
-                    >
-                      {restoreBusy ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Archive className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      {t('system.restore')}
-                    </Button>
-                  </div>
-                  <TextInput
-                    label={t('system.decryptPassphrasePlaceholder')}
-                    isLabelHidden
-                    type="password"
-                    value={restorePassphrase}
-                    placeholder={t('system.decryptPassphrasePlaceholder')}
-                    onChange={setRestorePassphrase}
-                    isDisabled={restoreBusy}
-                    width="100%"
-                    className="[&_input]:text-sm"
-                  />
-                </div>
-
-                {backupPreview ? (
-                  <div className="settings-inline-group p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold">
-                          {t('system.backupPreviewTitle')}
-                        </div>
-                        <div className="settings-row__description">
-                          {backupPreviewPath}
-                        </div>
-                      </div>
-                      <div className="text-right text-xs text-muted-foreground">
-                        <div>
-                          {t('system.fileCount', {
-                            count: backupPreview.manifest.entry_count,
-                          })}
-                        </div>
-                        <div>
-                          {formatBytes(backupPreview.manifest.total_bytes)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      <div>
-                        {t('system.formatLabel', {
-                          format: backupPreview.manifest.format,
-                        })}
-                      </div>
-                      <div>
-                        {t('system.versionLabel', {
-                          version: backupPreview.manifest.version,
-                        })}
-                      </div>
-                      <div>
-                        {t('system.appLabel', {
-                          version: backupPreview.manifest.app_version,
-                        })}
-                      </div>
-                      <div>
-                        {t('system.createdLabel', {
-                          date: new Date(
-                            backupPreview.manifest.created_at
-                          ).toLocaleString(),
-                        })}
-                      </div>
-                    </div>
-                    <div className="mt-3 max-h-32 overflow-y-auto rounded-md border border-border/70">
-                      {backupPreview.entries.slice(0, 8).map((entry) => (
-                        <div
-                          key={entry.path}
-                          className="flex items-center justify-between gap-3 px-2 py-1.5 text-xs"
-                        >
-                          <span className="min-w-0 truncate">{entry.path}</span>
-                          <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-                            {previewIsRestore && entry.already_exists ? (
-                              <span className="rounded bg-warning/15 px-1 py-0.5 text-xs text-warning">
-                                {t('system.willOverwrite')}
-                              </span>
-                            ) : null}
-                            {formatBytes(entry.size_bytes)}
-                          </span>
-                        </div>
-                      ))}
-                      {backupPreview.entries.length > 8 ? (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                          {t('system.moreEntries', {
-                            count: backupPreview.entries.length - 8,
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-                <ConversationBundlePanel />
-              </div>
-            </SettingsSection>
-          </>
+            </div>
+            <ConversationBundlePanel />
+          </SettingsSection>
         ) : null}
-
-        <DatabaseHealthSection />
 
         <SettingsSection icon={Trash2} title={t('system.clearLocalDataTitle')}>
           <div className="flex items-center justify-between gap-4">

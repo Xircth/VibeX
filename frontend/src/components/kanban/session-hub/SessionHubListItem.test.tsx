@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
@@ -12,6 +13,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { exportConversation } from '@/lib/exportConversation';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { useCollaborationLayoutStore } from '@/features/collaboration/collaborationLayoutStore';
 import { SessionHubListItem } from './SessionHubListItem';
 
 vi.mock('@/lib/exportConversation', () => ({
@@ -94,25 +96,42 @@ describe('SessionHubListItem', () => {
     expect(screen.getByText('待检查')).toBeInTheDocument();
   });
 
-  it('shows a collaboration badge before the active time without opening the session', () => {
-    const onClick = vi.fn();
+  it('names a group Bot session Group → Bot with both avatars and no rename', () => {
     renderItem({
       session: session({
+        fullName: '<dimo-private-bootstrap>',
         collaboration: {
           memberId: 'mem-a',
-          memberName: '小A',
-          threadId: 'direct:mem-a',
-          threadKind: 'dm',
-          threadName: '小A',
+          memberName: 'Master',
+          threadId: 'space-1',
+          threadKind: 'group',
+          threadName: '后端工程师群',
+          threadMembers: [
+            { memberId: 'mem-a', name: 'Master', conversationId: 'conv-a' },
+            { memberId: 'mem-b', name: '小B', conversationId: 'conv-b' },
+          ],
         },
       }),
-      onClick,
     });
 
-    const badge = screen.getByTestId('collaboration-session-badge');
-    expect(badge).toHaveTextContent('小A');
-    fireEvent.click(badge);
-    expect(onClick).not.toHaveBeenCalled();
+    const title = screen.getByTestId('collaboration-session-title');
+    expect(title).toHaveTextContent('后端工程师群→Master');
+    expect(
+      within(title).getAllByTestId('collaboration-group-avatar-slot')
+    ).toHaveLength(2);
+    expect(screen.queryByText('<dimo-private-bootstrap>')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.pointerDown(
+      screen.getByRole('menuitem', { name: '打开助手 Master' })
+    );
+    expect(useCollaborationLayoutStore.getState().sessionFocus).toMatchObject({
+      conversationId: 'session-1',
+      threadId: 'space-1',
+    });
+    expect(
+      screen.queryByRole('menuitem', { name: '重命名会话' })
+    ).not.toBeInTheDocument();
   });
 
   it('shows the session name without the first-message preview', () => {
@@ -182,6 +201,9 @@ describe('SessionHubListItem', () => {
     const agentIcon = screen.getByAltText('Codex');
     const title = screen.getByText('A fairly long session name for the card');
 
+    expect(
+      screen.queryByTestId('session-card-pulse-dispatch-session-1')
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '删除会话' })
     ).not.toBeInTheDocument();

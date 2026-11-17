@@ -1041,15 +1041,21 @@ pub(crate) async fn resolve_step_input_on_connection(
                 "dependency step `{dependency}` has no accepted output"
             )));
         }
-        let output_json = output_json.ok_or_else(|| {
-            WorkflowError::Conflict(format!(
-                "dependency step `{dependency}` has no accepted output"
-            ))
-        })?;
-        values.insert(
-            dependency.clone(),
-            serde_json::from_str::<serde_json::Value>(&output_json)?,
-        );
+        let dep_is_notify = definition
+            .steps
+            .iter()
+            .find(|candidate| candidate.id == *dependency)
+            .is_some_and(|candidate| matches!(candidate.spec, WorkflowStepSpec::Notify(_)));
+        let parsed_output = match output_json {
+            Some(raw) => serde_json::from_str::<serde_json::Value>(&raw)?,
+            None if dep_is_notify => serde_json::json!({ "notified": true }),
+            None => {
+                return Err(WorkflowError::Conflict(format!(
+                    "dependency step `{dependency}` has no accepted output"
+                )));
+            }
+        };
+        values.insert(dependency.clone(), parsed_output);
     }
     for (name, binding) in &step.input_bindings {
         let (source, pointer) = match binding {

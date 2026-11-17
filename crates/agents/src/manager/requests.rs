@@ -769,6 +769,7 @@ fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> 
         || title_lower.starts_with("dimo-session-mcp_")
         || title_lower.starts_with("dimo-delegation-mcp_")
         || title_lower.starts_with("dimo-workflow-mcp_")
+        || title_lower.starts_with("dimo-superagent-mcp_")
     {
         return true;
     }
@@ -787,7 +788,10 @@ fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> 
             let normalized = server.trim().to_ascii_lowercase();
             if matches!(
                 normalized.as_str(),
-                "dimo-session-mcp" | "dimo-delegation-mcp" | "dimo-workflow-mcp"
+                "dimo-session-mcp"
+                    | "dimo-delegation-mcp"
+                    | "dimo-workflow-mcp"
+                    | "dimo-superagent-mcp"
             ) {
                 return true;
             }
@@ -918,6 +922,19 @@ mod tests {
 
         assert_eq!(
             decide_companion_mcp_permission_response(&request),
+            Some(AgentPermissionResponse::selected("approve"))
+        );
+
+        let mut superagent = request.clone();
+        superagent.title = "Dimo-superagent-mcp_workflow_validate".to_string();
+        superagent.details = Some(serde_json::json!({
+            "rawInput": {
+                "ServerName": "Dimo-superagent-mcp",
+                "ToolName": "workflow_validate"
+            }
+        }));
+        assert_eq!(
+            decide_companion_mcp_permission_response(&superagent),
             Some(AgentPermissionResponse::selected("approve"))
         );
     }

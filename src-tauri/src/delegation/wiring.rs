@@ -70,7 +70,7 @@ pub(crate) fn build_delegation(
         tokens.set_product_gate(move |product| match product {
             "delegation" => official_mcp.allow_delegation_mcp(),
             "session" => official_mcp.allow_session_mcp(),
-            "workflow" => official_mcp.allow_workflow_mcp(),
+            "workflow" | "pulse" | "superagent" => true,
             _ => false,
         });
     }

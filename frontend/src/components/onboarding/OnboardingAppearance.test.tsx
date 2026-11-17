@@ -74,7 +74,7 @@ describe('onboarding appearance', () => {
       '/videos/onboarding/infinite-canvas.mp4'
     );
 
-    fireEvent.click(screen.getByRole('button', { name: t('enterWorkspace') }));
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
     await waitFor(() => expect(finish).toHaveBeenCalledWith(ThemeMode.DARK));
   });
 
@@ -88,9 +88,9 @@ describe('onboarding appearance', () => {
         <OnboardingAppearance onBack={vi.fn()} onContinue={finish} />
       </ThemeProvider>
     );
-    fireEvent.click(screen.getByRole('button', { name: t('enterWorkspace') }));
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
-    fireEvent.click(screen.getByRole('button', { name: t('enterWorkspace') }));
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
     await waitFor(() => expect(finish).toHaveBeenCalledTimes(2));
   });
 
@@ -197,7 +197,7 @@ describe('onboarding appearance', () => {
       </ThemeProvider>
     );
 
-    expect(screen.getByText('5 / 5')).toBeInTheDocument();
+    expect(screen.getByText('4 / 5')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: t('agentStep') }));
     expect(onNavigateStep).toHaveBeenCalledWith('configure');
 

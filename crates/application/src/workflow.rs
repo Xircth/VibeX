@@ -4,7 +4,18 @@ mod execution;
 pub(crate) use self::execution::{UnavailableWorkflowExecution, map_error, principal_json};
 pub use self::execution::ensure_member_session_workspace;
 
-use agents::{AgentId, ConversationInputPayload};
+use agents::{AgentId, AgentKind, ConversationInputPayload};
+
+pub(crate) fn parse_canonical_agent_id(raw: &str) -> Result<AgentId, ApplicationError> {
+    let parsed = AgentId::parse(raw.trim())
+        .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+    if let Some(kind) = AgentKind::from_lenient(parsed.as_str())
+        && let Ok(canonical) = AgentId::parse(kind.as_str())
+    {
+        return Ok(canonical);
+    }
+    Ok(parsed)
+}
 use async_trait::async_trait;
 use chrono::Duration;
 use conversations::{
@@ -352,8 +363,7 @@ impl WorkflowAgentDispatcher {
         let WorkflowStepSpec::Agent(agent) = &step.spec else {
             return self.dispatch_pulse_claimed_step(&claimed, step).await;
         };
-        let agent_id = AgentId::parse(&agent.agent_id)
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let agent_id = parse_canonical_agent_id(&agent.agent_id)?;
         let resolved_input = match self.store.resolve_step_input(claimed.run.id, step).await {
             Ok(input) => input,
             Err(error) => {
@@ -669,7 +679,22 @@ impl WorkflowAgentDispatcher {
                         )
                         .await
                         {
-                            Ok(text) => Some(serde_json::Value::String(text)),
+                            Ok(text) => match parse_step_assistant_output(&definition, step, text) {
+                                Ok(parsed) => Some(parsed),
+                                Err(err_msg) => {
+                                    self.store
+                                        .fail_step(
+                                            run_id,
+                                            &step_id,
+                                            "invalid_structured_output",
+                                            &err_msg,
+                                        )
+                                        .await
+                                        .map_err(map_error)?;
+                                    changed = true;
+                                    continue;
+                                }
+                            },
                             Err(error) => {
                                 self.store
                                     .fail_step(
@@ -1036,11 +1061,158 @@ pub(crate) async fn wait_for_dispatched_input_turn(
     }
 }
 
+pub(crate) fn step_requires_strict_json_output(spec: &WorkflowStepSpec) -> bool {
+    match spec {
+        WorkflowStepSpec::Agent(agent) => {
+            let has_brief = agent
+                .output_description
+                .as_deref()
+                .is_some_and(|description| !description.trim().is_empty());
+            !has_brief && agent.output_schema.is_some()
+        }
+        WorkflowStepSpec::Session(session) => session.output_schema.is_some(),
+        WorkflowStepSpec::Bot(bot) => bot.output_schema.is_some(),
+        _ => false,
+    }
+}
+
+fn json_value_contains_text(value: &serde_json::Value, needle: &str) -> bool {
+    match value {
+        serde_json::Value::String(s) => s.contains(needle),
+        serde_json::Value::Array(items) => {
+            items.iter().any(|item| json_value_contains_text(item, needle))
+        }
+        serde_json::Value::Object(map) => {
+            map.values().any(|val| json_value_contains_text(val, needle))
+        }
+        _ => false,
+    }
+}
+
+fn downstream_references_structured_output(
+    definition: &WorkflowDefinition,
+    source_step_id: &str,
+) -> bool {
+    let template_marker = format!("steps.{source_step_id}.output.");
+    definition.steps.iter().any(|candidate| {
+        if candidate.id == source_step_id {
+            return false;
+        }
+        let binding_refs = candidate.input_bindings.values().any(|binding| match binding {
+            workflows::WorkflowBinding::StepOutput { step_id, pointer } => {
+                step_id == source_step_id && !pointer.trim().is_empty() && pointer.trim() != "/"
+            }
+            workflows::WorkflowBinding::RunInput { .. } => false,
+        });
+        if binding_refs {
+            return true;
+        }
+        match &candidate.spec {
+            WorkflowStepSpec::Agent(agent) => agent.prompt.contains(&template_marker),
+            WorkflowStepSpec::Session(session) => session.prompt_template.contains(&template_marker),
+            WorkflowStepSpec::Bot(bot) => bot.prompt_template.contains(&template_marker),
+            WorkflowStepSpec::GroupStage(group) => group.message_template.contains(&template_marker),
+            WorkflowStepSpec::UserGate(gate) => {
+                gate.title_template.contains(&template_marker)
+                    || gate.body_template.contains(&template_marker)
+            }
+            WorkflowStepSpec::OutboxAction(outbox) => {
+                outbox.target_template.contains(&template_marker)
+                    || json_value_contains_text(&outbox.payload_template, &template_marker)
+            }
+            _ => false,
+        }
+    })
+}
+
+pub(crate) fn extract_json_value_from_text(text: &str) -> Option<serde_json::Value> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Some(value);
+    }
+
+    // Check fenced code blocks (` ```json ... ``` ` or ` ``` ... ``` `), preferring the last valid block.
+    let mut fenced_candidates = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(rel_open) = text[search_from..].find("```") {
+        let open_start = search_from + rel_open + 3;
+        let Some(rel_nl) = text[open_start..].find('\n') else {
+            break;
+        };
+        let lang = text[open_start..open_start + rel_nl].trim();
+        let body_start = open_start + rel_nl + 1;
+        let Some(rel_close) = text[body_start..].find("```") else {
+            break;
+        };
+        let body = text[body_start..body_start + rel_close].trim();
+        if (lang.is_empty()
+            || lang.eq_ignore_ascii_case("json")
+            || lang.eq_ignore_ascii_case("jsonc"))
+            && !body.is_empty()
+        {
+            fenced_candidates.push(body);
+        }
+        search_from = body_start + rel_close + 3;
+    }
+    for candidate in fenced_candidates.into_iter().rev() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate) {
+            return Some(value);
+        }
+    }
+
+    // Fallback: extract a balanced JSON object/array embedded within prose.
+    for (idx, ch) in text.char_indices() {
+        if !matches!(ch, '{' | '[') {
+            continue;
+        }
+        let mut stream = serde_json::Deserializer::from_str(&text[idx..]).into_iter::<serde_json::Value>();
+        if let Some(Ok(value)) = stream.next()
+            && (value.is_object() || value.is_array())
+        {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+pub(crate) fn parse_step_assistant_output(
+    definition: &WorkflowDefinition,
+    step: &workflows::WorkflowStep,
+    text: String,
+) -> Result<serde_json::Value, String> {
+    if step_requires_strict_json_output(&step.spec) {
+        return extract_json_value_from_text(&text).ok_or_else(|| {
+            format!(
+                "step `{}` requires structured JSON output matching outputSchema, but assistant output could not be parsed as JSON",
+                step.id
+            )
+        });
+    }
+    if downstream_references_structured_output(definition, &step.id)
+        && let Some(parsed) = extract_json_value_from_text(&text)
+    {
+        return Ok(parsed);
+    }
+    Ok(serde_json::Value::String(text))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{final_assistant_text, render_agent_prompt};
+    use super::{
+        extract_json_value_from_text, final_assistant_text, parse_step_assistant_output,
+        render_agent_prompt,
+    };
+    use workflows::{
+        AgentStepSpec, CompletionPolicy, OutboxActionKind, OutboxActionStepSpec, SessionStepSpec,
+        SideEffectClass, WorkflowBinding, WorkflowDefinition, WorkflowPolicy, WorkflowStep,
+        WorkflowStepSpec, WorkspaceAccess,
+    };
 
     #[test]
     fn agent_prompt_exposes_bound_input_and_the_exact_output_contract() {
@@ -1181,6 +1353,109 @@ mod tests {
         assert_eq!(
             super::final_assistant_text_from_transcript_round(&turns, Some(0)).as_deref(),
             Some("第一步完成")
+        );
+    }
+
+    #[test]
+    fn extract_json_value_handles_raw_fenced_and_prose_wrapped_json() {
+        assert_eq!(
+            extract_json_value_from_text(r#"{"summary":"fixed"}"#),
+            Some(serde_json::json!({"summary": "fixed"}))
+        );
+        assert_eq!(
+            extract_json_value_from_text("Here is the JSON:\n```json\n{\"summary\": \"ok\"}\n```"),
+            Some(serde_json::json!({"summary": "ok"}))
+        );
+        assert_eq!(
+            extract_json_value_from_text("Investigation complete: {\"summary\":\"pathed\"} trailing note."),
+            Some(serde_json::json!({"summary": "pathed"}))
+        );
+        assert_eq!(extract_json_value_from_text("plain prose response"), None);
+    }
+
+    #[test]
+    fn parse_step_assistant_output_enforces_json_for_strict_schema_and_allows_prose_with_brief() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["summary"],
+            "properties": {"summary": {"type": "string"}}
+        });
+        let session_step = WorkflowStep {
+            id: "fix".to_owned(),
+            depends_on: Vec::new(),
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::Session(SessionStepSpec {
+                agent_id: "claude-code".to_owned(),
+                prompt_template: "fix".to_owned(),
+                workspace_access: WorkspaceAccess::WriteIsolated,
+                model_override: None,
+                subscribe_thread: false,
+                completion: CompletionPolicy::Automatic,
+                output_schema: Some(schema.clone()),
+            }),
+        };
+        let outbox_step = WorkflowStep {
+            id: "notify".to_owned(),
+            depends_on: vec!["fix".to_owned()],
+            phase: None,
+            input_bindings: BTreeMap::from([(
+                "sum".to_owned(),
+                WorkflowBinding::StepOutput {
+                    step_id: "fix".to_owned(),
+                    pointer: "/summary".to_owned(),
+                },
+            )]),
+            spec: WorkflowStepSpec::OutboxAction(OutboxActionStepSpec {
+                action_kind: OutboxActionKind::ReplyChannel,
+                target_template: "{{threadKey}}".to_owned(),
+                payload_template: serde_json::json!({"message": "{{steps.fix.output.summary}}"}),
+            }),
+        };
+        let def = WorkflowDefinition {
+            format_version: 1,
+            name: "test".to_owned(),
+            description: None,
+            input_schema: None,
+            steps: vec![session_step.clone(), outbox_step],
+            policy: WorkflowPolicy::default(),
+        };
+
+        assert_eq!(
+            parse_step_assistant_output(&def, &session_step, "```json\n{\"summary\":\"ok\"}\n```".to_owned())
+                .unwrap(),
+            serde_json::json!({"summary": "ok"})
+        );
+        assert!(parse_step_assistant_output(&def, &session_step, "not json".to_owned()).is_err());
+
+        let agent_brief_step = WorkflowStep {
+            id: "review".to_owned(),
+            depends_on: Vec::new(),
+            phase: None,
+            input_bindings: BTreeMap::new(),
+            spec: WorkflowStepSpec::Agent(AgentStepSpec {
+                agent_id: "claude-code".to_owned(),
+                prompt: "review".to_owned(),
+                executor_profile_id: None,
+                mode_override: None,
+                config_overrides: BTreeMap::new(),
+                output_language: None,
+                output_description: Some("prose summary".to_owned()),
+                output_schema: Some(schema),
+                workspace_access: WorkspaceAccess::Native,
+                side_effect_class: SideEffectClass::MutatingUnknown,
+                allow_one_repair: false,
+                allow_skip_on_review: false,
+                completion_policy: CompletionPolicy::Automatic,
+            }),
+        };
+        let brief_def = WorkflowDefinition {
+            steps: vec![agent_brief_step.clone()],
+            ..def
+        };
+        assert_eq!(
+            parse_step_assistant_output(&brief_def, &agent_brief_step, "LGTM prose".to_owned()).unwrap(),
+            serde_json::Value::String("LGTM prose".to_owned())
         );
     }
 }

@@ -14,6 +14,7 @@ fn pulse_companion() -> Companion {
         server_url: None,
         server_token: None,
         conversation_id: Some("conv-pulse-1".to_string()),
+        workspace_root: None,
         product: "pulse".to_string(),
     })
 }
@@ -683,6 +684,7 @@ async fn http_host_bridge_maps_all_seven_pulse_tools_to_exact_domain_commands_an
         server_url: Some(base_url),
         server_token: Some("tok-host-bearer".to_string()),
         conversation_id: Some("conv-http-1".to_string()),
+        workspace_root: None,
         product: "pulse".to_string(),
     });
     assert!(comp.uses_http());
@@ -1000,6 +1002,7 @@ async fn http_host_400_validation_errors_propagate_as_real_mcp_errors_never_swal
         server_url: Some(base_url),
         server_token: Some("tok-err".to_string()),
         conversation_id: Some("conv-err".to_string()),
+        workspace_root: None,
         product: "pulse".to_string(),
     });
 
@@ -1200,6 +1203,7 @@ async fn desktop_socket_ipc_routes_all_seven_pulse_tools_to_host_and_propagates_
         server_url: None,
         server_token: None,
         conversation_id: Some("conv-sock-1".to_string()),
+        workspace_root: None,
         product: "pulse".to_string(),
     });
     assert!(!comp.uses_http());

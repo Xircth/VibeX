@@ -60,7 +60,7 @@ export interface ProviderFormProps {
   endpointCandidates: string[];
   websiteUrl: string | null;
   apiKeyUrl: string | null;
-  hasCatalogContributions: boolean;
+  hasPresetCatalog: boolean;
   catalog: ProviderCatalogListView | null;
   catalogGeneration: number;
   catalogError: string | null;
@@ -104,7 +104,7 @@ export function ProviderForm({
   endpointCandidates,
   websiteUrl,
   apiKeyUrl,
-  hasCatalogContributions,
+  hasPresetCatalog,
   catalog,
   catalogGeneration,
   catalogError,
@@ -136,7 +136,7 @@ export function ProviderForm({
             : t('settings:agents.providerNew')}
         </strong>
       </div>
-      {!id && hasCatalogContributions ? (
+      {!id && hasPresetCatalog ? (
         <ProviderCatalogPicker
           disabled={busy}
           generation={catalog?.generation ?? catalogGeneration}

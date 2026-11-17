@@ -139,9 +139,13 @@ impl ServerApplicationDomains {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
         serialize(
-            conversations::read_matching_capability_catalog_for_defaults(&self.pool, &agent_id)
-                .await
-                .map_err(conversation_error)?,
+            conversations::read_matching_capability_catalog_for_defaults_for_provider_instance(
+                &self.pool,
+                &agent_id,
+                args.provider_instance_id.as_deref(),
+            )
+            .await
+            .map_err(conversation_error)?,
         )
     }
 
@@ -149,9 +153,13 @@ impl ServerApplicationDomains {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
         serialize(
-            conversations::capability_catalog_is_fresh(&self.pool, &agent_id)
-                .await
-                .map_err(conversation_error)?,
+            conversations::capability_catalog_is_fresh_for_provider_instance(
+                &self.pool,
+                &agent_id,
+                args.provider_instance_id.as_deref(),
+            )
+            .await
+            .map_err(conversation_error)?,
         )
     }
 
@@ -162,10 +170,11 @@ impl ServerApplicationDomains {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
         serialize(
-            conversations::refresh_open_capability_catalog(
+            conversations::refresh_open_capability_catalog_for_provider_instance(
                 &self.pool,
                 &self.conversations.agent_runtime,
                 &agent_id,
+                args.provider_instance_id.as_deref(),
             )
             .await
             .map_err(conversation_error)?,

@@ -27,10 +27,12 @@ export function useProviderActions(
   state: ProviderFormState,
   {
     agentId,
+    providerInstanceId = null,
     signedIn,
     onChanged,
   }: {
     agentId: AgentId;
+    providerInstanceId?: string | null;
     signedIn: boolean;
     onChanged?: () => void | Promise<void>;
   }
@@ -66,7 +68,15 @@ export function useProviderActions(
     setSaving(true);
     setError(null);
     try {
-      setView(await agentManagementApi.bindModelProvider(agentId, providerId));
+      setView(
+        providerInstanceId
+          ? await agentManagementApi.bindModelProvider(
+              agentId,
+              providerId,
+              providerInstanceId
+            )
+          : await agentManagementApi.bindModelProvider(agentId, providerId)
+      );
       toast.success(t('settings:agents.providerBound'));
       await onChanged?.();
     } catch (cause) {
@@ -95,7 +105,13 @@ export function useProviderActions(
     setSaving(true);
     try {
       setView(
-        await agentManagementApi.deleteModelProvider(agentId, provider.id)
+        providerInstanceId
+          ? await agentManagementApi.deleteModelProvider(
+              agentId,
+              provider.id,
+              providerInstanceId
+            )
+          : await agentManagementApi.deleteModelProvider(agentId, provider.id)
       );
       if (id === provider.id) resetForm();
       toast.success(t('settings:agents.providerDeleted'));
@@ -134,10 +150,20 @@ export function useProviderActions(
   const testConnection = async (provider: AgentModelProviderView) => {
     setProbes((current) => ({ ...current, [provider.id]: 'loading' }));
     try {
-      const result = await agentManagementApi.probeModelProvider(
-        agentId,
-        provider.id
-      );
+      const result = providerInstanceId
+        ? await agentManagementApi.probeModelProvider(
+            agentId,
+            provider.id,
+            null,
+            null,
+            providerInstanceId
+          )
+        : await agentManagementApi.probeModelProvider(
+            agentId,
+            provider.id,
+            null,
+            null
+          );
       setProbes((current) => ({ ...current, [provider.id]: result }));
       if (result.ok) {
         toast.success(
@@ -167,10 +193,13 @@ export function useProviderActions(
     setSaving(true);
     setError(null);
     try {
-      const preview = await agentManagementApi.previewModelProviderImport(
-        agentId,
-        source
-      );
+      const preview = providerInstanceId
+        ? await agentManagementApi.previewModelProviderImport(
+            agentId,
+            source,
+            providerInstanceId
+          )
+        : await agentManagementApi.previewModelProviderImport(agentId, source);
       setImportPreview({ ...preview, origin: { kind: 'builtin', source } });
       setImportSelected(
         preview.candidates
@@ -260,6 +289,7 @@ export function useProviderActions(
             api_url: draft.api_url,
             api_key: draft.api_key,
             model: draft.model,
+            ...(providerInstanceId ? { providerInstanceId } : {}),
           });
         }
         setView(latest);
@@ -269,6 +299,7 @@ export function useProviderActions(
             agent_id: agentId,
             source: importPreview.origin.source,
             source_ids: importSelected,
+            ...(providerInstanceId ? { providerInstanceId } : {}),
           })
         );
       }
@@ -309,15 +340,24 @@ export function useProviderActions(
     }
     setSaving(true);
     try {
-      const saved = await agentManagementApi.saveModelProvider(
-        providerSaveRequest(provision, existing?.id ?? null)
-      );
+      const saved = await agentManagementApi.saveModelProvider({
+        ...providerSaveRequest(provision, existing?.id ?? null),
+        ...(providerInstanceId ? { providerInstanceId } : {}),
+      });
       setView(saved);
       const preset = saved.providers.find(
         (provider) => provider.name === ROUTER_PROVIDER_NAME
       );
       if (!preset) throw new Error(t('settings:agents.providerActionFailed'));
-      setView(await agentManagementApi.bindModelProvider(agentId, preset.id));
+      setView(
+        providerInstanceId
+          ? await agentManagementApi.bindModelProvider(
+              agentId,
+              preset.id,
+              providerInstanceId
+            )
+          : await agentManagementApi.bindModelProvider(agentId, preset.id)
+      );
       await onChanged?.();
     } finally {
       setSaving(false);

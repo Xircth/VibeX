@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { canonicalSessionAgentId } from '@/lib/sessionQueryCache';
+import type { AgentInstanceOption } from '@/lib/providerInstancesApi';
 import { cn } from '@/lib/utils';
 import { EffortSlider } from '@/components/tasks/effort-slider/EffortSlider';
 import { AgentRail, type AgentRailProps } from './AgentRail';
@@ -59,6 +60,13 @@ export type SessionAgentRailConfig = Omit<AgentRailProps, 'disabled'>;
 export type SessionContinuationConfig = {
   policy: 'portable' | 'fresh';
   onChange: (policy: 'portable' | 'fresh') => void;
+};
+
+export type SessionProviderInstanceConfig = {
+  options: AgentInstanceOption[];
+  selectedInstanceId: string;
+  disabled?: boolean;
+  onSelectInstance: (instanceId: string) => void;
 };
 
 function normalizedOption(option: AgentSessionConfigOption) {
@@ -194,6 +202,7 @@ export function SessionSettingsSummary({
   agentIconDark = null,
   agentIconSvg = null,
   agentRail = null,
+  providerInstanceConfig = null,
   continuation = null,
   controlsLoading = false,
 }: {
@@ -212,6 +221,7 @@ export function SessionSettingsSummary({
   agentIconDark?: string | null;
   agentIconSvg?: string | null;
   agentRail?: SessionAgentRailConfig | null;
+  providerInstanceConfig?: SessionProviderInstanceConfig | null;
   continuation?: SessionContinuationConfig | null;
   controlsLoading?: boolean;
 }) {
@@ -379,6 +389,10 @@ export function SessionSettingsSummary({
       : []),
   ];
 
+  const showInstanceRow = Boolean(
+    providerInstanceConfig && providerInstanceConfig.options.length >= 2
+  );
+
   const hasSessionControls =
     (Boolean(onSelectMode) && presentableModes.length > 0) ||
     configRows.length > 0;
@@ -386,6 +400,7 @@ export function SessionSettingsSummary({
   if (
     !showPersonaOnly &&
     !showAgentRail &&
+    !showInstanceRow &&
     !continuation &&
     !hasSessionControls &&
     summary.length === 0 &&
@@ -553,6 +568,15 @@ export function SessionSettingsSummary({
                 </>
               }
             />
+            {showInstanceRow && providerInstanceConfig ? (
+              <>
+                <InstanceRow
+                  config={providerInstanceConfig}
+                  disabled={disabled}
+                />
+                {hasSessionControls ? <DropdownMenuSeparator /> : null}
+              </>
+            ) : null}
             {hasSessionControls ? (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="px-2.5 py-1.5">
@@ -589,6 +613,15 @@ export function SessionSettingsSummary({
               data-testid="session-settings-detail-card"
               className="relative z-10 max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] min-h-[10.5rem] min-w-0 flex-1 overflow-y-auto bg-popover p-1"
             >
+              {showInstanceRow && providerInstanceConfig ? (
+                <>
+                  <InstanceRow
+                    config={providerInstanceConfig}
+                    disabled={disabled}
+                  />
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               {hasSessionControls ? (
                 sessionControlRows
               ) : (
@@ -615,6 +648,17 @@ export function SessionSettingsSummary({
             <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t('sessionSettings.title')}
             </DropdownMenuLabel>
+            {showInstanceRow && providerInstanceConfig ? (
+              <>
+                <InstanceRow
+                  config={providerInstanceConfig}
+                  disabled={disabled}
+                />
+                {hasSessionControls || continuation ? (
+                  <DropdownMenuSeparator />
+                ) : null}
+              </>
+            ) : null}
             {sessionControlRows}
             {continuation ? (
               <>
@@ -899,6 +943,70 @@ function ContinuationRow({
             >
               <span className="min-w-0 flex-1 truncate">{choice.label}</span>
               {active ? <Check className="h-4 w-4" /> : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function InstanceRow({
+  config,
+  disabled,
+}: {
+  config: SessionProviderInstanceConfig;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation(['tasks', 'settings']);
+  const [open, setOpen] = useState(false);
+  const activeOption =
+    config.options.find(
+      (option) => option.instanceId === config.selectedInstanceId
+    ) ?? config.options[0];
+
+  if (!activeOption) return null;
+
+  return (
+    <DropdownMenuSub open={open} onOpenChange={setOpen}>
+      <DropdownMenuSubTrigger
+        data-testid="session-settings-instance-trigger"
+        disabled={disabled || config.disabled}
+        onClick={() => setOpen(true)}
+        className="px-2.5 py-1.5"
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {t('sessionCreation.instanceLabel', { defaultValue: '实例' })}
+        </span>
+        <RowValue>{activeOption.displayName}</RowValue>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="min-w-[13rem]">
+        <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {t('sessionCreation.instanceLabel', { defaultValue: '实例' })}
+        </DropdownMenuLabel>
+        {config.options.map((option) => {
+          const active = option.instanceId === activeOption.instanceId;
+          return (
+            <DropdownMenuItem
+              key={option.instanceId}
+              data-testid={`session-settings-instance-option-${option.instanceId}`}
+              onSelect={() => {
+                setOpen(false);
+                config.onSelectInstance(option.instanceId);
+              }}
+              className="flex items-center justify-between gap-2"
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+                <span className="truncate">{option.displayName}</span>
+                {option.isDefault ? (
+                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                    {t('settings:providerInstances.defaultBadge', {
+                      defaultValue: '默认',
+                    })}
+                  </span>
+                ) : null}
+              </span>
+              {active ? <Check className="h-4 w-4 shrink-0" /> : null}
             </DropdownMenuItem>
           );
         })}

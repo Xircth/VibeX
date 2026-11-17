@@ -117,7 +117,7 @@ export function DshAuthPanel({
   const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
   const catalogEnabled =
     draft.mode === 'custom' && customSurface === 'form' && editingId === null;
-  const { catalog, catalogError, catalogGeneration, hasCatalogContributions } =
+  const { catalog, catalogError, catalogGeneration, hasPresetCatalog } =
     useProviderCatalogList('deepseek_harness', catalogEnabled);
 
   const official = view?.providers.find(
@@ -884,7 +884,7 @@ export function DshAuthPanel({
                         : t('settings:agents.providerNew')}
                     </strong>
                   </div>
-                  {!editingId && hasCatalogContributions ? (
+                  {!editingId && hasPresetCatalog ? (
                     <ProviderCatalogPicker
                       disabled={saving}
                       generation={catalog?.generation ?? catalogGeneration}

@@ -599,11 +599,16 @@ async fn callback_meta_roundtrip_workflow_run_normalizer_and_fast_task_outbox() 
         .expect("normalize completed workflow_run");
     assert_eq!(completed_env.event_type, "github.workflow_run.completed");
     assert_eq!(completed_env.payload["conclusion"], "failure");
+    assert_eq!(completed_env.payload["workflow_run"]["conclusion"], "failure");
     assert_eq!(completed_env.payload["head_branch"], "feat/pulse");
     assert_eq!(completed_env.payload["name"], "Build & Test");
     assert_eq!(
         completed_env.payload["html_url"],
         "https://github.com/acme/vibex/actions/runs/7001"
+    );
+    assert_eq!(
+        completed_env.reply_channels[0].channel_id,
+        "acme/vibex@abc1234"
     );
 
     let check_run_env = gh_norm
@@ -628,6 +633,7 @@ async fn callback_meta_roundtrip_workflow_run_normalizer_and_fast_task_outbox() 
         .expect("normalize check_run");
     assert_eq!(check_run_env.event_type, "github.check_run.completed");
     assert_eq!(check_run_env.payload["conclusion"], "success");
+    assert_eq!(check_run_env.payload["check_run"]["conclusion"], "success");
 
     // 3. FeishuSourceNormalizer rich-text `post` message extraction.
     let feishu_post_env = FeishuSourceNormalizer::new("src-feishu", None)

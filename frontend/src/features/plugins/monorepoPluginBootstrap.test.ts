@@ -188,9 +188,8 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       expect(getMonorepoPluginLoadCount(bundle.id)).toBeGreaterThanOrEqual(1);
     }
 
-    // Services from all 12 official plugins
+    // Services provided by official plugins
     const expectedServices = [
-      'dimo.provider-catalog',
       'dimo.plugin-dev',
       'dimo.session-enhance',
       'dimo.browser',
@@ -247,7 +246,6 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
 
     // Commands
     const expectedCommands = [
-      'dimo.provider-switch.open-catalog',
       'reload-plugins',
       'dimo.session-enhance.toggle-hints',
       'dimo.browser.open-tab',

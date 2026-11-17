@@ -24,39 +24,66 @@ function normalizeAgentType(agentType: string | null | undefined): string {
 
 export function sessionControlsQueryKey(
   agentType: string | null | undefined,
-  workspaceId: string | null
+  workspaceId: string | null,
+  providerInstanceId?: string | null
 ) {
-  return [
-    'agent-session-controls-catalog',
-    normalizeAgentType(agentType),
-    workspaceId,
-  ] as const;
+  const instance = providerInstanceId?.trim();
+  return instance && instance.toLowerCase() !== 'local'
+    ? ([
+        'agent-session-controls-catalog',
+        normalizeAgentType(agentType),
+        workspaceId,
+        instance,
+      ] as const)
+    : ([
+        'agent-session-controls-catalog',
+        normalizeAgentType(agentType),
+        workspaceId,
+      ] as const);
 }
 
 export function sessionControlsSchemaQueryKey(
-  agentType: string | null | undefined
+  agentType: string | null | undefined,
+  providerInstanceId?: string | null
 ) {
-  return [
-    'agent-session-controls-schema',
-    normalizeAgentType(agentType),
-  ] as const;
+  const instance = providerInstanceId?.trim();
+  return instance && instance.toLowerCase() !== 'local'
+    ? ([
+        'agent-session-controls-schema',
+        normalizeAgentType(agentType),
+        instance,
+      ] as const)
+    : ([
+        'agent-session-controls-schema',
+        normalizeAgentType(agentType),
+      ] as const);
 }
 
 export async function loadAgentSessionControlsCatalog(
-  agentType: string | null | undefined
+  agentType: string | null | undefined,
+  providerInstanceId?: string | null
 ): Promise<AgentSessionControlsSnapshot> {
   const normalized = normalizeAgentType(agentType);
   if (!normalized) {
     throw new Error('Agent session controls catalog is unavailable');
   }
-  const cached = await agentsApi.capabilityCatalog(normalized);
+  const instance = providerInstanceId?.trim();
+  const scopedInstance =
+    instance && instance.toLowerCase() !== 'local' ? instance : undefined;
+  const cached = scopedInstance
+    ? await agentsApi.capabilityCatalog(normalized, scopedInstance)
+    : await agentsApi.capabilityCatalog(normalized);
   if (cached) return cached;
 
-  const refreshed = await agentsApi.refreshCapabilityCatalog(normalized);
+  const refreshed = scopedInstance
+    ? await agentsApi.refreshCapabilityCatalog(normalized, scopedInstance)
+    : await agentsApi.refreshCapabilityCatalog(normalized);
   if (!refreshed) {
     throw new Error('Agent session controls discovery failed');
   }
-  const discovered = await agentsApi.capabilityCatalog(normalized);
+  const discovered = scopedInstance
+    ? await agentsApi.capabilityCatalog(normalized, scopedInstance)
+    : await agentsApi.capabilityCatalog(normalized);
   if (!discovered) {
     throw new Error('Agent session controls catalog is unavailable');
   }
@@ -195,18 +222,20 @@ export function publishLiveSessionControls(
   {
     agentType,
     workspaceId,
+    providerInstanceId,
     controls,
   }: {
     agentType: string;
     workspaceId: string;
+    providerInstanceId?: string | null;
     controls: AgentSessionControlsSnapshot;
   }
 ): void {
   queryClient.setQueryData(
-    sessionControlsQueryKey(agentType, workspaceId),
+    sessionControlsQueryKey(agentType, workspaceId, providerInstanceId),
     controls
   );
-  const schemaKey = sessionControlsSchemaQueryKey(agentType);
+  const schemaKey = sessionControlsSchemaQueryKey(agentType, providerInstanceId);
   queryClient.setQueryData(
     schemaKey,
     mergeCreateSessionControls([

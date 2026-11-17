@@ -1,9 +1,14 @@
 import { createRef } from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
+import {
+  getMruProviderInstanceId,
+  recordMruProviderInstanceId,
+} from '@/lib/providerInstanceMru';
+import { providerInstancesApi } from '@/lib/providerInstancesApi';
 import { SESSION_AGENT_SWITCHED_EVENT } from '@/lib/sessionQueryCache';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
@@ -191,6 +196,8 @@ function renderComposerDock(
 }
 
 describe('ComposerDock BotSpace session settings', () => {
+  const trackedSpies: Array<{ mockRestore: () => void }> = [];
+
   beforeEach(() => {
     mockSlotState.renderMic = true;
     mockSelectableAgents.rows = [
@@ -263,6 +270,17 @@ describe('ComposerDock BotSpace session settings', () => {
         },
       ],
     }));
+
+    trackedSpies.push(
+      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([])
+    );
+  });
+
+  afterEach(() => {
+    while (trackedSpies.length > 0) {
+      trackedSpies.pop()?.mockRestore();
+    }
+    localStorage.clear();
   });
 
   it('omits topbar and session settings in GroupSpace while keeping utility buttons bottom-left and mic/send bottom-right', () => {
@@ -553,5 +571,106 @@ describe('ComposerDock BotSpace session settings', () => {
     // Must stay on Codex's mode/model and not revert to Claude's Plan / Opus 4
     expect(trigger).toHaveAttribute('aria-label', '本次会话: Agent · GPT-5 Codex');
     expect(trigger).not.toHaveTextContent('Opus 4');
+  });
+
+  it('shows Instance selector above config when >= 2 instances exist, triggers handoff + MRU without setDefault, and refreshes catalog', async () => {
+    const user = userEvent.setup();
+    trackedSpies.push(
+      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
+        {
+          instanceId: 'claude-work',
+          agentId: 'claude-code',
+          displayName: 'Claude Work',
+          authMode: { mode: 'ApiKey' },
+          isDefault: false,
+          hasActiveSessions: false,
+        },
+        {
+          instanceId: 'codex-team',
+          agentId: 'codex',
+          displayName: 'Codex Team',
+          authMode: { mode: 'OfficialOAuth' },
+          isDefault: false,
+          hasActiveSessions: false,
+        },
+      ])
+    );
+    const setDefaultSpy = vi
+      .spyOn(providerInstancesApi, 'setDefault')
+      .mockResolvedValue(undefined);
+    trackedSpies.push(setDefaultSpy);
+    recordMruProviderInstanceId('codex', 'codex-team');
+
+    loadCatalogMock.mockImplementation(
+      async (agentId: string, providerInstanceId?: string) => ({
+        agent_id: agentId,
+        current_mode: 'plan',
+        modes: [{ id: 'plan', label: 'Plan' }],
+        config_options: [
+          {
+            key: 'model',
+            label: 'Model',
+            category: 'model',
+            value:
+              providerInstanceId === 'claude-work' ? 'opus-4-work' : 'sonnet-4',
+            choices:
+              providerInstanceId === 'claude-work'
+                ? [
+                    { value: 'opus-4-work', label: 'Opus 4 Work' },
+                    { value: 'sonnet-4', label: 'Sonnet 4' },
+                  ]
+                : [
+                    { value: 'sonnet-4', label: 'Sonnet 4' },
+                    { value: 'opus-4', label: 'Opus 4' },
+                  ],
+          },
+        ],
+      })
+    );
+
+    renderComposerDock();
+
+    const trigger = await screen.findByTestId('session-settings-summary');
+    await waitFor(() => {
+      expect(trigger).toHaveTextContent('Sonnet 4');
+    });
+    await user.click(trigger);
+
+    const instanceTrigger = await screen.findByTestId(
+      'session-settings-instance-trigger'
+    );
+    const modelRow = await screen.findByText('Model');
+    expect(
+      instanceTrigger.compareDocumentPosition(modelRow) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    await user.click(instanceTrigger);
+    fireEvent.click(
+      await screen.findByTestId('session-settings-instance-option-claude-work')
+    );
+
+    await waitFor(() => {
+      expect(confirmEngineHandoffMock).toHaveBeenCalledWith({
+        conversationId: 'conv-bot-1',
+        targetEngine: 'claude_code',
+        targetProviderInstanceId: 'claude-work',
+      });
+      expect(loadCatalogMock).toHaveBeenCalledWith('claude_code', 'claude-work');
+    });
+    expect(setDefaultSpy).not.toHaveBeenCalled();
+    expect(getMruProviderInstanceId('claude_code')).toBe('claude-work');
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    const rail = screen.getByRole('radiogroup');
+    await user.click(within(rail).getByRole('radio', { name: 'Codex' }));
+
+    await waitFor(() => {
+      expect(confirmEngineHandoffMock).toHaveBeenLastCalledWith({
+        conversationId: 'conv-bot-1',
+        targetEngine: 'codex',
+        targetProviderInstanceId: 'codex-team',
+      });
+    });
   });
 });

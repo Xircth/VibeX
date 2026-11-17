@@ -180,6 +180,7 @@
     "newWorkspaceHint": "基于 target branch 创建新的 worktree 工作区，然后在其中创建会话。",
     "includeUncommitted": "复制未提交更改",
     "codingAgent": "编程代理",
+    "instanceLabel": "实例",
     "controlsLoading": "正在准备会话配置…",
     "controlsPrepareFailed": "无法加载 {{agent}} 的会话配置",
     "createFailed": "无法创建会话",
@@ -724,18 +725,5 @@
   "effortSlider": {
     "faster": "更快",
     "smarter": "更强"
-  },
-  "engineHandoff": {
-    "title": "从 {{sourceEngine}} 切换到 {{targetEngine}}",
-    "tokenBudget": "Token 预算",
-    "packedHeading": "打包内容",
-    "firstUserMessage": "首条用户消息",
-    "lastUserMessage": "末条用户消息",
-    "lastAssistantMessage": "末条助手消息",
-    "recentMessages": "近期 {{count}} 条消息（按时间倒序）",
-    "omittedWarning": "{{count}} 条历史消息被裁剪（可通过 MCP 回查）",
-    "expandPreview": "展开查看完整打包预览",
-    "collapsePreview": "收起完整打包预览",
-    "confirmSwitch": "确认切换"
   }
 }

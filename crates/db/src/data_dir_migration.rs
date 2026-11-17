@@ -37,6 +37,68 @@ pub async fn remap_sqlite_file_data_dir_paths(
     res
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DbContentSummary {
+    pub conversation_count: i64,
+    pub project_count: i64,
+}
+
+impl DbContentSummary {
+    pub fn has_user_data(&self) -> bool {
+        self.conversation_count > 0 || self.project_count > 0
+    }
+}
+
+/// Inspects an existing `db.sqlite` file without running migrations so startup
+/// data-directory adoption can tell a populated database apart from an empty
+/// freshly-initialized schema.
+pub async fn inspect_sqlite_content_summary(db_file: &Path) -> Option<DbContentSummary> {
+    if !db_file.is_file() {
+        return None;
+    }
+    let options = SqliteConnectOptions::new()
+        .filename(db_file)
+        .create_if_missing(false)
+        .read_only(true);
+    let pool = match SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+    {
+        Ok(pool) => pool,
+        Err(_) => {
+            // A read-only directory containing an uncheckpointed -wal file can
+            // reject normal read-only opens unless opened immutable.
+            let immutable = SqliteConnectOptions::new()
+                .filename(db_file)
+                .create_if_missing(false)
+                .read_only(true)
+                .immutable(true);
+            SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(immutable)
+                .await
+                .ok()?
+        }
+    };
+
+    let conversation_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+    let project_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM projects")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    pool.close().await;
+
+    Some(DbContentSummary {
+        conversation_count,
+        project_count,
+    })
+}
+
 pub async fn remap_sqlite_data_dir_paths(
     pool: &SqlitePool,
     old_dir: &Path,
@@ -218,5 +280,74 @@ mod tests {
         .unwrap();
         assert!(!migrated_doc.contains("old_data"));
         check_pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn inspect_sqlite_content_summary_distinguishes_populated_empty_and_missing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let missing = temp.path().join("missing.sqlite");
+        assert_eq!(inspect_sqlite_content_summary(&missing).await, None);
+
+        let empty_db = temp.path().join("empty.sqlite");
+        let empty_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&empty_db)
+                    .create_if_missing(true),
+            )
+            .await
+            .expect("open empty sqlite");
+        sqlx::query("CREATE TABLE conversations (id TEXT PRIMARY KEY)")
+            .execute(&empty_pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE projects (id TEXT PRIMARY KEY)")
+            .execute(&empty_pool)
+            .await
+            .unwrap();
+        empty_pool.close().await;
+
+        let empty_summary = inspect_sqlite_content_summary(&empty_db)
+            .await
+            .expect("empty summary");
+        assert!(!empty_summary.has_user_data());
+        assert_eq!(empty_summary.conversation_count, 0);
+        assert_eq!(empty_summary.project_count, 0);
+
+        let populated_db = temp.path().join("populated.sqlite");
+        let pop_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&populated_db)
+                    .create_if_missing(true),
+            )
+            .await
+            .expect("open populated sqlite");
+        sqlx::query("CREATE TABLE conversations (id TEXT PRIMARY KEY)")
+            .execute(&pop_pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE projects (id TEXT PRIMARY KEY)")
+            .execute(&pop_pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO conversations (id) VALUES ('c1'), ('c2')")
+            .execute(&pop_pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO projects (id) VALUES ('p1')")
+            .execute(&pop_pool)
+            .await
+            .unwrap();
+        pop_pool.close().await;
+
+        let pop_summary = inspect_sqlite_content_summary(&populated_db)
+            .await
+            .expect("populated summary");
+        assert!(pop_summary.has_user_data());
+        assert_eq!(pop_summary.conversation_count, 2);
+        assert_eq!(pop_summary.project_count, 1);
     }
 }

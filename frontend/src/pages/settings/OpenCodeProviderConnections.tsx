@@ -44,6 +44,7 @@ import {
   openCodeConnectRequest,
   type RouterProvision,
 } from '@/features/model-router';
+import { ProviderPresetIcon } from '@/features/provider-presets/ProviderPresetIcon';
 
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
 import { useProviderCatalogList } from './useProviderCatalogList';
@@ -835,7 +836,7 @@ export function OpenCodeProviderConnections({
               onClick={() => adoptPluginCatalogTemplate(template)}
             >
               <span className="agent-provider-catalog-identity">
-                <Database aria-hidden="true" className="h-3.5 w-3.5" />
+                <ProviderPresetIcon icon={template.icon} name={template.name} />
                 <span>
                   <strong>{template.name}</strong>
                   <code>{template.provider_id}</code>
@@ -854,6 +855,17 @@ export function OpenCodeProviderConnections({
                 </span>
               </span>
             </button>
+            {template.website_url ? (
+              <Button
+                aria-label={`${template.name} ${t('settings:agents.providerCatalogWebsite')}`}
+                className="h-8 w-8 shrink-0 p-0"
+                size="sm"
+                variant="ghost"
+                onClick={() => void openExternalUrl(template.website_url!)}
+              >
+                <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>

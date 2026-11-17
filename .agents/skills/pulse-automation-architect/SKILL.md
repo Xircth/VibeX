@@ -5,22 +5,18 @@ description: Pulse event automation architecture and rule authoring. Use when wi
 
 # Pulse Automation Architect
 
-Author deterministic, loop-safe event rules on VibeX's Pulse engine using `pulse_*` MCP tools or `@vibex/pulse-sdk`. When the target requires multi-step coordination across fresh coding contexts and persistent memory, invoke [`pulse-workflow-author`](../pulse-workflow-author/SKILL.md).
+Author deterministic, loop-safe event rules on Dimo's Pulse engine using `pulse_*` tools from the built-in `Dimo-superagent-mcp`. When the target requires multi-step coordination across fresh coding contexts and persistent memory, invoke [`pulse-workflow-author`](../pulse-workflow-author/SKILL.md).
 
 ## Authoring sequence
 
-1. **Inspect live catalog** — Call `pulse_catalog_inspect` (`category: "all"`). Record active source `instanceId`s, registered `eventSchemas`, targetable `bots` (`memberId`) / `groups` (`spaceId`), and `workflowPresets`.
-   - *Done when*: Every `sourceKinds`, `memberId`, `spaceId`, or `workflowId` referenced by the rule is verified against catalog output (secrets appear as `[REDACTED]` / `whsec_[REDACTED]`; leave secret rotation to the human UI).
-2. **Define custom event contract (custom SDK/CI events only)** — Call `pulse_event_define` (or `defineEvent(...)` in `@vibex/pulse-sdk`) with a dot-namespaced lowercase `event_type` (e.g. `ci.coverage.dropped`), `summary`, and `json_schema`.
-   - *Done when*: `pulse_event_define` returns `builtIn: false` with zero schema violations.
-3. **Draft rule in `observe` mode with anti-loop guards** — Select the receptor from the Receptor Matrix below, attach `{ "op": "not_bot_actor" }` on external platform/chat sources, and start in `evalMode: "observe"`.
-   - *Done when*: A complete `PulseRuleSpec` (or `pulse_timer_schedule` payload) is assembled with explicit `sourceKinds`, `eventTypes` (or `temporal`), `conditions`, and `targets`.
-4. **Dry-run against representative envelopes** — Call `pulse_rule_dry_run` with a matching `sample_event` and a non-matching control `sample_event`. Fix **every** entry in `violations` in a single pass.
-   - *Done when*: `valid: true`, positive envelope yields `matched: true` with expected `renderedPreviews`, and control envelope yields `matched: false` with expected `unmatchedConditions`.
-5. **Propose or save under `MandateOrigin` provenance** — Call `pulse_rule_propose_or_save` (or `pulse_timer_schedule`) and bind ongoing external threads via `pulse_thread_subscribe` when follow-up replies belong to the same run.
-   - *Done when*: Rule revision is persisted; if `notice.code == "untrusted_mandate_draft_coercion"` is returned, surface the draft card ID to the human for explicit activation rather than retrying with `enabled: true`.
-6. **Promote `observe` -> `auto`** — After shadow candidate runs confirm signal-to-noise without false positives, update `evalMode` to `"auto"` and `enabled: true` in an `explicit_human` turn.
-   - *Done when*: Rule runs in `auto` with verified shadow evidence.
+1. **Inspect live rules & connector health** — Call `pulse_rule_list`, `pulse_connector_health`, and `pulse_event_list` to record active connectors, recent event shapes, and target IDs.
+   - *Done when*: Every `sourceKinds`, `memberId`, `spaceId`, or `workflowId` referenced by the rule is verified (secrets remain redacted).
+2. **Draft rule in `observe` mode with anti-loop guards** — Select the receptor from the Receptor Matrix below, attach `{ "op": "not_bot_actor" }` on external platform/chat sources, and start in `evalMode: "observe"`.
+   - *Done when*: A complete `PulseRuleSpec` is assembled with explicit `sourceKinds`, `eventTypes` (or `temporal`), `conditions`, and `targets`.
+3. **Save rule cleanly** — Call `pulse_rule_upsert` with the complete rule specification. Fix **every** validation violation reported in a single pass.
+   - *Done when*: Rule revision is persisted cleanly.
+4. **Verify & promote `observe` -> `auto`** — Inspect `pulse_event_list` and `pulse_outbox_list` to confirm matching and side effects without false positives, then enable `evalMode: "auto"` and `enabled: true` via `pulse_rule_upsert` / `pulse_rule_toggle`.
+   - *Done when*: Rule runs in `auto` with verified event evidence.
 
 ## Receptor matrix (`PulseTargetSpec`)
 

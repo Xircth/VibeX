@@ -1714,6 +1714,92 @@ fn sync_host_multi_agent_skill_with_layout(
     Ok(())
 }
 
+const BUILTIN_WORKFLOW_PULSE_OWNER: &str = "host.workflow-pulse";
+const BUILTIN_WORKFLOW_PULSE_OWNER_FILE: &str = ".dimo-builtin-owner";
+const BUILTIN_WORKFLOW_PULSE_SKILLS: &[(&str, &str)] = &[
+    (
+        "dimo-workflow-creator",
+        include_str!("skills/dimo-workflow-creator/SKILL.md"),
+    ),
+    (
+        "pulse-workflow-author",
+        include_str!("skills/pulse-workflow-author/SKILL.md"),
+    ),
+    (
+        "pulse-automation-architect",
+        include_str!("skills/pulse-automation-architect/SKILL.md"),
+    ),
+];
+
+/// Project built-in Workflow & Pulse authoring skills into `~/.dimo/skills` and
+/// every supported Agent CLI global skill directory so DAG/Pulse authoring works
+/// out of the box without enabling any external plugin.
+pub fn sync_builtin_workflow_pulse_skills() -> Result<(), SkillError> {
+    sync_builtin_workflow_pulse_skills_with_layout(&system_skill_hosting_layout())
+}
+
+fn sync_builtin_workflow_pulse_skills_with_layout(
+    layout: &SkillHostingLayout,
+) -> Result<(), SkillError> {
+    static SYNC_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SYNC_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    for (skill_id, contents) in BUILTIN_WORKFLOW_PULSE_SKILLS {
+        let store_dir = layout.store.join(skill_id);
+        if let Ok(meta) = std::fs::symlink_metadata(&store_dir)
+            && (meta.file_type().is_symlink() || !meta.file_type().is_dir())
+        {
+            remove_if_exists(&store_dir)?;
+        }
+        std::fs::create_dir_all(&store_dir).map_err(|error| {
+            SkillError::Other(format!("创建 {} 失败: {error}", display_path(&store_dir)))
+        })?;
+
+        let skill_md = store_dir.join("SKILL.md");
+        if std::fs::read_to_string(&skill_md).ok().as_deref() != Some(*contents) {
+            std::fs::write(&skill_md, contents).map_err(|error| {
+                SkillError::Other(format!("写入 {} 失败: {error}", display_path(&skill_md)))
+            })?;
+        }
+        let owner_file = store_dir.join(BUILTIN_WORKFLOW_PULSE_OWNER_FILE);
+        if std::fs::read_to_string(&owner_file).ok().as_deref()
+            != Some(BUILTIN_WORKFLOW_PULSE_OWNER)
+        {
+            std::fs::write(&owner_file, BUILTIN_WORKFLOW_PULSE_OWNER).map_err(|error| {
+                SkillError::Other(format!("写入 {} 失败: {error}", display_path(&owner_file)))
+            })?;
+        }
+
+        let mut destinations = BTreeMap::new();
+        for dir in layout.agent_dirs.values() {
+            merge_hosting_destination(&mut destinations, dir.join(skill_id), true);
+        }
+        for (dest, _) in destinations {
+            let owned_by_legacy_plugin = owned_plugin_projection(&dest, "dimo.workflow-creator");
+            let owned_by_builtin = std::fs::read_to_string(
+                dest.join(BUILTIN_WORKFLOW_PULSE_OWNER_FILE),
+            )
+            .ok()
+            .as_deref()
+                == Some(BUILTIN_WORKFLOW_PULSE_OWNER);
+            let exists = std::fs::symlink_metadata(&dest).is_ok();
+            if exists && !owned_by_legacy_plugin && !owned_by_builtin {
+                continue;
+            }
+            let needs_update = owned_by_legacy_plugin
+                || !exists
+                || std::fs::read_to_string(dest.join("SKILL.md")).ok().as_deref()
+                    != Some(*contents);
+            if needs_update {
+                place_skill(&store_dir, &dest, true)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn remove_plugin_skill_projections(
     plugin_id: &str,
     skill_ids: &[String],
@@ -3605,5 +3691,37 @@ mod tests {
 
         remove_if_exists(&readonly_dir).expect("readonly skill directory must be removable");
         assert!(!readonly_dir.exists());
+    }
+
+    #[test]
+    fn sync_builtin_workflow_pulse_skills_projects_into_store_and_agents() {
+        let temp = tempfile::tempdir().unwrap();
+        let codex_dir = temp.path().join("codex");
+        let legacy_plugin_skill = codex_dir.join("dimo-workflow-creator");
+        std::fs::create_dir_all(&legacy_plugin_skill).unwrap();
+        std::fs::write(legacy_plugin_skill.join("SKILL.md"), "legacy").unwrap();
+        std::fs::write(
+            legacy_plugin_skill.join(".dimo-plugin-owner"),
+            "dimo.workflow-creator",
+        )
+        .unwrap();
+
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([("codex".to_string(), codex_dir.clone())]),
+        };
+        sync_builtin_workflow_pulse_skills_with_layout(&layout).unwrap();
+
+        for skill_id in [
+            "dimo-workflow-creator",
+            "pulse-workflow-author",
+            "pulse-automation-architect",
+        ] {
+            assert!(layout.store.join(skill_id).join("SKILL.md").is_file());
+            assert!(codex_dir.join(skill_id).join("SKILL.md").is_file());
+        }
+        let updated = std::fs::read_to_string(codex_dir.join("dimo-workflow-creator/SKILL.md")).unwrap();
+        assert!(updated.contains("Dimo-superagent-mcp"));
+        assert!(!codex_dir.join("dimo-workflow-creator/.dimo-plugin-owner").exists());
     }
 }

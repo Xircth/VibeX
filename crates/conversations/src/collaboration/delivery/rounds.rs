@@ -1251,9 +1251,10 @@ pub(crate) async fn latest_direct_session_turn(
     }
     if space_ids.is_empty() {
         let seat_spaces: Vec<String> = sqlx::query_scalar(
-            r#"SELECT DISTINCT space_id FROM collaboration_space_members
+            r#"SELECT space_id FROM collaboration_space_members
                WHERE conversation_id = ? AND kind = 'agent'
-               ORDER BY joined_at ASC"#,
+               GROUP BY space_id
+               ORDER BY MIN(rowid) ASC"#,
         )
         .bind(conversation_id.to_string())
         .fetch_all(pool)

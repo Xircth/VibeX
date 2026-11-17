@@ -435,6 +435,7 @@ impl HeadlessServer {
         .reconcile_interrupted()
         .await
         .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        let product_mcp_commands = crate::ProductMcpCommandHost::default();
         let (delegation_runtime, companion_memory, delegation_broker) =
             HeadlessDelegationRuntime::start(
                 agent_runtime.clone(),
@@ -442,6 +443,7 @@ impl HeadlessServer {
                 conversation_context.clone(),
                 plugin_control_plane.official_product_mcp_gate(),
                 events.clone(),
+                product_mcp_commands.clone(),
             );
         collaboration_host.install_companion_memory(companion_memory.clone());
         let host_config = deployment.config().read().await.clone();
@@ -493,6 +495,9 @@ impl HeadlessServer {
             conversation_host: Some(conversation_host),
             delegation_broker: Some(delegation_broker),
         });
+        product_mcp_commands
+            .attach_commands(host.commands.clone())
+            .await;
         let local_discovery_task = {
             let runtime = host.agent_management_runtime.clone();
             let events = host.events.clone();

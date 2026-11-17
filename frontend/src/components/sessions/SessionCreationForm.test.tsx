@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import type { AgentManagementView } from 'shared/types';
+import { providerInstancesApi } from '@/lib/providerInstancesApi';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import {
   SessionCreationForm,
@@ -556,7 +557,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     const user = userEvent.setup();
 
     const summary = await screen.findByTestId('session-settings-summary');
-    expect(summary).toHaveClass('raised-control');
+    expect(summary).not.toHaveClass('raised-control');
     expect(summary).not.toHaveClass('rounded-full');
     expect(
       screen.queryByRole('button', {
@@ -1218,5 +1219,169 @@ describe('SessionCreationForm uncommitted copy option', () => {
     expect(
       screen.queryByText('sessionCreation.includeUncommitted')
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('SessionCreationForm provider instance selector', () => {
+  const trackedSpies: Array<{ mockRestore: () => void }> = [];
+
+  beforeEach(() => {
+    capabilityCatalog.mockReset();
+    capabilityCatalogFresh.mockReset();
+    refreshCapabilityCatalog.mockReset();
+    sessionDefaults.mockReset();
+    setSessionDefaults.mockReset();
+    listRemoteSessions.mockReset();
+    importRemoteSession.mockReset();
+    listLocalHistory.mockReset();
+    importLocalHistory.mockReset();
+    agentManagementBar.mockReset();
+    capabilityCatalog.mockResolvedValue(CONTROLS);
+    capabilityCatalogFresh.mockResolvedValue(true);
+    refreshCapabilityCatalog.mockResolvedValue(true);
+    sessionDefaults.mockResolvedValue({
+      values: {},
+      staleIds: [],
+    });
+    setSessionDefaults.mockResolvedValue(undefined);
+    listRemoteSessions.mockResolvedValue({
+      sessions: [],
+      next_cursor: null,
+      meta: null,
+    });
+    listLocalHistory.mockResolvedValue({
+      sessions: [],
+      next_cursor: null,
+      meta: { source: 'local_history' },
+    });
+    agentManagementBar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: '',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+      } satisfies AgentManagementView,
+    ]);
+  });
+
+  afterEach(() => {
+    while (trackedSpies.length > 0) {
+      trackedSpies.pop()?.mockRestore();
+    }
+    localStorage.clear();
+  });
+
+  it('hides the instance selector when fewer than 2 instances exist or for non-Claude/Codex agents', async () => {
+    trackedSpies.push(
+      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
+        {
+          instanceId: 'codex-work',
+          agentId: 'codex',
+          displayName: 'Codex Work',
+          authMode: { mode: 'ApiKey' },
+          isDefault: true,
+          hasActiveSessions: false,
+        },
+      ])
+    );
+
+    const view = renderForm('claude_code', vi.fn(), 'new_workspace');
+    await screen.findByTestId('session-settings-summary');
+    expect(
+      screen.queryByTestId('session-instance-selector')
+    ).not.toBeInTheDocument();
+
+    view.switchExecutor('grok');
+    await screen.findByTestId('session-settings-summary');
+    expect(
+      screen.queryByTestId('session-instance-selector')
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the instance selector below Coding Agent when >= 2 instances exist and refreshes catalog on change', async () => {
+    const user = userEvent.setup();
+    trackedSpies.push(
+      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
+        {
+          instanceId: 'claude-work',
+          agentId: 'claude-code',
+          displayName: 'Work Instance',
+          authMode: { mode: 'ApiKey' },
+          isDefault: false,
+          hasActiveSessions: false,
+        },
+      ])
+    );
+    capabilityCatalog.mockImplementation(
+      async (_agentId: string, instanceId?: string) => ({
+        ...CONTROLS,
+        config_options: [
+          {
+            ...CONTROLS.config_options[0],
+            value: instanceId === 'claude-work' ? 'opus' : 'sonnet',
+          },
+          CONTROLS.config_options[1],
+        ],
+      })
+    );
+
+    const onPreset = vi.fn();
+    renderForm('claude_code', onPreset, 'new_workspace');
+
+    const selector = await screen.findByTestId('session-instance-selector');
+    const agentSelector = document.querySelector(
+      '[data-basic-guide="session-agent-selector"]'
+    );
+    expect(agentSelector).not.toBeNull();
+    expect(
+      agentSelector!.compareDocumentPosition(selector) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    await user.click(screen.getByTestId('session-instance-selector-trigger'));
+    await user.click(
+      await screen.findByTestId('session-instance-option-claude-work')
+    );
+
+    await waitFor(() => {
+      expect(capabilityCatalog).toHaveBeenCalledWith(
+        'claude_code',
+        'claude-work'
+      );
+      expect(onPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'auto',
+        configOverrides: {
+          model: 'opus',
+          fast: 'false',
+        },
+        providerInstanceId: 'claude-work',
+      });
+    });
+
+    await user.click(screen.getByTestId('session-instance-selector-trigger'));
+    await user.click(await screen.findByTestId('session-instance-option-local'));
+
+    await waitFor(() => {
+      expect(onPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'auto',
+        configOverrides: {
+          model: 'sonnet',
+          fast: 'false',
+        },
+      });
+    });
   });
 });

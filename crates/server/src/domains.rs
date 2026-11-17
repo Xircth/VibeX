@@ -724,6 +724,8 @@ struct RepoIdArgs {
 #[serde(rename_all = "camelCase")]
 struct AgentIdArgs {
     agent_id: String,
+    #[serde(default, alias = "provider_instance_id")]
+    provider_instance_id: Option<String>,
 }
 
 #[derive(Deserialize)]

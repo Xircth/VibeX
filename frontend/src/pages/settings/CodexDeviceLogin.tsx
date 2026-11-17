@@ -13,10 +13,14 @@ import {
 type LoginStatus = 'idle' | 'requesting' | 'polling' | 'success' | 'error';
 
 type Props = {
+  providerInstanceId?: string | null;
   onAuthenticated?: () => void | Promise<void>;
 };
 
-export function CodexDeviceLogin({ onAuthenticated }: Props) {
+export function CodexDeviceLogin({
+  providerInstanceId = null,
+  onAuthenticated,
+}: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [status, setStatus] = useState<LoginStatus>('idle');
   const [deviceCode, setDeviceCode] = useState<CodexDeviceCodeView | null>(
@@ -71,10 +75,16 @@ export function CodexDeviceLogin({ onAuthenticated }: Props) {
         return;
       }
       try {
-        const result = await agentManagementApi.pollCodexDeviceCode(
-          deviceCode.device_auth_id,
-          deviceCode.user_code
-        );
+        const result = providerInstanceId
+          ? await agentManagementApi.pollCodexDeviceCode(
+              deviceCode.device_auth_id,
+              deviceCode.user_code,
+              providerInstanceId
+            )
+          : await agentManagementApi.pollCodexDeviceCode(
+              deviceCode.device_auth_id,
+              deviceCode.user_code
+            );
         if (!active || cancelled.current) return;
         if (result.status === 'success') {
           setStatus('success');
@@ -101,7 +111,7 @@ export function CodexDeviceLogin({ onAuthenticated }: Props) {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [deviceCode, onAuthenticated, status, t]);
+  }, [deviceCode, onAuthenticated, providerInstanceId, status, t]);
 
   if (status === 'idle') {
     return (

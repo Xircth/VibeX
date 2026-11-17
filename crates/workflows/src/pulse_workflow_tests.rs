@@ -600,7 +600,7 @@ async fn superagent_router_preset_branches_deterministically_and_reconverges_on_
         &core,
         &store,
         &synth_claim,
-        serde_json::json!({"finalAnswer": "Patched and audited"}),
+        serde_json::json!({"summary": "Patched and audited"}),
     )
     .await;
     assert_eq!(final_run.status, "completed");
@@ -648,7 +648,7 @@ async fn superagent_router_preset_branches_deterministically_and_reconverges_on_
         &core,
         &store,
         &synth_claim_2,
-        serde_json::json!({"finalAnswer": "Summary ready"}),
+        serde_json::json!({"summary": "Summary ready"}),
     )
     .await;
     assert_eq!(final_run_2.status, "completed");

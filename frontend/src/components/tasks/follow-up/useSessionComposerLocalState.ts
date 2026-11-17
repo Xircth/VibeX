@@ -61,10 +61,12 @@ export function useSessionComposerPendingControls({
   sessionId,
   targetExecutor,
   resolvedSessionExecutor,
+  providerInstanceId = null,
 }: {
   sessionId: string | undefined;
   targetExecutor: string | null | undefined;
   resolvedSessionExecutor: string | null | undefined;
+  providerInstanceId?: string | null;
 }) {
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [selectedConfigValues, setSelectedConfigValues] = useState<
@@ -104,6 +106,7 @@ export function useSessionComposerPendingControls({
       sessionId,
       targetExecutor,
       resolvedSessionExecutor,
+      providerInstanceId,
     };
     const transition = resolveComposerControlScopeTransition({
       previous: previousScopeRef.current,
@@ -129,7 +132,7 @@ export function useSessionComposerPendingControls({
           conversationApi.setSessionConfigOption(args),
       });
     }
-  }, [sessionId, targetExecutor, resolvedSessionExecutor]);
+  }, [sessionId, targetExecutor, resolvedSessionExecutor, providerInstanceId]);
 
   return {
     selectedMode,

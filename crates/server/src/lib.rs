@@ -60,7 +60,7 @@ pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapErro
 pub use config::{EmbeddedAsset, ListenPolicyError, ServerConfig, StaticAssetResolver};
 pub use conversations as dimo_conversations;
 pub use data_dir_adoption::{DataDirAdoptionOutcome, adopt_legacy_data_dir, log_data_dir_adoption};
-pub use delegation_runtime::DimoDelegationInjector;
+pub use delegation_runtime::{DimoDelegationInjector, SpaceSessionLookup};
 pub use domains::ServerApplicationDomains;
 pub use host::{
     HostEvent, HostEventBus, account_flow,
@@ -87,7 +87,7 @@ pub use pairing_cli::{
 pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };
-pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
+pub use product_mcp::{ProductMcpCommandHost, ProductMcpSessionLookup, start_product_mcp_gateway};
 pub use pulse_connectors::{bridge_feishu_inbound_to_pulse, trigger_pulse_poll_for_source};
 pub use pulse_runtime::PULSE_DECK_CHANGED_EVENT;
 

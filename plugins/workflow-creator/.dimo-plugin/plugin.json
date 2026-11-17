@@ -55,11 +55,6 @@
       ]
     },
     {
-      "id": "dimo-workflow-mcp",
-      "kind": "content.mcp",
-      "resource": "contents/mcps/workflow-control.json"
-    },
-    {
       "id": "workflow-source-opener",
       "kind": "file.opener",
       "label": "Workflow Studio",

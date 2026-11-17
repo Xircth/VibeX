@@ -1,5 +1,11 @@
 import { SelectorOption } from '@astryxdesign/core/Selector';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ExternalLink,
+  PenLine,
+  Search,
+} from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -8,6 +14,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +23,8 @@ import { useOptionMenuPlacement } from '@/components/ui/option-menu-position';
 import { Button } from '@/components/ui/button';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
+import { openExternal } from '@/features/model-router/openExternal';
+import { ProviderPresetIcon } from '@/features/provider-presets/ProviderPresetIcon';
 import { cn } from '@/lib/utils';
 
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
@@ -339,8 +348,17 @@ export function ProviderCatalogPicker({
               >
                 {showCustomTile ? (
                   <CatalogOption
+                    pinned
                     active={activeIndex === 0}
                     disabled={disabled}
+                    icon={
+                      <span
+                        aria-hidden="true"
+                        className="provider-preset-icon is-custom"
+                      >
+                        <PenLine className="h-3.5 w-3.5" />
+                      </span>
+                    }
                     label={t('agents.providerCatalogCustom')}
                     selected={selection?.type === 'custom'}
                     onHover={() => setActiveIndex(0)}
@@ -350,24 +368,26 @@ export function ProviderCatalogPicker({
                 {visibleTemplates.map((template, index) => {
                   const optionIndex = firstTemplateIndex + index;
                   const name = catalogName(template);
-                  const endpoint = catalogEndpoint(template);
-                  const source = template.plugin_label
-                    ? `${t('agents.providerCatalogSourcePlugin')} · ${template.plugin_label}`
-                    : t('agents.providerCatalogSourcePlugin');
                   return (
                     <CatalogOption
                       key={catalogKey(template)}
                       active={activeIndex === optionIndex}
                       disabled={disabled}
-                      endpoint={endpoint}
+                      endpoint={catalogEndpoint(template)}
+                      icon={
+                        <ProviderPresetIcon icon={template.icon} name={name} />
+                      }
                       label={name}
+                      linkUrl={
+                        template.website_url ||
+                        template.api_key_url ||
+                        undefined
+                      }
                       selected={
                         selection?.type === 'template' &&
                         selection.key === catalogKey(template)
                       }
-                      source={source}
-                      websiteUrl={template.website_url}
-                      apiKeyUrl={template.api_key_url}
+                      source={template.plugin_label || undefined}
                       onHover={() => setActiveIndex(optionIndex)}
                       onSelect={() => selectAt(optionIndex)}
                     />
@@ -392,10 +412,11 @@ export function ProviderCatalogPicker({
 
 function CatalogOption({
   label,
+  icon,
   endpoint,
   source,
-  websiteUrl,
-  apiKeyUrl,
+  linkUrl,
+  pinned = false,
   selected,
   active,
   disabled,
@@ -403,10 +424,11 @@ function CatalogOption({
   onHover,
 }: {
   label: string;
+  icon: ReactNode;
   endpoint?: string;
   source?: string;
-  websiteUrl?: string | null;
-  apiKeyUrl?: string | null;
+  linkUrl?: string;
+  pinned?: boolean;
   selected: boolean;
   active: boolean;
   disabled: boolean;
@@ -414,7 +436,7 @@ function CatalogOption({
   onHover: () => void;
 }) {
   const { t } = useTranslation('settings');
-  const hasDescription = Boolean(endpoint || source || websiteUrl || apiKeyUrl);
+  const hasDescription = Boolean(endpoint || source);
   return (
     <div
       role="option"
@@ -422,7 +444,10 @@ function CatalogOption({
       aria-selected={selected}
       aria-disabled={disabled || undefined}
       data-active={active ? 'true' : undefined}
-      className="agent-model-provider-catalog-option"
+      className={cn(
+        'agent-model-provider-catalog-option',
+        pinned && 'is-pinned'
+      )}
       onClick={() => {
         if (!disabled) onSelect();
       }}
@@ -432,6 +457,7 @@ function CatalogOption({
     >
       <SelectorOption
         className="agent-model-provider-catalog-option-main"
+        icon={icon}
         label={<strong>{label}</strong>}
         description={
           hasDescription ? (
@@ -446,36 +472,25 @@ function CatalogOption({
                   {source}
                 </span>
               ) : null}
-              {websiteUrl || apiKeyUrl ? (
-                <span className="agent-model-provider-catalog-links">
-                  {websiteUrl ? (
-                    <a
-                      href={websiteUrl}
-                      rel="noopener noreferrer"
-                      target="_blank"
-                      onClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => event.stopPropagation()}
-                    >
-                      {t('agents.providerCatalogWebsite')}
-                    </a>
-                  ) : null}
-                  {apiKeyUrl ? (
-                    <a
-                      href={apiKeyUrl}
-                      rel="noopener noreferrer"
-                      target="_blank"
-                      onClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => event.stopPropagation()}
-                    >
-                      {t('agents.providerCatalogGetKey')}
-                    </a>
-                  ) : null}
-                </span>
-              ) : null}
             </>
           ) : undefined
         }
       />
+      {linkUrl ? (
+        <button
+          type="button"
+          aria-label={`${label} ${t('agents.providerCatalogWebsite')}`}
+          className="agent-model-provider-catalog-open"
+          title={linkUrl}
+          onClick={(event) => {
+            event.stopPropagation();
+            void openExternal(linkUrl);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
       {selected ? (
         <Check aria-hidden="true" className="astryx-select-option-check" />
       ) : null}

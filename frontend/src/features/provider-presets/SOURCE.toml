@@ -1,0 +1,7 @@
+# Pinned CC-Switch snapshot for the built-in provider preset catalogs.
+# Regenerate with `node scripts/sync-provider-presets.mjs`; review per-agent
+# kept/skipped counts in its output before committing a new pin.
+
+repository = "https://github.com/farion1231/cc-switch"
+tag = "v4.0.33"
+commit = "86e23b6331b9ce2cee314d1ebb5b186da0de645a"

@@ -698,7 +698,7 @@ pub async fn resolve_pulse_bot_session(
     })
 }
 
-/// Binding that owns a member session inside a workspace, for session-list badges.
+/// Binding that owns a member session inside a workspace, for session-list titles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceSessionBinding {
     pub conversation_id: Uuid,
@@ -707,21 +707,30 @@ pub struct WorkspaceSessionBinding {
     pub thread_id: String,
     pub thread_kind: String,
     pub thread_title: String,
+    /// Active members of a group thread in join order (the group avatar);
+    /// empty for direct threads.
+    pub thread_members: Vec<ThreadMemberRef>,
 }
 
-/// Stored titles that equal the member nickname are treated as unset so
-/// ordinary naming (Agent auto-title, first message, 新会话) applies.
-pub fn collaboration_stored_session_name(
-    stored_name: Option<&str>,
-    member_name: &str,
-) -> Option<String> {
-    let name = stored_name
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    if name == member_name {
-        None
-    } else {
-        Some(name.to_string())
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadMemberRef {
+    pub member_id: String,
+    pub name: String,
+    pub conversation_id: String,
+}
+
+/// Name shown in direct-thread session titles for the user side.
+pub const DIRECT_THREAD_USER_LABEL: &str = "User";
+
+impl WorkspaceSessionBinding {
+    /// `User → 小A` for a direct chat, `后端群 → 小A` inside a group.
+    pub fn session_title(&self) -> String {
+        let space = if self.thread_kind == "group" {
+            self.thread_title.as_str()
+        } else {
+            DIRECT_THREAD_USER_LABEL
+        };
+        format!("{space} → {}", self.member_name)
     }
 }
 
@@ -741,11 +750,40 @@ pub async fn bindings_for_workspace(
     .bind(workspace_id)
     .fetch_all(pool)
     .await?;
+    let mut group_members: HashMap<String, Vec<ThreadMemberRef>> = rows
+        .iter()
+        .filter(|row| row.4 == "group")
+        .map(|row| (row.3.clone(), Vec::new()))
+        .collect();
+    if !group_members.is_empty() {
+        let placeholders = vec!["?"; group_members.len()].join(", ");
+        let sql = format!(
+            "SELECT tm.thread_id, tm.member_id, m.name, tm.conversation_id
+             FROM collaboration_thread_members tm
+             JOIN collaboration_members m ON m.id = tm.member_id
+             WHERE tm.status = 'active' AND tm.thread_id IN ({placeholders})
+             ORDER BY tm.joined_at, tm.rowid"
+        );
+        let mut query = sqlx::query_as::<_, (String, String, String, String)>(&sql);
+        for thread_id in group_members.keys() {
+            query = query.bind(thread_id);
+        }
+        for (thread_id, member_id, name, conversation_id) in query.fetch_all(pool).await? {
+            if let Some(members) = group_members.get_mut(&thread_id) {
+                members.push(ThreadMemberRef {
+                    member_id,
+                    name,
+                    conversation_id,
+                });
+            }
+        }
+    }
     let mut map = HashMap::new();
     for (conversation_id, member_id, member_name, thread_id, thread_kind, thread_title) in rows {
         let Ok(conversation_id) = Uuid::parse_str(&conversation_id) else {
             continue;
         };
+        let thread_members = group_members.get(&thread_id).cloned().unwrap_or_default();
         map.insert(
             conversation_id,
             WorkspaceSessionBinding {
@@ -755,6 +793,7 @@ pub async fn bindings_for_workspace(
                 thread_id,
                 thread_kind,
                 thread_title,
+                thread_members,
             },
         );
     }
@@ -1069,21 +1108,30 @@ mod tests {
         let other_binding = map.get(&other.conversation_id).unwrap();
         assert_eq!(other_binding.thread_id, "space-b");
         assert_eq!(other_binding.member_id, map.get(&conv).unwrap().member_id);
-    }
-
-    #[test]
-    fn nickname_session_titles_are_treated_as_unset() {
-        assert_eq!(collaboration_stored_session_name(Some("小A"), "小A"), None);
         assert_eq!(
-            collaboration_stored_session_name(Some(" 小A "), "小A"),
-            None
+            other_binding.thread_members,
+            vec![ThreadMemberRef {
+                member_id: member.clone(),
+                name: other_binding.member_name.clone(),
+                conversation_id: other.conversation_id.to_string(),
+            }]
         );
         assert_eq!(
-            collaboration_stored_session_name(Some("修登录"), "小A"),
-            Some("修登录".to_string())
+            other_binding.session_title(),
+            format!(
+                "{} → {}",
+                other_binding.thread_title, other_binding.member_name
+            )
         );
-        assert_eq!(collaboration_stored_session_name(None, "小A"), None);
-        assert_eq!(collaboration_stored_session_name(Some("   "), "小A"), None);
+        let direct = WorkspaceSessionBinding {
+            thread_kind: "direct".into(),
+            thread_members: Vec::new(),
+            ..other_binding.clone()
+        };
+        assert_eq!(
+            direct.session_title(),
+            format!("User → {}", direct.member_name)
+        );
     }
 
     #[tokio::test]

@@ -456,6 +456,7 @@ pub async fn create_spawned_conversation(
             &CreateSession {
                 executor: None,
                 agent_id: Some(agent_id),
+                provider_instance_id: None,
                 task_id: None,
                 name: title.clone(),
                 initial_prompt: input.prompt.clone(),

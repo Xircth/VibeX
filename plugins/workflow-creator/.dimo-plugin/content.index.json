@@ -5,11 +5,6 @@
       "path": "contents/skills/dimo-workflow-creator/SKILL.md",
       "kind": "skill",
       "title": "Workflow Creator"
-    },
-    {
-      "path": "contents/mcps/workflow-control.json",
-      "kind": "mcp",
-      "title": "Workflow control MCP"
     }
   ]
 }

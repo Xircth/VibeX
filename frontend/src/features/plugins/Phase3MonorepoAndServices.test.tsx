@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   commandRegistry,
-  providerRegistry,
   serviceContainer,
   settingsPageRegistry,
   slashCommandRegistry,
@@ -17,7 +16,6 @@ import {
 } from './monorepoPluginBootstrap';
 import {
   getEditorOpenerService,
-  getModelCatalogService,
   getUsageProviderService,
   resetHostProviderServicesForTest,
 } from './providers/hostProviderServices';
@@ -59,20 +57,6 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       );
       expect(fetchSpy).not.toHaveBeenCalled();
 
-      // Verify provider-switch registered providers and model catalog templates
-      expect(providerRegistry.getIds()).toEqual(
-        expect.arrayContaining([
-          'anthropic-official',
-          'openai-official',
-          'deepseek-official',
-        ])
-      );
-      const catalogView =
-        await getModelCatalogService().listCatalog('opencode');
-      expect(catalogView.templates.map((t) => t.id)).toEqual(
-        expect.arrayContaining(['openrouter', 'siliconflow'])
-      );
-
       // Verify slash commands from official & built-in plugins
       const slashNames = slashCommandRegistry.getAll().map((s) => s.name);
       expect(slashNames).toEqual(
@@ -101,12 +85,7 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       expect(contextMenuIds).toContain('dimo.notes.capture-selection');
 
       // Verify services provided by monorepo plugins
-      expect(serviceContainer.has('dimo.provider-catalog')).toBe(true);
       expect(serviceContainer.has('dimo.session-enhance')).toBe(true);
-      expect(slotRegistry.has('session-enhance-status')).toBe(true);
-      expect(slotRegistry.get('session-enhance-status')?.label).toBe(
-        'Session Enhance (2 templates)'
-      );
       expect(serviceContainer.has('dimo.browser')).toBe(true);
       expect(serviceContainer.has('dimo.office')).toBe(true);
       expect(serviceContainer.has('dimo.workflow-creator')).toBe(true);
@@ -142,20 +121,6 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
         'dimo-plugin-computer-use:computer-use',
         'dimo.browser:browser-settings',
       ]);
-
-      // Disabling upstream dimo.provider-switch automatically suspends dimo.session-enhance
-      pluginRuntimeLoader.deactivate('dimo.provider-switch');
-      expect(serviceContainer.has('dimo.provider-catalog')).toBe(false);
-      expect(serviceContainer.has('dimo.session-enhance')).toBe(false);
-      expect(slotRegistry.has('session-enhance-status')).toBe(false);
-
-      // Re-enabling dimo.provider-switch automatically resumes dimo.session-enhance
-      await bootstrapMonorepoOfficialPlugins({
-        onlyIds: ['dimo.provider-switch'],
-      });
-      expect(serviceContainer.has('dimo.provider-catalog')).toBe(true);
-      expect(serviceContainer.has('dimo.session-enhance')).toBe(true);
-      expect(slotRegistry.has('session-enhance-status')).toBe(true);
     } finally {
       fetchSpy.mockRestore();
     }

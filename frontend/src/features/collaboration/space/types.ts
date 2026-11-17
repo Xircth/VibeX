@@ -59,6 +59,7 @@ export type ConversationOption = {
   conversation_id: string;
   title?: string | null;
   agent_id?: string | null;
+  provider_instance_id?: string | null;
   status?: string | null;
   updated_at?: string | null;
   turn_in_flight?: boolean;

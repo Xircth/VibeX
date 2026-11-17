@@ -17,6 +17,7 @@ pub mod event_folding;
 pub mod export;
 pub mod handoff;
 pub mod host;
+pub mod host_isolation;
 pub mod input;
 pub mod isolated_workspace;
 pub mod jsonl_history;
@@ -42,10 +43,14 @@ pub use bundle::{
     import_conversation_bundle, resolve_agent_fork_point,
 };
 pub use capability_catalog::{
-    capability_catalog_is_fresh, invalidate_open_capability_catalog,
-    load_capability_catalog_for_session_defaults, open_capability_catalog_fingerprint,
-    read_matching_capability_catalog_for_defaults, read_matching_open_capability_catalog,
-    record_open_capability_catalog, refresh_open_capability_catalog,
+    capability_catalog_is_fresh, capability_catalog_is_fresh_for_provider_instance,
+    invalidate_open_capability_catalog, load_capability_catalog_for_session_defaults,
+    load_capability_catalog_for_session_defaults_for_provider_instance,
+    open_capability_catalog_fingerprint, read_matching_capability_catalog_for_defaults,
+    read_matching_capability_catalog_for_defaults_for_provider_instance,
+    read_matching_open_capability_catalog,
+    read_matching_open_capability_catalog_for_provider_instance, record_open_capability_catalog,
+    refresh_open_capability_catalog, refresh_open_capability_catalog_for_provider_instance,
 };
 pub use checkpoint_safety::{
     CheckpointRollbackSafety, DEFAULT_ROLLBACK_LEASE_TTL_SECS, RollbackSafetyError,
@@ -72,6 +77,7 @@ pub use host::{
     resolve_workspace_agent_working_dir, session_launch_rejection_from_pool,
     workspace_prompt_blocks,
 };
+pub use host_isolation::resolve_effective_provider_instance_id;
 pub use input::{
     CancelConversationInput, ConversationInputClaim, ConversationInputControl,
     ConversationInputControlError, ConversationInputEvent, ConversationInputQueue,
@@ -121,7 +127,7 @@ pub use service::{
     CreateForkConversation, CreateWorkflowConversation, ForkVisibleConversation,
     NoopConversationEventPublisher, PreparedCheckpointFileChanges, QueuedConversationInputClaim,
     RuntimeEventNotification, clear_turn_hooks, commit_checkpoint_metadata_on_connection,
-    create_delegated_conversation, create_fork_conversation, create_workflow_conversation,
+    continuation_key_instance_id, create_delegated_conversation, create_fork_conversation, create_workflow_conversation,
     finalize_checkpoint_file_changes, fork_visible_conversation, prepare_checkpoint_file_changes,
     preview_checkpoint_file_changes, register_after_turn_hook, register_before_turn_hook,
     remember_creation_session_controls, subscribe_after_turn_events, subscribe_runtime_events,

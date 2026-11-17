@@ -8,7 +8,7 @@ import {
   BasicGuideContext,
   type BasicGuideContextValue,
 } from './BasicGuideContext';
-import { BasicGuideOverlay } from './BasicGuideOverlay';
+import { BasicGuideExitButton, BasicGuideOverlay } from './BasicGuideOverlay';
 import { ACTIVE_GUIDE, type PersistedBasicGuide } from './basicGuideState';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
@@ -18,7 +18,8 @@ function renderOverlay(
   {
     pathname = '/',
     activeTab = 'workspace',
-  }: { pathname?: string; activeTab?: string } = {}
+    withExitButton = false,
+  }: { pathname?: string; activeTab?: string; withExitButton?: boolean } = {}
 ) {
   act(() => {
     useLayoutStore.getState().setActiveTab(activeTab);
@@ -44,6 +45,7 @@ function renderOverlay(
         <MemoryRouter initialEntries={[pathname]}>
           <BasicGuideContext.Provider value={value}>
             <BasicGuideOverlay />
+            {withExitButton ? <BasicGuideExitButton /> : null}
           </BasicGuideContext.Provider>
         </MemoryRouter>
       </HotkeysProvider>
@@ -89,36 +91,37 @@ describe('BasicGuideOverlay', () => {
       .forEach((node) => node.remove());
   });
 
-  it('frames skip without the step list in a raised bottom-left stack', () => {
-    renderOverlay(ACTIVE_GUIDE);
-    const panel = screen.getByRole('complementary', { name: '基础引导' });
-    expect(panel).toBeInTheDocument();
-    expect(panel.querySelector('.dialog-surface')).toBeNull();
-    expect(panel.querySelector('.astryx-step')).toBeNull();
-    expect(screen.queryByText('创建或选择项目')).toBeNull();
-    expect(screen.queryByText('在工作区中创建会话')).toBeNull();
-    expect(screen.queryByText('熟悉页面构成')).toBeNull();
+  it('renders the skip button with primary accent styling without a standalone container', async () => {
+    const user = userEvent.setup();
+    const { value } = renderOverlay(ACTIVE_GUIDE, undefined, {
+      withExitButton: true,
+    });
     expect(
-      within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
+      screen.queryByRole('complementary', { name: '基础引导' })
     ).toBeNull();
+    expect(document.querySelector('.basic-guide-panel__stack--framed')).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
+
     const skip = screen.getByRole('button', { name: '跳过基础引导' });
-    const frame = panel.querySelector('.basic-guide-panel__stack--framed');
-    const footer = panel.querySelector('.basic-guide-panel__footer');
     expect(skip).toBeInTheDocument();
-    expect(frame).toBeTruthy();
-    expect(footer).toBeTruthy();
-    expect(frame?.contains(skip)).toBe(true);
-    expect(footer?.contains(skip)).toBe(true);
-    expect(panel.className).toMatch(/basic-guide-panel--bottom/);
-    expect(panel.className).not.toMatch(/basic-guide-panel--workspace/);
-    expect(panel.className).not.toMatch(/basic-guide-panel--kanban/);
+    expect(skip.className).toMatch(/primary-control/);
+    await user.click(skip);
+    expect(value.requestExit).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the step panel pinned without a workspace offset', () => {
-    renderOverlay(ACTIVE_GUIDE, undefined, {
-      pathname: '/local-projects/abc/sessions',
-    });
+    renderOverlay(
+      {
+        phase: 'active',
+        reachedStep: 1,
+        substep: 'return-main',
+        endCopy: 'none',
+      },
+      undefined,
+      {
+        pathname: '/local-projects/abc/sessions',
+      }
+    );
     const panel = screen.getByRole('complementary', { name: '基础引导' });
     expect(panel.className).toMatch(/basic-guide-panel--bottom/);
     expect(panel.className).not.toMatch(/basic-guide-panel--workspace/);
@@ -126,10 +129,19 @@ describe('BasicGuideOverlay', () => {
   });
 
   it('moves the step panel to 10px on the kanban page', () => {
-    renderOverlay(ACTIVE_GUIDE, undefined, {
-      pathname: '/local-projects/abc',
-      activeTab: 'kanban',
-    });
+    renderOverlay(
+      {
+        phase: 'active',
+        reachedStep: 2,
+        substep: 'show-end',
+        endCopy: 'none',
+      },
+      undefined,
+      {
+        pathname: '/local-projects/abc',
+        activeTab: 'kanban',
+      }
+    );
     const panel = screen.getByRole('complementary', { name: '基础引导' });
     expect(panel.className).toMatch(/basic-guide-panel--kanban/);
   });
@@ -149,9 +161,10 @@ describe('BasicGuideOverlay', () => {
     ).toBeNull();
   });
 
-  it('hides the step panel on the settings window', () => {
+  it('hides the step panel and exit button on the settings window', () => {
     renderOverlay(ACTIVE_GUIDE, undefined, {
       pathname: '/settings/general',
+      withExitButton: true,
     });
     expect(
       screen.queryByRole('complementary', { name: '基础引导' })
@@ -180,14 +193,22 @@ describe('BasicGuideOverlay', () => {
     ).toHaveTextContent('先点选一个 Agent');
   });
 
-  it('shows the finish button without coaching copy', () => {
-    renderOverlay({
-      phase: 'active',
-      reachedStep: 2,
-      substep: 'show-end',
-      endCopy: 'none',
-    });
-    expect(screen.getByRole('button', { name: '结束' })).toBeInTheDocument();
+  it('shows the finish button without coaching copy while keeping exit button separate', () => {
+    renderOverlay(
+      {
+        phase: 'active',
+        reachedStep: 2,
+        substep: 'show-end',
+        endCopy: 'none',
+      },
+      undefined,
+      { withExitButton: true }
+    );
+    const panel = screen.getByRole('complementary', { name: '基础引导' });
+    expect(within(panel).getByRole('button', { name: '结束' })).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('button', { name: '跳过基础引导' })
+    ).toBeNull();
     expect(
       screen.queryByText('熟悉完页面后，点击结束即可。')
     ).not.toBeInTheDocument();
@@ -293,8 +314,9 @@ describe('BasicGuideOverlay', () => {
       endCopy: 'none',
     });
 
-    const panel = screen.getByRole('complementary', { name: '基础引导' });
-    expect(within(panel).queryByRole('button', { name: '继续' })).toBeNull();
+    expect(
+      screen.queryByRole('complementary', { name: '基础引导' })
+    ).toBeNull();
     expect(
       document.querySelector('[data-basic-guide-spotlight="kanban-execution"]')
     ).toBeInTheDocument();
@@ -338,8 +360,9 @@ describe('BasicGuideOverlay', () => {
       endCopy: 'none',
     });
 
-    const panel = screen.getByRole('complementary', { name: '基础引导' });
-    expect(within(panel).queryByRole('button', { name: '继续' })).toBeNull();
+    expect(
+      screen.queryByRole('complementary', { name: '基础引导' })
+    ).toBeNull();
     expect(
       document.querySelector('[data-basic-guide-spotlight="kanban-monitor"]')
     ).toBeInTheDocument();

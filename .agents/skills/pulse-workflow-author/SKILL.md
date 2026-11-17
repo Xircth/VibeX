@@ -5,7 +5,7 @@ description: Dual-Primitive Pulse workflow graph composition and patching. Use w
 
 # Pulse Workflow Author
 
-Compose and patch Dual-Primitive Pulse workflows (`*.dimo-workflow.json`) using `workflow_graph_patch` (or `pulseWorkflow(...)` in `@vibex/pulse-sdk`) and verify trigger bindings with `pulse_rule_dry_run`. For single-target event rules without a multi-step DAG, invoke [`pulse-automation-architect`](../pulse-automation-architect/SKILL.md).
+Compose and patch Dual-Primitive Pulse workflows (`*.dimo-workflow.json`) using `workflow_graph_patch` from the built-in `Dimo-superagent-mcp` and wire trigger rules with `pulse_rule_upsert`. For single-target event rules without a multi-step DAG, invoke [`pulse-automation-architect`](../pulse-automation-architect/SKILL.md).
 
 ## Composition sequence
 
@@ -15,8 +15,8 @@ Compose and patch Dual-Primitive Pulse workflows (`*.dimo-workflow.json`) using 
    - *Done when*: Every step's primitive matches its context/isolation contract in the Node Reference below.
 3. **Apply declarative graph patches in one batch** — Call `workflow_graph_patch` with `operations` (`add_step`, `update_step`, `remove_step`, `connect_steps`, `disconnect_steps`), passing `expectedRevision` when writing to an existing `path`.
    - *Done when*: `workflow_graph_patch` returns `valid: true` and `violations: []`. If `valid: false`, fix **every** violation reported in `violations` in the immediate next call (never one error per turn).
-4. **Verify end-to-end trigger & bindings** — Publish or reference the workflow in a `PulseRuleSpec` (`kind: "workflow"`, `workflowId`, `pinnedVersion`) and run `pulse_rule_dry_run` with a sample `EventEnvelope`.
-   - *Done when*: `pulse_rule_dry_run` reports `valid: true`, `matched: true`, and clean `renderedPreviews`.
+4. **Verify end-to-end trigger & bindings** — Publish with `workflow_publish` when ready and upsert the matching `PulseRuleSpec` (`kind: "workflow"`, `workflowId`, `pinnedVersion`) via `pulse_rule_upsert` (inspecting connectors with `pulse_connector_health`).
+   - *Done when*: `workflow_validate` reports `valid: true` and the matching Pulse trigger rule is saved.
 
 ## Dual-Primitive split: `session` vs `bot`
 

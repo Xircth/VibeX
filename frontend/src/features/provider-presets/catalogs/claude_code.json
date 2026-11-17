@@ -1,0 +1,1682 @@
+[
+  {
+    "id": "kimi",
+    "name": "Kimi",
+    "icon": "kimi",
+    "website_url": "https://platform.kimi.com/",
+    "category": "prime",
+    "surface": "reusable",
+    "api_url": "https://api.moonshot.cn/anthropic",
+    "model": "{\"main\":\"kimi-k3.1-pro\",\"haiku\":\"kimi-k3.1-pro\",\"sonnet\":\"kimi-k3.1-pro\",\"opus\":\"kimi-k3.1-pro\"}"
+  },
+  {
+    "id": "kimi-for-coding",
+    "name": "Kimi For Coding",
+    "icon": "kimi",
+    "website_url": "https://www.kimi.com/code/",
+    "category": "prime",
+    "surface": "reusable",
+    "api_url": "https://api.kimi.com/coding/",
+    "model": "{\"main\":\"kimi-for-coding\",\"haiku\":\"kimi-for-coding\",\"sonnet\":\"kimi-for-coding\",\"opus\":\"kimi-for-coding\"}"
+  },
+  {
+    "id": "packycode",
+    "name": "PackyCode",
+    "icon": "packycode",
+    "website_url": "https://www.packyapi.ai/",
+    "api_key_url": "https://www.packyapi.ai/register",
+    "endpoint_candidates": [
+      "https://www.packyapi.ai/",
+      "https://cf.api.fan/",
+      "https://slb-v1.api.fan/",
+      "https://www.packyapi.com/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.packyapi.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "apinebula",
+    "name": "APINebula",
+    "icon": "apinebula",
+    "website_url": "https://apinebula.ai/",
+    "api_key_url": "https://apinebula.ai/VjM74M",
+    "endpoint_candidates": [
+      "https://apinebula.ai/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://apinebula.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "aicodemirror",
+    "name": "AICodeMirror",
+    "icon": "aicodemirror",
+    "website_url": "https://www.aicodemirror.ai/",
+    "api_key_url": "https://www.aicodemirror.ai/register",
+    "endpoint_candidates": [
+      "https://api.aicodemirror.ai/api/claudecode"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.aicodemirror.ai/api/claudecode",
+    "model": "{}"
+  },
+  {
+    "id": "patewayai",
+    "name": "PatewayAI",
+    "icon": "pateway",
+    "website_url": "https://pateway.ai/",
+    "api_key_url": "https://pateway.ai/",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.pateway.ai/",
+    "model": "{}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "hao-ai",
+    "name": "hao.ai",
+    "icon": "haoai",
+    "website_url": "https://hao.ai/",
+    "api_key_url": "https://hao.ai/invite/DTBZS3OR",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.hao.ai/anthropic",
+    "model": "{}"
+  },
+  {
+    "id": "fennoai",
+    "name": "FennoAI",
+    "icon": "fenno",
+    "website_url": "https://api.fenno.ai/",
+    "api_key_url": "https://api.fenno.ai/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.fenno.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "runapi",
+    "name": "RunAPI",
+    "icon": "runapi",
+    "website_url": "https://runapi.host/",
+    "api_key_url": "https://runapi.host/register",
+    "endpoint_candidates": [
+      "https://runapi.host/",
+      "https://runapi.co/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://runapi.host/",
+    "model": "{}"
+  },
+  {
+    "id": "openmodel",
+    "name": "OpenModel",
+    "icon": "openmodel",
+    "website_url": "https://www.openmodel.ai/",
+    "api_key_url": "https://www.openmodel.ai/",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.openmodel.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "grooroute-pro",
+    "name": "GrooRoute Pro",
+    "icon": "grooroute",
+    "website_url": "https://grooroute.pro/",
+    "api_key_url": "https://grooroute.pro/sign-up",
+    "endpoint_candidates": [
+      "https://grooroute.pro/",
+      "https://grooroute.xyz/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://grooroute.pro/",
+    "model": "{\"haiku\":\"claude-sonnet-5-5\"}"
+  },
+  {
+    "id": "buytoken",
+    "name": "BuyToken",
+    "icon": "buytoken",
+    "website_url": "https://buytoken.work/",
+    "api_key_url": "https://buytoken.work/sign-up",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.buytoken.work/",
+    "model": "{\"haiku\":\"claude-haiku-4-5-20251001\"}"
+  },
+  {
+    "id": "v-api",
+    "name": "V-API",
+    "icon": "vapi",
+    "website_url": "https://gpt.ge/",
+    "api_key_url": "https://gpt.ge/signup",
+    "endpoint_candidates": [
+      "https://api.gpt.ge/",
+      "https://api.vveai.com/",
+      "https://run.v3.cm/",
+      "https://api1.v3.cm/",
+      "https://api2.v3.cm/",
+      "https://us.gpt.ge/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.gpt.ge/",
+    "model": "{}"
+  },
+  {
+    "id": "fluxa-token-plan",
+    "name": "FluxA Token Plan",
+    "icon": "fluxa",
+    "website_url": "https://agentmarket.fluxapay.xyz/",
+    "api_key_url": "https://agentmarket.fluxapay.xyz/marketplace/tokenplans",
+    "endpoint_candidates": [
+      "https://api.baiduqianfan.ai/anthropic/tokenplan/team"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.baiduqianfan.ai/anthropic/tokenplan/team",
+    "model": "{\"main\":\"deepseek-v4.1-flash[1M]\",\"haiku\":\"deepseek-v4.1-flash[1M]\",\"sonnet\":\"deepseek-v4.1-flash[1M]\",\"opus\":\"deepseek-v4.1-flash[1M]\"}"
+  },
+  {
+    "id": "aigocode",
+    "name": "AIGoCode",
+    "icon": "aigocode",
+    "website_url": "https://aigocode.net/",
+    "api_key_url": "https://aigocode.net/invite/CC-SWITCH",
+    "endpoint_candidates": [
+      "https://api.aigocode.dev/",
+      "https://api.aigocode.app/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.aigocode.dev/",
+    "model": "{}"
+  },
+  {
+    "id": "qiniu",
+    "name": "Qiniu",
+    "icon": "qiniu",
+    "website_url": "https://s.qiniu.com/nMvAvy",
+    "api_key_url": "https://s.qiniu.com/nMvAvy",
+    "endpoint_candidates": [
+      "https://api.qnaigc.com/",
+      "https://api.modelink.ai/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.qnaigc.com/",
+    "model": "{}"
+  },
+  {
+    "id": "aicoding",
+    "name": "AICoding",
+    "icon": "aicoding",
+    "website_url": "https://aicoding.inc/",
+    "api_key_url": "https://aicoding.inc/i/CCSWITCH",
+    "endpoint_candidates": [
+      "https://api.aicoding.inc/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.aicoding.inc/",
+    "model": "{}"
+  },
+  {
+    "id": "subrouter",
+    "name": "SubRouter",
+    "icon": "subrouter",
+    "website_url": "https://subrouter.ai/",
+    "api_key_url": "https://subrouter.ai/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://subrouter.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "ospreyai",
+    "name": "OspreyAI",
+    "icon": "ospreyai",
+    "website_url": "https://open.ospreyai.cn/",
+    "api_key_url": "https://open.ospreyai.cn/",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://open.ospreyai.cn/",
+    "model": "{\"haiku\":\"claude-haiku-4-5\"}"
+  },
+  {
+    "id": "shengsuanyun",
+    "name": "Shengsuanyun",
+    "icon": "shengsuanyun",
+    "website_url": "https://www.shengsuanyun.com/",
+    "api_key_url": "https://www.shengsuanyun.com/",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://router.shengsuanyun.com/api",
+    "model": "{\"main\":\"anthropic/claude-sonnet-5.5\",\"haiku\":\"anthropic/claude-haiku-5.5\",\"sonnet\":\"anthropic/claude-sonnet-5.5\",\"opus\":\"anthropic/claude-opus-5.5\"}"
+  },
+  {
+    "id": "88api",
+    "name": "88API",
+    "icon": "88api",
+    "website_url": "https://88api.ai/",
+    "api_key_url": "https://88api.ai/sign-up",
+    "endpoint_candidates": [
+      "https://api.88api.ai/",
+      "https://88api.ai/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.88api.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "apikey-fun",
+    "name": "APIKEY.FUN",
+    "icon": "apikeyfun",
+    "website_url": "https://apikey.fan/",
+    "api_key_url": "https://apikey.fan/register",
+    "endpoint_candidates": [
+      "https://api.apikey.fan/",
+      "https://api.apikey.fun/",
+      "https://slb.apikey.fun/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.apikey.fan/",
+    "model": "{}"
+  },
+  {
+    "id": "9527code",
+    "name": "9527CODE",
+    "icon": "9527code",
+    "website_url": "https://9527.codes/register",
+    "api_key_url": "https://9527.codes/register",
+    "endpoint_candidates": [
+      "https://9527.codes/",
+      "https://api.9527.codes/",
+      "https://cdn.9527.codes/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://9527.codes/",
+    "model": "{}"
+  },
+  {
+    "id": "teamorouter",
+    "name": "TeamoRouter",
+    "icon": "teamorouter",
+    "website_url": "https://teamorouter.com/",
+    "api_key_url": "https://teamorouter.com/",
+    "endpoint_candidates": [
+      "https://api.teamorouter.com/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.teamorouter.com/",
+    "model": "{}"
+  },
+  {
+    "id": "ppio",
+    "name": "PPIO",
+    "icon": "ppio",
+    "website_url": "https://ppio.com/",
+    "api_key_url": "https://ppio.com/activity/ccswitch",
+    "endpoint_candidates": [
+      "https://api.ppio.com/anthropic"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.ppio.com/anthropic",
+    "model": "{\"main\":\"deepseek/deepseek-v4.1-flash[1M]\",\"haiku\":\"deepseek/deepseek-v4.1-flash[1M]\",\"sonnet\":\"deepseek/deepseek-v4.1-flash[1M]\",\"opus\":\"deepseek/deepseek-v4.1-flash[1M]\"}"
+  },
+  {
+    "id": "claudecn",
+    "name": "ClaudeCN",
+    "icon": "claudecn",
+    "website_url": "https://claudecn.top/",
+    "api_key_url": "https://claudecn.ai/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://claudecn.top/",
+    "model": "{}"
+  },
+  {
+    "id": "agent-plan",
+    "name": "火山 Agent Plan",
+    "icon": "huoshan",
+    "website_url": "https://www.volcengine.com/activity/agentplan",
+    "api_key_url": "https://www.volcengine.com/activity/agentplan",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://ark.cn-beijing.volces.com/api/plan",
+    "model": "{\"main\":\"ark-code-latest\",\"haiku\":\"ark-code-latest\",\"sonnet\":\"ark-code-latest\",\"opus\":\"ark-code-latest\"}"
+  },
+  {
+    "id": "coding-plan",
+    "name": "火山 Coding Plan",
+    "icon": "huoshan",
+    "website_url": "https://www.volcengine.com/activity/codingplan",
+    "api_key_url": "https://www.volcengine.com/activity/codingplan",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://ark.cn-beijing.volces.com/api/coding",
+    "model": "{\"main\":\"ark-code-latest\",\"haiku\":\"ark-code-latest\",\"sonnet\":\"ark-code-latest\",\"opus\":\"ark-code-latest\"}"
+  },
+  {
+    "id": "byteplus",
+    "name": "BytePlus",
+    "icon": "byteplus",
+    "website_url": "https://www.byteplus.com/en/product/modelark",
+    "api_key_url": "https://www.byteplus.com/en/product/modelark",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://ark.ap-southeast.bytepluses.com/api/coding",
+    "model": "{\"main\":\"ark-code-latest\",\"haiku\":\"ark-code-latest\",\"sonnet\":\"ark-code-latest\",\"opus\":\"ark-code-latest\"}"
+  },
+  {
+    "id": "volcengine-doubao",
+    "name": "Volcengine Doubao",
+    "icon": "doubao",
+    "website_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+    "api_key_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://ark.cn-beijing.volces.com/api/compatible",
+    "model": "{\"main\":\"doubao-seed-2-1-pro-260915\",\"haiku\":\"doubao-seed-2-1-pro-260915\",\"sonnet\":\"doubao-seed-2-1-pro-260915\",\"opus\":\"doubao-seed-2-1-pro-260915\"}"
+  },
+  {
+    "id": "siliconflow",
+    "name": "SiliconFlow",
+    "icon": "siliconflow",
+    "website_url": "https://siliconflow.cn/",
+    "api_key_url": "https://cloud.siliconflow.cn/i/YflgU2Ve",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.siliconflow.cn/",
+    "model": "{\"main\":\"deepseek-ai/DeepSeek-V4-Flash[1M]\",\"haiku\":\"deepseek-ai/DeepSeek-V4-Flash[1M]\",\"sonnet\":\"deepseek-ai/DeepSeek-V4-Flash[1M]\",\"opus\":\"deepseek-ai/DeepSeek-V4-Flash[1M]\"}"
+  },
+  {
+    "id": "siliconflow-en",
+    "name": "SiliconFlow en",
+    "icon": "siliconflow",
+    "website_url": "https://siliconflow.com/",
+    "api_key_url": "https://cloud.siliconflow.cn/i/YflgU2Ve",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.siliconflow.com/",
+    "model": "{\"main\":\"MiniMaxAI/MiniMax-M3[1M]\",\"haiku\":\"MiniMaxAI/MiniMax-M3[1M]\",\"sonnet\":\"MiniMaxAI/MiniMax-M3[1M]\",\"opus\":\"MiniMaxAI/MiniMax-M3[1M]\"}"
+  },
+  {
+    "id": "a6api",
+    "name": "A6API",
+    "icon": "a6api",
+    "website_url": "https://www.a6api.vip/",
+    "api_key_url": "https://a6api.vip/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.a6api.vip/",
+    "model": "{}"
+  },
+  {
+    "id": "compshare",
+    "name": "Compshare",
+    "icon": "ucloud",
+    "website_url": "https://www.compshare.cn/",
+    "api_key_url": "https://www.compshare.cn/coding-plan",
+    "endpoint_candidates": [
+      "https://api.modelverse.cn/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.modelverse.cn/",
+    "model": "{}"
+  },
+  {
+    "id": "compshare-coding-plan",
+    "name": "Compshare Coding Plan",
+    "icon": "ucloud",
+    "website_url": "https://www.compshare.cn/",
+    "api_key_url": "https://www.compshare.cn/coding-plan",
+    "endpoint_candidates": [
+      "https://cp.compshare.cn/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://cp.compshare.cn/",
+    "model": "{}"
+  },
+  {
+    "id": "ccsub",
+    "name": "CCSub",
+    "icon": "ccsub",
+    "website_url": "https://www.ccsub.net/",
+    "api_key_url": "https://www.ccsub.net/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.ccsub.net/",
+    "model": "{}"
+  },
+  {
+    "id": "sssaicode",
+    "name": "SSSAiCode",
+    "icon": "sssaicode",
+    "website_url": "https://sssaicodeapi.com/",
+    "api_key_url": "https://sssaicodeapi.com/register",
+    "endpoint_candidates": [
+      "https://node-hk.sssaicodeapi.com/api",
+      "https://node-hk.sssaiapi.com/api",
+      "https://node-cf.sssaicodeapi.com/api"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://node-hk.sssaicodeapi.com/api",
+    "model": "{}"
+  },
+  {
+    "id": "soleapi",
+    "name": "SoleAPI",
+    "icon": "soleapi",
+    "website_url": "https://soleapi.com/",
+    "api_key_url": "https://soleapi.com/r/ccswitch",
+    "endpoint_candidates": [
+      "https://soleapi.com/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://soleapi.com/",
+    "model": "{}"
+  },
+  {
+    "id": "micu",
+    "name": "Micu",
+    "icon": "micu",
+    "website_url": "https://www.micuapi.ai/",
+    "api_key_url": "https://www.micuapi.ai/register",
+    "endpoint_candidates": [
+      "https://www.micuapi.ai/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.micuapi.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "rightcode",
+    "name": "RightCode",
+    "icon": "rc",
+    "website_url": "https://www.rightapi.ai/",
+    "api_key_url": "https://www.rightapi.ai/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.rightapi.ai/claude",
+    "model": "{}"
+  },
+  {
+    "id": "cubence",
+    "name": "Cubence",
+    "icon": "cubence",
+    "website_url": "https://cubence.com/",
+    "api_key_url": "https://cubence.com/signup",
+    "endpoint_candidates": [
+      "https://api.cubence.com/",
+      "https://api-cf.cubence.com/",
+      "https://api-dmit.cubence.com/",
+      "https://api-bwg.cubence.com/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.cubence.com/",
+    "model": "{}"
+  },
+  {
+    "id": "crazyrouter",
+    "name": "CrazyRouter",
+    "icon": "crazyrouter",
+    "website_url": "https://www.crazyrouter.com/",
+    "api_key_url": "https://www.crazyrouter.com/register",
+    "endpoint_candidates": [
+      "https://cn.crazyrouter.com/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://cn.crazyrouter.com/",
+    "model": "{}"
+  },
+  {
+    "id": "dmxapi",
+    "name": "DMXAPI",
+    "icon": "dmxapi",
+    "website_url": "https://www.dmxapi.cn/",
+    "api_key_url": "https://www.dmxapi.cn/",
+    "endpoint_candidates": [
+      "https://www.dmxapi.cn/",
+      "https://api.dmxapi.cn/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.dmxapi.cn/",
+    "model": "{}"
+  },
+  {
+    "id": "sudocode-chat",
+    "name": "SudoCode.chat",
+    "icon": "sudocode",
+    "website_url": "https://sudocode.chat/",
+    "api_key_url": "https://sudocode.chat/sign-up",
+    "endpoint_candidates": [
+      "https://api.sudocode.chat/",
+      "https://api.sudorelay.com/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.sudocode.chat/",
+    "model": "{}"
+  },
+  {
+    "id": "sudocode-us",
+    "name": "SudoCode.us",
+    "icon": "sudocode-us",
+    "website_url": "https://sudocode.us/",
+    "api_key_url": "https://sudocode.us/",
+    "endpoint_candidates": [
+      "https://sudocode.us/",
+      "https://sudocode.run/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://sudocode.us/",
+    "model": "{}"
+  },
+  {
+    "id": "xycai",
+    "name": "XycAi",
+    "icon": "xycai",
+    "website_url": "https://xycai.us/",
+    "api_key_url": "https://xycai.us/register",
+    "endpoint_candidates": [
+      "https://apicdn.xycai.us/",
+      "https://apicdn.xyc.ai/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://apicdn.xycai.us/",
+    "model": "{}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "modelflare",
+    "name": "Modelflare",
+    "icon": "modelflare",
+    "website_url": "https://modelflare.dev/",
+    "api_key_url": "https://modelflare.dev/sign-up",
+    "endpoint_candidates": [
+      "https://modelflare.dev/",
+      "https://origin.modelflare.dev/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://modelflare.dev/",
+    "model": "{\"haiku\":\"claude-sonnet-5-5\"}"
+  },
+  {
+    "id": "alltokens",
+    "name": "AllTokens",
+    "icon": "alltokens",
+    "website_url": "https://alltokens.cc/",
+    "api_key_url": "https://alltokens.cc/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://alltokens.cc/",
+    "model": "{}"
+  },
+  {
+    "id": "alltokens-si",
+    "name": "AllTokens SI",
+    "icon": "alltokens-si",
+    "website_url": "https://alltokens.si/",
+    "api_key_url": "https://alltokens.si/enterprise-register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://alltokens.si/",
+    "model": "{\"main\":\"claude-sonnet-5.5\",\"haiku\":\"claude-sonnet-5.5\",\"sonnet\":\"claude-sonnet-5.5\",\"opus\":\"claude-opus-5.5\"}"
+  },
+  {
+    "id": "aicodewith",
+    "name": "AICodeWith",
+    "icon": "aicodewith",
+    "website_url": "https://aicodewith.ai/",
+    "api_key_url": "https://aicodewith.ai/login",
+    "endpoint_candidates": [
+      "https://api.aicodewith.ai/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.aicodewith.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "aicoming",
+    "name": "AIComing",
+    "icon": "aicoming",
+    "website_url": "https://aicoming.top/",
+    "api_key_url": "https://aicoming.top/console",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.aicoming.top/",
+    "model": "{}"
+  },
+  {
+    "id": "aihubmix",
+    "name": "AiHubMix",
+    "icon": "aihubmix",
+    "website_url": "https://aihubmix.com/",
+    "api_key_url": "https://aihubmix.com/",
+    "endpoint_candidates": [
+      "https://aihubmix.com/",
+      "https://api.aihubmix.com/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://aihubmix.com/",
+    "model": "{}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "amux",
+    "name": "Amux",
+    "icon": "amux",
+    "website_url": "https://amux.ai/",
+    "api_key_url": "https://amux.ai/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.amux.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "astron-coding-plan",
+    "name": "Astron Coding Plan",
+    "icon": "astron",
+    "website_url": "https://maas.xfyun.cn/packageSubscription",
+    "api_key_url": "https://maas.xfyun.cn/packageSubscription",
+    "endpoint_candidates": [
+      "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic",
+    "model": "{\"main\":\"astron-code-latest\",\"haiku\":\"astron-code-latest\",\"sonnet\":\"astron-code-latest\",\"opus\":\"astron-code-latest\"}"
+  },
+  {
+    "id": "astron-maas",
+    "name": "Astron MaaS",
+    "icon": "astron",
+    "website_url": "https://maas.xfyun.cn/",
+    "endpoint_candidates": [
+      "https://maas-api.cn-huabei-1.xf-yun.com/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://maas-api.cn-huabei-1.xf-yun.com/anthropic",
+    "model": "{\"main\":\"spark-x2.6\",\"haiku\":\"spark-x2.6\",\"sonnet\":\"spark-x2.6\",\"opus\":\"spark-x2.6\"}"
+  },
+  {
+    "id": "atlascloud",
+    "name": "AtlasCloud",
+    "icon": "atlascloud",
+    "website_url": "https://www.atlascloud.ai/console/coding-plan",
+    "api_key_url": "https://www.atlascloud.ai/console/coding-plan",
+    "endpoint_candidates": [
+      "https://api.atlascloud.ai/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.atlascloud.ai/",
+    "model": "{\"main\":\"zai-org/glm-5.3\",\"haiku\":\"zai-org/glm-5.3-flash\",\"sonnet\":\"zai-org/glm-5.3\",\"opus\":\"zai-org/glm-5.3\"}"
+  },
+  {
+    "id": "aws-bedrock-aksk",
+    "name": "AWS Bedrock (AKSK)",
+    "icon": "aws",
+    "website_url": "https://aws.amazon.com/bedrock/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://bedrock-runtime.${aws_region}.amazonaws.com/",
+    "model": "{\"main\":\"global.anthropic.claude-opus-5\",\"haiku\":\"global.anthropic.claude-haiku-4-5-20251001-v1:0\",\"sonnet\":\"global.anthropic.claude-sonnet-5\",\"opus\":\"global.anthropic.claude-opus-5\"}"
+  },
+  {
+    "id": "aws-bedrock-api-key",
+    "name": "AWS Bedrock (API Key)",
+    "icon": "aws",
+    "website_url": "https://aws.amazon.com/bedrock/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://bedrock-runtime.${aws_region}.amazonaws.com/",
+    "model": "{\"main\":\"global.anthropic.claude-opus-5\",\"haiku\":\"global.anthropic.claude-haiku-4-5-20251001-v1:0\",\"sonnet\":\"global.anthropic.claude-sonnet-5\",\"opus\":\"global.anthropic.claude-opus-5\"}"
+  },
+  {
+    "id": "baidu-qianfan-coding-plan",
+    "name": "Baidu Qianfan Coding Plan",
+    "icon": "baidu",
+    "website_url": "https://cloud.baidu.com/product/qianfan_modelbuilder",
+    "api_key_url": "https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application",
+    "endpoint_candidates": [
+      "https://qianfan.baidubce.com/anthropic/coding"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://qianfan.baidubce.com/anthropic/coding",
+    "model": "{\"main\":\"qianfan-code-latest\",\"haiku\":\"qianfan-code-latest\",\"sonnet\":\"qianfan-code-latest\",\"opus\":\"qianfan-code-latest\"}"
+  },
+  {
+    "id": "baidu-qianfan-token-plan",
+    "name": "Baidu Qianfan Token Plan",
+    "icon": "baidu",
+    "website_url": "https://cloud.baidu.com/product/codingplan.html",
+    "api_key_url": "https://console.bce.baidu.com/qianfan/resource/token-plan",
+    "endpoint_candidates": [
+      "https://qianfan.baidubce.com/anthropic/tokenplan/personal"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://qianfan.baidubce.com/anthropic/tokenplan/personal",
+    "model": "{\"main\":\"deepseek-v4-flash[1M]\",\"haiku\":\"deepseek-v4-flash[1M]\",\"sonnet\":\"deepseek-v4-flash[1M]\",\"opus\":\"deepseek-v4-flash[1M]\"}"
+  },
+  {
+    "id": "bailing",
+    "name": "BaiLing",
+    "icon": "bailing",
+    "website_url": "https://developer.ant-ling.com/zh-CN/docs/",
+    "api_key_url": "https://chat.ant-ling.com/open",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.ant-ling.com/anthropic",
+    "model": "{\"main\":\"Ling-2.6-1T\",\"haiku\":\"Ling-2.6-1T\",\"sonnet\":\"Ling-2.6-1T\",\"opus\":\"Ling-2.6-1T\"}"
+  },
+  {
+    "id": "baseten",
+    "name": "Baseten",
+    "icon": "baseten",
+    "website_url": "https://www.baseten.co/",
+    "api_key_url": "https://app.baseten.co/settings/api_keys",
+    "endpoint_candidates": [
+      "https://inference.baseten.co/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://inference.baseten.co/",
+    "model": "{\"main\":\"zai-org/GLM-5.3[1M]\",\"haiku\":\"zai-org/GLM-5.3-Flash[1M]\",\"sonnet\":\"zai-org/GLM-5.3[1M]\",\"opus\":\"moonshotai/Kimi-K3[1M]\"}"
+  },
+  {
+    "id": "botcf",
+    "name": "BotCF",
+    "icon": "botcf",
+    "website_url": "https://botcf.com/",
+    "api_key_url": "https://botcf.com/console/token",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://botcf.com/",
+    "model": "{}"
+  },
+  {
+    "id": "cherryin",
+    "name": "CherryIN",
+    "icon": "cherryin",
+    "website_url": "https://open.cherryin.ai/",
+    "api_key_url": "https://open.cherryin.ai/console/token",
+    "endpoint_candidates": [
+      "https://open.cherryin.net/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://open.cherryin.net/",
+    "model": "{\"main\":\"anthropic/claude-sonnet-5.5\",\"haiku\":\"anthropic/claude-haiku-5.5\",\"sonnet\":\"anthropic/claude-sonnet-5.5\",\"opus\":\"anthropic/claude-opus-5.5\"}"
+  },
+  {
+    "id": "claudeapi",
+    "name": "ClaudeAPI",
+    "icon": "claudeapi",
+    "website_url": "https://www.apito.ai/",
+    "api_key_url": "https://console.apito.ai/agent/register/pQBql2buaqiX3dDS",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://gw.apito.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "cloudflare-ai-gateway",
+    "name": "Cloudflare AI Gateway",
+    "icon": "cloudflare",
+    "website_url": "https://developers.cloudflare.com/ai-gateway/",
+    "api_key_url": "https://dash.cloudflare.com/profile/api-tokens",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://gateway.ai.cloudflare.com/v1/$%7BACCOUNT_ID%7D/$%7BGATEWAY_ID%7D/anthropic",
+    "model": "{\"main\":\"claude-sonnet-5-5\",\"haiku\":\"claude-haiku-5-5\",\"sonnet\":\"claude-sonnet-5-5\",\"opus\":\"claude-opus-5-5\"}"
+  },
+  {
+    "id": "code0",
+    "name": "Code0",
+    "icon": "code0",
+    "website_url": "https://code0.ai/",
+    "api_key_url": "https://code0.ai/agent/register/B2XHxGjGmRvqgznY",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://code0.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "deepinfra",
+    "name": "DeepInfra",
+    "icon": "deepinfra",
+    "website_url": "https://deepinfra.com/",
+    "api_key_url": "https://deepinfra.com/dash/api_keys",
+    "endpoint_candidates": [
+      "https://api.deepinfra.com/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.deepinfra.com/anthropic",
+    "model": "{\"main\":\"deepseek-ai/DeepSeek-V4.1-Flash-1017[1M]\",\"haiku\":\"inclusionAI/Ling-3.0-flash\",\"sonnet\":\"deepseek-ai/DeepSeek-V4.1-Flash-1017[1M]\",\"opus\":\"deepseek-ai/DeepSeek-V4.1-Flash-1017[1M]\"}"
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "icon": "deepseek",
+    "website_url": "https://platform.deepseek.com/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.deepseek.com/anthropic",
+    "model": "{\"main\":\"deepseek-flash[1M]\",\"haiku\":\"deepseek-flash[1M]\",\"sonnet\":\"deepseek-flash[1M]\",\"opus\":\"deepseek-flash[1M]\"}"
+  },
+  {
+    "id": "digitalocean",
+    "name": "DigitalOcean",
+    "icon": "digitalocean",
+    "website_url": "https://www.digitalocean.com/products/ai-platform",
+    "api_key_url": "https://cloud.digitalocean.com/model-studio/manage-keys",
+    "endpoint_candidates": [
+      "https://inference.do-ai.run/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://inference.do-ai.run/",
+    "model": "{}"
+  },
+  {
+    "id": "e-flowcode",
+    "name": "E-FlowCode",
+    "icon": "eflowcode",
+    "website_url": "https://e-flowcode.cc/",
+    "api_key_url": "https://e-flowcode.cc/",
+    "endpoint_candidates": [
+      "https://e-flowcode.cc/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://e-flowcode.cc/",
+    "model": "{}"
+  },
+  {
+    "id": "fireworks-ai",
+    "name": "Fireworks AI",
+    "icon": "fireworks",
+    "website_url": "https://fireworks.ai/",
+    "api_key_url": "https://app.fireworks.ai/settings/users/api-keys",
+    "endpoint_candidates": [
+      "https://api.fireworks.ai/inference"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.fireworks.ai/inference",
+    "model": "{\"main\":\"accounts/fireworks/models/glm-5p3[1M]\",\"haiku\":\"accounts/fireworks/models/deepseek-v4p1-flash[1M]\",\"sonnet\":\"accounts/fireworks/models/glm-5p3[1M]\",\"opus\":\"accounts/fireworks/models/kimi-k3[1M]\"}"
+  },
+  {
+    "id": "hugging-face",
+    "name": "Hugging Face",
+    "icon": "huggingface",
+    "website_url": "https://huggingface.co/inference/models",
+    "api_key_url": "https://huggingface.co/settings/tokens/new",
+    "endpoint_candidates": [
+      "https://router.huggingface.co/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://router.huggingface.co/",
+    "model": "{\"main\":\"zai-org/GLM-5.3:baseten[1M]\",\"haiku\":\"zai-org/GLM-5.3-Flash:baseten[1M]\",\"sonnet\":\"zai-org/GLM-5.3:baseten[1M]\",\"opus\":\"zai-org/GLM-5.3:baseten[1M]\"}"
+  },
+  {
+    "id": "ikuncode",
+    "name": "IKunCode",
+    "icon": "ikuncode",
+    "website_url": "https://api.ikuncode.ai/",
+    "api_key_url": "https://api.ikuncode.ai/console/token",
+    "endpoint_candidates": [
+      "https://api.ikuncode.ai/",
+      "https://api.ikuncode.cc/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.ikuncode.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "jiekou-ai",
+    "name": "JieKou AI",
+    "icon": "jiekou",
+    "website_url": "https://jiekou.ai/",
+    "api_key_url": "https://jiekou.ai/settings/key-management",
+    "endpoint_candidates": [
+      "https://api.jiekou.ai/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.jiekou.ai/anthropic",
+    "model": "{\"main\":\"claude-fable-5-1\",\"haiku\":\"claude-fable-5-1\",\"sonnet\":\"claude-fable-5-1\",\"opus\":\"claude-fable-5-1\"}"
+  },
+  {
+    "id": "kimi-for-coding-global",
+    "name": "Kimi For Coding Global",
+    "icon": "kimi",
+    "website_url": "https://www.kimi.ai/code",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.kimi.ai/coding/",
+    "model": "{\"main\":\"kimi-for-coding\",\"haiku\":\"kimi-for-coding\",\"sonnet\":\"kimi-for-coding\",\"opus\":\"kimi-for-coding\"}"
+  },
+  {
+    "id": "kimi-global",
+    "name": "Kimi Global",
+    "icon": "kimi",
+    "website_url": "https://platform.kimi.ai/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.moonshot.ai/anthropic",
+    "model": "{\"main\":\"kimi-k3.1-pro\",\"haiku\":\"kimi-k3.1-pro\",\"sonnet\":\"kimi-k3.1-pro\",\"opus\":\"kimi-k3.1-pro\"}"
+  },
+  {
+    "id": "llama-cpp",
+    "name": "llama.cpp",
+    "icon": "llamacpp",
+    "website_url": "https://github.com/ggml-org/llama.cpp",
+    "endpoint_candidates": [
+      "http://127.0.0.1:9931/",
+      "http://127.0.0.1:8080/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "http://127.0.0.1:9931/",
+    "model": "{\"main\":\"ggml-org/Qwen3-Coder-30B-A3B-Instruct-Q8_0-GGUF\",\"haiku\":\"ggml-org/Qwen3-Coder-30B-A3B-Instruct-Q8_0-GGUF\",\"sonnet\":\"ggml-org/Qwen3-Coder-30B-A3B-Instruct-Q8_0-GGUF\",\"opus\":\"ggml-org/Qwen3-Coder-30B-A3B-Instruct-Q8_0-GGUF\"}"
+  },
+  {
+    "id": "lm-studio",
+    "name": "LM Studio",
+    "icon": "lmstudio",
+    "website_url": "https://lmstudio.ai/",
+    "endpoint_candidates": [
+      "http://localhost:1234/",
+      "http://127.0.0.1:1234/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "http://localhost:1234/",
+    "model": "{\"main\":\"openai/gpt-oss-20b\",\"haiku\":\"openai/gpt-oss-20b\",\"sonnet\":\"openai/gpt-oss-20b\",\"opus\":\"openai/gpt-oss-20b\"}"
+  },
+  {
+    "id": "longcat",
+    "name": "Longcat",
+    "icon": "longcat",
+    "website_url": "https://longcat.chat/platform",
+    "api_key_url": "https://longcat.chat/platform/api_keys",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.longcat.chat/anthropic",
+    "model": "{\"main\":\"LongCat-2.0[1M]\",\"haiku\":\"LongCat-2.0[1M]\",\"sonnet\":\"LongCat-2.0[1M]\",\"opus\":\"LongCat-2.0[1M]\"}"
+  },
+  {
+    "id": "meta-model-api",
+    "name": "Meta Model API",
+    "icon": "meta",
+    "website_url": "https://dev.meta.ai/",
+    "api_key_url": "https://dev.meta.ai/",
+    "endpoint_candidates": [
+      "https://api.meta.ai/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.meta.ai/",
+    "model": "{\"main\":\"muse-wonder-1.0[1M]\",\"haiku\":\"muse-spark-1.3[1M]\",\"sonnet\":\"muse-spark-1.3[1M]\",\"opus\":\"muse-wonder-1.0[1M]\"}"
+  },
+  {
+    "id": "microsoft-foundry",
+    "name": "Microsoft Foundry",
+    "icon": "azure",
+    "website_url": "https://azure.microsoft.com/en-us/products/ai-foundry",
+    "api_key_url": "https://ai.azure.com/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://${azure_resource_name}.services.ai.azure.com/anthropic",
+    "model": "{\"main\":\"claude-opus-5-5\",\"haiku\":\"claude-haiku-5-5\",\"sonnet\":\"claude-sonnet-5-5\",\"opus\":\"claude-opus-5-5\"}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "minimax",
+    "name": "MiniMax",
+    "icon": "minimax",
+    "website_url": "https://platform.minimax.cn/",
+    "api_key_url": "https://platform.minimax.cn/subscribe/token-plan",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.minimax.cn/anthropic",
+    "model": "{\"main\":\"MiniMax-M3.1-Flash[1M]\",\"haiku\":\"MiniMax-M3.1-Flash[1M]\",\"sonnet\":\"MiniMax-M3.1-Flash[1M]\",\"opus\":\"MiniMax-M3[1M]\"}"
+  },
+  {
+    "id": "minimax-en",
+    "name": "MiniMax en",
+    "icon": "minimax",
+    "website_url": "https://platform.minimax.io/",
+    "api_key_url": "https://platform.minimax.io/subscribe/coding-plan",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.minimax.io/anthropic",
+    "model": "{\"main\":\"MiniMax-M3.1-Flash[1M]\",\"haiku\":\"MiniMax-M3.1-Flash[1M]\",\"sonnet\":\"MiniMax-M3.1-Flash[1M]\",\"opus\":\"MiniMax-M3[1M]\"}"
+  },
+  {
+    "id": "modelscope",
+    "name": "ModelScope",
+    "icon": "modelscope",
+    "website_url": "https://modelscope.cn/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api-inference.modelscope.cn/",
+    "model": "{\"main\":\"ZhipuAI/GLM-5.2[1M]\",\"haiku\":\"ZhipuAI/GLM-5.2[1M]\",\"sonnet\":\"ZhipuAI/GLM-5.2[1M]\",\"opus\":\"ZhipuAI/GLM-5.2[1M]\"}"
+  },
+  {
+    "id": "nekocode",
+    "name": "NekoCode",
+    "icon": "nekocode",
+    "website_url": "https://nekoapi.ai/",
+    "api_key_url": "https://nekoapi.ai/token",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://nekoapi.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "novita-ai",
+    "name": "Novita AI",
+    "icon": "novita",
+    "website_url": "https://novita.ai/",
+    "api_key_url": "https://novita.ai/",
+    "endpoint_candidates": [
+      "https://api.novita.ai/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.novita.ai/anthropic",
+    "model": "{\"main\":\"zai-org/glm-5.3\",\"haiku\":\"zai-org/glm-5.3-flash\",\"sonnet\":\"zai-org/glm-5.3\",\"opus\":\"zai-org/glm-5.3\"}"
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama",
+    "icon": "ollama",
+    "website_url": "https://ollama.com/",
+    "endpoint_candidates": [
+      "http://localhost:11434/",
+      "http://127.0.0.1:11434/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "http://localhost:11434/",
+    "model": "{\"main\":\"qwen3.5\",\"haiku\":\"qwen3.5\",\"sonnet\":\"qwen3.5\",\"opus\":\"qwen3.5\"}"
+  },
+  {
+    "id": "ollama-cloud",
+    "name": "Ollama Cloud",
+    "icon": "ollama",
+    "website_url": "https://ollama.com/",
+    "api_key_url": "https://ollama.com/settings/keys",
+    "endpoint_candidates": [
+      "https://ollama.com/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://ollama.com/",
+    "model": "{\"main\":\"glm-5.3[1M]\",\"haiku\":\"glm-5.3-flash[1M]\",\"sonnet\":\"glm-5.3[1M]\",\"opus\":\"kimi-k3[1M]\"}"
+  },
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "icon": "opencode",
+    "website_url": "https://opencode.ai/go",
+    "api_key_url": "https://opencode.ai/go",
+    "endpoint_candidates": [
+      "https://opencode.ai/zen/go"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://opencode.ai/zen/go",
+    "model": "{\"main\":\"deepseek-v4.1-flash[1M]\",\"haiku\":\"deepseek-v4.1-flash[1M]\",\"sonnet\":\"deepseek-v4.1-flash[1M]\",\"opus\":\"deepseek-v4.1-flash[1M]\"}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "opencode-zen",
+    "name": "OpenCode Zen",
+    "icon": "opencode",
+    "website_url": "https://opencode.ai/zen",
+    "api_key_url": "https://opencode.ai/auth",
+    "endpoint_candidates": [
+      "https://opencode.ai/zen"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://opencode.ai/zen",
+    "model": "{\"main\":\"claude-sonnet-5-5\",\"haiku\":\"claude-haiku-5-5\",\"sonnet\":\"claude-sonnet-5-5\",\"opus\":\"claude-opus-5-5\"}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "icon": "openrouter",
+    "website_url": "https://openrouter.ai/",
+    "api_key_url": "https://openrouter.ai/keys",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://openrouter.ai/api",
+    "model": "{\"main\":\"anthropic/claude-sonnet-5.5\",\"haiku\":\"anthropic/claude-haiku-5.5\",\"sonnet\":\"anthropic/claude-sonnet-5.5\",\"opus\":\"anthropic/claude-opus-5.5\"}"
+  },
+  {
+    "id": "pipellm",
+    "name": "PIPELLM",
+    "icon": "pipellm",
+    "website_url": "https://code.pipellm.ai/",
+    "api_key_url": "https://code.pipellm.ai/login",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://cc-api.pipellm.ai/",
+    "model": "{\"main\":\"claude-opus-5-5\",\"haiku\":\"claude-haiku-5-5\",\"sonnet\":\"claude-sonnet-5-5\",\"opus\":\"claude-opus-5-5\"}"
+  },
+  {
+    "id": "qwencloud",
+    "name": "QwenCloud",
+    "icon": "qwencloud",
+    "website_url": "https://home.qwencloud.com/",
+    "api_key_url": "https://home.qwencloud.com/api-keys",
+    "endpoint_candidates": [
+      "https://ap-southeast-1.maas.qwencloudapi.com/apps/anthropic",
+      "https://dashscope-intl.aliyuncs.com/apps/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://ap-southeast-1.maas.qwencloudapi.com/apps/anthropic",
+    "model": "{\"main\":\"qwen3.8-max[1M]\",\"haiku\":\"qwen3.8-flash[1M]\",\"sonnet\":\"qwen3.7-plus[1M]\",\"opus\":\"qwen3.8-max[1M]\"}"
+  },
+  {
+    "id": "qwencloud-for-coding",
+    "name": "QwenCloud For Coding",
+    "icon": "qwencloud",
+    "website_url": "https://www.qwencloud.com/",
+    "api_key_url": "https://home.qwencloud.com/api-keys",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
+    "model": "{\"main\":\"qwen3.7-plus[1M]\",\"haiku\":\"qwen3.7-plus[1M]\",\"sonnet\":\"qwen3.7-plus[1M]\",\"opus\":\"qwen3.7-plus[1M]\"}"
+  },
+  {
+    "id": "qwencloud-token-plan",
+    "name": "QwenCloud Token Plan",
+    "icon": "qwencloud",
+    "website_url": "https://www.qwencloud.com/pricing/token-plan",
+    "api_key_url": "https://home.qwencloud.com/api-keys",
+    "endpoint_candidates": [
+      "https://token-plan.maas.qwencloudapi.com/apps/anthropic",
+      "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://token-plan.maas.qwencloudapi.com/apps/anthropic",
+    "model": "{\"main\":\"qwen3.8-max[1M]\",\"haiku\":\"qwen3.8-flash[1M]\",\"sonnet\":\"qwen3.7-plus[1M]\",\"opus\":\"qwen3.8-max[1M]\"}"
+  },
+  {
+    "id": "relaxycode",
+    "name": "RelaxyCode",
+    "icon": "relaxcode",
+    "website_url": "https://www.relaxycode.com/",
+    "api_key_url": "https://www.relaxycode.com/register",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://www.relaxycode.com/",
+    "model": "{}"
+  },
+  {
+    "id": "runtoken",
+    "name": "RunToken",
+    "icon": "runtoken",
+    "website_url": "https://www.runtoken.ai/",
+    "api_key_url": "https://www.runtoken.ai/console/token",
+    "endpoint_candidates": [
+      "https://www.runtoken.ai/",
+      "https://fast.runtoken.ai/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://www.runtoken.ai/",
+    "model": "{}"
+  },
+  {
+    "id": "sambanova",
+    "name": "SambaNova",
+    "icon": "sambanova",
+    "website_url": "https://sambanova.ai/",
+    "api_key_url": "https://cloud.sambanova.ai/apis",
+    "endpoint_candidates": [
+      "https://api.sambanova.ai/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.sambanova.ai/",
+    "model": "{\"main\":\"MiniMax-M3[1M]\",\"haiku\":\"MiniMax-M3[1M]\",\"sonnet\":\"MiniMax-M3[1M]\",\"opus\":\"MiniMax-M3[1M]\"}"
+  },
+  {
+    "id": "soruxgpt",
+    "name": "SoruxGPT",
+    "icon": "soruxgpt",
+    "website_url": "https://ai.soruxgpt.com/",
+    "api_key_url": "https://ai.soruxgpt.com/console/token",
+    "endpoint_candidates": [
+      "https://ai.soruxgpt.com/",
+      "https://api-cf.soruxgpt.com/",
+      "https://api-host.soruxgpt.com/",
+      "https://api-node6.soruxgpt.com/",
+      "https://api-node3.soruxgpt.com/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://ai.soruxgpt.com/",
+    "model": "{}"
+  },
+  {
+    "id": "soruxgpt-coding-plan",
+    "name": "SoruxGPT Coding Plan",
+    "icon": "soruxgpt",
+    "website_url": "https://app.soruxgpt.com/",
+    "endpoint_candidates": [
+      "https://app.soruxgpt.com/api/cc",
+      "https://center.soruxgpt.com/api/cc",
+      "https://u.soruxgpt.com/api/cc"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://app.soruxgpt.com/api/cc",
+    "model": "{}"
+  },
+  {
+    "id": "soshow",
+    "name": "Soshow",
+    "icon": "soshow",
+    "website_url": "https://aimarket.so-show.com/",
+    "api_key_url": "https://aimarket.so-show.com/workbench/access-key",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://maas.so-show.com/",
+    "model": "{\"haiku\":\"claude-sonnet-5\"}"
+  },
+  {
+    "id": "stepfun",
+    "name": "StepFun",
+    "icon": "stepfun",
+    "website_url": "https://platform.stepfun.com/step-plan",
+    "api_key_url": "https://platform.stepfun.com/interface-key",
+    "endpoint_candidates": [
+      "https://api.stepfun.com/step_plan"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.stepfun.com/step_plan",
+    "model": "{\"main\":\"step-5-preview\",\"haiku\":\"step-5-preview\",\"sonnet\":\"step-5-preview\",\"opus\":\"step-5-preview\"}"
+  },
+  {
+    "id": "stepfun-en",
+    "name": "StepFun en",
+    "icon": "stepfun",
+    "website_url": "https://platform.stepfun.ai/step-plan",
+    "api_key_url": "https://platform.stepfun.ai/interface-key",
+    "endpoint_candidates": [
+      "https://api.stepfun.ai/step_plan"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.stepfun.ai/step_plan",
+    "model": "{\"main\":\"step-3.5-flash-2603\",\"haiku\":\"step-3.5-flash-2603\",\"sonnet\":\"step-3.5-flash-2603\",\"opus\":\"step-3.5-flash-2603\"}"
+  },
+  {
+    "id": "streamlake",
+    "name": "StreamLake",
+    "icon": "streamlake",
+    "website_url": "https://www.streamlake.com/",
+    "api_key_url": "https://console.streamlake.com/console/wanqing/api-key",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://wanqing.streamlakeapi.com/api/gateway/v1/endpoints/kat-coder-pro-v2.5/claude-code-proxy",
+    "model": "{\"main\":\"kat-coder-pro-v2.5\",\"haiku\":\"kat-coder-pro-v2.5\",\"sonnet\":\"kat-coder-pro-v2.5\",\"opus\":\"kat-coder-pro-v2.5\"}"
+  },
+  {
+    "id": "streamlake-en",
+    "name": "StreamLake en",
+    "icon": "streamlake",
+    "website_url": "https://console.streamlake.ai/",
+    "api_key_url": "https://console.streamlake.ai/console/api-key",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://vanchin.streamlake.ai/api/gateway/v1/endpoints/kat-coder-pro-v2.5/claude-code-proxy",
+    "model": "{\"main\":\"kat-coder-pro-v2.5\",\"haiku\":\"kat-coder-pro-v2.5\",\"sonnet\":\"kat-coder-pro-v2.5\",\"opus\":\"kat-coder-pro-v2.5\"}"
+  },
+  {
+    "id": "tencent-token-plan",
+    "name": "Tencent Token Plan",
+    "icon": "tencent",
+    "website_url": "https://cloud.tencent.com/product/tokenhub",
+    "api_key_url": "https://console.cloud.tencent.com/tokenhub/tokenplan",
+    "endpoint_candidates": [
+      "https://api.lkeap.cloud.tencent.com/plan/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.lkeap.cloud.tencent.com/plan/anthropic",
+    "model": "{\"main\":\"tc-code-latest\",\"haiku\":\"tc-code-latest\",\"sonnet\":\"tc-code-latest\",\"opus\":\"tc-code-latest\"}"
+  },
+  {
+    "id": "tencent-token-plan-intl",
+    "name": "Tencent Token Plan (Intl)",
+    "icon": "tencent",
+    "website_url": "https://www.tencentcloud.com/products/tokenhub",
+    "api_key_url": "https://console.tencentcloud.com/tokenhub/tokenplan",
+    "endpoint_candidates": [
+      "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic",
+    "model": "{\"main\":\"auto\",\"haiku\":\"auto\",\"sonnet\":\"auto\",\"opus\":\"auto\"}"
+  },
+  {
+    "id": "tencent-token-plan-enterprise-lite",
+    "name": "Tencent Token Plan Enterprise Lite",
+    "icon": "tencent",
+    "website_url": "https://cloud.tencent.com/product/tokenhub",
+    "api_key_url": "https://console.cloud.tencent.com/tokenhub/tokenplan-e",
+    "endpoint_candidates": [
+      "https://tokenhub.tencentmaas.com/plan/anthropic",
+      "https://tokenhub-intl.tencentmaas.com/plan/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenhub.tencentmaas.com/plan/anthropic",
+    "model": "{\"main\":\"auto\",\"haiku\":\"auto\",\"sonnet\":\"auto\",\"opus\":\"auto\"}"
+  },
+  {
+    "id": "tencent-token-plan-enterprise-lite-intl",
+    "name": "Tencent Token Plan Enterprise Lite (Intl)",
+    "icon": "tencent",
+    "website_url": "https://www.tencentcloud.com/products/tokenhub",
+    "api_key_url": "https://console.tencentcloud.com/tokenhub/tokenplan-e",
+    "endpoint_candidates": [
+      "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic",
+      "https://tokenhub.tencentcloudmaas.com/plan/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic",
+    "model": "{\"main\":\"auto\",\"haiku\":\"auto\",\"sonnet\":\"auto\",\"opus\":\"auto\"}"
+  },
+  {
+    "id": "tencent-token-plan-enterprise-pro",
+    "name": "Tencent Token Plan Enterprise Pro",
+    "icon": "tencent",
+    "website_url": "https://cloud.tencent.com/product/tokenhub",
+    "api_key_url": "https://console.cloud.tencent.com/tokenhub/tokenplan-e",
+    "endpoint_candidates": [
+      "https://tokenhub.tencentmaas.com/plan/anthropic",
+      "https://tokenhub-intl.tencentmaas.com/plan/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenhub.tencentmaas.com/plan/anthropic",
+    "model": "{\"main\":\"auto\",\"haiku\":\"auto\",\"sonnet\":\"auto\",\"opus\":\"auto\"}"
+  },
+  {
+    "id": "tencent-token-plan-enterprise-pro-intl",
+    "name": "Tencent Token Plan Enterprise Pro (Intl)",
+    "icon": "tencent",
+    "website_url": "https://www.tencentcloud.com/products/tokenhub",
+    "api_key_url": "https://console.tencentcloud.com/tokenhub/tokenplan-e",
+    "endpoint_candidates": [
+      "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic",
+      "https://tokenhub.tencentcloudmaas.com/plan/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic",
+    "model": "{\"main\":\"auto\",\"haiku\":\"auto\",\"sonnet\":\"auto\",\"opus\":\"auto\"}"
+  },
+  {
+    "id": "therouter",
+    "name": "TheRouter",
+    "icon": "therouter",
+    "website_url": "https://therouter.ai/",
+    "api_key_url": "https://dashboard.therouter.ai/",
+    "endpoint_candidates": [
+      "https://api.therouter.ai/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.therouter.ai/",
+    "model": "{\"main\":\"anthropic/claude-sonnet-5-5\",\"haiku\":\"anthropic/claude-haiku-5-5\",\"sonnet\":\"anthropic/claude-sonnet-5-5\",\"opus\":\"anthropic/claude-opus-5-5\"}"
+  },
+  {
+    "id": "tokenfactory",
+    "name": "TokenFactory",
+    "icon": "tokenfactory",
+    "website_url": "https://tokenfactory.cn/",
+    "api_key_url": "https://console.tokenfactory.cn/login",
+    "endpoint_candidates": [
+      "https://api.tokenfactory.cn/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.tokenfactory.cn/anthropic",
+    "model": "{\"main\":\"glm-5.3[1M]\",\"haiku\":\"deepseek-v4.1-flash[1M]\",\"sonnet\":\"glm-5.3[1M]\",\"opus\":\"kimi-k3[1M]\"}"
+  },
+  {
+    "id": "tokenflux",
+    "name": "TokenFlux",
+    "icon": "tokenflux",
+    "website_url": "https://tokenflux.com/",
+    "api_key_url": "https://tokenflux.com/keys",
+    "endpoint_candidates": [
+      "https://tokenflux.com/",
+      "https://tokenflux.dev/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenflux.com/",
+    "model": "{}"
+  },
+  {
+    "id": "tokenplus",
+    "name": "TokenPlus",
+    "icon": "tokenplus",
+    "website_url": "https://www.tokenplus.cn/",
+    "api_key_url": "https://www.tokenplus.cn/workspace",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.tokenplus.cn/",
+    "model": "{\"main\":\"deepseek/deepseek-v4.1-flash-1017\",\"haiku\":\"z-ai/glm-5.3-flash\",\"sonnet\":\"deepseek/deepseek-v4.1-flash-1017\",\"opus\":\"moonshot-ai/kimi-k3.1-pro\"}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "tu-zi",
+    "name": "Tu-zi",
+    "icon": "tuzi",
+    "website_url": "https://api.tu-zi.com/",
+    "api_key_url": "https://api.tu-zi.com/token",
+    "endpoint_candidates": [
+      "https://api.tu-zi.com/",
+      "https://api.ourzhishi.top/",
+      "https://api.sydney-ai.com/",
+      "https://apicdn.tu-zi.com/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.tu-zi.com/",
+    "model": "{}",
+    "api_key_field": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "vercel-ai-gateway",
+    "name": "Vercel AI Gateway",
+    "icon": "vercel",
+    "website_url": "https://vercel.com/ai-gateway",
+    "api_key_url": "https://vercel.com/d",
+    "endpoint_candidates": [
+      "https://ai-gateway.vercel.sh/claude-code"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://ai-gateway.vercel.sh/claude-code",
+    "model": "{\"main\":\"anthropic/claude-sonnet-5.5\",\"haiku\":\"anthropic/claude-haiku-5.5\",\"sonnet\":\"anthropic/claude-sonnet-5.5\",\"opus\":\"anthropic/claude-opus-5.5\"}"
+  },
+  {
+    "id": "vllm",
+    "name": "vLLM",
+    "icon": "vllm",
+    "website_url": "https://vllm.ai/",
+    "endpoint_candidates": [
+      "http://localhost:8000/",
+      "http://127.0.0.1:8000/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "http://localhost:8000/",
+    "model": "{\"main\":\"Qwen/Qwen3.6-27B\",\"haiku\":\"Qwen/Qwen3.6-27B\",\"sonnet\":\"Qwen/Qwen3.6-27B\",\"opus\":\"Qwen/Qwen3.6-27B\"}"
+  },
+  {
+    "id": "xiaomi-mimo",
+    "name": "Xiaomi MiMo",
+    "icon": "xiaomimimo",
+    "website_url": "https://platform.xiaomimimo.com/",
+    "api_key_url": "https://platform.xiaomimimo.com/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.xiaomimimo.com/anthropic",
+    "model": "{\"main\":\"mimo-v2.6-pro[1M]\",\"haiku\":\"mimo-v2.6-pro[1M]\",\"sonnet\":\"mimo-v2.6-pro[1M]\",\"opus\":\"mimo-v2.6-pro[1M]\"}"
+  },
+  {
+    "id": "xiaomi-mimo-token-plan-china",
+    "name": "Xiaomi MiMo Token Plan (China)",
+    "icon": "xiaomimimo",
+    "website_url": "https://platform.xiaomimimo.com/",
+    "api_key_url": "https://platform.xiaomimimo.com/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
+    "model": "{\"main\":\"mimo-v2.6-pro[1M]\",\"haiku\":\"mimo-v2.6-pro[1M]\",\"sonnet\":\"mimo-v2.6-pro[1M]\",\"opus\":\"mimo-v2.6-pro[1M]\"}"
+  },
+  {
+    "id": "yylx",
+    "name": "YYLX",
+    "icon": "yylx",
+    "website_url": "https://yylx.io/",
+    "api_key_url": "https://app.yylx.io/keys",
+    "endpoint_candidates": [
+      "https://app.yylx.io/",
+      "https://global.yylx.io/",
+      "https://cn.yylx.io/"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://app.yylx.io/",
+    "model": "{}"
+  },
+  {
+    "id": "zhipu-glm",
+    "name": "Zhipu GLM",
+    "icon": "zhipu",
+    "website_url": "https://open.bigmodel.cn/",
+    "api_key_url": "https://www.bigmodel.cn/claude-code",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://open.bigmodel.cn/api/anthropic",
+    "model": "{\"main\":\"glm-5.3[1M]\",\"haiku\":\"glm-5.3[1M]\",\"sonnet\":\"glm-5.3[1M]\",\"opus\":\"glm-5.3[1M]\"}"
+  },
+  {
+    "id": "zhipu-glm-en",
+    "name": "Zhipu GLM en",
+    "icon": "zhipu",
+    "website_url": "https://z.ai/",
+    "api_key_url": "https://z.ai/subscribe",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.z.ai/api/anthropic",
+    "model": "{\"main\":\"glm-5.3[1M]\",\"haiku\":\"glm-5.3[1M]\",\"sonnet\":\"glm-5.3[1M]\",\"opus\":\"glm-5.3[1M]\"}"
+  },
+  {
+    "id": "ai",
+    "name": "千问AI平台",
+    "icon": "qianwenai",
+    "website_url": "https://platform.qianwenai.com/",
+    "api_key_url": "https://platform.qianwenai.com/home/api-keys",
+    "endpoint_candidates": [
+      "https://maas.qianwenaiapi.com/apps/anthropic",
+      "https://dashscope.aliyuncs.com/apps/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://maas.qianwenaiapi.com/apps/anthropic",
+    "model": "{\"main\":\"qwen3.8-max[1M]\",\"haiku\":\"qwen3.8-flash[1M]\",\"sonnet\":\"qwen3.7-plus[1M]\",\"opus\":\"qwen3.8-max[1M]\"}"
+  },
+  {
+    "id": "ai-coding-plan",
+    "name": "千问AI平台 Coding Plan",
+    "icon": "qianwenai",
+    "website_url": "https://bailian.console.aliyun.com/",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+    "model": "{}"
+  },
+  {
+    "id": "ai-token-plan",
+    "name": "千问AI平台 Token Plan",
+    "icon": "qianwenai",
+    "website_url": "https://platform.qianwenai.com/pricing/token-plan",
+    "api_key_url": "https://platform.qianwenai.com/home/api-keys",
+    "endpoint_candidates": [
+      "https://token-plan.maas.qianwenaiapi.com/apps/anthropic",
+      "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://token-plan.maas.qianwenaiapi.com/apps/anthropic",
+    "model": "{\"main\":\"qwen3.8-max[1M]\",\"haiku\":\"qwen3.8-flash[1M]\",\"sonnet\":\"qwen3.7-plus[1M]\",\"opus\":\"qwen3.8-max[1M]\"}"
+  },
+  {
+    "id": "provider",
+    "name": "模力方舟",
+    "icon": "moark",
+    "website_url": "https://moark.com/",
+    "api_key_url": "https://moark.com/dashboard/tokens",
+    "endpoint_candidates": [
+      "https://moark.com/anthropic"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://moark.com/anthropic",
+    "model": "{\"main\":\"deepseek-v4.1-flash[1M]\",\"haiku\":\"deepseek-v4.1-flash[1M]\",\"sonnet\":\"deepseek-v4.1-flash[1M]\",\"opus\":\"deepseek-v4.1-flash[1M]\"}"
+  }
+]

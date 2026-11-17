@@ -543,6 +543,7 @@ pub(super) async fn gh_cli_setup(
             &CreateSession {
                 executor: Some("gh-cli".to_string()),
                 agent_id: None,
+                provider_instance_id: None,
                 task_id: None,
                 name: None,
                 initial_prompt: None,

@@ -1061,7 +1061,7 @@ pub async fn review_conversation_memory_with_threshold(
             r#"SELECT conversation_id
                FROM collaboration_space_members
                WHERE space_id = ? AND conversation_id IS NOT NULL
-               ORDER BY joined_at ASC"#,
+               ORDER BY rowid ASC"#,
         )
         .bind(&caller.thread_id)
         .fetch_all(pool)

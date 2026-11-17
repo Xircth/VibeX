@@ -54,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn injects_two_named_servers_when_both_plugins_are_on() {
+    fn injects_unified_superagent_server_when_both_plugins_are_on() {
         let tokens = Arc::new(TokenRegistry::new());
         let injector = DimoDelegationInjector {
             tokens,
@@ -64,7 +64,7 @@ mod tests {
                 ("session", SESSION_FEAT_ALL),
             ]),
             locate_binary: test_locate,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -73,13 +73,14 @@ mod tests {
             panic!("expected injection");
         };
         let names: Vec<_> = servers.iter().map(|server| server.name.as_str()).collect();
-        assert_eq!(names, ["dimo-delegation-mcp", "dimo-session-mcp"]);
-        assert!(
-            servers[0]
-                .args
-                .windows(2)
-                .any(|window| window == ["--features", "delegation,sessions,collaboration"])
-        );
+        assert_eq!(names, [plugins::SUPERAGENT_MCP_NAME]);
+        assert!(servers[0].args.windows(2).any(|window| {
+            window
+                == [
+                    "--features",
+                    "delegation,sessions,collaboration,feedback,ask,session-control,pulse,workflow",
+                ]
+        }));
     }
 
     #[test]
@@ -91,7 +92,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
-            space_session: Arc::new(move |id| id == conversation_id),
+            space_session: server::SpaceSessionLookup::sync(move |id| id == conversation_id),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let context = CompanionInjectionContext {
@@ -107,11 +108,13 @@ mod tests {
         else {
             panic!("expected injection");
         };
-        assert!(
-            servers[0].args.windows(2).any(|window| {
-                window == ["--features", "delegation,sessions,collaboration,space"]
-            })
-        );
+        assert!(servers[0].args.windows(2).any(|window| {
+            window
+                == [
+                    "--features",
+                    "delegation,sessions,collaboration,space,pulse,workflow",
+                ]
+        }));
         let token = servers[0]
             .args
             .windows(2)
@@ -135,7 +138,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp,
             locate_binary: test_locate,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -144,30 +147,37 @@ mod tests {
             panic!("expected session injection");
         };
         assert_eq!(servers.len(), 1);
-        assert_eq!(servers[0].name, "dimo-session-mcp");
+        assert_eq!(servers[0].name, plugins::SUPERAGENT_MCP_NAME);
         assert!(
             servers[0]
                 .args
                 .windows(2)
-                .any(|window| window == ["--features", "ask"])
+                .any(|window| window == ["--features", "ask,pulse,workflow"])
         );
     }
 
     #[test]
-    fn both_plugins_off_is_official_product_disabled() {
+    fn workflow_and_pulse_inject_even_when_optional_plugins_are_off() {
         let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: Arc::new(OfficialMcpRuntime::default()),
             locate_binary: test_locate,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
-        assert_eq!(
-            injector.injected_stdio_servers(context(&agent, true)),
-            CompanionInjectionList::Unsupported {
-                code: "official_product_mcp_disabled"
-            }
+        let CompanionInjectionList::Injected(servers) =
+            injector.injected_stdio_servers(context(&agent, true))
+        else {
+            panic!("expected built-in superagent injection");
+        };
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, plugins::SUPERAGENT_MCP_NAME);
+        assert!(
+            servers[0]
+                .args
+                .windows(2)
+                .any(|window| window == ["--features", "pulse,workflow"])
         );
     }
 
@@ -178,7 +188,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("grok").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -186,7 +196,7 @@ mod tests {
         else {
             panic!("expected ACP injection for Grok");
         };
-        assert_eq!(servers[0].name, "dimo-delegation-mcp");
+        assert_eq!(servers[0].name, plugins::SUPERAGENT_MCP_NAME);
     }
 
     #[test]
@@ -196,7 +206,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("claude_code").unwrap();
         assert_eq!(
@@ -214,7 +224,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: |_| None,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         assert_eq!(
@@ -232,7 +242,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
-            space_session: Arc::new(|_| false),
+            space_session: server::SpaceSessionLookup::sync(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =

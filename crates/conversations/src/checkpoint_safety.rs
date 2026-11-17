@@ -486,8 +486,8 @@ fn binding_supports_native_revert(
         .trim()
         .to_ascii_lowercase();
     matches!(
-        normalized_agent.as_str(),
-        "codex" | "claude" | "claude-code"
+        agents::AgentKind::from_lenient(normalized_agent.as_str()),
+        Some(agents::AgentKind::Codex | agents::AgentKind::ClaudeCode)
     ) && (resume_supported || load_supported)
 }
 

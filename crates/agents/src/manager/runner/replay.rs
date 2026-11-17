@@ -422,13 +422,16 @@ impl AgentConnectionRunner {
         if companion_capabilities.accepts_session_mcp_servers
             && let Some(injector) = &self.delegation_injector
         {
-            match injector.injected_stdio_servers(CompanionInjectionContext {
-                parent_connection_id: &self.snapshot.connection_id.0.to_string(),
-                parent_conversation_id: session_id.0,
-                agent_id: &self.snapshot.agent_id,
-                working_root: working_dir,
-                capabilities: companion_capabilities,
-            }) {
+            match injector
+                .injected_stdio_servers_async(CompanionInjectionContext {
+                    parent_connection_id: &self.snapshot.connection_id.0.to_string(),
+                    parent_conversation_id: session_id.0,
+                    agent_id: &self.snapshot.agent_id,
+                    working_root: working_dir,
+                    capabilities: companion_capabilities,
+                })
+                .await
+            {
                 CompanionInjectionList::Injected(injected) => {
                     for server in injected {
                         servers.push(acp::schema::v1::McpServer::Stdio(

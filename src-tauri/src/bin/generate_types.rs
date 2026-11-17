@@ -141,7 +141,10 @@ use dimo::commands::{
     attention::{AttentionInbox, AttentionItem, AttentionItemKind},
     conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
     crash_reports::{CrashReportMeta, CrashReportsInfo},
-    sessions::{SessionCollaborationRef, SessionContinuityMode, SessionSummary},
+    sessions::{
+        SessionCollaborationMemberRef, SessionCollaborationRef, SessionContinuityMode,
+        SessionSummary,
+    },
 };
 use api_types::pulse::{
     ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventActor, EventEnvelope,
@@ -567,6 +570,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<CreateSession>(&mut decls);
     insert_declaration::<SessionContinuityMode>(&mut decls);
     insert_declaration::<SessionCollaborationRef>(&mut decls);
+    insert_declaration::<SessionCollaborationMemberRef>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
     insert_declaration::<MultiAgentAgentDefault>(&mut decls);

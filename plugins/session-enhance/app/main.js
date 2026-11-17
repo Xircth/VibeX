@@ -34,25 +34,13 @@ export default {
       },
     });
 
-    ctx.services.inject(
-      ['dimo.provider-catalog', 'dimo.usage'],
-      ([providerCatalog, usageService]) => {
-        const templates =
-          typeof providerCatalog?.listTemplates === 'function'
-            ? providerCatalog.listTemplates('opencode')
-            : [];
-        ctx.ui.registerStatusItem({
-          id: 'session-enhance-status',
-          label: `Session Enhance (${templates.length} templates)`,
-        });
-        ctx.services.provide('dimo.session-enhance', {
-          activeTemplateCount: templates.length,
-          canProbeUsage: typeof usageService?.probeAgentUsage === 'function',
-          async getLastCapturedMeta() {
-            return await ctx.storage.kv.get('lastCapturedMeta');
-          },
-        });
-      }
-    );
+    ctx.services.inject(['dimo.usage'], ([usageService]) => {
+      ctx.services.provide('dimo.session-enhance', {
+        canProbeUsage: typeof usageService?.probeAgentUsage === 'function',
+        async getLastCapturedMeta() {
+          return await ctx.storage.kv.get('lastCapturedMeta');
+        },
+      });
+    });
   },
 };

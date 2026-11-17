@@ -483,7 +483,7 @@
     "setupFailed": "Couldn't save setup. Try again.",
     "historyStep": "Import history",
     "detectingHistorySourcesDescription": "Dimo is checking which installed Agents have local history on this machine.",
-    "noHistorySources": "No installed Agent has local history on this machine. You can continue straight to projects.",
+    "noHistorySources": "No installed Agent has local history on this machine. You can continue straight to appearance setup.",
     "scanningAgent": "Scanning",
     "cancelScan": "Cancel scan",
     "historyFound": "{{projects}} projects · {{sessions}} sessions",
@@ -491,6 +491,9 @@
     "loadingProjects": "Loading projects…",
     "importedProjectBadge": "Imported",
     "importedProjectsReceipt": "{{count}} imported projects are selected below.",
+    "projectListTitle": "Select a project to enter",
+    "selectProjectToEnterGuide": "Click any project (or Global) in the list on the right to enter the workspace",
+    "projectsMultiImported": "Imported {{count}} projects",
     "detectingHistorySources": "Checking installed Agents for local history…",
     "scanWaiting": "Waiting"
   },

@@ -982,22 +982,41 @@ pub fn validate_json_value(
     schema: &serde_json::Value,
     value: &serde_json::Value,
 ) -> Result<(), WorkflowError> {
-    validate_json_schema(schema)?;
-    validate_value_node(schema, value, "$")
+    let errors = validate_json_value_errors(schema, value);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(WorkflowError::Validation(errors.join("; ")))
+    }
 }
 
-fn validate_value_node(
+/// Exhaustively validates `value` against `schema` in a single pass without failing
+/// fast on the first violation. Returns all collected schema and value errors.
+pub fn validate_json_value_errors(
+    schema: &serde_json::Value,
+    value: &serde_json::Value,
+) -> Vec<String> {
+    let mut nodes = 0;
+    let mut errors = Vec::new();
+    validate_schema_node_errors(schema, 0, "$", &mut nodes, &mut errors);
+    if !errors.is_empty() {
+        return errors;
+    }
+    collect_value_node_errors(schema, value, "$", &mut errors);
+    errors
+}
+
+fn collect_value_node_errors(
     schema: &serde_json::Value,
     value: &serde_json::Value,
     path: &str,
-) -> Result<(), WorkflowError> {
+    errors: &mut Vec<String>,
+) {
     let object = schema.as_object().expect("schema validated above");
     if let Some(allowed) = object.get("enum").and_then(serde_json::Value::as_array)
         && !allowed.contains(value)
     {
-        return Err(WorkflowError::Validation(format!(
-            "value at {path} is outside enum"
-        )));
+        errors.push(format!("value at {path} is outside enum"));
     }
     let valid_type = match object.get("type").and_then(serde_json::Value::as_str) {
         None => true,
@@ -1011,58 +1030,66 @@ fn validate_value_node(
         Some(_) => false,
     };
     if !valid_type {
-        return Err(WorkflowError::Validation(format!(
-            "value at {path} does not match schema type"
-        )));
+        let expected = object
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        errors.push(format!(
+            "value at {path} does not match expected schema type `{expected}`"
+        ));
     }
     if let Some(text) = value.as_str() {
         let length = text.chars().count() as u64;
-        if object
-            .get("minLength")
-            .and_then(serde_json::Value::as_u64)
-            .is_some_and(|minimum| length < minimum)
-            || object
-                .get("maxLength")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|maximum| length > maximum)
+        if let Some(minimum) = object.get("minLength").and_then(serde_json::Value::as_u64)
+            && length < minimum
         {
-            return Err(WorkflowError::Validation(format!(
-                "string length at {path} is outside schema bounds"
-            )));
+            errors.push(format!(
+                "string length {length} at {path} is below minLength {minimum}"
+            ));
+        }
+        if let Some(maximum) = object.get("maxLength").and_then(serde_json::Value::as_u64)
+            && length > maximum
+        {
+            errors.push(format!(
+                "string length {length} at {path} exceeds maxLength {maximum}"
+            ));
         }
     }
-    if let Some(number) = value.as_f64()
-        && (object
-            .get("minimum")
-            .and_then(serde_json::Value::as_f64)
-            .is_some_and(|minimum| number < minimum)
-            || object
-                .get("maximum")
-                .and_then(serde_json::Value::as_f64)
-                .is_some_and(|maximum| number > maximum))
-    {
-        return Err(WorkflowError::Validation(format!(
-            "number at {path} is outside schema bounds"
-        )));
+    if let Some(number) = value.as_f64() {
+        if let Some(minimum) = object.get("minimum").and_then(serde_json::Value::as_f64)
+            && number < minimum
+        {
+            errors.push(format!(
+                "number {number} at {path} is below minimum {minimum}"
+            ));
+        }
+        if let Some(maximum) = object.get("maximum").and_then(serde_json::Value::as_f64)
+            && number > maximum
+        {
+            errors.push(format!(
+                "number {number} at {path} exceeds maximum {maximum}"
+            ));
+        }
     }
     if let Some(values) = value.as_array() {
         let length = values.len() as u64;
-        if object
-            .get("minItems")
-            .and_then(serde_json::Value::as_u64)
-            .is_some_and(|minimum| length < minimum)
-            || object
-                .get("maxItems")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|maximum| length > maximum)
+        if let Some(minimum) = object.get("minItems").and_then(serde_json::Value::as_u64)
+            && length < minimum
         {
-            return Err(WorkflowError::Validation(format!(
-                "array length at {path} is outside schema bounds"
-            )));
+            errors.push(format!(
+                "array length {length} at {path} is below minItems {minimum}"
+            ));
+        }
+        if let Some(maximum) = object.get("maxItems").and_then(serde_json::Value::as_u64)
+            && length > maximum
+        {
+            errors.push(format!(
+                "array length {length} at {path} exceeds maxItems {maximum}"
+            ));
         }
         if let Some(items) = object.get("items") {
             for (index, item) in values.iter().enumerate() {
-                validate_value_node(items, item, &format!("{path}/{index}"))?;
+                collect_value_node_errors(items, item, &format!("{path}/{index}"), errors);
             }
         }
     }
@@ -1070,9 +1097,7 @@ fn validate_value_node(
         if let Some(required) = object.get("required").and_then(serde_json::Value::as_array) {
             for field in required.iter().filter_map(serde_json::Value::as_str) {
                 if !value_object.contains_key(field) {
-                    return Err(WorkflowError::Validation(format!(
-                        "required property `{field}` is missing at {path}"
-                    )));
+                    errors.push(format!("required property `{field}` is missing at {path}"));
                 }
             }
         }
@@ -1082,21 +1107,31 @@ fn validate_value_node(
         {
             for (field, child_schema) in properties {
                 if let Some(child_value) = value_object.get(field) {
-                    validate_value_node(child_schema, child_value, &format!("{path}/{field}"))?;
+                    collect_value_node_errors(
+                        child_schema,
+                        child_value,
+                        &format!("{path}/{field}"),
+                        errors,
+                    );
                 }
             }
             if object.get("additionalProperties") == Some(&serde_json::Value::Bool(false)) {
                 for field in value_object.keys() {
                     if !properties.contains_key(field) {
-                        return Err(WorkflowError::Validation(format!(
+                        errors.push(format!(
                             "additional property `{field}` is not allowed at {path}"
-                        )));
+                        ));
                     }
                 }
             }
+        } else if object.get("additionalProperties") == Some(&serde_json::Value::Bool(false)) {
+            for field in value_object.keys() {
+                errors.push(format!(
+                    "additional property `{field}` is not allowed at {path}"
+                ));
+            }
         }
     }
-    Ok(())
 }
 
 fn validate_schema_node_errors(

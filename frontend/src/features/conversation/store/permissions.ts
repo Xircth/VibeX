@@ -65,6 +65,7 @@ export type ParsedAgentHandoffNotice = {
   toAgent: string;
   fromModel: string | null;
   toModel: string | null;
+  handoffTokens: number | null;
   continuationPolicy: 'portable' | 'fresh';
 };
 
@@ -102,6 +103,17 @@ export function parseAgentHandoffNotice(
       typeof parsed.toModel === 'string' && parsed.toModel.trim().length > 0
         ? parsed.toModel.trim()
         : null;
+    const rawTokens =
+      parsed.handoffTokens ??
+      parsed.handoff_tokens ??
+      parsed.totalTokens ??
+      parsed.total_tokens;
+    const handoffTokens =
+      typeof rawTokens === 'number' &&
+      Number.isFinite(rawTokens) &&
+      rawTokens > 0
+        ? Math.round(rawTokens)
+        : null;
     const continuationPolicy =
       parsed.continuationPolicy === 'fresh' ? 'fresh' : 'portable';
     return {
@@ -109,6 +121,7 @@ export function parseAgentHandoffNotice(
       toAgent,
       fromModel,
       toModel,
+      handoffTokens,
       continuationPolicy,
     };
   } catch {

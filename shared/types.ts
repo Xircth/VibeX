@@ -280,6 +280,10 @@ executor: string | null, external_session_id: string | null,
  */
 agent_id: AgentId | null,
 /**
+ * Optional provider instance identifier (`None` = implicit `"local"` instance).
+ */
+provider_instance_id: string | null,
+/**
  * Multi-agent delegation linkage. All NULL for a regular (non-delegated)
  * session: `parent_session_id` points at the parent that delegated this
  * child, `parent_tool_use_id` is the parent's `delegate_to_agent` tool-call
@@ -1245,7 +1249,7 @@ export const DEFAULT_PR_DESCRIPTION_PROMPT =
 export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE =
   "{title} (Dimo {id})\n\n{description}";
 
-export type CreateSession = { executor: string | null, agent_id: AgentId | null, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus | null, };
+export type CreateSession = { executor: string | null, agent_id: AgentId | null, provider_instance_id: string | null, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus | null, };
 
 export type SessionStatus = "todo" | "inprogress" | "inreview" | "done" | "archived";
 
@@ -1462,7 +1466,7 @@ title: string | null,
 /**
  * When set, parsed titles must not overwrite the user-set title.
  */
-title_locked: boolean, status: SessionStatus, agent_id: AgentId | null, model: string | null, external_session_id: string | null, message_count: bigint, pinned_at: string | null, parent_session_id: string | null, parent_tool_use_id: string | null, delegation_call_id: string | null, created_at: string, updated_at: string, };
+title_locked: boolean, status: SessionStatus, agent_id: AgentId | null, provider_instance_id: string | null, model: string | null, external_session_id: string | null, message_count: bigint, pinned_at: string | null, parent_session_id: string | null, parent_tool_use_id: string | null, delegation_call_id: string | null, created_at: string, updated_at: string, };
 
 export type DbConversationDetail = { summary: DbConversationSummary,
 /**
@@ -2252,7 +2256,7 @@ export type CompletionPolicy = "automatic" | "manual";
 
 export type DebugRunScope = "node" | "downstream";
 
-export type WorkflowDefinitionSummary = { id: string, name: string, latestVersionId: string | null, latestVersion: bigint | null, latestNormalizedJson?: string | null, updatedAt: string, };
+export type WorkflowDefinitionSummary = { id: string, name: string, latestVersionId: string | null, latestVersion: bigint | null, latestNormalizedJson: string | null, updatedAt: string, };
 
 export type CommunityAcpPresetView = { preset_id: string, agent_id: AgentId, display_name: string, description: string, authors: Array<string>, repository: string | null, version: string, distribution_kind: UserAgentDistributionKind, distribution_json: string, icon_light: string | null, icon_dark: string | null, built_in: boolean, added: boolean, };
 
@@ -2366,7 +2370,11 @@ export type MultiAgentAgentDefault = { mode_id?: string | null, config_values?: 
 
 export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, kind?: string, generation?: number, };
 
-export type SessionCollaborationRef = { member_id: string, member_name: string, thread_id: string, thread_kind: string, thread_name: string, };
+export type SessionCollaborationRef = { member_id: string, member_name: string, thread_id: string, thread_kind: string, thread_name: string,
+/**
+ * Active members of a group thread in join order; empty for direct threads.
+ */
+thread_members: Array<SessionCollaborationMemberRef>, };
 
 export type CollaborationSpaceOrigin = { spaceId: string,
 /**
@@ -2529,3 +2537,5 @@ export type PulseTaskKind = "fast_task" | "reusable_rule" | "workflow_trigger";
 export type PulseTaskLifecycleState = "editing" | "pending_test" | "publishing" | "published";
 
 export type PulseTaskMeta = { taskKind: PulseTaskKind | null, lifecycleState: PulseTaskLifecycleState | null, boundRuleTemplateId: string | null, lastTestedAt: string | null, lastTestPassed: boolean | null, lastRunAt: string | null, lastRunStatus: string | null, lastRunSummary: string | null, };
+
+export type SessionCollaborationMemberRef = { member_id: string, name: string, conversation_id: string, };

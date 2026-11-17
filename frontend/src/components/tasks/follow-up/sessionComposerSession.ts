@@ -161,6 +161,7 @@ export type ComposerControlScopeSnapshot = {
   sessionId: string | undefined;
   targetExecutor: string | null | undefined;
   resolvedSessionExecutor: string | null | undefined;
+  providerInstanceId?: string | null;
 };
 
 export function resolveComposerControlScopeTransition({
@@ -187,7 +188,8 @@ export function resolveComposerControlScopeTransition({
   const unchanged =
     previous.sessionId === current.sessionId &&
     previous.targetExecutor === current.targetExecutor &&
-    previous.resolvedSessionExecutor === current.resolvedSessionExecutor;
+    previous.resolvedSessionExecutor === current.resolvedSessionExecutor &&
+    (previous.providerInstanceId ?? null) === (current.providerInstanceId ?? null);
   if (unchanged) {
     return {
       shouldReset: false,

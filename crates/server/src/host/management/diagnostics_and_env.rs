@@ -313,16 +313,18 @@ pub(super) fn shell_quote_management_part(value: &str) -> String {
     return format!("'{}'", value.replace('\'', "'\\''"));
 }
 
-pub(super) async fn launch_watched_management_action(
+pub(super) async fn launch_watched_management_action_for_instance(
     agent_id: &AgentId,
+    instance_id: Option<&str>,
     action_id: &str,
     environment: &HashMap<String, String>,
     command: &str,
     result_path: Option<&Path>,
 ) -> Result<(), ApplicationError> {
     let launched = async {
-        let command = account_flow::prepare_management_launch(
+        let command = account_flow::prepare_management_launch_for_instance(
             agent_id,
+            instance_id,
             action_id,
             command,
             &management_environment_assignments(environment),
@@ -334,7 +336,7 @@ pub(super) async fn launch_watched_management_action(
     }
     .await;
     if launched.is_err() && result_path.is_some() {
-        account_flow::cancel_account_flow(agent_id);
+        account_flow::cancel_account_flow_for_instance(agent_id, instance_id);
     }
     launched
 }
@@ -1006,6 +1008,23 @@ pub(super) async fn execute_non_antigravity_action(
     environment: &HashMap<String, String>,
     resolved_program: Option<ResolvedManagementProgram>,
 ) -> Result<(), ApplicationError> {
+    execute_non_antigravity_action_for_instance(
+        agent_id,
+        None,
+        action,
+        environment,
+        resolved_program,
+    )
+    .await
+}
+
+pub(super) async fn execute_non_antigravity_action_for_instance(
+    agent_id: &AgentId,
+    instance_id: Option<&str>,
+    action: &agents::ProfileManagementAction,
+    environment: &HashMap<String, String>,
+    resolved_program: Option<ResolvedManagementProgram>,
+) -> Result<(), ApplicationError> {
     if let Some(url) = action.url {
         return utils::browser::open_browser(url)
             .await
@@ -1026,13 +1045,21 @@ pub(super) async fn execute_non_antigravity_action(
         action.kind,
         ProfileManagementActionKind::Login | ProfileManagementActionKind::Logout
     );
-    let result_path = watches_account.then(|| account_flow::account_flow_result_path(agent_id));
+    let result_path = watches_account
+        .then(|| account_flow::account_flow_result_path_for_instance(agent_id, instance_id));
     if let Some(result_path) = &result_path {
         let _ = tokio::fs::remove_file(result_path).await;
-        account_flow::register_account_flow(agent_id, action.id, action.kind, result_path.clone());
+        account_flow::register_account_flow_for_instance(
+            agent_id,
+            instance_id,
+            action.id,
+            action.kind,
+            result_path.clone(),
+        );
     }
-    launch_watched_management_action(
+    launch_watched_management_action_for_instance(
         agent_id,
+        instance_id,
         action.id,
         environment,
         &command,
@@ -1277,8 +1304,9 @@ mod tests {
             result_path.clone(),
         );
 
-        launch_watched_management_action(
+        launch_watched_management_action_for_instance(
             &agent_id,
+            None,
             "login",
             &environment,
             "kimi acp --login",

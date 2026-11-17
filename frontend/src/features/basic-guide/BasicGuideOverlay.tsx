@@ -28,6 +28,34 @@ import {
 } from './basicGuideState';
 import './basicGuide.css';
 
+export function BasicGuideExitButton() {
+  const ctx = useOptionalBasicGuide();
+  const { t } = useTranslation(['basicGuide']);
+  const location = useLocation();
+
+  if (
+    !ctx ||
+    !isGuideVisible(ctx.state) ||
+    ctx.state.endCopy !== 'none' ||
+    isSettingsRoute(location.pathname)
+  ) {
+    return null;
+  }
+
+  return (
+    <Button
+      type="button"
+      size="xs"
+      variant="primary"
+      data-testid="basic-guide-exit-button"
+      className="shrink-0"
+      onClick={ctx.requestExit}
+    >
+      {t('exit')}
+    </Button>
+  );
+}
+
 export function BasicGuideOverlay() {
   const ctx = useOptionalBasicGuide();
   const { t } = useTranslation(['basicGuide', 'common']);
@@ -40,7 +68,11 @@ export function BasicGuideOverlay() {
   const meta = SUBSTEP_META[state.substep];
   const showCoaching = !showingEnd && state.substep !== 'show-end';
   const spotlightTargets = showCoaching ? substepSpotlights(state.substep) : [];
-  const showStepPanel = !isSettingsRoute(location.pathname);
+  const hasFooterAction =
+    state.substep === 'show-end' ||
+    (meta.continueVisible && meta.targets.length === 0);
+  const showStepPanel =
+    !isSettingsRoute(location.pathname) && (showingEnd || hasFooterAction);
   const onKanban = isKanbanGuideSurface(location.pathname, activeTab);
 
   return (
@@ -116,13 +148,6 @@ export function BasicGuideOverlay() {
                     {t('continue')}
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={ctx.requestExit}
-                >
-                  {t('exit')}
-                </Button>
               </div>
             )}
           </div>

@@ -1063,6 +1063,7 @@ impl GitHubSourceNormalizer {
                         "htmlUrl": html_url,
                         "event": wf_run.get("event").cloned().unwrap_or(Value::Null),
                         "number": pr_number,
+                        "workflow_run": wf_run,
                     }),
                 )
             }
@@ -1101,6 +1102,7 @@ impl GitHubSourceNormalizer {
                         "html_url": html_url,
                         "htmlUrl": html_url,
                         "number": pr_number,
+                        "check_run": check,
                     }),
                 )
             }
@@ -1120,7 +1122,11 @@ impl GitHubSourceNormalizer {
 
         let channel_id = match number_opt {
             Some(number) => format!("{repo}#{number}"),
-            None => repo.to_string(),
+            None => thread_key
+                .as_deref()
+                .and_then(|tk| tk.strip_prefix("github:"))
+                .unwrap_or(repo)
+                .to_string(),
         };
 
         let resolved_delivery_id = if delivery_id.trim().is_empty() {

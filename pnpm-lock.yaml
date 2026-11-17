@@ -408,6 +408,8 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@26.1.2)(happy-dom@21.0.4)(jsdom@28.1.0)(lightningcss@1.33.0)
 
+  packages/pulse-sdk: {}
+
   plugins/browser:
     dependencies:
       '@dimoai/plugin-sdk':
@@ -521,8 +523,6 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
-
-  plugins/provider-switch: {}
 
   plugins/remote-ssh:
     dependencies:

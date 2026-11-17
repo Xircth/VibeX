@@ -26,6 +26,7 @@ function conversation(
     title_locked: false,
     status: 'inprogress',
     agent_id: 'codex',
+    provider_instance_id: null,
     model: null,
     external_session_id: null,
     message_count: BigInt(2),

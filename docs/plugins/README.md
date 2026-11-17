@@ -6,7 +6,7 @@ Dimo Plugin 是一个以统一产品身份、版本、配置和生命周期扩�
 
 - [插件使用指南](user-guide.md) — 在设置与 `dimo plugin` CLI 中发现、安装、启用、配置、更新与卸载插件。
 - [插件开发文档](developer-guide.md) — 包布局、`dimo-plugin` CLI、`@dimoai/plugin-sdk`（JS/TS `^2.0.0`）、Python / Rust Worker SDK、热更新链接（`--dev`）与打包分发。
-- [官方插件全景介绍](official-plugins.md) — 17 个官方插件（`plugins/*` 与 `dimo-plugin.json`）及宿主内置协作空间说明。
+- [官方插件全景介绍](official-plugins.md) — 16 个官方插件（`plugins/*` 与 `dimo-plugin.json`）及宿主内置协作空间说明。
 
 ## 用户入口
 

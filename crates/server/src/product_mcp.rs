@@ -1,17 +1,20 @@
 //! Loopback HTTP entry for product MCP processes.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
+use application::{CommandRegistry, Principal, RegisteredCommand, SqliteConversationRepository};
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::post,
 };
 use delegation::{DelegationListener, TokenEntry, TokenPermissions, TokenRegistry};
 use delegation_proto::BrokerMessage;
 use plugins::OfficialMcpRuntime;
-use tokio::net::TcpListener;
+use remote_protocol::CommandRequest;
+use tokio::{net::TcpListener, sync::RwLock};
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -20,12 +23,30 @@ pub trait ProductMcpSessionLookup: Send + Sync {
     async fn is_space_session(&self, conversation_id: Uuid) -> bool;
 }
 
+/// Late-bound application command registry attached once `HostRuntime::build`
+/// finishes initializing `CommandRegistry`.
+#[derive(Clone, Default)]
+pub struct ProductMcpCommandHost {
+    commands: Arc<RwLock<Option<CommandRegistry<SqliteConversationRepository>>>>,
+}
+
+impl ProductMcpCommandHost {
+    pub async fn attach_commands(&self, commands: CommandRegistry<SqliteConversationRepository>) {
+        *self.commands.write().await = Some(commands);
+    }
+
+    async fn commands(&self) -> Option<CommandRegistry<SqliteConversationRepository>> {
+        self.commands.read().await.clone()
+    }
+}
+
 #[derive(Clone)]
 struct GatewayState {
     listener: Arc<DelegationListener>,
     tokens: Arc<TokenRegistry>,
     gate: Arc<OfficialMcpRuntime>,
     sessions: Arc<dyn ProductMcpSessionLookup>,
+    command_host: ProductMcpCommandHost,
 }
 
 pub async fn start_product_mcp_gateway(
@@ -33,6 +54,7 @@ pub async fn start_product_mcp_gateway(
     tokens: Arc<TokenRegistry>,
     gate: Arc<OfficialMcpRuntime>,
     sessions: Arc<dyn ProductMcpSessionLookup>,
+    command_host: ProductMcpCommandHost,
 ) -> Result<String, std::io::Error> {
     let listener_tcp = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener_tcp.local_addr()?;
@@ -43,9 +65,11 @@ pub async fn start_product_mcp_gateway(
         tokens,
         gate,
         sessions,
+        command_host,
     };
     let app = Router::new()
         .route("/internal/companion", post(companion))
+        .route("/api/v1/call/{command}", post(v1_call))
         .with_state(state);
     tokio::spawn(async move {
         if let Err(error) = axum::serve(listener_tcp, app).await {
@@ -55,22 +79,83 @@ pub async fn start_product_mcp_gateway(
     Ok(base)
 }
 
+fn extract_bearer(headers: &HeaderMap) -> Option<&str> {
+    let raw = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())?;
+    let trimmed = raw.trim();
+    trimmed
+        .strip_prefix("Bearer ")
+        .or_else(|| trimmed.strip_prefix("bearer "))
+        .or_else(|| trimmed.strip_prefix("BEARER "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+}
+
+fn superagent_scopes() -> BTreeSet<String> {
+    let mut scopes = RegisteredCommand::all()
+        .into_iter()
+        .map(|cmd| cmd.required_scope().to_owned())
+        .collect::<BTreeSet<_>>();
+    for extra in [
+        "workspace.write",
+        "artifact.read",
+        "artifact.preview",
+        "plugin.read",
+        "plugin.write",
+        "plugin.surface",
+        "delegation.read",
+        "delegation.cancel",
+    ] {
+        scopes.insert(extra.to_owned());
+    }
+    scopes
+}
+
+async fn v1_call(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+    Path(command): Path<String>,
+    Json(request): Json<CommandRequest<serde_json::Value>>,
+) -> Response {
+    let Some(bearer) = extract_bearer(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    if !state.gate.is_valid_product_token(bearer) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let Some(commands) = state.command_host.commands().await else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error_code": "host_starting",
+                "message": "Host command registry is still initializing",
+            })),
+        )
+            .into_response();
+    };
+    let principal = Principal::remote("dimo-superagent-mcp", superagent_scopes());
+    match commands
+        .execute_name(&principal, &command, request.operation_id, request.args)
+        .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => crate::runtime::application_error_response(error),
+    }
+}
+
 async fn companion(
     State(state): State<GatewayState>,
     headers: HeaderMap,
     Json(mut message): Json<BrokerMessage>,
 ) -> Result<Json<delegation_proto::BrokerResponse>, StatusCode> {
-    let bearer = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let bearer = extract_bearer(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let product = headers
         .get("x-dimo-product")
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("delegation");
+        .unwrap_or("superagent");
     let expected = state.gate.token_for_product(product);
-    if expected.as_deref() != Some(bearer) {
+    if expected.as_deref() != Some(bearer) && !state.gate.is_valid_product_token(bearer) {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -90,6 +175,21 @@ async fn companion(
                 session_info: bits & plugins::SESSION_FEAT_SESSIONS != 0,
                 session_control: bits & plugins::SESSION_FEAT_SESSION_CONTROL != 0,
                 ..TokenPermissions::default()
+            }
+        } else if product == "superagent" {
+            let delegation_on = state.gate.allow_delegation_mcp();
+            let bits = state.gate.session_features();
+            let space_session =
+                delegation_on && state.sessions.is_space_session(conversation_id).await;
+            TokenPermissions {
+                delegation: delegation_on,
+                feedback: bits & plugins::SESSION_FEAT_FEEDBACK != 0,
+                ask: bits & plugins::SESSION_FEAT_ASK != 0,
+                session_info: delegation_on || (bits & plugins::SESSION_FEAT_SESSIONS != 0),
+                session_control: bits & plugins::SESSION_FEAT_SESSION_CONTROL != 0,
+                workspace_write: delegation_on,
+                collaboration: delegation_on,
+                space_session,
             }
         } else {
             let space_session = state.sessions.is_space_session(conversation_id).await;

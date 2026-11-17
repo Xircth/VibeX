@@ -1,9 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
-import { providerInstancesApi } from '@/lib/providerInstancesApi';
 import { ActionBar } from './ActionBar';
 
 const mockSlotState = vi.hoisted(() => ({
@@ -220,58 +219,134 @@ describe('ActionBar', () => {
     ).toBeInTheDocument();
   });
 
-  it('forwards selectedProviderInstanceId and onSelectProviderInstance to ComposerProviderInstanceSlot', async () => {
-    const listSpy = vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
-      {
-        instanceId: 'claude-work',
-        agentId: 'claude-code',
-        displayName: 'Work',
-        authMode: { mode: 'OfficialOAuth' },
-        isDefault: true,
-        hasActiveSessions: false,
-      },
-      {
-        instanceId: 'claude-personal',
-        agentId: 'claude-code',
-        displayName: 'Personal',
-        authMode: { mode: 'ApiKey' },
-        isDefault: false,
-        hasActiveSessions: false,
-      },
-    ]);
-    const setDefaultSpy = vi
-      .spyOn(providerInstancesApi, 'setDefault')
-      .mockResolvedValue(undefined);
-    const onSelectProviderInstance = vi.fn();
+  it('forwards providerInstanceConfig to SessionSettingsSummary when showProfileControls is enabled and >= 2 options exist', async () => {
+    const user = userEvent.setup();
+    const onSelectInstance = vi.fn();
 
-    try {
-      renderActionBar({
-        showProfileControls: true,
-        effectiveExecutorProfile: {
-          executor: 'claude_code',
-          variant: null,
-        },
-        selectedProviderInstanceId: 'claude-personal',
-        onSelectProviderInstance,
-      });
+    const { rerender } = render(
+      <ActionBar
+        profiles={{}}
+        effectiveExecutorProfile={{ executor: 'claude_code', variant: null }}
+        onChangeExecutorProfile={vi.fn()}
+        showProfileControls={true}
+        providerInstanceConfig={{
+          selectedInstanceId: 'local',
+          options: [
+            {
+              instanceId: 'local',
+              agentId: 'claude_code',
+              displayName: '本地实例',
+              isDefault: true,
+              isLocal: true,
+              raw: null,
+            },
+            {
+              instanceId: 'claude-work',
+              agentId: 'claude_code',
+              displayName: 'Work',
+              isDefault: false,
+              isLocal: false,
+              raw: {
+                instanceId: 'claude-work',
+                agentId: 'claude-code',
+                displayName: 'Work',
+                authMode: { mode: 'ApiKey' },
+                isDefault: false,
+              },
+            },
+          ],
+          onSelectInstance,
+        }}
+        isEditable={true}
+        isAttemptRunning={false}
+        compactContextEnabled={false}
+        canCompactContext={false}
+        isCompactingContext={false}
+        isStopping={false}
+        isSendingFollowUp={false}
+        canSendFollowUp={true}
+        promptEnhancementEnabled={false}
+        isEnhancingPrompt={false}
+        canEnhancePrompt={false}
+        conflictResolutionInstructions={null}
+        comments={[]}
+        onCompactContext={vi.fn()}
+        onStopExecution={vi.fn()}
+        onSendFollowUp={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onClearComments={vi.fn()}
+        onAttachImages={vi.fn()}
+      />
+    );
 
-      const select = (await screen.findByTestId(
-        'provider-instance-select'
-      )) as HTMLSelectElement;
-      expect(select.value).toBe('claude-personal');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    const trigger = await screen.findByTestId(
+      'session-settings-instance-trigger'
+    );
+    await user.click(trigger);
+    fireEvent.click(
+      await screen.findByTestId('session-settings-instance-option-claude-work')
+    );
+    expect(onSelectInstance).toHaveBeenCalledWith('claude-work');
 
-      fireEvent.change(select, { target: { value: 'claude-work' } });
+    rerender(
+      <ActionBar
+        profiles={{}}
+        effectiveExecutorProfile={{ executor: 'claude_code', variant: null }}
+        onChangeExecutorProfile={vi.fn()}
+        showProfileControls={false}
+        providerInstanceConfig={{
+          selectedInstanceId: 'local',
+          options: [
+            {
+              instanceId: 'local',
+              agentId: 'claude_code',
+              displayName: '本地实例',
+              isDefault: true,
+              isLocal: true,
+              raw: null,
+            },
+            {
+              instanceId: 'claude-work',
+              agentId: 'claude_code',
+              displayName: 'Work',
+              isDefault: false,
+              isLocal: false,
+              raw: {
+                instanceId: 'claude-work',
+                agentId: 'claude-code',
+                displayName: 'Work',
+                authMode: { mode: 'ApiKey' },
+                isDefault: false,
+              },
+            },
+          ],
+          onSelectInstance,
+        }}
+        isEditable={true}
+        isAttemptRunning={false}
+        compactContextEnabled={false}
+        canCompactContext={false}
+        isCompactingContext={false}
+        isStopping={false}
+        isSendingFollowUp={false}
+        canSendFollowUp={true}
+        promptEnhancementEnabled={false}
+        isEnhancingPrompt={false}
+        canEnhancePrompt={false}
+        conflictResolutionInstructions={null}
+        comments={[]}
+        onCompactContext={vi.fn()}
+        onStopExecution={vi.fn()}
+        onSendFollowUp={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onClearComments={vi.fn()}
+        onAttachImages={vi.fn()}
+      />
+    );
 
-      expect(onSelectProviderInstance).toHaveBeenCalledWith('claude-work');
-      await waitFor(() => {
-        expect(setDefaultSpy).toHaveBeenCalledWith(
-          'claude-code',
-          'claude-work'
-        );
-      });
-    } finally {
-      listSpy.mockRestore();
-      setDefaultSpy.mockRestore();
-    }
+    expect(
+      screen.queryByTestId('session-settings-instance-trigger')
+    ).not.toBeInTheDocument();
   });
 });

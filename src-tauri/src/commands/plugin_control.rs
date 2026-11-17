@@ -770,6 +770,9 @@ fn materialize_host_family_binary_mcp(
             "managed MCP `{server_id}` hostFamilyBinary requires a known product"
         )));
     };
+    if matches!(product, "session" | "delegation" | "workflow") {
+        return Ok(None);
+    }
     let gate = state.plugin_control_plane.official_product_mcp_gate();
     if !gate
         .bindings()

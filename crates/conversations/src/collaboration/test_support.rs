@@ -40,6 +40,7 @@ pub(crate) fn session(name: Option<&str>) -> CreateSession {
     CreateSession {
         executor: None,
         agent_id: Some(AgentId::parse("codex").expect("agent")),
+        provider_instance_id: None,
         task_id: None,
         name: name.map(str::to_string),
         initial_prompt: None,

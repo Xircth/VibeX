@@ -31,11 +31,13 @@ import {
 
 export function useProviderFormState({
   agentId,
+  providerInstanceId = null,
   onDirtyChange,
   active,
   embedded,
 }: {
   agentId: AgentId;
+  providerInstanceId?: string | null;
   onDirtyChange?: (dirty: boolean) => void;
   active: boolean;
   embedded: boolean;
@@ -94,7 +96,7 @@ export function useProviderFormState({
     Record<string, AgentModelProviderProbeView | 'loading'>
   >({});
   const catalogEnabled = surface === 'form' && !id;
-  const { catalog, catalogError, catalogGeneration, hasCatalogContributions } =
+  const { catalog, catalogError, catalogGeneration, hasPresetCatalog } =
     useProviderCatalogList(agentId, catalogEnabled);
   const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
   const [websiteUrl, setWebsiteUrl] = useState<string | null>(null);
@@ -129,12 +131,12 @@ export function useProviderFormState({
     setImportSelected([]);
     setProbes({});
     resetForm();
-  }, [agentId]);
+  }, [agentId, providerInstanceId]);
 
   useEffect(() => {
     if (!active) return;
     setLoaded(false);
-  }, [active, agentId]);
+  }, [active, agentId, providerInstanceId]);
 
   const load = useCallback(async () => {
     if (loaded || loading) return;
@@ -142,14 +144,21 @@ export function useProviderFormState({
     setLoading(true);
     setError(null);
     try {
-      const providers = await agentManagementApi.modelProviders(agentId);
+      const providers = providerInstanceId
+        ? await agentManagementApi.modelProviders(agentId, providerInstanceId)
+        : await agentManagementApi.modelProviders(agentId);
       if (generation !== loadGenerationRef.current) return;
       setView(providers);
       setLoaded(true);
       if (agentId === 'codex') {
         void Promise.all([
-          agentManagementApi.codexModelCatalog(false).catch(() => null),
-          agentManagementApi.codexModelCatalogConfig().catch(() => null),
+          (providerInstanceId
+            ? agentManagementApi.codexModelCatalog(false, providerInstanceId)
+            : agentManagementApi.codexModelCatalog(false)
+          ).catch(() => null),
+          providerInstanceId
+            ? Promise.resolve(null)
+            : agentManagementApi.codexModelCatalogConfig().catch(() => null),
         ]).then(([catalog, modelConfig]) => {
           if (generation !== loadGenerationRef.current) return;
           setCodexCatalog(catalog);
@@ -164,7 +173,7 @@ export function useProviderFormState({
         setLoading(false);
       }
     }
-  }, [agentId, loaded, loading, t]);
+  }, [agentId, loaded, loading, providerInstanceId, t]);
 
   useEffect(() => {
     if (embedded) void load();
@@ -251,7 +260,7 @@ export function useProviderFormState({
     catalog,
     catalogError,
     catalogGeneration,
-    hasCatalogContributions,
+    hasPresetCatalog,
     endpointCandidates,
     websiteUrl,
     apiKeyUrl,

@@ -1,0 +1,754 @@
+[
+  {
+    "id": "packycode",
+    "name": "PackyCode",
+    "icon": "packycode",
+    "website_url": "https://www.packyapi.ai/",
+    "api_key_url": "https://www.packyapi.ai/register",
+    "endpoint_candidates": [
+      "https://www.packyapi.ai/v1",
+      "https://cf.api.fan/v1",
+      "https://slb-v1.api.fan/v1",
+      "https://www.packyapi.com/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.packyapi.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "apinebula",
+    "name": "APINebula",
+    "icon": "apinebula",
+    "website_url": "https://apinebula.ai/",
+    "api_key_url": "https://apinebula.ai/VjM74M",
+    "endpoint_candidates": [
+      "https://apinebula.ai/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://apinebula.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "aicodemirror",
+    "name": "AICodeMirror",
+    "icon": "aicodemirror",
+    "website_url": "https://www.aicodemirror.ai/",
+    "api_key_url": "https://www.aicodemirror.ai/register",
+    "endpoint_candidates": [
+      "https://api.aicodemirror.ai/api/codex/backend-api/codex"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.aicodemirror.ai/api/codex/backend-api/codex",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "patewayai",
+    "name": "PatewayAI",
+    "icon": "pateway",
+    "website_url": "https://pateway.ai/",
+    "api_key_url": "https://pateway.ai/",
+    "endpoint_candidates": [
+      "https://api.pateway.ai/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.pateway.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "hao-ai",
+    "name": "hao.ai",
+    "icon": "haoai",
+    "website_url": "https://hao.ai/",
+    "api_key_url": "https://hao.ai/invite/DTBZS3OR",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.hao.ai/x-ai/v1",
+    "model": "{\"id\":\"x-ai/grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"x-ai/grok-4.7\"]}"
+  },
+  {
+    "id": "fennoai",
+    "name": "FennoAI",
+    "icon": "fenno",
+    "website_url": "https://api.fenno.ai/",
+    "api_key_url": "https://api.fenno.ai/register",
+    "endpoint_candidates": [
+      "https://api.fenno.ai/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.fenno.ai/",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "runapi",
+    "name": "RunAPI",
+    "icon": "runapi",
+    "website_url": "https://runapi.host/",
+    "api_key_url": "https://runapi.host/register",
+    "endpoint_candidates": [
+      "https://runapi.host/v1",
+      "https://runapi.co/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://runapi.host/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "openmodel",
+    "name": "OpenModel",
+    "icon": "openmodel",
+    "website_url": "https://www.openmodel.ai/",
+    "api_key_url": "https://www.openmodel.ai/",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.openmodel.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "grooroute-pro",
+    "name": "GrooRoute Pro",
+    "icon": "grooroute",
+    "website_url": "https://grooroute.pro/",
+    "api_key_url": "https://grooroute.pro/sign-up",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://grooroute.pro/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "buytoken",
+    "name": "BuyToken",
+    "icon": "buytoken",
+    "website_url": "https://buytoken.work/",
+    "api_key_url": "https://buytoken.work/sign-up",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.buytoken.work/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "v-api",
+    "name": "V-API",
+    "icon": "vapi",
+    "website_url": "https://gpt.ge/",
+    "api_key_url": "https://gpt.ge/signup",
+    "endpoint_candidates": [
+      "https://api.gpt.ge/v1",
+      "https://api.vveai.com/v1",
+      "https://run.v3.cm/v1",
+      "https://api1.v3.cm/v1",
+      "https://api2.v3.cm/v1",
+      "https://us.gpt.ge/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.gpt.ge/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "shengsuanyun",
+    "name": "Shengsuanyun",
+    "icon": "shengsuanyun",
+    "website_url": "https://www.shengsuanyun.com/",
+    "api_key_url": "https://www.shengsuanyun.com/",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://router.shengsuanyun.com/api/v1",
+    "model": "{\"id\":\"x-ai/grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"x-ai/grok-4.7\"]}"
+  },
+  {
+    "id": "aigocode",
+    "name": "AIGoCode",
+    "icon": "aigocode",
+    "website_url": "https://aigocode.net/",
+    "api_key_url": "https://aigocode.net/invite/CC-SWITCH",
+    "endpoint_candidates": [
+      "https://api.aigocode.dev/",
+      "https://api.aigocode.app/"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.aigocode.dev/",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "qiniu",
+    "name": "Qiniu",
+    "icon": "qiniu",
+    "website_url": "https://s.qiniu.com/nMvAvy",
+    "api_key_url": "https://s.qiniu.com/nMvAvy",
+    "endpoint_candidates": [
+      "https://api.qnaigc.com/bypass/openai/v1",
+      "https://api.modelink.ai/bypass/openai/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.qnaigc.com/bypass/openai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "subrouter",
+    "name": "SubRouter",
+    "icon": "subrouter",
+    "website_url": "https://subrouter.ai/",
+    "api_key_url": "https://subrouter.ai/register",
+    "endpoint_candidates": [
+      "https://subrouter.ai/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://subrouter.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "88api",
+    "name": "88API",
+    "icon": "88api",
+    "website_url": "https://88api.ai/",
+    "api_key_url": "https://88api.ai/sign-up",
+    "endpoint_candidates": [
+      "https://api.88api.ai/v1",
+      "https://88api.ai/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.88api.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "apikey-fun",
+    "name": "APIKEY.FUN",
+    "icon": "apikeyfun",
+    "website_url": "https://apikey.fan/",
+    "api_key_url": "https://apikey.fan/register",
+    "endpoint_candidates": [
+      "https://api.apikey.fan/v1",
+      "https://api.apikey.fun/v1",
+      "https://slb.apikey.fun/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.apikey.fan/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "9527code",
+    "name": "9527CODE",
+    "icon": "9527code",
+    "website_url": "https://9527.codes/register",
+    "api_key_url": "https://9527.codes/register",
+    "endpoint_candidates": [
+      "https://9527.codes/v1",
+      "https://api.9527.codes/v1",
+      "https://cdn.9527.codes/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://9527.codes/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "teamorouter",
+    "name": "TeamoRouter",
+    "icon": "teamorouter",
+    "website_url": "https://teamorouter.com/",
+    "api_key_url": "https://teamorouter.com/",
+    "endpoint_candidates": [
+      "https://api.teamorouter.com/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.teamorouter.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "claudecn",
+    "name": "ClaudeCN",
+    "icon": "claudecn",
+    "website_url": "https://claudecn.top/",
+    "api_key_url": "https://claudecn.ai/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://claudecn.top/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "a6api",
+    "name": "A6API",
+    "icon": "a6api",
+    "website_url": "https://www.a6api.vip/",
+    "api_key_url": "https://a6api.vip/register",
+    "endpoint_candidates": [
+      "https://api.a6api.vip/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.a6api.vip/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "compshare",
+    "name": "Compshare",
+    "icon": "ucloud",
+    "website_url": "https://www.compshare.cn/",
+    "api_key_url": "https://www.compshare.cn/coding-plan",
+    "endpoint_candidates": [
+      "https://api.modelverse.cn/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.modelverse.cn/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "compshare-coding-plan",
+    "name": "Compshare Coding Plan",
+    "icon": "ucloud",
+    "website_url": "https://www.compshare.cn/",
+    "api_key_url": "https://www.compshare.cn/coding-plan",
+    "endpoint_candidates": [
+      "https://cp.compshare.cn/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://cp.compshare.cn/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "ccsub",
+    "name": "CCSub",
+    "icon": "ccsub",
+    "website_url": "https://www.ccsub.net/",
+    "api_key_url": "https://www.ccsub.net/register",
+    "endpoint_candidates": [
+      "https://www.ccsub.net/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.ccsub.net/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "sssaicode",
+    "name": "SSSAiCode",
+    "icon": "sssaicode",
+    "website_url": "https://sssaicodeapi.com/",
+    "api_key_url": "https://sssaicodeapi.com/register",
+    "endpoint_candidates": [
+      "https://node-hk.sssaicodeapi.com/api/v1",
+      "https://node-hk.sssaiapi.com/api/v1",
+      "https://node-cf.sssaicodeapi.com/api/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://node-hk.sssaicodeapi.com/api/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "soleapi",
+    "name": "SoleAPI",
+    "icon": "soleapi",
+    "website_url": "https://soleapi.com/",
+    "api_key_url": "https://soleapi.com/r/ccswitch",
+    "endpoint_candidates": [
+      "https://soleapi.com/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://soleapi.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "micu",
+    "name": "Micu",
+    "icon": "micu",
+    "website_url": "https://www.micuapi.ai/",
+    "api_key_url": "https://www.micuapi.ai/register",
+    "endpoint_candidates": [
+      "https://www.micuapi.ai/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.micuapi.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "rightcode",
+    "name": "RightCode",
+    "icon": "rc",
+    "website_url": "https://www.rightapi.ai/",
+    "api_key_url": "https://www.rightapi.ai/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.rightapi.ai/codex/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "cubence",
+    "name": "Cubence",
+    "icon": "cubence",
+    "website_url": "https://cubence.com/",
+    "api_key_url": "https://cubence.com/signup",
+    "endpoint_candidates": [
+      "https://api.cubence.com/v1",
+      "https://api-cf.cubence.com/v1",
+      "https://api-dmit.cubence.com/v1",
+      "https://api-bwg.cubence.com/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.cubence.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "crazyrouter",
+    "name": "CrazyRouter",
+    "icon": "crazyrouter",
+    "website_url": "https://www.crazyrouter.com/",
+    "api_key_url": "https://www.crazyrouter.com/register",
+    "endpoint_candidates": [
+      "https://cn.crazyrouter.com/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://cn.crazyrouter.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "dmxapi",
+    "name": "DMXAPI",
+    "icon": "dmxapi",
+    "website_url": "https://www.dmxapi.cn/",
+    "endpoint_candidates": [
+      "https://www.dmxapi.cn/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://www.dmxapi.cn/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "sudocode-chat",
+    "name": "SudoCode.chat",
+    "icon": "sudocode",
+    "website_url": "https://sudocode.chat/",
+    "api_key_url": "https://sudocode.chat/sign-up",
+    "endpoint_candidates": [
+      "https://api.sudocode.chat/v1",
+      "https://api.sudorelay.com/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://api.sudocode.chat/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "sudocode-us",
+    "name": "SudoCode.us",
+    "icon": "sudocode-us",
+    "website_url": "https://sudocode.us/",
+    "api_key_url": "https://sudocode.us/",
+    "endpoint_candidates": [
+      "https://sudocode.us/v1",
+      "https://sudocode.run/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://sudocode.us/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "modelflare",
+    "name": "Modelflare",
+    "icon": "modelflare",
+    "website_url": "https://modelflare.dev/",
+    "api_key_url": "https://modelflare.dev/sign-up",
+    "endpoint_candidates": [
+      "https://modelflare.dev/v1",
+      "https://origin.modelflare.dev/v1"
+    ],
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://modelflare.dev/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "alltokens",
+    "name": "AllTokens",
+    "icon": "alltokens",
+    "website_url": "https://alltokens.cc/",
+    "api_key_url": "https://alltokens.cc/register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://alltokens.cc/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "alltokens-si",
+    "name": "AllTokens SI",
+    "icon": "alltokens-si",
+    "website_url": "https://alltokens.si/",
+    "api_key_url": "https://alltokens.si/enterprise-register",
+    "category": "partner",
+    "surface": "reusable",
+    "api_url": "https://alltokens.si/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "aicoming",
+    "name": "AIComing",
+    "icon": "aicoming",
+    "website_url": "https://aicoming.top/",
+    "api_key_url": "https://aicoming.top/console",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.aicoming.top/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "aihubmix",
+    "name": "AiHubMix",
+    "icon": "aihubmix",
+    "website_url": "https://aihubmix.com/",
+    "endpoint_candidates": [
+      "https://aihubmix.com/v1",
+      "https://api.aihubmix.com/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://aihubmix.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "amux",
+    "name": "Amux",
+    "icon": "amux",
+    "website_url": "https://amux.ai/",
+    "api_key_url": "https://amux.ai/",
+    "endpoint_candidates": [
+      "https://api.amux.ai/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.amux.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "botcf",
+    "name": "BotCF",
+    "icon": "botcf",
+    "website_url": "https://botcf.com/",
+    "api_key_url": "https://botcf.com/console/token",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://botcf.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "cherryin",
+    "name": "CherryIN",
+    "icon": "cherryin",
+    "website_url": "https://open.cherryin.ai/",
+    "api_key_url": "https://open.cherryin.ai/console/token",
+    "endpoint_candidates": [
+      "https://open.cherryin.net/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://open.cherryin.net/v1",
+    "model": "{\"id\":\"x-ai/grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"x-ai/grok-4.7\"]}"
+  },
+  {
+    "id": "code0",
+    "name": "Code0",
+    "icon": "code0",
+    "website_url": "https://code0.ai/",
+    "api_key_url": "https://code0.ai/agent/register/B2XHxGjGmRvqgznY",
+    "endpoint_candidates": [
+      "https://code0.ai/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://code0.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "e-flowcode",
+    "name": "E-FlowCode",
+    "icon": "eflowcode",
+    "website_url": "https://e-flowcode.cc/",
+    "api_key_url": "https://e-flowcode.cc/",
+    "endpoint_candidates": [
+      "https://e-flowcode.cc/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://e-flowcode.cc/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "ikuncode",
+    "name": "IKunCode",
+    "icon": "ikuncode",
+    "website_url": "https://api.ikuncode.ai/",
+    "api_key_url": "https://api.ikuncode.ai/console/token",
+    "endpoint_candidates": [
+      "https://api.ikuncode.ai/v1",
+      "https://api.ikuncode.cc/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.ikuncode.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "icon": "openrouter",
+    "website_url": "https://openrouter.ai/",
+    "api_key_url": "https://openrouter.ai/keys",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://openrouter.ai/api/v1",
+    "model": "{\"id\":\"x-ai/grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"x-ai/grok-4.7\"]}"
+  },
+  {
+    "id": "pipellm",
+    "name": "PIPELLM",
+    "icon": "pipellm",
+    "website_url": "https://code.pipellm.ai/",
+    "api_key_url": "https://code.pipellm.ai/login",
+    "endpoint_candidates": [
+      "https://cc-api.pipellm.ai/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://cc-api.pipellm.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "relaxycode",
+    "name": "RelaxyCode",
+    "icon": "relaxcode",
+    "website_url": "https://www.relaxycode.com/",
+    "api_key_url": "https://www.relaxycode.com/register",
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://www.relaxycode.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "runtoken",
+    "name": "RunToken",
+    "icon": "runtoken",
+    "website_url": "https://www.runtoken.ai/",
+    "api_key_url": "https://www.runtoken.ai/console/token",
+    "endpoint_candidates": [
+      "https://www.runtoken.ai/v1",
+      "https://fast.runtoken.ai/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://www.runtoken.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "soruxgpt",
+    "name": "SoruxGPT",
+    "icon": "soruxgpt",
+    "website_url": "https://ai.soruxgpt.com/",
+    "api_key_url": "https://ai.soruxgpt.com/console/token",
+    "endpoint_candidates": [
+      "https://ai.soruxgpt.com/v1",
+      "https://api-cf.soruxgpt.com/v1",
+      "https://api-host.soruxgpt.com/v1",
+      "https://api-node6.soruxgpt.com/v1",
+      "https://api-node3.soruxgpt.com/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://ai.soruxgpt.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "therouter",
+    "name": "TheRouter",
+    "icon": "therouter",
+    "website_url": "https://therouter.ai/",
+    "api_key_url": "https://dashboard.therouter.ai/",
+    "endpoint_candidates": [
+      "https://api.therouter.ai/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.therouter.ai/v1",
+    "model": "{\"id\":\"xai/grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"xai/grok-4.7\"]}"
+  },
+  {
+    "id": "tokenflux",
+    "name": "TokenFlux",
+    "icon": "tokenflux",
+    "website_url": "https://tokenflux.com/",
+    "api_key_url": "https://tokenflux.com/keys",
+    "endpoint_candidates": [
+      "https://tokenflux.com/v1",
+      "https://tokenflux.dev/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://tokenflux.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "tu-zi",
+    "name": "Tu-zi",
+    "icon": "tuzi",
+    "website_url": "https://api.tu-zi.com/",
+    "api_key_url": "https://api.tu-zi.com/token",
+    "endpoint_candidates": [
+      "https://api.tu-zi.com/v1",
+      "https://api.ourzhishi.top/v1",
+      "https://api.sydney-ai.com/v1",
+      "https://apicdn.tu-zi.com/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.tu-zi.com/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "xai-grok",
+    "name": "xAI (Grok)",
+    "icon": "xai",
+    "website_url": "https://x.ai/api",
+    "api_key_url": "https://console.x.ai/",
+    "endpoint_candidates": [
+      "https://api.x.ai/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://api.x.ai/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  },
+  {
+    "id": "yylx",
+    "name": "YYLX",
+    "icon": "yylx",
+    "website_url": "https://yylx.io/",
+    "api_key_url": "https://app.yylx.io/keys",
+    "endpoint_candidates": [
+      "https://app.yylx.io/v1",
+      "https://global.yylx.io/v1",
+      "https://cn.yylx.io/v1"
+    ],
+    "category": "community",
+    "surface": "reusable",
+    "api_url": "https://app.yylx.io/v1",
+    "model": "{\"id\":\"grok-4.7\",\"api_backend\":\"responses\",\"context_window\":null,\"models\":[\"grok-4.7\"]}"
+  }
+]

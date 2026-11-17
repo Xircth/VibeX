@@ -1078,6 +1078,7 @@ impl ServerApplicationDomains {
                     .as_ref()
                     .map(|profile| profile.executor.clone()),
                 agent_id: parsed_agent_id.clone(),
+                provider_instance_id: None,
                 task_id: Some(task.id),
                 name: Some(task.title.clone()),
                 initial_prompt: task.description.clone(),

@@ -26,8 +26,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { CollaborationSessionBadge } from '@/features/collaboration/CollaborationSessionBadge';
-import { openCollaborationSessionFromList } from '@/features/collaboration/sessionCollaboration';
+import { CollaborationSessionTitle } from '@/features/collaboration/CollaborationSessionTitle';
+import { collaborationSessionMenuAction } from '@/features/collaboration/sessionCollaboration';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
@@ -37,7 +37,6 @@ import {
   SessionCardHoverCard,
   useSessionCardHoverDetails,
 } from './SessionCardHoverInfo';
-import { IssuePulseDispatchPopover } from '../IssuePulseDispatchPopover';
 import { buildSessionCardMenuItems } from './sessionCardMenu';
 import {
   INFO_TEXT_CLASS,
@@ -91,8 +90,9 @@ export function SessionHubListItem({
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const isCanvasMode = displayMode === 'canvas';
   const isPinned = Boolean(session.pinnedAt);
-  const showRenameControls =
-    !isDeleteMode && !isKanbanBoardMode && Boolean(onRenameSession);
+  // Bot sessions are always named after their space and Bot.
+  const canRename = Boolean(onRenameSession) && !session.collaboration;
+  const showRenameControls = !isDeleteMode && !isKanbanBoardMode && canRename;
   const branchHoverText = session.workspaceName || session.branch;
   const workspaceLabel = session.workspaceName || session.branch;
 
@@ -104,17 +104,18 @@ export function SessionHubListItem({
   const [isForking, setIsForking] = useState(false);
   const [draftName, setDraftName] = useState(session.fullName);
   const [isHovered, setIsHovered] = useState(false);
-  const [isPulsePopoverOpen, setIsPulsePopoverOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
   } | null>(null);
   const attention = sessionAttentionKind(session);
-  const showCanvasActions = isCanvasMode && !isEditing;
+  const showCanvasActions =
+    isCanvasMode &&
+    !isEditing &&
+    (Boolean(onArchiveSession) || showRenameControls);
   const showDefaultHoverActions =
     !isCanvasMode && !isKanbanBoardMode && !isDeleteMode && !isEditing;
-  const isHoverActionsVisible =
-    isHovered || Boolean(contextMenu) || isPulsePopoverOpen;
+  const isHoverActionsVisible = isHovered || Boolean(contextMenu);
   const showListAgent =
     !isCanvasMode && !isKanbanBoardMode && !isHoverActionsVisible && !isEditing;
   const agentBadge = (
@@ -241,7 +242,11 @@ export function SessionHubListItem({
         }
       : undefined,
     restoreLabel: t('hubListItem.moveToSessionList'),
-    onRename: onRenameSession ? beginRename : undefined,
+    openCollaboration: collaborationSessionMenuAction(
+      session.id,
+      session.collaboration
+    ),
+    onRename: canRename ? beginRename : undefined,
     onCopySessionInfo: () => {
       void writeClipboardViaBridge(formatSessionInfoForCopy(session));
       toast.success(t('hubListItem.copiedSessionInfo'));
@@ -273,24 +278,8 @@ export function SessionHubListItem({
       : undefined,
   });
 
-  const pulseDispatchAction = !onRestoreFromArchive ? (
-    <IssuePulseDispatchPopover
-      compactIconOnly
-      triggerClassName="session-hub-card-action"
-      triggerTestId={`session-card-pulse-dispatch-${session.id}`}
-      workspaceId={session.workspace.id}
-      sessionId={session.id}
-      sessionTitle={session.fullName}
-      branchName={session.branch}
-      agentId={agentKey}
-      onOpenChange={setIsPulsePopoverOpen}
-    />
-  ) : null;
-
   const canvasActionButtons = showCanvasActions ? (
     <div className="nodrag z-[1] flex shrink-0 items-center gap-0.5">
-      {pulseDispatchAction}
-
       {onArchiveSession ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -342,8 +331,6 @@ export function SessionHubListItem({
           : 'pointer-events-none opacity-0 group-hover/session-card:pointer-events-auto group-hover/session-card:opacity-100'
       )}
     >
-      {pulseDispatchAction}
-
       <button
         type="button"
         aria-label={t('hubListItem.moreActions')}
@@ -542,7 +529,14 @@ export function SessionHubListItem({
                     : 'font-semibold'
                 )}
               >
-                {session.fullName}
+                {session.collaboration ? (
+                  <CollaborationSessionTitle
+                    conversationId={session.id}
+                    collaboration={session.collaboration}
+                  />
+                ) : (
+                  session.fullName
+                )}
               </div>
             </SessionCardHoverCard>
           )}
@@ -595,20 +589,6 @@ export function SessionHubListItem({
               isCanvasMode ? 'gap-1' : 'flex-wrap gap-y-1'
             )}
           >
-            {session.collaboration ? (
-              <CollaborationSessionBadge
-                memberName={session.collaboration.memberName}
-                conversationId={session.id}
-                onOpen={() => {
-                  const collaboration = session.collaboration;
-                  if (!collaboration) return;
-                  openCollaborationSessionFromList({
-                    conversationId: session.id,
-                    collaboration,
-                  });
-                }}
-              />
-            ) : null}
             <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
               {formatTimeAgo(session.updatedAt)}
             </span>

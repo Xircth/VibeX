@@ -407,6 +407,7 @@ pub async fn create_fork_conversation(
     let session = CreateSession {
         executor: None,
         agent_id: Some(input.agent_id),
+        provider_instance_id: None,
         task_id: parent.task_id,
         name: input.title,
         initial_prompt: input.initial_prompt,
@@ -499,6 +500,9 @@ pub async fn fork_visible_conversation(
     let session = CreateSession {
         executor: persisted.as_ref().and_then(|row| row.executor.clone()),
         agent_id: persisted.as_ref().and_then(|row| row.agent_id.clone()),
+        provider_instance_id: persisted
+            .as_ref()
+            .and_then(|row| row.provider_instance_id.clone()),
         task_id: parent.task_id,
         name: None,
         initial_prompt: None,
@@ -738,6 +742,7 @@ pub async fn create_workflow_conversation(
     let session = CreateSession {
         executor: None,
         agent_id: Some(input.agent_id),
+        provider_instance_id: None,
         task_id: None,
         name: Some(format!("Workflow · {}", input.workflow_step_id)),
         initial_prompt: Some(input.prompt),
@@ -815,6 +820,7 @@ pub async fn create_delegated_conversation(
     let session = CreateSession {
         executor: None,
         agent_id: Some(input.agent_id),
+        provider_instance_id: None,
         task_id: parent.task_id,
         name: None,
         initial_prompt: Some(input.prompt.clone()),

@@ -1,0 +1,39 @@
+# Hand-written presets for Agents CC-Switch does not cover.
+# Only name / apiUrl / websiteUrl / model / icon may change.
+# id is slug(name) and must stay stable. category is pinned.
+
+[[cline]]
+id = "deepseek"
+name = "DeepSeek"
+apiUrl = "https://api.deepseek.com"
+websiteUrl = "https://platform.deepseek.com"
+model = "deepseek-chat"
+icon = "deepseek"
+category = "community"
+
+[[cline]]
+id = "moonshot"
+name = "Moonshot"
+apiUrl = "https://api.moonshot.cn/v1"
+websiteUrl = "https://platform.moonshot.cn"
+model = "kimi-k2.5"
+icon = "kimi"
+category = "community"
+
+[[cline]]
+id = "openrouter"
+name = "OpenRouter"
+apiUrl = "https://openrouter.ai/api/v1"
+websiteUrl = "https://openrouter.ai"
+model = "openai/gpt-4o"
+icon = "openrouter"
+category = "community"
+
+[[cline]]
+id = "siliconflow"
+name = "SiliconFlow"
+apiUrl = "https://api.siliconflow.cn/v1"
+websiteUrl = "https://siliconflow.cn"
+model = "Qwen/Qwen2.5-72B-Instruct"
+icon = "siliconflow"
+category = "community"

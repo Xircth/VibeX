@@ -431,9 +431,20 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
   const dismissEnd = useCallback(() => {
     persist(dismissEndCopy(stateRef.current));
   }, [persist]);
-  const start = useCallback(() => {
-    persist(startBasicGuide(stateRef.current));
-  }, [persist]);
+  const start = useCallback(
+    (hasSelectedProject = false) => {
+      const current = stateRef.current;
+      if (current.phase === 'completed' && current.endCopy === 'none') return;
+      const started = startBasicGuide(current);
+      if (hasSelectedProject && started.phase === 'active') {
+        useLayoutStore.getState().setActiveTab('workspace');
+        persist(completeStep1(started, available));
+        return;
+      }
+      persist(started);
+    },
+    [available, persist]
+  );
   const skip = useCallback(() => {
     persist(skipBasicGuide());
   }, [persist]);

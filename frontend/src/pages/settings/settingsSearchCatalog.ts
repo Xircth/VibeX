@@ -199,7 +199,11 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   ...entriesFor('system', [
     'appUpdater.title',
     'system.autoCheckUpdate',
+    'system.storageTitle',
+    'system.dataDirTitle',
     'system.jsonTitle',
+    'databaseHealth.title',
+    'system.featuresTitle',
     'system.proxyTitle',
     'system.renderingTitle',
     'system.backupTitle',

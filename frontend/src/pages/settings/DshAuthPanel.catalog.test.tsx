@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentAuthModeView, DshProvidersView } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
+import builtinDshPresets from '@/features/provider-presets/catalogs/deepseek_harness.json';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
@@ -79,7 +80,7 @@ describe('DshAuthPanel catalog picker', () => {
       generation: 4,
       items: [
         {
-          pluginId: 'dimo.provider-switch',
+          pluginId: 'acme.presets',
           id: 'deepseek-harness',
           kind: 'provider_model_catalog',
           label: 'DeepSeek Harness presets',
@@ -94,14 +95,14 @@ describe('DshAuthPanel catalog picker', () => {
       templates: [
         {
           id: 'openrouter',
-          plugin_id: 'dimo.provider-switch',
+          plugin_id: 'acme.presets',
           contribution_id: 'deepseek-harness',
-          plugin_label: 'ProviderSwitch',
+          plugin_label: 'Acme Presets',
           agent_id: 'deepseek_harness',
-          name: 'OpenRouter',
+          name: 'Acme Gateway',
           category: 'community',
           surface: 'dsh',
-          display_name: 'OpenRouter',
+          display_name: 'Acme Gateway',
           notes: 'OpenAI-compatible gateway',
           base_url: 'https://openrouter.ai/api/v1',
           default_model: 'openai/gpt-4o',
@@ -119,6 +120,23 @@ describe('DshAuthPanel catalog picker', () => {
     vi.mocked(agentManagementApi.saveDshProvider).mockResolvedValue(view);
   });
 
+  it('offers built-in presets before plugin ones', async () => {
+    const user = userEvent.setup();
+    render(<DshAuthPanel />);
+
+    await user.click(await screen.findByRole('tab', { name: '供应商' }));
+    await user.click(screen.getByRole('button', { name: '新建供应商' }));
+    await pickAstryxOption(
+      user,
+      await screen.findByRole('combobox', { name: '搜索预置' }),
+      builtinDshPresets[0].name
+    );
+
+    expect(screen.getByLabelText('Base URL')).toHaveValue(
+      builtinDshPresets[0].base_url
+    );
+  });
+
   it('fills the custom form from a catalog template and still saves through Host IPC', async () => {
     const user = userEvent.setup();
     render(<DshAuthPanel />);
@@ -128,10 +146,10 @@ describe('DshAuthPanel catalog picker', () => {
     await pickAstryxOption(
       user,
       await screen.findByRole('combobox', { name: '搜索预置' }),
-      'OpenRouter'
+      'Acme Gateway'
     );
 
-    expect(screen.getByLabelText('显示名称')).toHaveValue('OpenRouter');
+    expect(screen.getByLabelText('显示名称')).toHaveValue('Acme Gateway');
     expect(screen.getByLabelText('备注')).toHaveValue(
       'OpenAI-compatible gateway'
     );
@@ -146,7 +164,7 @@ describe('DshAuthPanel catalog picker', () => {
     await waitFor(() => {
       expect(agentManagementApi.saveDshProvider).toHaveBeenCalledWith({
         id: 'custom-gateway',
-        display_name: 'OpenRouter',
+        display_name: 'Acme Gateway',
         notes: 'OpenAI-compatible gateway',
         api: 'openai-completions',
         base_url: 'https://openrouter.ai/api/v1',

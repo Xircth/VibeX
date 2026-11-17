@@ -16,7 +16,7 @@ use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use conversations::{derive_session_display_name, remember_creation_session_controls};
 use db::models::{
-    collaboration_identity::{bindings_for_workspace, collaboration_stored_session_name},
+    collaboration_identity::bindings_for_workspace,
     conversation::DbConversationSummary,
     conversation_turn::ConversationTurnRecord,
     project::{CreateProject, Project, UpdateProject},
@@ -991,43 +991,58 @@ impl ServerApplicationDomains {
         let bindings = bindings_for_workspace(&self.pool, args.workspace_id)
             .await
             .map_err(internal_error)?;
-        let mut sessions = sessions;
-        for session in &mut sessions {
-            if let Some(binding) = bindings.get(&session.id) {
-                session.name = collaboration_stored_session_name(
-                    session.name.as_deref(),
-                    &binding.member_name,
-                );
-            }
-        }
-        let fallback_numbers = untitled_fallback_numbers(&sessions);
+        let untitled = sessions
+            .iter()
+            .filter(|session| !bindings.contains_key(&session.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let fallback_numbers = untitled_fallback_numbers(&untitled);
         serialize(
             sessions
                 .into_iter()
                 .map(|session| {
                     let first_prompt = session.initial_prompt.clone();
-                    let collaboration = bindings.get(&session.id).map(|binding| {
+                    let binding = bindings.get(&session.id);
+                    let collaboration = binding.map(|binding| {
                         json!({
                             "member_id": binding.member_id,
                             "member_name": binding.member_name,
                             "thread_id": binding.thread_id,
                             "thread_kind": binding.thread_kind,
                             "thread_name": binding.thread_title,
+                            "thread_members": binding
+                                .thread_members
+                                .iter()
+                                .map(|member| {
+                                    json!({
+                                        "member_id": member.member_id,
+                                        "name": member.name,
+                                        "conversation_id": member.conversation_id,
+                                    })
+                                })
+                                .collect::<Vec<_>>(),
                         })
                     });
+                    let display_name = binding.map_or_else(
+                        || {
+                            session_display_name(
+                                &session,
+                                first_prompt.as_deref(),
+                                fallback_numbers.get(&session.id).copied().unwrap_or(0),
+                            )
+                        },
+                        |binding| binding.session_title(),
+                    );
                     json!({
                         "id": session.id,
                         "workspace_id": session.workspace_id,
                         "task_id": session.task_id,
                         "name": session.name,
-                        "display_name": session_display_name(
-                            &session,
-                            first_prompt.as_deref(),
-                            fallback_numbers.get(&session.id).copied().unwrap_or(0),
-                        ),
+                        "display_name": display_name,
                         "status": session.status,
                         "executor": session.executor,
                         "agent_id": session.agent_id,
+                        "provider_instance_id": session.provider_instance_id,
                         "workspace_name": workspace.name,
                         "workspace_branch": workspace.branch,
                         "created_at": session.created_at,
@@ -1048,6 +1063,24 @@ impl ServerApplicationDomains {
         )
     }
 
+    async fn resolve_session_provider_instance_id(
+        &self,
+        agent_id: Option<&AgentId>,
+        requested: Option<&str>,
+    ) -> Result<Option<String>, ApplicationError> {
+        let storage_id = db::models::session::normalize_provider_instance_storage_id(requested);
+        if let (Some(agent_id), Some(requested_id)) = (agent_id, storage_id.as_deref()) {
+            conversations::resolve_effective_provider_instance_id(
+                &self.pool,
+                agent_id,
+                Some(requested_id),
+            )
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        }
+        Ok(storage_id)
+    }
+
     async fn create_session(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: CreateSessionArgs = parse(args)?;
         let workspace = self.require_workspace(args.workspace_id).await?;
@@ -1057,12 +1090,19 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         let agent_id = session_agent_id_from_executor(args.executor.as_deref());
+        let provider_instance_id = self
+            .resolve_session_provider_instance_id(
+                agent_id.as_ref(),
+                args.provider_instance_id.as_deref(),
+            )
+            .await?;
         serialize(
             Session::create(
                 &self.pool,
                 &CreateSession {
                     executor: args.executor,
                     agent_id,
+                    provider_instance_id,
                     task_id: args.task_id.or(Some(workspace.task_id)),
                     name: args.name,
                     initial_prompt: args.initial_prompt,
@@ -1085,12 +1125,19 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         let agent_id = session_agent_id_from_executor(args.executor.as_deref());
+        let provider_instance_id = self
+            .resolve_session_provider_instance_id(
+                agent_id.as_ref(),
+                args.provider_instance_id.as_deref(),
+            )
+            .await?;
         serialize(
             Session::create(
                 &self.pool,
                 &CreateSession {
                     executor: args.executor,
                     agent_id,
+                    provider_instance_id,
                     task_id: Some(workspace.task_id),
                     name: args.name,
                     initial_prompt: None,
@@ -1192,14 +1239,22 @@ impl ServerApplicationDomains {
         } else {
             None
         };
+        let resolved_agent_id = prepared_identity
+            .as_ref()
+            .map(|(agent_id, _)| agent_id.clone())
+            .or_else(|| session_agent_id_from_executor(payload.executor.as_deref()));
+        let provider_instance_id = self
+            .resolve_session_provider_instance_id(
+                resolved_agent_id.as_ref(),
+                payload.provider_instance_id.as_deref(),
+            )
+            .await?;
         let mut session = Session::create(
             &self.pool,
             &CreateSession {
                 executor: payload.executor.clone(),
-                agent_id: prepared_identity
-                    .as_ref()
-                    .map(|(agent_id, _)| agent_id.clone())
-                    .or_else(|| session_agent_id_from_executor(payload.executor.as_deref())),
+                agent_id: resolved_agent_id,
+                provider_instance_id,
                 task_id: Some(workspace.task_id),
                 name: payload.name,
                 initial_prompt: payload.initial_prompt,
@@ -2532,6 +2587,8 @@ struct WorkspaceBranchArgs {
 struct CreateSessionArgs {
     workspace_id: Uuid,
     executor: Option<String>,
+    #[serde(default, alias = "provider_instance_id")]
+    provider_instance_id: Option<String>,
     name: Option<String>,
     initial_prompt: Option<String>,
     task_id: Option<Uuid>,
@@ -2542,6 +2599,8 @@ struct CreateSessionArgs {
 struct CreateProjectRootSessionArgs {
     project_id: Uuid,
     executor: Option<String>,
+    #[serde(default, alias = "provider_instance_id")]
+    provider_instance_id: Option<String>,
     name: Option<String>,
 }
 
@@ -2558,6 +2617,8 @@ struct CreateProjectSessionPayload {
     branch: Option<String>,
     #[serde(default)]
     executor: Option<String>,
+    #[serde(default, alias = "provider_instance_id")]
+    provider_instance_id: Option<String>,
     #[serde(default)]
     name: Option<String>,
     #[serde(default, alias = "initial_prompt")]
@@ -3024,5 +3085,37 @@ mod tests {
         assert!(existing_local_path_at("relative/path").await.is_err());
         let traversal = format!("{}/../outside", dir.path().display());
         assert!(existing_local_path_at(&traversal).await.is_err());
+    }
+
+    #[test]
+    fn create_session_payloads_accept_camel_and_snake_provider_instance_id() {
+        let project_payload: CreateProjectSessionPayload = application::decode_command_args(json!({
+            "projectId": "11111111-1111-1111-1111-111111111111",
+            "executor": "claude_code",
+            "providerInstanceId": "work-claude"
+        }))
+        .expect("camelCase project session payload");
+        assert_eq!(
+            project_payload.provider_instance_id.as_deref(),
+            Some("work-claude")
+        );
+
+        let snake_payload: CreateSessionArgs = application::decode_command_args(json!({
+            "workspaceId": "11111111-1111-1111-1111-111111111111",
+            "executor": "codex",
+            "provider_instance_id": "local"
+        }))
+        .expect("snake_case session args");
+        assert_eq!(snake_payload.provider_instance_id.as_deref(), Some("local"));
+
+        let root_payload: CreateProjectRootSessionArgs = application::decode_command_args(json!({
+            "projectId": "11111111-1111-1111-1111-111111111111",
+            "providerInstanceId": "team-codex"
+        }))
+        .expect("root session args");
+        assert_eq!(
+            root_payload.provider_instance_id.as_deref(),
+            Some("team-codex")
+        );
     }
 }

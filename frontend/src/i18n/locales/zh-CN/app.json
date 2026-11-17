@@ -94,7 +94,7 @@
     "context": "下一条输入的上下文",
     "portable": "携带对话历史",
     "fresh": "全新上下文",
-    "handoff": "上下文交接"
+    "handoff": "交接"
   },
   "followUpSend": {
     "sessionScopedSlashCommandError": "该 / 命令需要在已有会话中执行，不能创建新会话触发。",

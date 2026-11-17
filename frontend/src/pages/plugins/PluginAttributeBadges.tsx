@@ -62,11 +62,6 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
     repo: 'DimoADE/Dimo-plugin-science',
     trend: [51, 62, 73, 84, 95, 106, 116, 126, 136, 145, 154, 162],
   },
-  providerSwitch: {
-    installs: 148,
-    repo: 'DimoADE/Dimo-plugin-provider-switch',
-    trend: [46, 56, 66, 76, 86, 96, 106, 115, 124, 133, 141, 148],
-  },
   pluginDevelopment: {
     installs: 84,
     repo: 'DimoADE/Dimo-plugin-development',

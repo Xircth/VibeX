@@ -326,11 +326,11 @@ describe('production first-run flow', () => {
     ).toBeInTheDocument();
     expect(api.bar).toHaveBeenCalled();
   });
-  it('skips history import when no Agent has local history and continues to projects', async () => {
+  it('skips history import when no Agent has local history and continues to appearance before projects', async () => {
     const callbacks = setup();
     await configure();
     fireEvent.click(screen.getByRole('button', { name: t('next') }));
-    await screen.findByRole('region', { name: 'projects' });
+    await screen.findByRole('heading', { name: t('appearanceTitle') });
     expect(agentsApi.discoverLocalHistorySources).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('region', { name: 'history' })).toBeNull();
     expect(callbacks.onPersist).toHaveBeenCalledWith({
@@ -338,17 +338,16 @@ describe('production first-run flow', () => {
       defaultAgentId: 'codex',
       skipped: false,
     });
-    expect(screen.getByRole('region', { name: 'projects' })).toBeInTheDocument();
+    expect(callbacks.onFinish).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    await screen.findByRole('region', { name: 'projects' });
     expect(callbacks.onFinish).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'finish projects' }));
-    await screen.findByRole('heading', { name: t('appearanceTitle') });
-    expect(callbacks.onFinish).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: t('enterWorkspace') }));
     await waitFor(() =>
       expect(callbacks.onFinish).toHaveBeenCalledWith(['home', 'imported'])
     );
   });
-  it('offers history import before projects and preselects what it imported', async () => {
+  it('offers history import before appearance and preselects what it imported on the final project step', async () => {
     setup();
     vi.mocked(agentsApi.discoverLocalHistorySources).mockResolvedValue([
       'codex',
@@ -362,6 +361,8 @@ describe('production first-run flow', () => {
     fireEvent.click(screen.getByRole('button', { name: t('next') }));
     await screen.findByRole('region', { name: 'history' });
     fireEvent.click(screen.getByRole('button', { name: 'finish history' }));
+    await screen.findByRole('heading', { name: t('appearanceTitle') });
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
     const projects = await screen.findByRole('region', { name: 'projects' });
     expect(projects).toHaveTextContent('imported');
   });
@@ -407,7 +408,7 @@ describe('production first-run flow', () => {
     await act(async () => finishCodex());
     await within(roster).findByRole('button', { name: 'codex' });
     fireEvent.click(screen.getByRole('button', { name: t('next') }));
-    await screen.findByRole('region', { name: 'projects' });
+    await screen.findByRole('heading', { name: t('appearanceTitle') });
     expect(callbacks.onPersist).toHaveBeenCalledWith({
       editor,
       defaultAgentId: 'codex',
@@ -432,7 +433,7 @@ describe('production first-run flow', () => {
       key: 'Delete',
     });
     fireEvent.click(screen.getByRole('button', { name: t('next') }));
-    await screen.findByRole('region', { name: 'projects' });
+    await screen.findByRole('heading', { name: t('appearanceTitle') });
     expect(callbacks.onPersist).toHaveBeenCalledWith({
       editor,
       defaultAgentId: 'claude_code',
@@ -526,7 +527,7 @@ describe('production first-run flow', () => {
     fireEvent.click(
       within(dialog).getByRole('button', { name: t('acknowledge') })
     );
-    await screen.findByRole('region', { name: 'projects' });
+    await screen.findByRole('heading', { name: t('appearanceTitle') });
     expect(api.setEnabled).not.toHaveBeenCalledWith('claude_code', true);
   });
   it('keeps the welcome page retryable if finishing a skipped setup fails', async () => {

@@ -60,7 +60,7 @@ gsap.registerPlugin(useGSAP);
 
 const AGENT_LIST_TIMEOUT_MS = 4_000;
 
-type FirstRunStep = 'intro' | 'configure' | 'history' | 'projects' | 'appearance';
+type FirstRunStep = 'intro' | 'configure' | 'history' | 'appearance' | 'projects';
 
 function rejectAfter<T>(
   promise: Promise<T>,
@@ -102,7 +102,6 @@ export function FirstRunExperience({
   const [projectSetupStarted, setProjectSetupStarted] = useState(false);
   const [historySources, setHistorySources] = useState<AgentId[] | null>(null);
   const [importedProjectIds, setImportedProjectIds] = useState<string[]>([]);
-  const [projectIds, setProjectIds] = useState<string[]>([]);
   const [agents, setAgents] = useState<OnboardingAgentOption[]>([]);
   const [enabledAgentIds, setEnabledAgentIds] = useState<Set<AgentId>>(
     () => new Set()
@@ -723,7 +722,7 @@ export function FirstRunExperience({
         setStep('history');
       } else if (sources) {
         setHistorySources([]);
-        setStep('projects');
+        setStep('appearance');
       } else {
         setHistorySources(null);
         setStep('history');
@@ -866,9 +865,9 @@ export function FirstRunExperience({
             <ChevronRight aria-hidden="true" />
             <span>{t('dialogs:onboarding.historyStep')}</span>
             <ChevronRight aria-hidden="true" />
-            <span>{t('dialogs:onboarding.projectStep')}</span>
-            <ChevronRight aria-hidden="true" />
             <span>{t('dialogs:onboarding.appearanceStep')}</span>
+            <ChevronRight aria-hidden="true" />
+            <span>{t('dialogs:onboarding.projectStep')}</span>
           </nav>
           <p className="onboarding-configure-description">
             {t('dialogs:onboarding.agentStepDescription')}
@@ -1011,7 +1010,11 @@ export function FirstRunExperience({
       ) : null}
 
       {projectSetupStarted ? (
-        <div hidden={step !== 'history'} inert={step !== 'history'}>
+        <div
+          className="h-full"
+          hidden={step !== 'history'}
+          inert={step !== 'history'}
+        >
           <OnboardingHistoryImport
             sourceAgents={displayAgents}
             active={step === 'history'}
@@ -1022,23 +1025,6 @@ export function FirstRunExperience({
                   ? Array.from(new Set([...current, ...ids]))
                   : current
               );
-              setStep('projects');
-            }}
-          />
-        </div>
-      ) : null}
-      {projectSetupStarted ? (
-        <div hidden={step !== 'projects'} inert={step !== 'projects'}>
-          <OnboardingProjects
-            initialProjectIds={importedProjectIds}
-            active={step === 'projects'}
-            onBack={() =>
-              setStep(
-                historySources && historySources.length ? 'history' : 'configure'
-              )
-            }
-            onFinish={async (ids) => {
-              setProjectIds(ids);
               setStep('appearance');
             }}
           />
@@ -1046,7 +1032,11 @@ export function FirstRunExperience({
       ) : null}
       {step === 'appearance' ? (
         <OnboardingAppearance
-          onBack={() => setStep('projects')}
+          onBack={() =>
+            setStep(
+              historySources && historySources.length ? 'history' : 'configure'
+            )
+          }
           onNavigateStep={(target) => {
             if (
               target === 'history' &&
@@ -1064,10 +1054,36 @@ export function FirstRunExperience({
               skipped: false,
               theme,
             });
-            await onFinish(projectIds);
-            setVisible(false);
+            setStep('projects');
           }}
         />
+      ) : null}
+      {projectSetupStarted ? (
+        <div
+          className="h-full"
+          hidden={step !== 'projects'}
+          inert={step !== 'projects'}
+        >
+          <OnboardingProjects
+            initialProjectIds={importedProjectIds}
+            active={step === 'projects'}
+            onBack={() => setStep('appearance')}
+            onNavigateStep={(target) => {
+              if (
+                target === 'history' &&
+                (!historySources || !historySources.length)
+              ) {
+                setStep('configure');
+                return;
+              }
+              setStep(target);
+            }}
+            onFinish={async (ids) => {
+              await onFinish(ids);
+              setVisible(false);
+            }}
+          />
+        </div>
       ) : null}
     </div>
   );

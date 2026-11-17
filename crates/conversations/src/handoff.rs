@@ -149,6 +149,9 @@ pub enum HandoffError {
     #[error("target Agent `{0}` is empty or invalid")]
     InvalidTargetEngine(String),
 
+    #[error("{0}")]
+    InvalidTargetInstance(String),
+
     #[error("workflow or delegation child conversation cannot switch Agent")]
     RestrictedOwner,
 
@@ -165,6 +168,9 @@ pub struct EngineHandoffConfirmation {
     pub workspace_id: Uuid,
     pub space_changed_events: Vec<crate::collaboration::CollaborationSpaceChangedEvent>,
     pub agent_switched: bool,
+    pub instance_switched: bool,
+    pub from_instance_id: Option<String>,
+    pub to_instance_id: Option<String>,
     pub handoff_boundary: Option<(Uuid, agents::AgentId)>,
     pub previous_model: Option<String>,
 }
@@ -565,15 +571,17 @@ pub fn format_handoff_prompt_text(
 }
 
 impl DeterministicHandoffService {
-    /// Read-only atomic preflight validation before switching a conversation's Agent engine.
+    /// Read-only atomic preflight validation before switching a conversation's Agent engine
+    /// or provider instance.
     ///
-    /// Verifies target engine non-emptiness, conversation existence, non-restricted ownership,
-    /// absence of an active turn, and on-disk existence of any bound workspace `container_ref`
-    /// before performing any persistence flush or SQLite write.
+    /// Verifies target engine non-emptiness, target provider instance validity, conversation
+    /// existence, non-restricted ownership, absence of an active turn, and on-disk existence
+    /// of any bound workspace `container_ref` before performing any persistence flush or SQLite write.
     pub async fn preflight_engine_handoff(
         pool: &SqlitePool,
         conversation_id: Uuid,
         target_agent_id: &agents::AgentId,
+        target_provider_instance_id: Option<&str>,
     ) -> Result<Session, HandoffError> {
         use db::models::{conversation_turn::ConversationTurnRecord, workspace::Workspace};
 
@@ -581,6 +589,27 @@ impl DeterministicHandoffService {
             return Err(HandoffError::InvalidTargetEngine(
                 target_agent_id.as_str().to_string(),
             ));
+        }
+
+        if let Some(requested_instance) = target_provider_instance_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            crate::resolve_effective_provider_instance_id(
+                pool,
+                target_agent_id,
+                Some(requested_instance),
+            )
+            .await
+            .map_err(|err| match err {
+                crate::ConversationServiceError::BadRequest(msg) => {
+                    HandoffError::InvalidTargetInstance(msg)
+                }
+                crate::ConversationServiceError::Internal(msg) => {
+                    HandoffError::Database(sqlx::Error::Protocol(msg))
+                }
+                other => HandoffError::InvalidTargetInstance(other.to_string()),
+            })?;
         }
 
         let session = Session::find_by_id(pool, conversation_id)
@@ -624,23 +653,30 @@ impl DeterministicHandoffService {
         Ok(session)
     }
 
-    /// Persist an intentional Agent switch on `sessions`, synchronize any linked
-    /// Collaboration Bot identity (`collaboration_members`, `conversation_personas`,
-    /// and idle sibling thread conversations), and preserve `active_agent_binding_id`
-    /// so `prepare_turn_continuation` still delivers portable history on the next turn.
+    /// Persist an intentional Agent or provider-instance switch on `sessions`, synchronize any
+    /// linked Collaboration Bot identity (`collaboration_members`, `conversation_personas`, and
+    /// idle sibling thread conversations), and preserve `active_agent_binding_id` so
+    /// `prepare_turn_continuation` still delivers portable history on the next turn.
     pub async fn confirm_engine_handoff(
         pool: &SqlitePool,
         conversation_id: Uuid,
         target_agent_id: &agents::AgentId,
+        target_provider_instance_id: Option<&str>,
     ) -> Result<EngineHandoffConfirmation, HandoffError> {
         use std::collections::BTreeSet;
         use db::models::{
             conversation::ConversationAgentBindingRecord,
             conversation_turn::ConversationTurnRecord,
+            session::{normalize_provider_instance_id, normalize_provider_instance_storage_id},
         };
 
-        let session =
-            Self::preflight_engine_handoff(pool, conversation_id, target_agent_id).await?;
+        let session = Self::preflight_engine_handoff(
+            pool,
+            conversation_id,
+            target_agent_id,
+            target_provider_instance_id,
+        )
+        .await?;
 
         let prev_session_agent = session.agent_id.clone().or_else(|| {
             session
@@ -653,7 +689,53 @@ impl DeterministicHandoffService {
             .as_ref()
             .is_some_and(|prev| prev != target_agent_id);
 
-        if agent_switched {
+        let requested_target_instance = target_provider_instance_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        let prev_effective_instance = if let Some(ref prev_agent) = prev_session_agent {
+            match crate::resolve_effective_provider_instance_id(
+                pool,
+                prev_agent,
+                session.provider_instance_id.as_deref(),
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(_) => normalize_provider_instance_id(session.provider_instance_id.as_deref()),
+            }
+        } else {
+            normalize_provider_instance_id(session.provider_instance_id.as_deref())
+        };
+
+        let next_storage_instance = if let Some(req) = requested_target_instance {
+            normalize_provider_instance_storage_id(Some(req))
+        } else if agent_switched {
+            None
+        } else {
+            session.provider_instance_id.clone()
+        };
+
+        let next_effective_instance = crate::resolve_effective_provider_instance_id(
+            pool,
+            target_agent_id,
+            next_storage_instance.as_deref(),
+        )
+        .await
+        .map_err(|err| match err {
+            crate::ConversationServiceError::BadRequest(msg) => {
+                HandoffError::InvalidTargetInstance(msg)
+            }
+            crate::ConversationServiceError::Internal(msg) => {
+                HandoffError::Database(sqlx::Error::Protocol(msg))
+            }
+            other => HandoffError::InvalidTargetInstance(other.to_string()),
+        })?;
+
+        let instance_switched = !agent_switched && prev_effective_instance != next_effective_instance;
+        let switched = agent_switched || instance_switched;
+
+        if switched {
             crate::runtime_events::flush_conversation_persistence(conversation_id).await;
         }
 
@@ -684,7 +766,7 @@ impl DeterministicHandoffService {
                 .or(active_binding_agent)
                 .or_else(|| prev_session_agent.clone());
             origin_agent
-                .filter(|origin| agent_switched || origin != target_agent_id)
+                .filter(|origin| switched || origin != target_agent_id)
                 .map(|origin| (last_turn_id, origin))
         } else {
             None
@@ -715,6 +797,7 @@ impl DeterministicHandoffService {
         sqlx::query(
             r#"UPDATE sessions
                SET external_session_id = CASE
+                       WHEN ?3 = 1 THEN NULL
                        WHEN agent_id IS NOT NULL AND agent_id != ?1 THEN NULL
                        WHEN agent_id IS NULL
                             AND executor IS NOT NULL
@@ -723,6 +806,7 @@ impl DeterministicHandoffService {
                        ELSE external_session_id
                    END,
                    model = CASE
+                       WHEN ?3 = 1 THEN NULL
                        WHEN agent_id IS NOT NULL AND agent_id != ?1 THEN NULL
                        WHEN agent_id IS NULL
                             AND executor IS NOT NULL
@@ -733,11 +817,14 @@ impl DeterministicHandoffService {
                    agent_id = ?1,
                    agent_type = ?1,
                    executor = ?1,
+                   provider_instance_id = ?4,
                    updated_at = datetime('now', 'subsec')
                WHERE id = ?2"#,
         )
         .bind(next_agent)
         .bind(conversation_id)
+        .bind(i64::from(switched))
+        .bind(next_storage_instance.as_deref())
         .execute(pool)
         .await?;
 
@@ -793,16 +880,19 @@ impl DeterministicHandoffService {
             sqlx::query(
                 r#"UPDATE collaboration_members
                    SET model = CASE
+                           WHEN ?3 = 1 THEN NULL
                            WHEN lower(replace(COALESCE(agent, ''), '-', '_')) != lower(replace(?1, '-', '_'))
                            THEN NULL
                            ELSE model
                        END,
                        mode_id = CASE
+                           WHEN ?3 = 1 THEN NULL
                            WHEN lower(replace(COALESCE(agent, ''), '-', '_')) != lower(replace(?1, '-', '_'))
                            THEN NULL
                            ELSE mode_id
                        END,
                        config_values = CASE
+                           WHEN ?3 = 1 THEN '{}'
                            WHEN lower(replace(COALESCE(agent, ''), '-', '_')) != lower(replace(?1, '-', '_'))
                            THEN '{}'
                            ELSE config_values
@@ -812,6 +902,7 @@ impl DeterministicHandoffService {
             )
             .bind(next_agent)
             .bind(member_id)
+            .bind(i64::from(switched))
             .execute(pool)
             .await?;
 
@@ -839,21 +930,26 @@ impl DeterministicHandoffService {
                 sqlx::query(
                     r#"UPDATE sessions
                        SET external_session_id = CASE
+                               WHEN ?3 = 1 THEN NULL
                                WHEN agent_id IS NOT NULL AND agent_id != ?1 THEN NULL
                                ELSE external_session_id
                            END,
                            model = CASE
+                               WHEN ?3 = 1 THEN NULL
                                WHEN agent_id IS NOT NULL AND agent_id != ?1 THEN NULL
                                ELSE model
                            END,
                            agent_id = ?1,
                            agent_type = ?1,
                            executor = ?1,
+                           provider_instance_id = ?4,
                            updated_at = datetime('now', 'subsec')
                        WHERE id = ?2"#,
                 )
                 .bind(next_agent)
                 .bind(sibling_id)
+                .bind(i64::from(switched))
+                .bind(next_storage_instance.as_deref())
                 .execute(pool)
                 .await?;
                 sqlx::query(
@@ -896,6 +992,9 @@ impl DeterministicHandoffService {
             workspace_id: session.workspace_id,
             space_changed_events,
             agent_switched,
+            instance_switched,
+            from_instance_id: prev_effective_instance,
+            to_instance_id: next_effective_instance,
             handoff_boundary,
             previous_model,
         })
@@ -907,11 +1006,13 @@ impl crate::ConversationSessionService {
         &self,
         conversation_id: Uuid,
         target_agent_id: &agents::AgentId,
+        target_provider_instance_id: Option<&str>,
     ) -> Result<(), HandoffError> {
         let _ = DeterministicHandoffService::preflight_engine_handoff(
             &self.ctx.deployment.db().pool,
             conversation_id,
             target_agent_id,
+            target_provider_instance_id,
         )
         .await?;
         Ok(())
@@ -936,23 +1037,47 @@ impl crate::ConversationSessionService {
         &self,
         conversation_id: Uuid,
         target_agent_id: &agents::AgentId,
+        target_provider_instance_id: Option<&str>,
     ) -> Result<EngineHandoffConfirmation, HandoffError> {
         let confirmation = DeterministicHandoffService::confirm_engine_handoff(
             &self.ctx.deployment.db().pool,
             conversation_id,
             target_agent_id,
+            target_provider_instance_id,
         )
         .await?;
-        if confirmation.agent_switched {
+        if confirmation.agent_switched || confirmation.instance_switched {
             self.drop_live_agent_connection(conversation_id).await;
         }
         if let Some((last_turn_id, ref origin_agent)) = confirmation.handoff_boundary {
+            let handoff_tokens = match DeterministicHandoffService::build_handoff_context(
+                &self.ctx.deployment.db().pool,
+                conversation_id,
+                target_agent_id.as_str(),
+                None,
+            )
+            .await
+            {
+                Ok(ctx) if ctx.total_tokens > 0 => Some(ctx.total_tokens),
+                Ok(_) => None,
+                Err(error) => {
+                    tracing::warn!(
+                        %conversation_id,
+                        %error,
+                        "failed to compute handoff token count for timeline event"
+                    );
+                    None
+                }
+            };
             let payload = serde_json::json!({
                 "kind": "agent_handoff",
                 "afterTurnId": last_turn_id,
                 "fromAgent": origin_agent.as_str(),
                 "toAgent": target_agent_id.as_str(),
+                "fromInstance": confirmation.from_instance_id,
+                "toInstance": confirmation.to_instance_id,
                 "fromModel": confirmation.previous_model,
+                "handoffTokens": handoff_tokens,
                 "continuationPolicy": "portable",
             });
             if let Err(error) = self
@@ -980,458 +1105,4 @@ impl crate::ConversationSessionService {
 }
 
 #[cfg(test)]
-mod tests {
-    use agents::conversation::{ConversationError, ConversationInputBlock};
-    use db::{DBService, models::conversation_event::AppendConversationEvent};
-
-    use super::*;
-    use crate::projection::ConversationEventAppender;
-
-    async fn append_turn(
-        pool: &SqlitePool,
-        conversation_id: Uuid,
-        user_text: &str,
-        assistant_text: &str,
-        fail_msg: Option<&str>,
-    ) -> Uuid {
-        let turn_id = Uuid::new_v4();
-        let user_ev = ConversationEvent::UserTurnCreated {
-            blocks: vec![ConversationInputBlock::Text {
-                text: user_text.to_string(),
-            }],
-            workflow_refs: Vec::new(),
-        };
-        ConversationEventAppender::append(
-            pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: None,
-                prompt_id: None,
-                source: "user",
-                event_kind: "user_turn_created",
-                normalized_json: &serde_json::to_string(&user_ev).unwrap(),
-                raw_json: None,
-                idempotency_key: None,
-            },
-        )
-        .await
-        .expect("append user");
-
-        let asst_ev = ConversationEvent::AssistantTextDelta {
-            text: assistant_text.to_string(),
-            message_id: None,
-        };
-        ConversationEventAppender::append(
-            pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: None,
-                prompt_id: None,
-                source: "agent",
-                event_kind: "assistant_text_delta",
-                normalized_json: &serde_json::to_string(&asst_ev).unwrap(),
-                raw_json: None,
-                idempotency_key: None,
-            },
-        )
-        .await
-        .expect("append assistant");
-
-        let term_ev = match fail_msg {
-            Some(msg) => ConversationEvent::TurnFailed {
-                error: ConversationError::new(msg, Some("rate_limited".into()), None),
-            },
-            None => ConversationEvent::TurnCompleted {
-                stop_reason: Some("end_turn".into()),
-            },
-        };
-        let kind = if fail_msg.is_some() {
-            "turn_failed"
-        } else {
-            "turn_completed"
-        };
-        ConversationEventAppender::append(
-            pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: None,
-                prompt_id: None,
-                source: "agent",
-                event_kind: kind,
-                normalized_json: &serde_json::to_string(&term_ev).unwrap(),
-                raw_json: None,
-                idempotency_key: None,
-            },
-        )
-        .await
-        .expect("append terminal");
-
-        turn_id
-    }
-
-    #[tokio::test]
-    async fn deterministic_handoff_packs_recent_turns_and_error_first_and_reads_omitted() {
-        let db = DBService::new_in_memory_for_tests()
-            .await
-            .expect("in-memory db");
-        let pool = db.writer().as_pool();
-        let conv_id = Uuid::new_v4();
-        let ws_id = Uuid::new_v4();
-
-        sqlx::query(
-            "INSERT INTO sessions (id, workspace_id, name, status, executor, created_at, updated_at) \
-             VALUES (?, ?, 'Handoff Test', 'todo', 'claude', datetime('now'), datetime('now'))",
-        )
-        .bind(conv_id)
-        .bind(ws_id)
-        .execute(pool)
-        .await
-        .expect("insert session");
-
-        // Append 5 older turns with large text and 1 latest turn that failed.
-        let mut turn_ids = Vec::new();
-        for i in 1..=5 {
-            let tid = append_turn(
-                pool,
-                conv_id,
-                &format!("Old user prompt {i}: {}", "x".repeat(400)),
-                &format!("Old assistant reply {i}: {}", "y".repeat(400)),
-                None,
-            )
-            .await;
-            turn_ids.push(tid);
-        }
-        let latest_tid = append_turn(
-            pool,
-            conv_id,
-            "Deploy migration script",
-            "Starting deployment...",
-            Some("429 Too Many Requests from upstream provider"),
-        )
-        .await;
-
-        let preview =
-            DeterministicHandoffService::build_handoff_context(pool, conv_id, "codex", Some(350))
-                .await
-                .expect("build_handoff_context");
-
-        assert_eq!(preview.source_engine, "claude");
-        assert_eq!(preview.target_engine, "codex");
-        assert!(preview.total_tokens <= 350);
-        assert!(!preview.omitted_ids.is_empty());
-        assert!(
-            preview
-                .packed_messages
-                .iter()
-                .any(|m| m.role == "error" && m.content.contains("429 Too Many Requests")),
-            "unresolved latest error must be packed at highest priority"
-        );
-        assert!(
-            preview
-                .packed_messages
-                .iter()
-                .any(|m| m.id.starts_with(&latest_tid.to_string())),
-            "latest turn must be packed before older turns"
-        );
-        assert!(
-            preview
-                .handoff_prompt_text
-                .as_deref()
-                .unwrap_or_default()
-                .contains("thread_read_history")
-        );
-
-        // Verify MCP `thread_read_history` helper retrieves omitted items cleanly.
-        let fetched = DeterministicHandoffService::read_history_items_by_ids(
-            pool,
-            conv_id,
-            &preview.omitted_ids[..2],
-        )
-        .await
-        .expect("read omitted items");
-        assert_eq!(fetched.len(), 2);
-        assert!(fetched[0].content.contains("Old "));
-    }
-
-    #[tokio::test]
-    async fn confirm_engine_handoff_syncs_session_bot_persona_and_preserves_source_binding() {
-        use agents::AgentId;
-        use db::models::conversation::DbConversationSummary;
-
-        let db = DBService::new_in_memory_for_tests()
-            .await
-            .expect("in-memory db");
-        let pool = db.writer().as_pool();
-
-        let workspace_id = Uuid::new_v4();
-        let conversation_id = Uuid::new_v4();
-        let claude = AgentId::parse("claude_code").expect("claude");
-        sqlx::query(
-            "INSERT INTO sessions (id, workspace_id, name, status, executor, agent_id, agent_type, model, external_session_id, created_at, updated_at) \
-             VALUES (?, ?, 'Bot Conv', 'todo', 'CLAUDE_CODE', 'claude_code', 'claude_code', 'claude-opus-4-6', 'ext-claude-1', datetime('now'), datetime('now'))",
-        )
-        .bind(conversation_id)
-        .bind(workspace_id)
-        .execute(pool)
-        .await
-        .expect("session");
-
-        let binding = ConversationAgentBindingRecord::link_native_session(
-            pool,
-            conversation_id,
-            &claude,
-            "/tmp",
-            "acp-claude-1",
-            "conn-claude-1",
-        )
-        .await
-        .expect("binding");
-        sqlx::query(
-            "UPDATE sessions SET model = 'claude-opus-4-6', external_session_id = 'ext-claude-1' WHERE id = ?",
-        )
-        .bind(conversation_id)
-        .execute(pool)
-        .await
-        .expect("seed model");
-
-        sqlx::query(
-            "INSERT INTO collaboration_members (id, name, agent, model, mode_id, config_values, persona_prompt, created_at)
-             VALUES ('mem-bot-1', '小A', 'claude_code', 'claude-opus-4-6', 'plan', '{\"model\":\"claude-opus-4-6\"}', '你是小A', '2026-01-01T00:00:00Z')",
-        )
-        .execute(pool)
-        .await
-        .expect("member");
-        sqlx::query(
-            "INSERT INTO collaboration_threads (id, kind, title, workspace_id, created_at)
-             VALUES ('direct:mem-bot-1', 'direct', '小A', ?, '2026-01-01T00:00:00Z')",
-        )
-        .bind(workspace_id.to_string())
-        .execute(pool)
-        .await
-        .expect("thread");
-        sqlx::query(
-            "INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, status, joined_at)
-             VALUES ('direct:mem-bot-1', 'mem-bot-1', ?, 'active', '2026-01-01T00:00:00Z')",
-        )
-        .bind(conversation_id.to_string())
-        .execute(pool)
-        .await
-        .expect("thread member");
-        sqlx::query(
-            "INSERT INTO conversation_personas (conversation_id, role_id, name, agent_id, persona_prompt, snapshotted_at)
-             VALUES (?, NULL, '小A', 'claude_code', '你是小A', '2026-01-01T00:00:00Z')",
-        )
-        .bind(conversation_id.to_string())
-        .execute(pool)
-        .await
-        .expect("persona");
-
-        let seeded_turn = db::models::conversation_turn::ConversationTurnRecord::create_pending(
-            pool,
-            Uuid::new_v4(),
-            db::models::conversation_turn::CreateConversationTurn {
-                conversation_id,
-                prompt_id: Some("prompt-1"),
-                text_preview: Some("hi"),
-                input_blocks_json: "[]",
-            },
-        )
-        .await
-        .expect("seed turn");
-        let seeded_turn_id = seeded_turn.id;
-
-        let codex = AgentId::parse("codex").expect("codex");
-        let confirmation =
-            DeterministicHandoffService::confirm_engine_handoff(pool, conversation_id, &codex)
-                .await
-                .expect("confirm handoff");
-        assert_eq!(confirmation.workspace_id, workspace_id);
-        assert!(confirmation.agent_switched);
-        assert_eq!(
-            confirmation.previous_model.as_deref(),
-            Some("claude-opus-4-6")
-        );
-        let (after_turn_id, origin_agent) = confirmation
-            .handoff_boundary
-            .as_ref()
-            .expect("handoff boundary recorded when conversation has turns");
-        assert_eq!(*after_turn_id, seeded_turn_id);
-        assert_eq!(origin_agent.as_str(), "claude_code");
-        assert_eq!(confirmation.space_changed_events.len(), 1);
-        assert_eq!(
-            confirmation.space_changed_events[0].space_id,
-            "direct:mem-bot-1"
-        );
-
-        let summary = DbConversationSummary::find_by_id(pool, conversation_id)
-            .await
-            .expect("summary query")
-            .expect("summary exists");
-        assert_eq!(summary.agent_id, Some(codex));
-        assert_eq!(summary.model, None);
-        assert_eq!(summary.external_session_id, None);
-
-        let session_after = Session::find_by_id(pool, conversation_id)
-            .await
-            .expect("session query")
-            .expect("session exists");
-        assert_eq!(session_after.executor.as_deref(), Some("codex"));
-
-        let active_binding =
-            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
-                .await
-                .expect("active binding query")
-                .expect("active binding preserved");
-        assert_eq!(active_binding.id, binding.id);
-
-        let persona = crate::collaboration::conversation_persona(pool, conversation_id)
-            .await
-            .expect("persona query")
-            .expect("persona exists");
-        assert_eq!(persona.agent_name, "codex");
-
-        let (member_agent, member_model, member_mode, member_cfg): (
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT agent, model, mode_id, config_values FROM collaboration_members WHERE id = 'mem-bot-1'",
-        )
-        .fetch_one(pool)
-        .await
-        .expect("member row");
-        assert_eq!(member_agent.as_deref(), Some("codex"));
-        assert_eq!(member_model, None);
-        assert_eq!(member_mode, None);
-        assert_eq!(member_cfg.as_deref(), Some("{}"));
-    }
-
-    #[tokio::test]
-    async fn preflight_engine_handoff_aborts_before_mutation_when_workspace_root_missing() {
-        use agents::AgentId;
-        use db::models::conversation::DbConversationSummary;
-
-        let db = DBService::new_in_memory_for_tests()
-            .await
-            .expect("in-memory db");
-        let pool = db.writer().as_pool();
-
-        let project_id = Uuid::new_v4();
-        let task_id = Uuid::new_v4();
-        let workspace_id = Uuid::new_v4();
-        let conversation_id = Uuid::new_v4();
-        let missing_dir = std::env::temp_dir().join(format!("dimo-missing-ws-{}", Uuid::new_v4()));
-
-        sqlx::query("INSERT INTO projects (id, name, root_path, created_at, updated_at) VALUES (?, 'P', '/tmp/p', datetime('now'), datetime('now'))")
-            .bind(project_id)
-            .execute(pool)
-            .await
-            .expect("project");
-        sqlx::query("INSERT INTO tasks (id, project_id, title, status, created_at, updated_at) VALUES (?, ?, 'T', 'todo', datetime('now'), datetime('now'))")
-            .bind(task_id)
-            .bind(project_id)
-            .execute(pool)
-            .await
-            .expect("task");
-        sqlx::query(
-            "INSERT INTO workspaces (id, project_id, task_id, container_ref, branch, use_worktree, archived, pinned, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, 'main', 0, 0, 0, datetime('now'), datetime('now'))",
-        )
-        .bind(workspace_id)
-        .bind(project_id)
-        .bind(task_id)
-        .bind(missing_dir.to_string_lossy().to_string())
-        .execute(pool)
-        .await
-        .expect("workspace");
-
-        sqlx::query(
-            "INSERT INTO sessions (id, workspace_id, name, status, executor, agent_id, agent_type, model, external_session_id, created_at, updated_at) \
-             VALUES (?, ?, 'Preflight Conv', 'todo', 'claude_code', 'claude_code', 'claude_code', 'claude-opus-4-6', 'ext-orig-1', datetime('now'), datetime('now'))",
-        )
-        .bind(conversation_id)
-        .bind(workspace_id)
-        .execute(pool)
-        .await
-        .expect("session");
-
-        let codex = AgentId::parse("codex").expect("codex");
-        let err = DeterministicHandoffService::confirm_engine_handoff(pool, conversation_id, &codex)
-            .await
-            .expect_err("missing workspace root must fail preflight");
-        assert!(matches!(err, HandoffError::WorkspaceRootMissing(_)));
-
-        let summary = DbConversationSummary::find_by_id(pool, conversation_id)
-            .await
-            .expect("summary query")
-            .expect("summary exists");
-        assert_eq!(summary.agent_id, Some(AgentId::parse("claude_code").unwrap()));
-        assert_eq!(summary.model.as_deref(), Some("claude-opus-4-6"));
-        assert_eq!(summary.external_session_id.as_deref(), Some("ext-orig-1"));
-    }
-
-    #[tokio::test]
-    async fn read_history_items_by_ids_reconstructs_truncated_turn_from_targeted_events() {
-        let db = DBService::new_in_memory_for_tests()
-            .await
-            .expect("in-memory db");
-        let pool = db.writer().as_pool();
-        let conv_id = Uuid::new_v4();
-        let ws_id = Uuid::new_v4();
-
-        sqlx::query(
-            "INSERT INTO sessions (id, workspace_id, name, status, executor, created_at, updated_at) \
-             VALUES (?, ?, 'Handoff Large Test', 'todo', 'claude', datetime('now'), datetime('now'))",
-        )
-        .bind(conv_id)
-        .bind(ws_id)
-        .execute(pool)
-        .await
-        .expect("insert session");
-
-        let huge_tail = "UNIQUE_UNTRUNCATED_END_MARKER_987654321";
-        let huge_reply = format!("{} {huge_tail}", "Large paragraph content. ".repeat(1500));
-        let large_tid = append_turn(
-            pool,
-            conv_id,
-            "Explain architecture",
-            &huge_reply,
-            None,
-        )
-        .await;
-        let _small_tid = append_turn(
-            pool,
-            conv_id,
-            "Follow up",
-            "Short confirmation.",
-            None,
-        )
-        .await;
-
-        let assistant_row_id = format!("{large_tid}:assistant");
-        let items = DeterministicHandoffService::read_history_items_by_ids(
-            pool,
-            conv_id,
-            std::slice::from_ref(&assistant_row_id),
-        )
-        .await
-        .expect("read_history_items_by_ids");
-
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].id, assistant_row_id);
-        assert!(
-            items[0].content.contains(huge_tail),
-            "targeted lookup must reconstruct full untruncated text via events_for_turn"
-        );
-    }
-}
+mod tests;

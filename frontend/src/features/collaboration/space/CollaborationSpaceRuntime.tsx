@@ -1950,13 +1950,26 @@ export function useCollaborationSpaceRuntime(
       const switchedSessionId = String(detail?.sessionId ?? '').trim();
       const switchedAgentId = String(detail?.agentId ?? '').trim();
       if (!switchedSessionId || !switchedAgentId) return;
+      const hasInstanceUpdate = 'providerInstanceId' in (detail ?? {});
+      const switchedInstanceId = hasInstanceUpdate
+        ? (detail.providerInstanceId ?? null)
+        : undefined;
       setConversations((current) => {
         let changed = false;
         const next = current.map((conv) => {
           if (conv.conversation_id !== switchedSessionId) return conv;
-          if (conv.agent_id === switchedAgentId) return conv;
+          const instanceChanged =
+            hasInstanceUpdate &&
+            (conv.provider_instance_id ?? null) !== switchedInstanceId;
+          if (conv.agent_id === switchedAgentId && !instanceChanged) return conv;
           changed = true;
-          return { ...conv, agent_id: switchedAgentId };
+          return {
+            ...conv,
+            agent_id: switchedAgentId,
+            ...(hasInstanceUpdate
+              ? { provider_instance_id: switchedInstanceId }
+              : {}),
+          };
         });
         return changed ? next : current;
       });

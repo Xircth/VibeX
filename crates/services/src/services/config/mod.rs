@@ -70,18 +70,43 @@ pub async fn publish_config_runtime(config: &Config) {
     agents::apply_configured_terminal_shell(config.default_terminal_shell.clone()).await;
 }
 
+fn map_settings_store_error(
+    error: crate::services::settings_store::SettingsStoreError,
+) -> ConfigError {
+    match error {
+        crate::services::settings_store::SettingsStoreError::Io(error) => ConfigError::Io(error),
+        crate::services::settings_store::SettingsStoreError::Json(error) => {
+            ConfigError::Json(error)
+        }
+        crate::services::settings_store::SettingsStoreError::InvalidDocument => {
+            ConfigError::ValidationError("Settings document must be a JSON object".to_string())
+        }
+    }
+}
+
+/// Attempts to load config from the given path, propagating transient IO or JSON errors
+/// while returning `Ok(None)` when the file or application section is absent.
+pub async fn try_load_config_from_file(config_path: &Path) -> Result<Option<Config>, ConfigError> {
+    match read_section::<serde_json::Value>(config_path, APPLICATION_SETTINGS_SECTION).await {
+        Ok(Some(raw_config)) => Ok(Some(Config::from(raw_config.to_string()))),
+        Ok(None) => match tokio::fs::read_to_string(config_path).await {
+            // Backward compatibility for the former standalone config.json.
+            Ok(raw_config) => Ok(Some(Config::from(raw_config))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(ConfigError::Io(error)),
+        },
+        Err(error) => Err(map_settings_store_error(error)),
+    }
+}
+
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &Path) -> Config {
-    match read_section::<serde_json::Value>(config_path, APPLICATION_SETTINGS_SECTION).await {
-        Ok(Some(raw_config)) => Config::from(raw_config.to_string()),
-        Ok(None) => match std::fs::read_to_string(config_path) {
-            // Backward compatibility for the former standalone config.json.
-            Ok(raw_config) => Config::from(raw_config),
-            Err(_) => {
-                tracing::info!("No settings file found, creating one");
-                Config::default()
-            }
-        },
+    match try_load_config_from_file(config_path).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            tracing::info!("No settings file found, creating one");
+            Config::default()
+        }
         Err(error) => {
             tracing::warn!(%error, "Failed to read application settings; using defaults");
             Config::default()
@@ -93,23 +118,13 @@ pub async fn load_config_from_file(config_path: &Path) -> Config {
 pub async fn save_config_to_file(config: &Config, config_path: &Path) -> Result<(), ConfigError> {
     write_section(config_path, APPLICATION_SETTINGS_SECTION, config)
         .await
-        .map_err(|error| match error {
-            crate::services::settings_store::SettingsStoreError::Io(error) => {
-                ConfigError::Io(error)
-            }
-            crate::services::settings_store::SettingsStoreError::Json(error) => {
-                ConfigError::Json(error)
-            }
-            crate::services::settings_store::SettingsStoreError::InvalidDocument => {
-                ConfigError::ValidationError("Settings document must be a JSON object".to_string())
-            }
-        })?;
+        .map_err(map_settings_store_error)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, load_config_from_file, save_config_to_file};
+    use super::{Config, load_config_from_file, save_config_to_file, try_load_config_from_file};
 
     #[tokio::test]
     async fn application_config_roundtrips_inside_the_unified_settings_document() {
@@ -143,5 +158,23 @@ mod tests {
             true
         );
         assert_eq!(document["application"]["workspace_dir"], "~/Worktrees");
+    }
+
+    #[tokio::test]
+    async fn try_load_config_propagates_parse_errors_and_reports_none_when_absent() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let missing = temp.path().join("missing.json");
+        assert!(
+            try_load_config_from_file(&missing)
+                .await
+                .expect("missing returns Ok(None)")
+                .is_none()
+        );
+
+        let corrupted = temp.path().join("corrupted.json");
+        tokio::fs::write(&corrupted, "{not-valid-json")
+            .await
+            .expect("seed corrupted");
+        assert!(try_load_config_from_file(&corrupted).await.is_err());
     }
 }

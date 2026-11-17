@@ -564,6 +564,7 @@ pub trait ContainerService: Send + Sync {
                     &CreateSession {
                         executor: None,
                         agent_id: None,
+                        provider_instance_id: None,
                         task_id: None,
                         name: None,
                         initial_prompt: None,

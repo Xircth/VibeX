@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     AgentRuntimeLaunchSettings, ConversationServiceError, host::parse_management_authentication,
-    resolve_agent_runtime_launch_settings,
+    resolve_agent_runtime_launch_settings_for_provider_instance,
 };
 
 pub const CAPABILITY_CATALOG_TTL: Duration = Duration::minutes(10);
@@ -27,11 +27,18 @@ pub async fn open_capability_catalog_fingerprint(
     launch: &AgentRuntimeLaunchSettings,
 ) -> Result<String, ConversationServiceError> {
     let launch_lock = &launch.launch_lock;
+    let instance_id = db::models::session::normalize_provider_instance_id(
+        launch
+            .env
+            .get("DIMO_PROVIDER_INSTANCE_ID")
+            .map(String::as_str),
+    );
     let mut digest = Sha256::new();
-    // v6 invalidates catalogs whose fingerprint skipped the native config
-    // files because the Agent home was looked up only in the lock env.
-    digest.update(b"open-agent-capability-catalog-v6:");
+    // v7 includes normalized provider instance identity and instance-scoped files.
+    digest.update(b"open-agent-capability-catalog-v7:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
+    digest.update(b"\0instance:");
+    digest.update(instance_id.as_deref().unwrap_or("local").as_bytes());
     digest.update(b"\0");
     digest.update(
         launch_lock
@@ -100,7 +107,49 @@ pub async fn open_capability_catalog_fingerprint(
             digest.update(b"\0");
         }
     }
-    if let Some(row) = sqlx::query(
+    if let Some(ref custom_instance_id) = instance_id {
+        let candidates =
+            db::models::provider_instance::candidate_provider_agent_ids(launch_lock.agent_id.as_str());
+        for candidate in candidates {
+            if let Ok(Some(row)) = sqlx::query(
+                r#"SELECT auth_mode, COALESCE(secret_bindings_json, ''), updated_at
+                   FROM provider_instances
+                   WHERE agent_id = ? AND instance_id = ?"#,
+            )
+            .bind(&candidate)
+            .bind(custom_instance_id)
+            .fetch_optional(pool)
+            .await
+            {
+                digest.update(b"\0provider_instance:");
+                for index in 0..3 {
+                    digest.update(row.try_get::<String, _>(index).unwrap_or_default().as_bytes());
+                    digest.update(b"\0");
+                }
+                break;
+            }
+        }
+        let instances_root = launch
+            .env
+            .get("DIMO_PROVIDER_INSTANCES_ROOT")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from);
+        if let Some(instance_dir) = crate::host_isolation::isolated_instance_root(
+            &launch_lock.agent_id,
+            custom_instance_id,
+            instances_root.as_deref(),
+        ) {
+            for file in ["instance-env.json", "agent-model-providers.json"] {
+                digest.update(b"\0instfile:");
+                digest.update(file.as_bytes());
+                if let Ok(bytes) = std::fs::read(instance_dir.join(file)) {
+                    digest.update(&bytes);
+                }
+            }
+        }
+    } else if let Some(row) = sqlx::query(
         r#"SELECT authentication, observation_generation,
                   acp_handshake, authentication_required
            FROM agent_probe WHERE agent_id = ?"#,
@@ -303,8 +352,15 @@ fn catalog_controls_for_defaults(
 async fn read_matching_capability_catalog_record(
     pool: &SqlitePool,
     agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
 ) -> Result<Option<AgentCapabilityCatalogRecord>, ConversationServiceError> {
-    let launch = match resolve_agent_runtime_launch_settings(pool, agent_id).await {
+    let launch = match resolve_agent_runtime_launch_settings_for_provider_instance(
+        pool,
+        agent_id,
+        provider_instance_id,
+    )
+    .await
+    {
         Ok(launch) => launch,
         Err(_) => return Ok(None),
     };
@@ -318,7 +374,17 @@ pub async fn read_matching_open_capability_catalog(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<Option<AgentSessionControlsSnapshot>, ConversationServiceError> {
-    let Some(record) = read_matching_capability_catalog_record(pool, agent_id).await? else {
+    read_matching_open_capability_catalog_for_provider_instance(pool, agent_id, None).await
+}
+
+pub async fn read_matching_open_capability_catalog_for_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<Option<AgentSessionControlsSnapshot>, ConversationServiceError> {
+    let Some(record) =
+        read_matching_capability_catalog_record(pool, agent_id, provider_instance_id).await?
+    else {
         return Ok(None);
     };
     Ok(catalog_controls_if_fresh(record, Utc::now()))
@@ -334,7 +400,17 @@ pub async fn read_matching_capability_catalog_for_defaults(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<Option<AgentSessionControlsSnapshot>, ConversationServiceError> {
-    let Some(record) = read_matching_capability_catalog_record(pool, agent_id).await? else {
+    read_matching_capability_catalog_for_defaults_for_provider_instance(pool, agent_id, None).await
+}
+
+pub async fn read_matching_capability_catalog_for_defaults_for_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<Option<AgentSessionControlsSnapshot>, ConversationServiceError> {
+    let Some(record) =
+        read_matching_capability_catalog_record(pool, agent_id, provider_instance_id).await?
+    else {
         return Ok(None);
     };
     Ok(catalog_controls_for_defaults(record))
@@ -345,24 +421,69 @@ pub async fn load_capability_catalog_for_session_defaults(
     agent_runtime: &AgentRuntime,
     agent_id: &AgentId,
 ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-    if let Some(snapshot) = read_matching_capability_catalog_for_defaults(pool, agent_id).await? {
+    load_capability_catalog_for_session_defaults_for_provider_instance(
+        pool,
+        agent_runtime,
+        agent_id,
+        None,
+    )
+    .await
+}
+
+pub async fn load_capability_catalog_for_session_defaults_for_provider_instance(
+    pool: &SqlitePool,
+    agent_runtime: &AgentRuntime,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+    if let Some(snapshot) = read_matching_capability_catalog_for_defaults_for_provider_instance(
+        pool,
+        agent_id,
+        provider_instance_id,
+    )
+    .await?
+    {
         return Ok(snapshot);
     }
-    refresh_open_capability_catalog(pool, agent_runtime, agent_id).await?;
-    read_matching_capability_catalog_for_defaults(pool, agent_id)
-        .await?
-        .ok_or_else(|| {
-            ConversationServiceError::Conflict(
-                "Agent capability catalog is unavailable; refresh it before saving defaults".into(),
-            )
-        })
+    refresh_open_capability_catalog_for_provider_instance(
+        pool,
+        agent_runtime,
+        agent_id,
+        provider_instance_id,
+    )
+    .await?;
+    read_matching_capability_catalog_for_defaults_for_provider_instance(
+        pool,
+        agent_id,
+        provider_instance_id,
+    )
+    .await?
+    .ok_or_else(|| {
+        ConversationServiceError::Conflict(
+            "Agent capability catalog is unavailable; refresh it before saving defaults".into(),
+        )
+    })
 }
 
 pub async fn capability_catalog_is_fresh(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<bool, ConversationServiceError> {
-    let launch = match resolve_agent_runtime_launch_settings(pool, agent_id).await {
+    capability_catalog_is_fresh_for_provider_instance(pool, agent_id, None).await
+}
+
+pub async fn capability_catalog_is_fresh_for_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<bool, ConversationServiceError> {
+    let launch = match resolve_agent_runtime_launch_settings_for_provider_instance(
+        pool,
+        agent_id,
+        provider_instance_id,
+    )
+    .await
+    {
         Ok(launch) => launch,
         Err(_) => return Ok(false),
     };
@@ -383,7 +504,28 @@ pub async fn refresh_open_capability_catalog(
     agent_runtime: &AgentRuntime,
     agent_id: &AgentId,
 ) -> Result<bool, ConversationServiceError> {
-    let launch = resolve_agent_runtime_launch_settings(pool, agent_id).await?;
+    refresh_open_capability_catalog_for_provider_instance(pool, agent_runtime, agent_id, None).await
+}
+
+pub async fn refresh_open_capability_catalog_for_provider_instance(
+    pool: &SqlitePool,
+    agent_runtime: &AgentRuntime,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<bool, ConversationServiceError> {
+    let launch = resolve_agent_runtime_launch_settings_for_provider_instance(
+        pool,
+        agent_id,
+        provider_instance_id,
+    )
+    .await?;
+    let is_custom_instance = db::models::session::normalize_provider_instance_id(
+        launch
+            .env
+            .get("DIMO_PROVIDER_INSTANCE_ID")
+            .map(String::as_str),
+    )
+    .is_some();
     let fingerprint = open_capability_catalog_fingerprint(pool, &launch).await?;
     let expected_generation =
         AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
@@ -401,6 +543,7 @@ pub async fn refresh_open_capability_catalog(
     let discovery = settle_session_authentication(
         pool,
         agent_id,
+        is_custom_instance,
         agent_runtime
             .prepare_session(EnsureAgentSessionInput {
                 agent_id: agent_id.clone(),
@@ -497,8 +640,12 @@ async fn persist_capability_catalog(
 async fn settle_session_authentication<T>(
     pool: &SqlitePool,
     agent_id: &AgentId,
+    is_custom_instance: bool,
     result: Result<T, agents::AgentError>,
 ) -> Result<T, ConversationServiceError> {
+    if is_custom_instance {
+        return result.map_err(Into::into);
+    }
     let (readiness, output) = match result {
         Ok(value) => (SessionAuthenticationEvidence::SessionReady, Ok(value)),
         Err(error @ agents::AgentError::AuthenticationRequired(_)) => (
@@ -877,5 +1024,92 @@ mod tests {
         let kept = catalog_controls_for_defaults(record).expect("last matching catalog");
         assert_eq!(kept.current_mode.as_deref(), Some("agent"));
         assert_eq!(kept.modes[0].id, "agent");
+    }
+
+    #[tokio::test]
+    async fn fingerprint_separates_local_and_custom_provider_instances_and_tracks_instance_files() {
+        let pool = fingerprint_pool().await;
+        sqlx::query(
+            r#"CREATE TABLE provider_instances (
+                agent_id TEXT NOT NULL,
+                instance_id TEXT NOT NULL,
+                auth_mode TEXT NOT NULL DEFAULT 'subscription',
+                secret_bindings_json TEXT,
+                updated_at TEXT NOT NULL
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let mut local_launch = launch_at_home("codex", home.path());
+        local_launch.env.insert(
+            "DIMO_PROVIDER_INSTANCES_ROOT".to_string(),
+            root.path().to_string_lossy().into_owned(),
+        );
+        local_launch.env.insert(
+            "DIMO_PROVIDER_INSTANCE_ID".to_string(),
+            "local".to_string(),
+        );
+
+        let mut custom_launch = local_launch.clone();
+        custom_launch.env.insert(
+            "DIMO_PROVIDER_INSTANCE_ID".to_string(),
+            "work-profile".to_string(),
+        );
+
+        let local_fp = open_capability_catalog_fingerprint(&pool, &local_launch)
+            .await
+            .unwrap();
+        let custom_fp_1 = open_capability_catalog_fingerprint(&pool, &custom_launch)
+            .await
+            .unwrap();
+        assert_ne!(local_fp, custom_fp_1);
+
+        let instance_dir = crate::host_isolation::isolated_instance_root(
+            &AgentId::parse("codex").unwrap(),
+            "work-profile",
+            Some(root.path()),
+        )
+        .unwrap();
+        std::fs::create_dir_all(&instance_dir).unwrap();
+        std::fs::write(
+            instance_dir.join("instance-env.json"),
+            r#"{"OPENAI_BASE_URL":"https://api.example.com/v1"}"#,
+        )
+        .unwrap();
+        let custom_fp_2 = open_capability_catalog_fingerprint(&pool, &custom_launch)
+            .await
+            .unwrap();
+        assert_ne!(custom_fp_1, custom_fp_2);
+
+        std::fs::write(
+            instance_dir.join("agent-model-providers.json"),
+            r#"{"providers":[{"id":"p1"}]}"#,
+        )
+        .unwrap();
+        let custom_fp_3 = open_capability_catalog_fingerprint(&pool, &custom_launch)
+            .await
+            .unwrap();
+        assert_ne!(custom_fp_2, custom_fp_3);
+
+        // Changing local agent_probe only affects local, not custom instance fingerprint.
+        sqlx::query(
+            r#"INSERT INTO agent_probe
+               VALUES ('codex', 'logged_in', '2026-11-16T00:00:00Z', 1, 1, 1, 0)"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let local_fp_after_probe = open_capability_catalog_fingerprint(&pool, &local_launch)
+            .await
+            .unwrap();
+        let custom_fp_after_probe = open_capability_catalog_fingerprint(&pool, &custom_launch)
+            .await
+            .unwrap();
+        assert_ne!(local_fp, local_fp_after_probe);
+        assert_eq!(custom_fp_3, custom_fp_after_probe);
     }
 }

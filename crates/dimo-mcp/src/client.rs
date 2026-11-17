@@ -209,9 +209,9 @@ pub async fn call_host_v1_command(
         request = request.bearer_auth(token);
     }
     if let Some(conversation_id) = conversation_id.filter(|c| !c.trim().is_empty()) {
-        request = request.header("x-vibex-conversation-id", conversation_id);
+        request = request.header("x-dimo-conversation-id", conversation_id);
     }
-    request = request.header("x-vibex-protocol-version", "1.0");
+    request = request.header("x-dimo-protocol-version", "1.0");
     let response = request
         .send()
         .await

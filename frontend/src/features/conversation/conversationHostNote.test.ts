@@ -79,6 +79,7 @@ describe('agent handoff host notes', () => {
         fromAgent: 'claude_code',
         fromModel: 'claude-opus-4-6',
         toAgent: 'codex',
+        handoffTokens: 2200,
         switchedAt: '2026-11-15T12:00:00Z',
       })
     );
@@ -88,6 +89,7 @@ describe('agent handoff host notes', () => {
       fromModel: 'claude-opus-4-6',
       toAgent: 'codex',
       toModel: null,
+      handoffTokens: 2200,
       continuationPolicy: 'portable',
     });
 
@@ -103,4 +105,3 @@ describe('agent handoff host notes', () => {
     expect(parseAgentHandoffNotice(roundTripSame)).toBeNull();
   });
 });
-

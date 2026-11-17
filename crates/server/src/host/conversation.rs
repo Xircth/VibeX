@@ -917,6 +917,10 @@ pub async fn load_conversation_detail(
         .map_err(internal_error)?;
     let session_stats =
         session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
+    let active_binding_record =
+        ConversationAgentBindingRecord::active_for_conversation(pool, id)
+            .await
+            .map_err(internal_error)?;
     let active_binding = active_binding_for_conversation(pool, id).await?;
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
@@ -924,22 +928,45 @@ pub async fn load_conversation_detail(
     let latest_handoff_seq = conversations::latest_agent_handoff_sequence(pool, id)
         .await
         .map_err(internal_error)?;
+    let summary_instance = db::models::session::normalize_provider_instance_storage_id(
+        summary.provider_instance_id.as_deref(),
+    );
+    let resolved_summary_instance = match summary.agent_id.as_ref() {
+        Some(agent_id) => conversations::resolve_effective_provider_instance_id(
+            pool,
+            agent_id,
+            summary_instance.as_deref(),
+        )
+        .await
+        .ok()
+        .flatten(),
+        None => None,
+    };
     let (session_modes, session_config_options) = load_conversation_session_controls(
         pool,
         id,
         summary.agent_id.as_ref().map(|a| a.as_str()),
+        summary_instance.as_deref(),
+        resolved_summary_instance.as_deref(),
         active_binding.as_ref().map(|b| b.agent_type.as_str()),
         persona.as_ref().map(|p| p.agent_name.as_str()),
         latest_handoff_seq,
     )
     .await?;
     let turns_total = summary.message_count.max(0) as u32;
-    let available_commands = if active_binding.as_ref().is_none_or(|binding| {
-        summary
+    let active_binding_matches_summary = active_binding_record.as_ref().is_none_or(|binding| {
+        let agent_matches = summary
             .agent_id
             .as_ref()
-            .is_none_or(|summary_agent| summary_agent.as_str() == binding.agent_type)
-    }) {
+            .is_none_or(|summary_agent| summary_agent == &binding.agent_id);
+        agent_matches
+            && binding_matches_summary_instance(
+                binding.continuation_key.as_deref(),
+                binding.acp_session_id.as_deref(),
+                resolved_summary_instance.as_deref(),
+            )
+    });
+    let available_commands = if active_binding_matches_summary {
         latest_event_since(
             pool,
             id,
@@ -984,10 +1011,25 @@ pub async fn load_conversation_detail(
     }))
 }
 
+fn binding_matches_summary_instance(
+    continuation_key: Option<&str>,
+    acp_session_id: Option<&str>,
+    resolved_summary_instance: Option<&str>,
+) -> bool {
+    match continuation_key {
+        Some(existing_key) => {
+            conversations::continuation_key_instance_id(existing_key) == resolved_summary_instance
+        }
+        None => !(resolved_summary_instance.is_some() && acp_session_id.is_some()),
+    }
+}
+
 async fn load_conversation_session_controls(
     pool: &SqlitePool,
     conversation_id: Uuid,
     summary_agent_id: Option<&str>,
+    summary_instance_request: Option<&str>,
+    resolved_summary_instance: Option<&str>,
     binding_agent_id: Option<&str>,
     persona_agent_id: Option<&str>,
     min_sequence_exclusive: i64,
@@ -1010,16 +1052,35 @@ async fn load_conversation_session_controls(
     };
     let parsed_summary_agent = parse_lenient_agent_id(summary_agent_id);
     let mut parsed_binding_agent = parse_lenient_agent_id(binding_agent_id);
+    let active_binding = ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+        .await
+        .ok()
+        .flatten();
+    let reference_binding = if let Some(active) = active_binding.as_ref() {
+        Some(active.clone())
+    } else {
+        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+            .await
+            .ok()
+            .flatten()
+    };
     if parsed_binding_agent.is_none()
-        && let Ok(Some(latest_binding)) =
-            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+        && let Some(latest_binding) = reference_binding.as_ref()
     {
-        parsed_binding_agent = Some(latest_binding.agent_id);
+        parsed_binding_agent = Some(latest_binding.agent_id.clone());
     }
-    let binding_matches_summary = match (&parsed_summary_agent, &parsed_binding_agent) {
+    let binding_agent_matches = match (&parsed_summary_agent, &parsed_binding_agent) {
         (Some(summary_agent), Some(binding_agent)) => summary_agent == binding_agent,
         _ => true,
     };
+    let binding_instance_matches = reference_binding.as_ref().is_none_or(|binding| {
+        binding_matches_summary_instance(
+            binding.continuation_key.as_deref(),
+            binding.acp_session_id.as_deref(),
+            resolved_summary_instance,
+        )
+    });
+    let binding_matches_summary = binding_agent_matches && binding_instance_matches;
 
     let (live_modes, live_options) = if binding_matches_summary {
         let modes = latest_event_since(
@@ -1064,11 +1125,15 @@ async fn load_conversation_session_controls(
 
     if let Some(agent_id) = resolved_agent_id.as_ref() {
         let mut catalog =
-            conversations::read_matching_capability_catalog_for_defaults(pool, agent_id)
-                .await
-                .ok()
-                .flatten();
-        if catalog.is_none() {
+            conversations::read_matching_capability_catalog_for_defaults_for_provider_instance(
+                pool,
+                agent_id,
+                summary_instance_request,
+            )
+            .await
+            .ok()
+            .flatten();
+        if catalog.is_none() && resolved_summary_instance.is_none() {
             let fallback_json: Option<String> = sqlx::query_scalar(
                 r#"SELECT controls_json
                    FROM agent_capability_catalog
@@ -1114,8 +1179,7 @@ async fn load_conversation_session_controls(
     }
 
     if binding_matches_summary
-        && let Ok(Some(binding)) =
-            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await
+        && let Some(binding) = active_binding
     {
         if !had_live_modes
             && let Some(mode) = binding
@@ -1290,6 +1354,7 @@ mod tests {
                 title_locked: false,
                 status: SessionStatus::Todo,
                 agent_id: None,
+                provider_instance_id: None,
                 model: None,
                 external_session_id: None,
                 message_count: 0,

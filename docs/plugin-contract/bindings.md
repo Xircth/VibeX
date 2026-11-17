@@ -14,12 +14,12 @@ the Host consumer exists but no official plugin ships the kind yet), or `undecla
 ## Summary
 
 - host-api ops: **155**
-- host.call capabilities: **21** (21 registered in host-api.v1.json, 0 absent)
-- binding entries: 176 (155 op, 21 capability)
+- host.call capabilities: **32** (22 registered in host-api.v1.json, 10 absent)
+- binding entries: 187 (155 op, 32 capability)
 - host-api ops with `reaches_core=true`: **19 / 155**
 - implementation files containing `sqlx::`: **5** (`crates/server/src/host/plugin_conversation.rs` 6, `crates/server/src/host/provider_bind.rs` 1, `crates/plugins/src/control_plane.rs` 3, `crates/plugins/src/host_capability_broker.rs` 1, `crates/server/src/host/collaboration.rs` 26)
-- contribution kinds: 23 catalogued, 18 used by official plugins
-- official plugins scanned: 14
+- contribution kinds: 23 catalogued, 15 used by official plugins
+- official plugins scanned: 15
 
 ## 1. Unregistered but used
 
@@ -35,12 +35,15 @@ the Host consumer exists but no official plugin ships the kind yet), or `undecla
 | `app.toolbar` | preview | `frontend/src/components/layout/Toolbar.tsx` | no official plugin declares it |
 | `app.timeline.card` | preview | `frontend/src/components/plugins/PluginTimelineCards.tsx` | no official plugin declares it |
 | `app.settings.section` | preview | `frontend/src/components/plugins/PluginSettingsSections.tsx` | no official plugin declares it |
+| `host.service` | preview | `crates/plugins/src/package.rs` | no official plugin declares it |
 | `provider.model.importSource` | preview | `frontend/src/pages/settings/AgentModelProviderManager.tsx` | no official plugin declares it |
+| `provider.model.catalog` | ready | `frontend/src/features/plugins/providers/hostProviderServices.ts` | no official plugin declares it |
+| `app.tab` | preview | `frontend/src/components/layout/Toolbar.tsx` | no official plugin declares it |
 
 Capabilities declared but never called by an official plugin (informational, not a
 failure by itself — some are host-side only):
 
-`runtime.execute`, `exec`, `artifact`, `secrets`, `files`, `network`, `log`, `events`, `agent`, `conversation`, `collaboration`, `workspace`, `blob`, `plugin.self`, `provider.presets`
+`runtime.execute`, `runtime.lock`, `exec`, `artifact`, `storage.kv`, `secrets`, `secret`, `secret.keep`, `files`, `fs`, `fs.read`, `fs.write`, `net`, `net.fetch`, `net.websocket`, `env`, `env.read`, `log`, `events`, `agent`, `conversation`, `collaboration`, `workspace`, `blob`, `plugin.self`, `provider.presets`
 
 ## 3. Bound to implementations that do not reach the Application Core
 
@@ -49,7 +52,8 @@ failure by itself — some are host-side only):
 | `remote` | `crates/server/src/host/remote_profiles.rs` | `crates/plugins/src/remote_profiles.rs:RemoteProfileHost` | 6 |
 | `artifact.preview` | `crates/plugins/src/process_preview_host.rs` | `crates/plugins/src/preview_host.rs:PluginPreviewHost` | 3 |
 | `artifact` | `crates/plugins/src/app_surface.rs` | `—` | 3 |
-| `storage` | `crates/plugins/src/package.rs`, `crates/plugins/src/control_plane.rs`, `crates/plugins/src/host_capability_broker.rs` | `—` | 9 |
+| `storage` | `crates/plugins/src/package.rs`, `crates/plugins/src/host_capability_broker.rs` | `—` | 5 |
+| `storage.kv` | `crates/plugins/src/control_plane.rs`, `crates/plugins/src/host_capability_broker.rs` | `—` | 5 |
 | `secrets` | `crates/plugins/src/host_capability_broker.rs` | `—` | 4 |
 | `files` | `crates/plugins/src/host_capability_broker.rs` | `—` | 5 |
 | `network` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
@@ -61,6 +65,16 @@ failure by itself — some are host-side only):
 | `plugin.self` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
 | `runtime.lock` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
 | `exec` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
+| `secret` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `secret.keep` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `fs` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `fs.read` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `fs.write` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `net` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `net.fetch` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `net.websocket` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `env` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
+| `env.read` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
 | `collaboration` | `crates/server/src/host/collaboration.rs` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | 56 |
 | `workspace` | `crates/server/src/host/collaboration.rs` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | 2 |
 | `browser` | `crates/browser-host/src/service.rs` | `crates/browser-host` | 38 |
@@ -72,7 +86,8 @@ failure by itself — some are host-side only):
 
 - no contribution binding has an unknown consumer or example plugin
 
-- contribution-bindings status matches contribution-kinds for every kind
+- `host.service`: contribution-bindings says `ready`, contribution-kinds says `preview`
+- `app.tab`: contribution-bindings says `ready`, contribution-kinds says `preview`
 
 ## Appendix: host-api op bindings
 

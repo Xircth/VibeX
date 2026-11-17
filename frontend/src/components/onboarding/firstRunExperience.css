@@ -836,7 +836,7 @@
   font-variant-numeric: tabular-nums;
 }
 .onboarding-projects-step {
-  width: min(880px, 100%);
+  width: min(1160px, 100%);
 }
 .onboarding-project-row {
   display: flex;
@@ -1309,13 +1309,29 @@
   color: var(--onboarding-ink-muted);
   font-size: 11px;
 }
+.onboarding-appearance-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-inline: -4px;
+  padding-inline: 4px;
+}
+.onboarding-appearance-stage {
+  width: 100%;
+  margin-block: auto;
+  padding-block: 4px;
+}
 .onboarding-appearance-heading {
   margin-bottom: 20px;
 }
 .onboarding-appearance-content {
   display: grid;
   grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.38fr);
-  align-content: start;
+  align-items: start;
   gap: 36px;
 }
 .onboarding-appearance-controls {

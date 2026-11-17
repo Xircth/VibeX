@@ -18,7 +18,9 @@ fn map_handoff_error_to_service(error: HandoffError) -> ConversationServiceError
         HandoffError::ConversationNotFound(id) => {
             ConversationServiceError::NotFound(format!("Conversation {id} not found"))
         }
-        HandoffError::InvalidTokenBudget | HandoffError::InvalidTargetEngine(_) => {
+        HandoffError::InvalidTokenBudget
+        | HandoffError::InvalidTargetEngine(_)
+        | HandoffError::InvalidTargetInstance(_) => {
             ConversationServiceError::BadRequest(error.to_string())
         }
         HandoffError::RestrictedOwner => ConversationServiceError::SessionUnavailable {
@@ -38,12 +40,42 @@ pub fn continuation_key(
     working_dir: &str,
     provider_instance_id: Option<&str>,
 ) -> String {
-    match provider_instance_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    match db::models::session::normalize_provider_instance_id(provider_instance_id) {
         Some(instance_id) => format!("{agent_id}|{instance_id}|{working_dir}"),
         None => format!("{agent_id}|{working_dir}"),
+    }
+}
+
+pub fn continuation_key_instance_id(key: &str) -> Option<&str> {
+    let (_agent, rest) = key.split_once('|')?;
+    let (instance, _dir) = rest.split_once('|')?;
+    let trimmed = instance.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("local") {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+pub(crate) fn binding_matches_target_instance(
+    binding: &ConversationAgentBindingRecord,
+    agent_id: &agents::AgentId,
+    effective_instance: Option<&str>,
+) -> bool {
+    if binding.agent_id != *agent_id {
+        return false;
+    }
+    match binding.continuation_key.as_deref() {
+        Some(existing_key) if !binding.working_dir.is_empty() => {
+            existing_key
+                == continuation_key(
+                    agent_id.as_str(),
+                    &binding.working_dir,
+                    effective_instance,
+                )
+        }
+        Some(existing_key) => continuation_key_instance_id(existing_key) == effective_instance,
+        None => !(effective_instance.is_some() && binding.acp_session_id.is_some()),
     }
 }
 
@@ -61,25 +93,52 @@ impl ConversationSessionService {
         let source =
             ConversationAgentBindingRecord::active_for_conversation(pool, input.conversation_id)
                 .await?;
-        let requested_instance = input
+        let explicit_input_instance = input
             .provider_instance_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let requested_or_session = explicit_input_instance.or_else(|| {
+            session
+                .provider_instance_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
+        let effective_instance = crate::resolve_effective_provider_instance_id(
+            pool,
+            &input.agent_id,
+            requested_or_session,
+        )
+        .await?;
+        let launch_instance_id = effective_instance
+            .as_deref()
+            .unwrap_or(db::models::provider_instance::LOCAL_PROVIDER_INSTANCE_ID);
         let target_key = continuation_key(
             input.agent_id.as_str(),
             &prepared.working_dir,
-            requested_instance,
+            effective_instance.as_deref(),
         );
         let switching = if let Some(binding) = source.as_ref() {
-            binding.agent_id != input.agent_id
-                || (requested_instance.is_some()
-                    && binding.continuation_key.as_deref() != Some(target_key.as_str()))
+            let instance_switched = match binding.continuation_key.as_deref() {
+                Some(existing_key) if !binding.working_dir.is_empty() => {
+                    existing_key != target_key.as_str()
+                }
+                Some(existing_key) => {
+                    continuation_key_instance_id(existing_key) != effective_instance.as_deref()
+                }
+                None => effective_instance.is_some() && binding.acp_session_id.is_some(),
+            };
+            binding.agent_id != input.agent_id || instance_switched
         } else if let Some(latest) =
             ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
                 .await?
         {
             latest.agent_id != input.agent_id
+                || latest
+                    .continuation_key
+                    .as_deref()
+                    .is_some_and(|existing_key| existing_key != target_key.as_str())
         } else if session
             .agent_id
             .as_ref()
@@ -100,6 +159,19 @@ impl ConversationSessionService {
             false
         };
         let fresh = input.continuation_policy == Some(ContinuationPolicy::Fresh);
+
+        if let Some(requested_id) = explicit_input_instance {
+            let normalized_storage =
+                db::models::session::normalize_provider_instance_storage_id(Some(requested_id));
+            if session.provider_instance_id != normalized_storage {
+                let _ = Session::update_provider_instance_id(
+                    pool,
+                    input.conversation_id,
+                    normalized_storage.as_deref(),
+                )
+                .await;
+            }
+        }
 
         // Stage C: look for a resumable binding with matching continuation key.
         let resume_candidate = if switching && !fresh {
@@ -186,7 +258,7 @@ impl ConversationSessionService {
                 .launch_settings_with_provider_instance(
                     pool,
                     &input.agent_id,
-                    requested_instance,
+                    Some(launch_instance_id),
                 )
                 .await?;
             let mut preferences = self
@@ -231,7 +303,7 @@ impl ConversationSessionService {
                 &prepared.working_dir,
                 &candidate.session.acp_session_id,
                 candidate.session.connection_id,
-                requested_instance,
+                effective_instance.as_deref(),
             )
             .await?;
             self.ctx
@@ -319,7 +391,7 @@ impl ConversationSessionService {
                 .launch_settings_with_provider_instance(
                     pool,
                     &input.agent_id,
-                    requested_instance,
+                    Some(launch_instance_id),
                 )
                 .await?;
             let mut preferences = self
@@ -454,7 +526,7 @@ impl ConversationSessionService {
             self.ensure_session_controls_locked_with_provider_instance(
                 input.conversation_id,
                 Some(prepared.working_dir.clone().into()),
-                requested_instance,
+                Some(launch_instance_id),
             )
             .await?;
         }

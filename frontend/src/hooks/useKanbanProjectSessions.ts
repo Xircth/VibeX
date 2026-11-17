@@ -7,7 +7,7 @@ import type { SessionStatus, SessionSummary } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
 import { sessionsApi } from '@/lib/api';
 import {
-  collaborationStoredSessionName,
+  collaborationSessionTitle,
   type KanbanSessionCollaboration,
 } from '@/features/collaboration/sessionCollaboration';
 import {
@@ -186,11 +186,18 @@ export function buildDefaultSessionName(
   summary: SessionSummary,
   t: TFunction<['app', 'common']>
 ) {
-  const storedName = collaborationStoredSessionName(
-    summary.name,
-    summary.collaboration?.member_name
-  );
-  const manualName = sanitizeSessionListTitle(storedName ?? '');
+  if (summary.collaboration) {
+    return {
+      name: collaborationSessionTitle({
+        threadKind: summary.collaboration.thread_kind,
+        threadName: summary.collaboration.thread_name,
+        memberName: summary.collaboration.member_name,
+      }),
+      source: 'manual' as const,
+      prompt: null,
+    };
+  }
+  const manualName = sanitizeSessionListTitle(summary.name ?? '');
   if (manualName) {
     return {
       name: manualName,
@@ -290,6 +297,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         executor: summary.executor,
         external_session_id: null,
         agent_id: summary.agent_id,
+        provider_instance_id: null,
         parent_session_id: null,
         parent_tool_use_id: null,
         delegation_call_id: null,
@@ -311,6 +319,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
           ...existing,
           ...session,
           external_session_id: existing?.external_session_id ?? null,
+          provider_instance_id: existing?.provider_instance_id ?? null,
           parent_session_id: existing?.parent_session_id ?? null,
           parent_tool_use_id: existing?.parent_tool_use_id ?? null,
           delegation_call_id: existing?.delegation_call_id ?? null,
@@ -378,6 +387,13 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
                   threadId: summary.collaboration.thread_id,
                   threadKind: summary.collaboration.thread_kind,
                   threadName: summary.collaboration.thread_name,
+                  threadMembers: summary.collaboration.thread_members.map(
+                    (member) => ({
+                      memberId: member.member_id,
+                      name: member.name,
+                      conversationId: member.conversation_id,
+                    })
+                  ),
                 }
               : null,
           };

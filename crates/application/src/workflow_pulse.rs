@@ -13,15 +13,15 @@ use conversations::{
 use db::models::{
     collaboration_identity::resolve_pulse_bot_session,
     conversation_turn::ConversationTurnRecord,
-    pulse::{PulseBotMailboxItem, SqlitePulseStore, ensure_pulse_schema},
+    pulse::{PulseBotMailboxItem, SqlitePulseStore, ensure_pulse_schema, pulse_outbox_wake},
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
 use workflows::{
-    BotConversationScope, BotMailboxPolicy, BotStepSpec, ClaimedWorkflowStep, CompleteWorkflowStep,
+    BotConversationScope, BotStepSpec, ClaimedWorkflowStep, CompleteWorkflowStep,
     CompletionPolicy, GroupDispatchMode, GroupStageStepSpec, OutboxActionKind,
     OutboxActionStepSpec, SessionStepSpec, WorkflowCore, WorkflowRunView, WorkflowStep,
-    WorkflowStepSpec, WorkspaceAccess, resolve_json_pointer,
+    WorkflowStepSpec, WorkflowStore, WorkspaceAccess, resolve_json_pointer,
 };
 
 use crate::{
@@ -62,8 +62,7 @@ impl WorkflowAgentDispatcher {
         step: &WorkflowStep,
         session: &SessionStepSpec,
     ) -> Result<bool, ApplicationError> {
-        let agent_id = AgentId::parse(&session.agent_id)
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let agent_id = crate::workflow::parse_canonical_agent_id(&session.agent_id)?;
         let resolved_input = match self.store.resolve_step_input(claimed.run.id, step).await {
             Ok(input) => input,
             Err(error) => {
@@ -131,9 +130,11 @@ impl WorkflowAgentDispatcher {
             .map_err(map_error)?;
 
         let run_input = parse_run_input(&claimed.run.input_json);
+        let step_outputs = load_completed_step_outputs(&self.store, claimed.run.id).await;
         let interpolated = interpolate_template(
             &session.prompt_template,
             &resolved_input.values,
+            &step_outputs,
             &run_input,
         );
         let prompt = render_agent_prompt(
@@ -328,10 +329,14 @@ impl WorkflowAgentDispatcher {
             }
         };
 
-        let agent_id = AgentId::parse(&bot_session.agent)
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        let interpolated =
-            interpolate_template(&bot.prompt_template, &resolved_input.values, &run_input);
+        let agent_id = crate::workflow::parse_canonical_agent_id(&bot_session.agent)?;
+        let step_outputs = load_completed_step_outputs(&self.store, claimed.run.id).await;
+        let interpolated = interpolate_template(
+            &bot.prompt_template,
+            &resolved_input.values,
+            &step_outputs,
+            &run_input,
+        );
         let prompt = render_agent_prompt(
             &interpolated,
             &resolved_input.values,
@@ -386,11 +391,10 @@ impl WorkflowAgentDispatcher {
             return Ok(false);
         }
 
-        if bot.mailbox_policy == BotMailboxPolicy::FifoSerial
-            && let Some(front) = pulse_store
-                .peek_next_bot_turn(&bot.member_id)
-                .await
-                .map_err(|err| ApplicationError::internal(err.to_string()))?
+        if let Some(front) = pulse_store
+            .peek_next_bot_turn(&bot.member_id)
+            .await
+            .map_err(|err| ApplicationError::internal(err.to_string()))?
             && front.id != mailbox_item_id
         {
             let _ = self
@@ -566,8 +570,13 @@ impl WorkflowAgentDispatcher {
             .map_err(map_error)?;
 
         let run_input = parse_run_input(&claimed.run.input_json);
-        let rendered_message =
-            interpolate_template(&group.message_template, &resolved_input.values, &run_input);
+        let step_outputs = load_completed_step_outputs(&self.store, claimed.run.id).await;
+        let rendered_message = interpolate_template(
+            &group.message_template,
+            &resolved_input.values,
+            &step_outputs,
+            &run_input,
+        );
         let audience_to = match &group.dispatch_mode {
             GroupDispatchMode::SpecificSeat { member_id } => vec![member_id.clone()],
             GroupDispatchMode::MentionSeats { member_id_list, .. } => member_id_list.clone(),
@@ -667,11 +676,21 @@ impl WorkflowAgentDispatcher {
             .await
             .map_err(map_error)?;
 
+        let pool = &self.context.deployment.db().pool;
         let run_input = parse_run_input(&claimed.run.input_json);
-        let rendered_target =
-            interpolate_template(&outbox.target_template, &resolved_input.values, &run_input);
-        let rendered_payload =
-            interpolate_json_value(&outbox.payload_template, &resolved_input.values, &run_input);
+        let step_outputs = load_completed_step_outputs(&self.store, claimed.run.id).await;
+        let rendered_target = interpolate_template(
+            &outbox.target_template,
+            &resolved_input.values,
+            &step_outputs,
+            &run_input,
+        );
+        let rendered_payload = interpolate_json_value(
+            &outbox.payload_template,
+            &resolved_input.values,
+            &step_outputs,
+            &run_input,
+        );
         let target_kind = match outbox.action_kind {
             OutboxActionKind::ReplyChannel => "reply_channel",
             OutboxActionKind::WebhookPost => "webhook_post",
@@ -681,20 +700,104 @@ impl WorkflowAgentDispatcher {
             "wf-outbox:{}:{}:{}",
             claimed.run.id, step.id, claimed.step.attempt
         );
-        let outbox_envelope = json!({
-            "target": rendered_target,
-            "eventType": (outbox.action_kind == OutboxActionKind::EmitEvent)
-                .then_some(rendered_target.as_str()),
-            "actionKind": target_kind,
-            "payload": rendered_payload,
-            "threadKey": extract_thread_key(&resolved_input.values, &run_input),
-            "rootEventId": extract_root_event_id(&resolved_input.values, &run_input),
-            "parentHopCount": extract_hop_count(&resolved_input.values, &run_input),
-            "workflowRunId": claimed.run.id,
-            "workflowStepId": step.id,
-        });
 
-        let pool = &self.context.deployment.db().pool;
+        let channel_hint = rendered_payload
+            .get("channelHint")
+            .or_else(|| rendered_payload.get("channel_hint"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let rendered_text = match &rendered_payload {
+            Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+            Value::Object(_) => [
+                "renderedText",
+                "rendered_text",
+                "message",
+                "content",
+                "text",
+                "body",
+            ]
+            .into_iter()
+            .find_map(|key| {
+                rendered_payload
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                    .map(str::to_string)
+            }),
+            _ => None,
+        };
+
+        let mut envelope_map = serde_json::Map::new();
+        envelope_map.insert("target".to_string(), Value::String(rendered_target.clone()));
+        envelope_map.insert(
+            "eventType".to_string(),
+            match outbox.action_kind {
+                OutboxActionKind::EmitEvent => Value::String(rendered_target.clone()),
+                _ => Value::Null,
+            },
+        );
+        envelope_map.insert(
+            "actionKind".to_string(),
+            Value::String(target_kind.to_string()),
+        );
+        envelope_map.insert("payload".to_string(), rendered_payload.clone());
+        if let Some(hint) = channel_hint {
+            envelope_map.insert("channelHint".to_string(), Value::String(hint));
+        }
+        if let Some(rt) = rendered_text {
+            envelope_map.insert("renderedText".to_string(), Value::String(rt));
+        }
+        if let Some(headers) = rendered_payload.get("headers").filter(|v| v.is_object()) {
+            envelope_map.insert("headers".to_string(), headers.clone());
+        }
+        if let Some(rc) = run_input
+            .get("replyChannel")
+            .or_else(|| run_input.get("reply_channel"))
+        {
+            envelope_map.insert("replyChannel".to_string(), rc.clone());
+        }
+        if let Some(rcs) = run_input
+            .get("replyChannels")
+            .or_else(|| run_input.get("reply_channels"))
+        {
+            envelope_map.insert("replyChannels".to_string(), rcs.clone());
+        }
+        if let Some(tok) = rendered_payload
+            .get("githubToken")
+            .or_else(|| run_input.get("githubToken"))
+        {
+            envelope_map.insert("githubToken".to_string(), tok.clone());
+        }
+        if let Some(api_base) = rendered_payload
+            .get("githubApiBase")
+            .or_else(|| run_input.get("githubApiBase"))
+        {
+            envelope_map.insert("githubApiBase".to_string(), api_base.clone());
+        }
+        envelope_map.insert(
+            "threadKey".to_string(),
+            extract_thread_key(&resolved_input.values, &run_input)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+        envelope_map.insert(
+            "rootEventId".to_string(),
+            extract_root_event_id(&resolved_input.values, &run_input)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+        envelope_map.insert(
+            "parentHopCount".to_string(),
+            extract_hop_count(&resolved_input.values, &run_input)
+                .map(|n| Value::Number(n.into()))
+                .unwrap_or(Value::Null),
+        );
+        envelope_map.insert("workflowRunId".to_string(), json!(claimed.run.id));
+        envelope_map.insert("workflowStepId".to_string(), json!(step.id));
+        let outbox_envelope = Value::Object(envelope_map);
+
         ensure_pulse_schema(pool)
             .await
             .map_err(|err| ApplicationError::internal(err.to_string()))?;
@@ -708,6 +811,9 @@ impl WorkflowAgentDispatcher {
             )
             .await
             .map_err(|err| ApplicationError::internal(err.to_string()))?;
+        if inserted {
+            pulse_outbox_wake().notify_one();
+        }
 
         let output = json!({
             "enqueued": inserted,
@@ -753,8 +859,7 @@ pub(crate) async fn build_step_continuation_context(
 ) -> Result<StepContinuationContext, ApplicationError> {
     match spec {
         WorkflowStepSpec::Agent(agent) => {
-            let agent_id = AgentId::parse(&agent.agent_id)
-                .map_err(|err| ApplicationError::bad_request(err.to_string()))?;
+            let agent_id = crate::workflow::parse_canonical_agent_id(&agent.agent_id)?;
             let recovery_context = render_agent_prompt(
                 &agent.prompt,
                 resolved_input,
@@ -778,8 +883,7 @@ pub(crate) async fn build_step_continuation_context(
             })
         }
         WorkflowStepSpec::Session(session) => {
-            let agent_id = AgentId::parse(&session.agent_id)
-                .map_err(|err| ApplicationError::bad_request(err.to_string()))?;
+            let agent_id = crate::workflow::parse_canonical_agent_id(&session.agent_id)?;
             let recovery_context = render_agent_prompt(
                 &session.prompt_template,
                 resolved_input,
@@ -811,8 +915,7 @@ pub(crate) async fn build_step_continuation_context(
                 resolve_pulse_bot_session(pool, &bot.member_id, None, run_workspace_id)
                     .await
                     .map_err(|err| ApplicationError::internal(err.to_string()))?;
-            let agent_id = AgentId::parse(&resolved_bot.agent)
-                .map_err(|err| ApplicationError::bad_request(err.to_string()))?;
+            let agent_id = crate::workflow::parse_canonical_agent_id(&resolved_bot.agent)?;
             let recovery_context = render_agent_prompt(
                 &bot.prompt_template,
                 resolved_input,
@@ -936,22 +1039,52 @@ fn extract_hop_count(step_inputs: &BTreeMap<String, Value>, run_input: &Value) -
         .and_then(|n| u32::try_from(n).ok())
 }
 
+async fn load_completed_step_outputs(
+    store: &WorkflowStore,
+    run_id: Uuid,
+) -> BTreeMap<String, Value> {
+    let mut outputs = BTreeMap::new();
+    let Ok(steps) = store.steps(run_id).await else {
+        return outputs;
+    };
+    for step in steps {
+        if step.status == "completed"
+            && let Some(raw) = step.output_json.as_deref()
+            && let Ok(parsed) = serde_json::from_str::<Value>(raw)
+        {
+            outputs.insert(step.step_id, parsed);
+        }
+    }
+    outputs
+}
+
 fn interpolate_json_value(
     value: &Value,
     step_inputs: &BTreeMap<String, Value>,
+    step_outputs: &BTreeMap<String, Value>,
     run_input: &Value,
 ) -> Value {
     match value {
-        Value::String(s) => Value::String(interpolate_template(s, step_inputs, run_input)),
+        Value::String(s) => Value::String(interpolate_template(
+            s,
+            step_inputs,
+            step_outputs,
+            run_input,
+        )),
         Value::Array(items) => Value::Array(
             items
                 .iter()
-                .map(|v| interpolate_json_value(v, step_inputs, run_input))
+                .map(|v| interpolate_json_value(v, step_inputs, step_outputs, run_input))
                 .collect(),
         ),
         Value::Object(map) => Value::Object(
             map.iter()
-                .map(|(k, v)| (k.clone(), interpolate_json_value(v, step_inputs, run_input)))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        interpolate_json_value(v, step_inputs, step_outputs, run_input),
+                    )
+                })
                 .collect(),
         ),
         other => other.clone(),
@@ -961,6 +1094,7 @@ fn interpolate_json_value(
 fn interpolate_template(
     template: &str,
     step_inputs: &BTreeMap<String, Value>,
+    step_outputs: &BTreeMap<String, Value>,
     run_input: &Value,
 ) -> String {
     let mut output = String::with_capacity(template.len());
@@ -973,7 +1107,7 @@ fn interpolate_template(
             return output;
         };
         let expr = after_open[..close].trim();
-        if let Some(resolved) = lookup_template_expr(expr, step_inputs, run_input) {
+        if let Some(resolved) = lookup_template_expr(expr, step_inputs, step_outputs, run_input) {
             match resolved {
                 Value::String(s) => output.push_str(&s),
                 Value::Null => {}
@@ -989,20 +1123,120 @@ fn interpolate_template(
 fn lookup_template_expr(
     expr: &str,
     step_inputs: &BTreeMap<String, Value>,
+    step_outputs: &BTreeMap<String, Value>,
     run_input: &Value,
 ) -> Option<Value> {
     if expr.is_empty() {
         return None;
     }
-    let pointer = expr.replace('.', "/");
     if let Some(direct) = step_inputs.get(expr) {
         return Some(direct.clone());
     }
+    if let Some(rest) = expr.strip_prefix("steps.") {
+        if let Some((step_id, sub_path)) = rest.split_once(".output.") {
+            let sub_pointer = format!("/{}", sub_path.trim_start_matches('/').replace('.', "/"));
+            if let Some(step_val) = step_outputs.get(step_id).or_else(|| step_inputs.get(step_id))
+                && let Some(found) = resolve_json_pointer(step_val, &sub_pointer)
+            {
+                return Some(found.clone());
+            }
+        } else if let Some(step_id) = rest.strip_suffix(".output")
+            && let Some(step_val) = step_outputs.get(step_id).or_else(|| step_inputs.get(step_id))
+        {
+            return Some(step_val.clone());
+        }
+    }
+    if let Some(sub) = expr.strip_prefix("input.") {
+        let sub_pointer = format!("/{}", sub.trim_start_matches('/').replace('.', "/"));
+        if let Some(found) = resolve_json_pointer(run_input, &sub_pointer) {
+            return Some(found.clone());
+        }
+    }
+    if let Some(sub) = expr.strip_prefix("event.") {
+        let sub_pointer = format!("/{}", sub.trim_start_matches('/').replace('.', "/"));
+        if let Some(found) = resolve_json_pointer(run_input, &sub_pointer) {
+            return Some(found.clone());
+        }
+        let event_pointer = format!("/event{sub_pointer}");
+        if let Some(found) = resolve_json_pointer(run_input, &event_pointer) {
+            return Some(found.clone());
+        }
+    }
+    if expr.starts_with('/') {
+        if let Some(found) = resolve_json_pointer(run_input, expr) {
+            return Some(found.clone());
+        }
+        if let Some((head, tail)) = expr.trim_start_matches('/').split_once('/')
+            && let Some(step_val) = step_inputs.get(head).or_else(|| step_outputs.get(head))
+            && let Some(found) = resolve_json_pointer(step_val, tail)
+        {
+            return Some(found.clone());
+        }
+        return None;
+    }
+    let pointer = expr.replace('.', "/");
     if let Some((head, tail)) = pointer.split_once('/')
-        && let Some(step_val) = step_inputs.get(head)
+        && let Some(step_val) = step_inputs.get(head).or_else(|| step_outputs.get(head))
         && let Some(found) = resolve_json_pointer(step_val, tail)
     {
         return Some(found.clone());
     }
     resolve_json_pointer(run_input, &pointer).cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use serde_json::json;
+
+    use super::{interpolate_json_value, interpolate_template};
+
+    #[test]
+    fn interpolate_template_resolves_transitive_steps_output_and_event_fields() {
+        let step_inputs = BTreeMap::from([("fixResult".to_string(), json!("direct-binding"))]);
+        let step_outputs = BTreeMap::from([(
+            "diagnose-and-fix".to_string(),
+            json!({ "summary": "Fixed race condition in worker" }),
+        )]);
+        let run_input = json!({
+            "threadKey": "github:acme/dimo#42",
+            "payload": {
+                "workflow_run": {
+                    "name": "CI",
+                    "html_url": "https://github.com/acme/dimo/actions/runs/9"
+                }
+            }
+        });
+
+        let msg = interpolate_template(
+            "已完成 CI 失败排查：{{steps.diagnose-and-fix.output.summary}} ({{payload.workflow_run.name}} · {{threadKey}} · {{event.threadKey}})",
+            &step_inputs,
+            &step_outputs,
+            &run_input,
+        );
+        assert_eq!(
+            msg,
+            "已完成 CI 失败排查：Fixed race condition in worker (CI · github:acme/dimo#42 · github:acme/dimo#42)"
+        );
+
+        let payload = interpolate_json_value(
+            &json!({
+                "channelHint": "github_comment",
+                "message": "{{steps.diagnose-and-fix.output.summary}}",
+                "bound": "{{fixResult}}"
+            }),
+            &step_inputs,
+            &step_outputs,
+            &run_input,
+        );
+        assert_eq!(
+            payload,
+            json!({
+                "channelHint": "github_comment",
+                "message": "Fixed race condition in worker",
+                "bound": "direct-binding"
+            })
+        );
+    }
 }

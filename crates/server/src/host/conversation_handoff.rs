@@ -17,6 +17,13 @@ struct EngineHandoffArgs {
     conversation_id: String,
     #[serde(alias = "target_engine")]
     target_engine: String,
+    #[serde(
+        default,
+        alias = "target_provider_instance_id",
+        alias = "providerInstanceId",
+        alias = "provider_instance_id"
+    )]
+    target_provider_instance_id: Option<String>,
     #[serde(default, alias = "token_budget")]
     token_budget: Option<usize>,
 }
@@ -43,7 +50,9 @@ fn map_handoff_error(error: HandoffError) -> ApplicationError {
         HandoffError::InvalidTokenBudget => {
             ApplicationError::bad_request("tokenBudget must be greater than 0")
         }
-        HandoffError::InvalidTargetEngine(_) => ApplicationError::bad_request(error.to_string()),
+        HandoffError::InvalidTargetEngine(_) | HandoffError::InvalidTargetInstance(_) => {
+            ApplicationError::bad_request(error.to_string())
+        }
         HandoffError::RestrictedOwner
         | HandoffError::ActiveTurnInProgress
         | HandoffError::WorkspaceRootMissing(_) => ApplicationError::conflict(error.to_string()),
@@ -77,11 +86,19 @@ impl ServerApplicationDomains {
         let target_agent = parse_target_agent_id(&args.target_engine)?;
         let service = ConversationSessionService::new(self.conversations.clone());
         service
-            .preflight_engine_handoff(id, &target_agent)
+            .preflight_engine_handoff(
+                id,
+                &target_agent,
+                args.target_provider_instance_id.as_deref(),
+            )
             .await
             .map_err(map_handoff_error)?;
         let confirmation = service
-            .confirm_engine_handoff(id, &target_agent)
+            .confirm_engine_handoff(
+                id,
+                &target_agent,
+                args.target_provider_instance_id.as_deref(),
+            )
             .await
             .map_err(map_handoff_error)?;
 
@@ -112,12 +129,17 @@ mod tests {
             "request": {
                 "conversationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                 "targetEngine": "CLAUDE_CODE",
+                "targetProviderInstanceId": "work-claude",
                 "tokenBudget": 12000
             }
         }))
         .expect("parse handoff request");
         assert_eq!(args.conversation_id, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         assert_eq!(args.target_engine, "CLAUDE_CODE");
+        assert_eq!(
+            args.target_provider_instance_id.as_deref(),
+            Some("work-claude")
+        );
         assert_eq!(args.token_budget, Some(12000));
 
         let claude = parse_target_agent_id(&args.target_engine).expect("normalize claude");

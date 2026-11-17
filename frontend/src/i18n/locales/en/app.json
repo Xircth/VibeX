@@ -94,7 +94,7 @@
     "context": "Context for next input",
     "portable": "Carry conversation history",
     "fresh": "Fresh context",
-    "handoff": "Context handoff"
+    "handoff": "Handoff"
   },
   "followUpSend": {
     "sessionScopedSlashCommandError": "This / command must run in an existing session and cannot be triggered by creating a new session.",

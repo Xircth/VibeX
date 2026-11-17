@@ -298,13 +298,14 @@ async fn resolve_side_chat_target(
     let config = domains.deployment.config().read().await.clone();
     let trimmed_fallback = config.prompt_enhancement_agent_id.trim();
     let fallback_raw = if trimmed_fallback.is_empty() {
-        "claude-code"
+        "claude_code"
     } else {
         trimmed_fallback
     };
-    let agent_id = AgentId::parse(fallback_raw)
-        .or_else(|_| AgentId::parse("claude-code"))
-        .map_err(internal_error)?;
+    let agent_id = agents::AgentKind::from_lenient(fallback_raw)
+        .and_then(|kind| AgentId::parse(kind.as_str()).ok())
+        .or_else(|| AgentId::parse(fallback_raw).ok())
+        .unwrap_or_else(|| AgentId::parse("claude_code").expect("valid built-in agent id"));
     let working_dir = utils::path::dimo_scratch_subdir("side-chat").map_err(internal_error)?;
     Ok((agent_id, working_dir))
 }

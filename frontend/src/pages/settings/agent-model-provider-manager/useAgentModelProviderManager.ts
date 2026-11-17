@@ -7,6 +7,7 @@ import { useProviderFormState } from './useProviderFormState';
 
 export function useAgentModelProviderManager({
   agentId,
+  providerInstanceId = null,
   disabled,
   onDirtyChange,
   onChanged,
@@ -17,16 +18,19 @@ export function useAgentModelProviderManager({
   const { t } = useTranslation(['settings', 'common']);
   const state = useProviderFormState({
     agentId,
+    providerInstanceId,
     onDirtyChange,
     active,
     embedded,
   });
   const formActions = useProviderFormActions(state, {
     agentId,
+    providerInstanceId,
     onChanged,
   });
   const listActions = useProviderActions(state, {
     agentId,
+    providerInstanceId,
     signedIn,
     onChanged,
   });

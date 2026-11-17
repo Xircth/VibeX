@@ -437,23 +437,38 @@ describe('sessionListTitle', () => {
     ).toBe('Previous conversation notes');
   });
 
-  it('ignores a stored title that is only the collaboration member nickname', () => {
+  it('names Bot sessions after their space and Bot, whatever was stored', () => {
+    const collaboration = {
+      memberId: 'mem-a',
+      memberName: '小A',
+      threadId: 'direct:mem-a',
+      threadKind: 'direct',
+      threadName: '小A',
+      threadMembers: [],
+    };
     expect(
       sessionListTitle(
         session({
-          name: '小A',
-          firstPrompt: '请帮我看登录',
-          fullName: '小A',
+          name: '修登录',
+          firstPrompt: '<dimo-private-bootstrap>hi</dimo-private-bootstrap>',
+          fullName: '修登录',
+          collaboration,
+        })
+      )
+    ).toBe('User → 小A');
+    expect(
+      sessionListTitle(
+        session({
+          name: null,
           collaboration: {
-            memberId: 'mem-a',
-            memberName: '小A',
-            threadId: 'direct:mem-a',
-            threadKind: 'dm',
-            threadName: '小A',
+            ...collaboration,
+            threadId: 'space-1',
+            threadKind: 'group',
+            threadName: '后端工程师群',
           },
         })
       )
-    ).toBe('请帮我看登录');
+    ).toBe('后端工程师群 → 小A');
   });
 });
 

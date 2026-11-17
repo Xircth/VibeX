@@ -27,6 +27,7 @@ export const sessionsApi = {
     name?: string | null;
     initial_prompt?: string | null;
     task_id?: string | null;
+    provider_instance_id?: string | null;
   }): Promise<Session> => {
     return backendCall<Session>('create_session', {
       workspaceId: data.workspace_id,
@@ -34,6 +35,9 @@ export const sessionsApi = {
       name: data.name ?? null,
       initialPrompt: data.initial_prompt ?? null,
       taskId: data.task_id ?? null,
+      ...(data.provider_instance_id
+        ? { providerInstanceId: data.provider_instance_id }
+        : {}),
     });
   },
 
@@ -41,11 +45,15 @@ export const sessionsApi = {
     project_id: string;
     executor?: string;
     name?: string | null;
+    provider_instance_id?: string | null;
   }): Promise<Session> => {
     return backendCall<Session>('create_project_root_session', {
       projectId: data.project_id,
       executor: data.executor ?? null,
       name: data.name ?? null,
+      ...(data.provider_instance_id
+        ? { providerInstanceId: data.provider_instance_id }
+        : {}),
     });
   },
 
@@ -62,6 +70,7 @@ export const sessionsApi = {
     repos?: Array<{ repo_id: string; target_branch: string }>;
     mode_override?: string | null;
     config_overrides?: Record<string, string> | null;
+    provider_instance_id?: string | null;
   }): Promise<Session> => {
     return backendCall<Session>('create_project_session', {
       payload: {
@@ -81,6 +90,9 @@ export const sessionsApi = {
           })) ?? null,
         modeOverride: data.mode_override ?? null,
         configOverrides: data.config_overrides ?? null,
+        ...(data.provider_instance_id
+          ? { providerInstanceId: data.provider_instance_id }
+          : {}),
       },
     });
   },

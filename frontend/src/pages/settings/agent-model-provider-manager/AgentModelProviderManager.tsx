@@ -7,6 +7,7 @@ import { useAgentModelProviderManager } from './useAgentModelProviderManager';
 
 export function AgentModelProviderManager({
   agentId,
+  providerInstanceId = null,
   disabled,
   onDirtyChange,
   onChanged,
@@ -16,6 +17,7 @@ export function AgentModelProviderManager({
 }: AgentModelProviderManagerProps) {
   const vm = useAgentModelProviderManager({
     agentId,
+    providerInstanceId,
     disabled,
     onDirtyChange,
     onChanged,
@@ -52,7 +54,7 @@ export function AgentModelProviderManager({
           endpointCandidates={vm.endpointCandidates}
           websiteUrl={vm.websiteUrl}
           apiKeyUrl={vm.apiKeyUrl}
-          hasCatalogContributions={vm.hasCatalogContributions}
+          hasPresetCatalog={vm.hasPresetCatalog}
           catalog={vm.catalog}
           catalogGeneration={vm.catalogGeneration}
           catalogError={vm.catalogError}

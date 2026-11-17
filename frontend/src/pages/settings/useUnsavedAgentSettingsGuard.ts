@@ -27,11 +27,15 @@ export function useUnsavedAgentSettingsGuard(
     }
   }, []);
 
-  useEffect(() => {
+  const resetDirty = useCallback(() => {
     dirtySourcesRef.current.clear();
     configDirtyRef.current = false;
     setConfigDirty(false);
-  }, [selectedAgentId]);
+  }, []);
+
+  useEffect(() => {
+    resetDirty();
+  }, [resetDirty, selectedAgentId]);
 
   const confirmDiscardConfig = useCallback(async () => {
     if (!configDirtyRef.current) return true;
@@ -43,11 +47,9 @@ export function useUnsavedAgentSettingsGuard(
       variant: 'destructive',
     });
     if (result !== 'confirmed') return false;
-    dirtySourcesRef.current.clear();
-    configDirtyRef.current = false;
-    setConfigDirty(false);
+    resetDirty();
     return true;
-  }, [t]);
+  }, [resetDirty, t]);
 
   useEffect(() => {
     if (!configDirty) return;
@@ -103,5 +105,5 @@ export function useUnsavedAgentSettingsGuard(
     };
   }, [configDirty, confirmDiscardConfig]);
 
-  return { setDirtySource, confirmDiscardConfig };
+  return { setDirtySource, confirmDiscardConfig, resetDirty };
 }

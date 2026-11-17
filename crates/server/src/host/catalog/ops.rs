@@ -379,6 +379,7 @@ pub(super) async fn start_dev_server(
             &CreateSession {
                 executor: Some("dev-server".to_string()),
                 agent_id: None,
+                provider_instance_id: None,
                 task_id: None,
                 name: None,
                 initial_prompt: None,

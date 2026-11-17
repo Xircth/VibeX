@@ -87,9 +87,11 @@ import { AppContextMenuHost } from '@/components/context-menu';
 import {
   BasicGuideOverlay,
   BasicGuideProvider,
+  completeStep1,
   readBasicGuide,
   skipBasicGuide,
   startBasicGuide,
+  useOptionalBasicGuide,
   writeBasicGuide,
 } from '@/features/basic-guide';
 
@@ -101,6 +103,7 @@ function ThemedToaster() {
 
 function MainAppContent({ children }: { children: ReactNode }) {
   const { config, updateAndSaveConfig, updateConfig } = useUserSystem();
+  const basicGuide = useOptionalBasicGuide();
   const navigate = useNavigate();
   const location = useLocation();
   const maintenanceStartedRef = useRef(false);
@@ -170,15 +173,24 @@ function MainAppContent({ children }: { children: ReactNode }) {
       });
       configRef.current = saved;
       updateConfig(saved);
-      const current = readBasicGuide();
-      if (current?.phase !== 'completed')
-        writeBasicGuide(startBasicGuide(current));
+      const hasSelectedProject = projectIds.length > 0;
+      if (basicGuide) {
+        basicGuide.start(hasSelectedProject);
+      } else {
+        const current = readBasicGuide();
+        if (current?.phase !== 'completed') {
+          const started = startBasicGuide(current);
+          writeBasicGuide(
+            hasSelectedProject ? completeStep1(started, true) : started
+          );
+        }
+      }
       const selected = projectIds[0];
       navigate(selected ? paths.projectSessions(selected) : '/local-projects', {
         replace: true,
       });
     },
-    [navigate, updateConfig]
+    [basicGuide, navigate, updateConfig]
   );
 
   // Track previous path for back navigation

@@ -119,7 +119,7 @@ describe('buildDefaultSessionName', () => {
     });
   });
 
-  it('ignores a stored title that is only the collaboration member nickname', () => {
+  it('names Bot sessions after their space and Bot', () => {
     const t = vi.fn(() => '新会话') as unknown as TFunction<['app', 'common']>;
 
     expect(
@@ -132,16 +132,17 @@ describe('buildDefaultSessionName', () => {
             member_id: 'mem-a',
             member_name: '小A',
             thread_id: 'direct:mem-a',
-            thread_kind: 'dm',
+            thread_kind: 'direct',
             thread_name: '小A',
+            thread_members: [],
           },
         }),
         t
       )
     ).toEqual({
-      name: '请帮我看登录',
-      source: 'prompt',
-      prompt: '请帮我看登录',
+      name: 'User → 小A',
+      source: 'manual',
+      prompt: null,
     });
   });
 
@@ -238,6 +239,7 @@ describe('fallbackSessionNamesByCreationOrder', () => {
         executor: 'codex',
         external_session_id: null,
         agent_id: 'codex',
+        provider_instance_id: null,
         parent_session_id: null,
         parent_tool_use_id: null,
         delegation_call_id: null,

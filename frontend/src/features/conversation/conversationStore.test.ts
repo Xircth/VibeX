@@ -100,6 +100,7 @@ function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
       title_locked: false,
       status: 'inprogress',
       agent_id: 'codex' as const,
+      provider_instance_id: null,
       model: null,
       external_session_id: null,
       message_count: 0n,

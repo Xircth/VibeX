@@ -68,7 +68,7 @@ impl ServerApplicationDomains {
             "reply_channel" | "user_interaction_mirror" | "im_reaction_ack" => {
                 self.deliver_outbox_reply_channel(record).await
             }
-            _ => Ok(()),
+            other => Err(format!("unsupported pulse_outbox target_kind `{other}`")),
         };
 
         let rule_id = record
@@ -299,6 +299,15 @@ impl ServerApplicationDomains {
         record: &PulseOutboxRecord,
     ) -> Result<(), String> {
         let destination = extract_outbox_destination(&record.payload);
+        self.deliver_outbox_github_comment_to(record, &destination)
+            .await
+    }
+
+    async fn deliver_outbox_github_comment_to(
+        &self,
+        record: &PulseOutboxRecord,
+        destination: &str,
+    ) -> Result<(), String> {
         let headers = extract_outbox_headers(&record.payload);
         let rendered_text = record
             .payload
@@ -307,7 +316,12 @@ impl ServerApplicationDomains {
             .map(str::to_string)
             .unwrap_or_else(|| extract_outbox_message_content(&record.payload));
 
-        let (api_url, gh_endpoint, repo_hint) = parse_github_comment_destination(&destination)?;
+        let repo_hint_prelim = extract_github_repo_hint(destination);
+        let api_base = self
+            .resolve_outbox_github_api_base(&record.payload, repo_hint_prelim.as_deref())
+            .await;
+        let (api_url, gh_endpoint, repo_hint) =
+            parse_github_comment_destination_with_base(destination, &api_base)?;
         let token = self
             .resolve_outbox_github_token(&record.payload, &headers, repo_hint.as_deref())
             .await;
@@ -366,6 +380,52 @@ impl ServerApplicationDomains {
                 Err(format!("github_comment POST `{api_url}` failed: {err}"))
             }
         }
+    }
+
+    async fn resolve_outbox_github_api_base(
+        &self,
+        payload: &Value,
+        repo_hint: Option<&str>,
+    ) -> String {
+        if let Some(base) = payload
+            .get("githubApiBase")
+            .or_else(|| payload.get("apiBaseUrl"))
+            .or_else(|| payload.pointer("/payload/githubApiBase"))
+            .or_else(|| payload.pointer("/payload/apiBaseUrl"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return base.trim_end_matches('/').to_string();
+        }
+        if let Ok(sources) = self.pulse_engine.store().list_sources().await {
+            for src in sources {
+                if src.kind != EventSourceKind::Github {
+                    continue;
+                }
+                if let Some(hint) = repo_hint
+                    && let Some(src_repo) = src.config_json.get("repo").and_then(Value::as_str)
+                    && !src_repo.trim().eq_ignore_ascii_case(hint)
+                {
+                    continue;
+                }
+                if let Some(base) = src
+                    .config_json
+                    .get("githubApiBase")
+                    .or_else(|| src.config_json.get("apiBaseUrl"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    return base.trim_end_matches('/').to_string();
+                }
+            }
+        }
+        std::env::var("DIMO_GITHUB_API_BASE")
+            .ok()
+            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "https://api.github.com".to_string())
     }
 
     async fn resolve_outbox_github_token(
@@ -449,7 +509,9 @@ impl ServerApplicationDomains {
             };
             post_json_webhook(&destination, &body, &headers).await
         } else {
-            Ok(())
+            Err(format!(
+                "webhook_post destination `{destination}` must be an http(s) URL"
+            ))
         }
     }
 
@@ -462,17 +524,17 @@ impl ServerApplicationDomains {
             || raw_dest.eq_ignore_ascii_case("auto")
             || raw_dest.eq_ignore_ascii_case("reply")
         {
-            record
-                .payload
-                .get("replyChannel")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .unwrap_or(raw_dest)
+            extract_reply_channel_destination(&record.payload).unwrap_or(raw_dest)
         } else {
             raw_dest
         };
+        let channel_hint = record
+            .payload
+            .get("channelHint")
+            .or_else(|| record.payload.get("channel_hint"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
 
         if let Some(space_id) = destination.strip_prefix("space:") {
             let trimmed_space = space_id.trim();
@@ -501,6 +563,16 @@ impl ServerApplicationDomains {
                 json!({ "spaceId": trimmed_space }),
             );
             Ok(())
+        } else if channel_hint.eq_ignore_ascii_case("github_comment")
+            || destination.starts_with("github:")
+            || looks_like_github_comment_target(&destination)
+        {
+            let target = if destination.is_empty() {
+                extract_reply_channel_destination(&record.payload).unwrap_or(destination)
+            } else {
+                destination
+            };
+            self.deliver_outbox_github_comment_to(record, &target).await
         } else if destination.starts_with("http://") || destination.starts_with("https://") {
             let headers = extract_outbox_headers(&record.payload);
             let body = if let Some(rt) = record.payload.get("renderedText").and_then(Value::as_str)
@@ -519,10 +591,125 @@ impl ServerApplicationDomains {
                     .clone()
             };
             post_json_webhook(&destination, &body, &headers).await
-        } else {
+        } else if matches!(
+            record.target_kind.as_str(),
+            "user_interaction_mirror" | "im_reaction_ack"
+        ) {
+            tracing::debug!(
+                target_kind = %record.target_kind,
+                destination = %destination,
+                "outbox best-effort auxiliary target has no external endpoint; skipping"
+            );
             Ok(())
+        } else {
+            Err(format!(
+                "unsupported reply_channel destination `{destination}` (channelHint `{channel_hint}`)"
+            ))
         }
     }
+}
+
+fn extract_reply_channel_destination(payload: &Value) -> Option<String> {
+    let from_rc = |rc: &Value| -> Option<String> {
+        if let Some(s) = rc.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            return Some(s.to_string());
+        }
+        let obj = rc.as_object()?;
+        let source_kind = obj
+            .get("sourceKind")
+            .or_else(|| obj.get("source_kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let thread_id = obj
+            .get("threadId")
+            .or_else(|| obj.get("thread_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let channel_id = obj
+            .get("channelId")
+            .or_else(|| obj.get("channel_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if source_kind.eq_ignore_ascii_case("github") {
+            return thread_id
+                .map(str::to_string)
+                .or_else(|| channel_id.map(|c| c.to_string()));
+        }
+        thread_id
+            .or(channel_id)
+            .map(str::to_string)
+    };
+
+    if let Some(rc) = payload
+        .get("replyChannel")
+        .or_else(|| payload.get("reply_channel"))
+        && let Some(found) = from_rc(rc)
+    {
+        return Some(found);
+    }
+    if let Some(rc) = payload
+        .get("replyChannels")
+        .or_else(|| payload.get("reply_channels"))
+        .and_then(|v| v.get(0))
+        && let Some(found) = from_rc(rc)
+    {
+        return Some(found);
+    }
+    payload
+        .get("threadKey")
+        .or_else(|| payload.get("thread_key"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn looks_like_github_comment_target(destination: &str) -> bool {
+    let trimmed = destination
+        .trim()
+        .strip_prefix("github:")
+        .unwrap_or(destination.trim())
+        .trim();
+    if trimmed.contains("api.github.com/repos/") {
+        return true;
+    }
+    if let Some((repo, num)) = trimmed.split_once('#') {
+        let segs: Vec<&str> = repo.trim().split('/').filter(|s| !s.is_empty()).collect();
+        return segs.len() == 2 && !num.trim().is_empty() && num.trim().chars().all(|c| c.is_ascii_digit());
+    }
+    if let Some((repo, sha)) = trimmed.split_once('@') {
+        let segs: Vec<&str> = repo.trim().split('/').filter(|s| !s.is_empty()).collect();
+        return segs.len() == 2 && !sha.trim().is_empty() && !sha.contains('/');
+    }
+    false
+}
+
+fn extract_github_repo_hint(destination: &str) -> Option<String> {
+    let trimmed = destination
+        .trim()
+        .strip_prefix("github:")
+        .unwrap_or(destination.trim())
+        .trim();
+    if let Some((_, after_repos)) = trimmed.split_once("/repos/") {
+        let segs: Vec<&str> = after_repos.split('/').filter(|s| !s.is_empty()).collect();
+        if segs.len() >= 2 {
+            return Some(format!("{}/{}", segs[0], segs[1]));
+        }
+    }
+    if let Some((repo_part, _)) = trimmed.split_once('#').or_else(|| trimmed.split_once('@')) {
+        let segs: Vec<&str> = repo_part
+            .trim()
+            .trim_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if segs.len() == 2 {
+            return Some(format!("{}/{}", segs[0], segs[1]));
+        }
+    }
+    None
 }
 
 fn extract_outbox_destination(payload: &Value) -> String {
@@ -582,16 +769,21 @@ fn extract_outbox_message_content(payload: &Value) -> String {
         .unwrap_or_else(|_| "{}".to_string())
 }
 
-fn parse_github_comment_destination(
+fn parse_github_comment_destination_with_base(
     destination: &str,
+    api_base: &str,
 ) -> Result<(String, Option<String>, Option<String>), String> {
-    let trimmed = destination.trim();
+    let trimmed = destination
+        .trim()
+        .strip_prefix("github:")
+        .unwrap_or(destination.trim())
+        .trim();
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         let gh_endpoint = trimmed
-            .split("api.github.com/")
+            .split("/repos/")
             .nth(1)
-            .map(|p| p.trim_start_matches('/').to_string())
-            .filter(|p| !p.is_empty());
+            .map(|p| format!("repos/{}", p.trim_start_matches('/')))
+            .filter(|p| p.len() > "repos/".len());
         let repo_hint = gh_endpoint.as_deref().and_then(|ep| {
             let segs: Vec<&str> = ep.split('/').collect();
             if segs.len() >= 3 && segs[0] == "repos" {
@@ -603,6 +795,7 @@ fn parse_github_comment_destination(
         return Ok((trimmed.to_string(), gh_endpoint, repo_hint));
     }
 
+    let base = api_base.trim().trim_end_matches('/');
     if let Some((repo_part, num_part)) = trimmed.split_once('#') {
         let repo = repo_part.trim().trim_matches('/');
         let number = num_part.trim();
@@ -610,13 +803,29 @@ fn parse_github_comment_destination(
         if segs.len() == 2 && !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()) {
             let norm_repo = format!("{}/{}", segs[0], segs[1]);
             let endpoint = format!("repos/{norm_repo}/issues/{number}/comments");
-            let url = format!("https://api.github.com/{endpoint}");
+            let url = format!("{base}/{endpoint}");
+            return Ok((url, Some(endpoint), Some(norm_repo)));
+        }
+    }
+
+    if let Some((repo_part, sha_part)) = trimmed.split_once('@') {
+        let repo = repo_part.trim().trim_matches('/');
+        let sha = sha_part.trim();
+        let segs: Vec<&str> = repo.split('/').filter(|s| !s.is_empty()).collect();
+        if segs.len() == 2
+            && !sha.is_empty()
+            && !sha.contains('/')
+            && !sha.contains(char::is_whitespace)
+        {
+            let norm_repo = format!("{}/{}", segs[0], segs[1]);
+            let endpoint = format!("repos/{norm_repo}/commits/{sha}/comments");
+            let url = format!("{base}/{endpoint}");
             return Ok((url, Some(endpoint), Some(norm_repo)));
         }
     }
 
     Err(format!(
-        "invalid github_comment destination `{trimmed}` (expected `owner/repo#number` or `http(s)://.../comments`)"
+        "invalid github_comment destination `{trimmed}` (expected `owner/repo#number`, `owner/repo@sha`, or `http(s)://.../comments`)"
     ))
 }
 
@@ -664,5 +873,80 @@ async fn post_json_webhook(
             "outbox webhook POST `{url}` returned HTTP {}",
             response.status()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        extract_reply_channel_destination, looks_like_github_comment_target,
+        parse_github_comment_destination_with_base,
+    };
+
+    #[test]
+    fn extract_reply_channel_destination_handles_strings_and_reply_channel_objects() {
+        assert_eq!(
+            extract_reply_channel_destination(&json!({
+                "replyChannel": {
+                    "sourceKind": "github",
+                    "instanceId": "gh-1",
+                    "channelId": "acme/dimo#42",
+                    "threadId": "github:acme/dimo#42"
+                }
+            }))
+            .as_deref(),
+            Some("github:acme/dimo#42")
+        );
+        assert_eq!(
+            extract_reply_channel_destination(&json!({
+                "replyChannels": [{
+                    "sourceKind": "github",
+                    "channelId": "acme/dimo@abc1234"
+                }]
+            }))
+            .as_deref(),
+            Some("acme/dimo@abc1234")
+        );
+        assert_eq!(
+            extract_reply_channel_destination(&json!({
+                "threadKey": "github:acme/dimo#7"
+            }))
+            .as_deref(),
+            Some("github:acme/dimo#7")
+        );
+    }
+
+    #[test]
+    fn parse_github_comment_destination_supports_pr_and_commit_with_custom_base() {
+        assert!(looks_like_github_comment_target("github:acme/dimo#42"));
+        assert!(looks_like_github_comment_target("acme/dimo@deadbeef"));
+        assert!(!looks_like_github_comment_target("space:ops"));
+
+        let (url, ep, repo) =
+            parse_github_comment_destination_with_base("github:acme/dimo#42", "http://127.0.0.1:8888")
+                .expect("pr destination");
+        assert_eq!(
+            url,
+            "http://127.0.0.1:8888/repos/acme/dimo/issues/42/comments"
+        );
+        assert_eq!(ep.as_deref(), Some("repos/acme/dimo/issues/42/comments"));
+        assert_eq!(repo.as_deref(), Some("acme/dimo"));
+
+        let (commit_url, commit_ep, commit_repo) = parse_github_comment_destination_with_base(
+            "github:acme/dimo@abc1234",
+            "https://api.github.com",
+        )
+        .expect("commit destination");
+        assert_eq!(
+            commit_url,
+            "https://api.github.com/repos/acme/dimo/commits/abc1234/comments"
+        );
+        assert_eq!(
+            commit_ep.as_deref(),
+            Some("repos/acme/dimo/commits/abc1234/comments")
+        );
+        assert_eq!(commit_repo.as_deref(), Some("acme/dimo"));
     }
 }

@@ -190,6 +190,7 @@ impl AppState {
             events.clone(),
         );
         collaboration_host.install_companion_memory(delegation.features.clone());
+        let product_mcp_commands = server::ProductMcpCommandHost::default();
         if let Err(error) = server::start_product_mcp_gateway(
             delegation.listener.clone(),
             delegation.tokens.clone(),
@@ -198,6 +199,7 @@ impl AppState {
                 runtime: agent_runtime.clone(),
                 pool: gateway_pool,
             }),
+            product_mcp_commands.clone(),
         )
         .await
         {
@@ -262,6 +264,9 @@ impl AppState {
             conversation_host: Some(plugin_conversation_host),
             delegation_broker: Some(delegation.broker.clone()),
         });
+        product_mcp_commands
+            .attach_commands(host.commands.clone())
+            .await;
         Ok(Self {
             app_handle,
             local_deployment,

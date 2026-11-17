@@ -28,9 +28,11 @@ export function useProviderFormActions(
   state: ProviderFormState,
   {
     agentId,
+    providerInstanceId = null,
     onChanged,
   }: {
     agentId: AgentId;
+    providerInstanceId?: string | null;
     onChanged?: () => void | Promise<void>;
   }
 ) {
@@ -67,7 +69,7 @@ export function useProviderFormActions(
   useEffect(() => {
     detectGenerationRef.current += 1;
     setDetectingModels(false);
-  }, [agentId, setDetectingModels]);
+  }, [agentId, providerInstanceId, setDetectingModels]);
 
   const openCreate = () => {
     resetForm();
@@ -129,12 +131,20 @@ export function useProviderFormActions(
     setDetectingModels(true);
     setDetectionError(null);
     try {
-      const catalog = await agentManagementApi.modelProviderCatalog(
-        agentId,
-        nextId,
-        nextUrl,
-        nextKey
-      );
+      const catalog = providerInstanceId
+        ? await agentManagementApi.modelProviderCatalog(
+            agentId,
+            nextId,
+            nextUrl,
+            nextKey,
+            providerInstanceId
+          )
+        : await agentManagementApi.modelProviderCatalog(
+            agentId,
+            nextId,
+            nextUrl,
+            nextKey
+          );
       if (generation !== detectGenerationRef.current) return;
       setDetectedCatalog(catalog);
       setDetectionError(catalog.error);
@@ -290,12 +300,20 @@ export function useProviderFormActions(
     }
     setCustomModelTests((current) => ({ ...current, [index]: 'loading' }));
     try {
-      const catalog = await agentManagementApi.modelProviderCatalog(
-        agentId,
-        id,
-        apiUrl.trim(),
-        apiKey.trim() || null
-      );
+      const catalog = providerInstanceId
+        ? await agentManagementApi.modelProviderCatalog(
+            agentId,
+            id,
+            apiUrl.trim(),
+            apiKey.trim() || null,
+            providerInstanceId
+          )
+        : await agentManagementApi.modelProviderCatalog(
+            agentId,
+            id,
+            apiUrl.trim(),
+            apiKey.trim() || null
+          );
       setDetectedCatalog(catalog);
       setDetectionError(catalog.error);
       const available = catalog.models.some(
@@ -372,6 +390,7 @@ export function useProviderFormActions(
           api_url: apiUrl.trim(),
           api_key: apiKey.trim() || null,
           model: model.trim(),
+          ...(providerInstanceId ? { providerInstanceId } : {}),
         })
       );
       toast.success(

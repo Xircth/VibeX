@@ -15,7 +15,7 @@ use services::services::{
     config::{
         Config, SoundFile,
         editor::{EditorConfig, EditorType},
-        load_config_from_file, publish_config_runtime, save_config_to_file,
+        publish_config_runtime, save_config_to_file, try_load_config_from_file,
     },
     prompt_enhancement::{
         PROMPT_ENHANCE_TIMEOUT_SECS, PROMPT_ENHANCEMENT_CANCELLED, PromptEnhancementRequest,
@@ -131,7 +131,22 @@ pub(super) async fn update_config(
 pub(crate) async fn user_system_info(
     domains: &ServerApplicationDomains,
 ) -> Result<Value, ApplicationError> {
-    let config = load_config_from_file(&utils::assets::settings_path()).await;
+    let settings_path = domains.deployment.settings_path();
+    let config = match try_load_config_from_file(settings_path).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            tracing::info!("No settings file found, using default application settings");
+            Config::default()
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                path = %settings_path.display(),
+                "Failed to read application settings; preserving live in-memory config"
+            );
+            domains.deployment.config().read().await.clone()
+        }
+    };
     publish_config_runtime(&config).await;
     crate::apply_host_multi_agent_setting(
         domains

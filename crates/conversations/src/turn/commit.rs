@@ -1101,6 +1101,7 @@ mod workspace_lock_tests {
             &CreateSession {
                 executor: None,
                 agent_id: None,
+                provider_instance_id: None,
                 task_id: Some(task.id),
                 name: None,
                 initial_prompt: None,

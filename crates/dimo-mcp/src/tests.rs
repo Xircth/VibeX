@@ -11,6 +11,7 @@
             server_url: None,
             server_token: None,
             conversation_id: None,
+            workspace_root: None,
             product: "delegation".to_string(),
         }))
     }
@@ -575,6 +576,7 @@
             server_url: Some("http://127.0.0.1:9".to_string()),
             server_token: Some("plugin-token".to_string()),
             conversation_id: Some("conv".to_string()),
+            workspace_root: None,
             product: "delegation".to_string(),
         });
         assert!(injected.uses_http());
@@ -586,6 +588,7 @@
             server_url: Some("http://127.0.0.1:9".to_string()),
             server_token: Some("plugin-token".to_string()),
             conversation_id: None,
+            workspace_root: None,
             product: "delegation".to_string(),
         });
         assert!(native.uses_http());

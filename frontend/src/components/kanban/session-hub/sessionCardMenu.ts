@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import {
+  Bot,
   Copy,
   FileCode,
   FileDown,
@@ -18,6 +19,8 @@ export interface BuildSessionCardMenuItemsParams {
     'agentId' | 'executor' | 'forkSupported'
   >;
   t: TFunction;
+  /** Bot sessions: open the Bot's chat in the collaboration space. */
+  openCollaboration?: { label: string; onSelect: () => void };
   onRename?: () => void;
   onCopySessionInfo: () => void;
   onCopySessionName: () => void;
@@ -33,6 +36,7 @@ export interface BuildSessionCardMenuItemsParams {
 export function buildSessionCardMenuItems({
   session,
   t,
+  openCollaboration,
   onRename,
   onCopySessionInfo,
   onCopySessionName,
@@ -52,6 +56,15 @@ export function buildSessionCardMenuItems({
       label: restoreLabel ?? t('tasks:hubListItem.moveToSessionList'),
       icon: RotateCcw,
       onSelect: onRestore,
+    });
+  }
+
+  if (openCollaboration) {
+    items.push({
+      id: 'open-collaboration',
+      label: openCollaboration.label,
+      icon: Bot,
+      onSelect: openCollaboration.onSelect,
     });
   }
 

@@ -1,6 +1,6 @@
 # Dimo 官方插件全景介绍
 
-在 [ADR-0069（一切皆插件）](../adr/0069-everything-is-a-plugin-platform.md) 纪律下，Dimo 的 **17 个官方插件**源码全部位于仓库 [`plugins/`](../../plugins/) 目录，与第三方作者共用完全相同的公开 `@dimoai/plugin-sdk`（`^2.0.0`）、Package v4 清单和 **23 类贡献点**（CI 通过 `pnpm run plugin:no-privilege` 强制校验宿主零官方 ID 特判）。
+在 [ADR-0069（一切皆插件）](../adr/0069-everything-is-a-plugin-platform.md) 纪律下，Dimo 的 **16 个官方插件**源码全部位于仓库 [`plugins/`](../../plugins/) 目录，与第三方作者共用完全相同的公开 `@dimoai/plugin-sdk`（`^2.0.0`）、Package v4 清单和 **23 类贡献点**（CI 通过 `pnpm run plugin:no-privilege` 强制校验宿主零官方 ID 特判）。
 
 ### 分发与生效规则
 
@@ -81,7 +81,6 @@
 
 | 插件 ID | 源码目录 | 核心作用 |
 | --- | --- | --- |
-| `dimo.provider-switch` | [`plugins/provider-switch`](../../plugins/provider-switch) | 在「新建模型供应商」表单中贡献按 Agent 分组的无密钥预置端点与模型映射模板（[ADR-0079](../adr/0079-provider-catalog-templates-are-not-import-sources.md)）。 |
 | `dimo.prompt-enhancer` | [`plugins/prompt-enhancer`](../../plugins/prompt-enhancer) | Composer 提示词优化器（含 `@enhance` 动作），自动结合仓库上下文补齐验收标准与边界条件。 |
 | `dimo.kanban-views` | [`plugins/kanban-views`](../../plugins/kanban-views) | 任务看板多维分组视图、分诊预设与迭代速率统计扩展。 |
 | `dimo.notes` | [`plugins/notes`](../../plugins/notes) | 项目随手记（Scratchpad）、会话笔记面板与消息右键一键摘录。 |

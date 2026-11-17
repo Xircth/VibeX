@@ -766,6 +766,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
             &CreateSession {
                 executor: Some(spec.agent.agent_id.as_str().to_string()),
                 agent_id: Some(spec.agent.agent_id.clone()),
+                provider_instance_id: None,
                 task_id: Some(workspace_row.task_id),
                 name: spec.label_snapshot.clone(),
                 initial_prompt: Some(spec.display_text.clone()),

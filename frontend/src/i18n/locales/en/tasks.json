@@ -180,6 +180,7 @@
     "newWorkspaceHint": "Create a new worktree workspace based on the target branch, then create a session in it.",
     "includeUncommitted": "Copy uncommitted changes",
     "codingAgent": "Coding agent",
+    "instanceLabel": "Instance",
     "controlsLoading": "Preparing session options…",
     "controlsPrepareFailed": "Failed to load session options for {{agent}}",
     "createFailed": "Could not create session",
@@ -724,18 +725,5 @@
   "effortSlider": {
     "faster": "Faster",
     "smarter": "Smarter"
-  },
-  "engineHandoff": {
-    "title": "Switch from {{sourceEngine}} to {{targetEngine}}",
-    "tokenBudget": "Token budget",
-    "packedHeading": "Packed context",
-    "firstUserMessage": "First user message",
-    "lastUserMessage": "Latest user message",
-    "lastAssistantMessage": "Latest assistant reply",
-    "recentMessages": "Recent {{count}} messages (reverse chronological)",
-    "omittedWarning": "{{count}} earlier messages omitted (retrievable via MCP)",
-    "expandPreview": "Expand full packed preview",
-    "collapsePreview": "Hide full packed preview",
-    "confirmSwitch": "Confirm switch"
   }
 }

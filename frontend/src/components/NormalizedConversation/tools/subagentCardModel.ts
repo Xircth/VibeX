@@ -173,7 +173,7 @@ export function hostMcpBareToolName(name: string): string {
   if (!trimmed) return trimmed;
   const stripped = trimmed
     .replace(/^mcp__/i, '')
-    .replace(/^dimo[-_]delegation(?:[-_]mcp)?[-_]+/i, '');
+    .replace(/^dimo[-_](?:delegation|superagent)(?:[-_]mcp)?[-_]+/i, '');
   const parts = stripped.split(/__|\/|:/);
   return parts[parts.length - 1] ?? stripped;
 }
@@ -291,7 +291,7 @@ export function hostDelegationLifecycleKind(
 }
 
 const COMPANION_TOOL_QUERY =
-  /delegate_to_agent|get_delegation_status|cancel_delegation|dimo-delegation|dimo\.multi-agent/i;
+  /delegate_to_agent|get_delegation_status|cancel_delegation|dimo-delegation|dimo-superagent|dimo\.multi-agent/i;
 
 export function isCompanionSearchQuery(
   query: string | null | undefined

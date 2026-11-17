@@ -30,6 +30,7 @@ export type ProviderCatalogTemplateView = {
   plugin_label: string;
   agent_id: string;
   name: string;
+  icon?: string | null;
   website_url?: string | null;
   api_key_url?: string | null;
   endpoint_candidates?: string[];

@@ -16,9 +16,16 @@ mod client;
 mod pulse;
 mod pulse_bridge;
 mod pulse_eval;
+mod render;
+mod workflow;
+mod workflow_patch;
+mod workflow_presets;
+
+pub(crate) use render::render_result;
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -52,6 +59,7 @@ struct Args {
     server_url: Option<String>,
     server_token: Option<String>,
     conversation_id: Option<String>,
+    workspace_root: Option<PathBuf>,
     product: String,
 }
 
@@ -65,6 +73,7 @@ struct CompanionFeatures {
     collaboration: bool,
     space: bool,
     pulse: bool,
+    workflow: bool,
 }
 
 impl CompanionFeatures {
@@ -81,6 +90,7 @@ impl CompanionFeatures {
                 collaboration: false,
                 space: false,
                 pulse: false,
+                workflow: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -93,6 +103,7 @@ impl CompanionFeatures {
                     collaboration: has("collaboration"),
                     space: has("space"),
                     pulse: has("pulse") || has("automation"),
+                    workflow: has("workflow"),
                 }
             }
         }
@@ -118,6 +129,7 @@ impl CompanionFeatures {
             | "memory_search"
             | "memory_write" => self.collaboration && self.space,
             other if pulse::is_pulse_tool(other) => self.pulse,
+            other if workflow::is_workflow_tool(other) => self.workflow,
             _ => false,
         }
     }
@@ -252,6 +264,7 @@ fn parse_args() -> Result<Args, String> {
     let mut server_url = None;
     let mut server_token = None;
     let mut conversation_id = None;
+    let mut workspace_root = None;
     let mut product = None;
 
     let mut argv = std::env::args().skip(1);
@@ -268,6 +281,12 @@ fn parse_args() -> Result<Args, String> {
             "--server-url" => server_url = Some(take()?),
             "--server-token" => server_token = Some(take()?),
             "--conversation-id" => conversation_id = Some(take()?),
+            "--workspace-root" => {
+                let raw = take()?;
+                if !raw.trim().is_empty() {
+                    workspace_root = Some(PathBuf::from(raw));
+                }
+            }
             "--product" => product = Some(take()?),
             // Accepted for forward-compat; parent death is detected via stdin EOF.
             "--parent-pid" => {
@@ -279,8 +298,14 @@ fn parse_args() -> Result<Args, String> {
 
     let resolved_product = product.unwrap_or_else(|| "delegation".to_string());
     let mut parsed_features = CompanionFeatures::parse(features.as_deref());
-    if resolved_product == "pulse" {
-        parsed_features.pulse = true;
+    match resolved_product.as_str() {
+        "pulse" => parsed_features.pulse = true,
+        "workflow" => parsed_features.workflow = true,
+        "superagent" => {
+            parsed_features.pulse = true;
+            parsed_features.workflow = true;
+        }
+        _ => {}
     }
 
     Ok(Args {
@@ -293,6 +318,7 @@ fn parse_args() -> Result<Args, String> {
         server_url,
         server_token,
         conversation_id: resolve_conversation_id(conversation_id),
+        workspace_root,
         product: resolved_product,
     })
 }
@@ -302,6 +328,7 @@ fn enabled_tools(features: &CompanionFeatures) -> Vec<Value> {
     let mut all: Vec<Value> =
         serde_json::from_str(TOOL_SCHEMA).expect("embedded tool schema is valid");
     all.extend(pulse::pulse_tool_schemas());
+    all.extend(workflow::workflow_tool_schemas());
     all.into_iter()
         .filter(|tool| {
             tool.get("name")
@@ -364,6 +391,7 @@ struct Companion {
     server_url: Option<String>,
     server_token: Option<String>,
     conversation_id: Option<String>,
+    workspace_root: Option<PathBuf>,
     product: String,
     instance_id: Uuid,
     operation_seq: AtomicU64,
@@ -372,8 +400,14 @@ struct Companion {
 
 impl Companion {
     fn new(mut args: Args) -> Self {
-        if args.product == "pulse" {
-            args.features.pulse = true;
+        match args.product.as_str() {
+            "pulse" => args.features.pulse = true,
+            "workflow" => args.features.workflow = true,
+            "superagent" => {
+                args.features.pulse = true;
+                args.features.workflow = true;
+            }
+            _ => {}
         }
         let tools = enabled_tools(&args.features);
         Self {
@@ -385,6 +419,7 @@ impl Companion {
             server_url: args.server_url,
             server_token: args.server_token,
             conversation_id: args.conversation_id,
+            workspace_root: args.workspace_root,
             product: args.product,
             instance_id: Uuid::new_v4(),
             operation_seq: AtomicU64::new(0),
@@ -474,18 +509,21 @@ impl Companion {
         };
         let params = value.get("params");
         match method {
-            "initialize" => respond(id, initialize_result(params))
+            "initialize" => respond(id, initialize_result(params, &self.product))
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
-            "server/discover" => respond(id, discover_result())
+            "server/discover" => respond(id, discover_result(&self.product))
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
-            "ping" => respond(id, modernize_result(params, json!({})))
+            "ping" => respond(id, modernize_result(params, json!({}), &self.product))
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
-            "tools/list" => respond(id, modernize_result(params, json!({ "tools": self.tools })))
-                .map(LineAction::Respond)
-                .unwrap_or(LineAction::Ignore),
+            "tools/list" => respond(
+                id,
+                modernize_result(params, json!({ "tools": self.tools }), &self.product),
+            )
+            .map(LineAction::Respond)
+            .unwrap_or(LineAction::Ignore),
             "tools/call" => match (id, params) {
                 (Some(id), Some(params)) => LineAction::Call {
                     id: Some(id),
@@ -561,7 +599,56 @@ impl Companion {
             stdout,
             respond(
                 id,
-                modernize_result(meta.as_ref(), render_result(&final_outcome)),
+                modernize_result(
+                    meta.as_ref(),
+                    render_result(&final_outcome),
+                    &self.product,
+                ),
+            ),
+        )
+        .await;
+    }
+
+    pub(crate) async fn execute_workflow_call(
+        &self,
+        name: &str,
+        mut arguments: Value,
+        meta: Option<&Value>,
+        id: Option<&Value>,
+    ) -> Result<Value, String> {
+        self.ensure_call_operation_id(name, &mut arguments, meta, id);
+        workflow::execute_workflow_tool(self, name, &arguments, self.workspace_root.as_deref())
+            .await
+    }
+
+    async fn run_workflow_call(
+        &self,
+        id: Option<Value>,
+        name: &str,
+        arguments: Value,
+        meta: Option<Value>,
+        stdout: &Arc<Mutex<tokio::io::Stdout>>,
+    ) {
+        let final_outcome = match self
+            .execute_workflow_call(name, arguments, meta.as_ref(), id.as_ref())
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                write_opt(stdout, respond_error(id, -32602, &err)).await;
+                return;
+            }
+        };
+
+        write_opt(
+            stdout,
+            respond(
+                id,
+                modernize_result(
+                    meta.as_ref(),
+                    render_result(&final_outcome),
+                    &self.product,
+                ),
             ),
         )
         .await;
@@ -588,6 +675,11 @@ impl Companion {
         }
         if pulse::is_pulse_tool(&name) {
             self.run_pulse_call(id, &name, arguments, meta, &stdout)
+                .await;
+            return;
+        }
+        if workflow::is_workflow_tool(&name) {
+            self.run_workflow_call(id, &name, arguments, meta, &stdout)
                 .await;
             return;
         }
@@ -654,7 +746,10 @@ impl Companion {
                 };
                 let relayed = write_opt(
                     &stdout,
-                    respond(id, modernize_result(meta.as_ref(), render_result(&outcome))),
+                    respond(
+                        id,
+                        modernize_result(meta.as_ref(), render_result(&outcome), &self.product),
+                    ),
                 )
                 .await;
                 if relayed && !feedback_ids.is_empty() {
@@ -1029,9 +1124,14 @@ fn negotiate_protocol(params: Option<&Value>) -> &'static str {
         .unwrap_or(DEFAULT_MCP_PROTOCOL)
 }
 
-fn server_info() -> Value {
+fn server_info(product: &str) -> Value {
+    let name = if product == "superagent" {
+        "Dimo-superagent-mcp"
+    } else {
+        "dimo-mcp"
+    };
     json!({
-        "name": "dimo-mcp",
+        "name": name,
         "version": env!("CARGO_PKG_VERSION")
     })
 }
@@ -1049,16 +1149,16 @@ fn meta_protocol_version(params: Option<&Value>) -> Option<&str> {
     })
 }
 
-fn discover_result() -> Value {
+fn discover_result(product: &str) -> Value {
     json!({
         "resultType": "complete",
         "supportedVersions": [MODERN_MCP_PROTOCOL],
         "capabilities": { "tools": {} },
-        "_meta": { MCP_SERVER_INFO_META: server_info() }
+        "_meta": { MCP_SERVER_INFO_META: server_info(product) }
     })
 }
 
-fn modernize_result(params: Option<&Value>, mut result: Value) -> Value {
+fn modernize_result(params: Option<&Value>, mut result: Value, product: &str) -> Value {
     if meta_protocol_version(params) != Some(MODERN_MCP_PROTOCOL) {
         return result;
     }
@@ -1068,230 +1168,17 @@ fn modernize_result(params: Option<&Value>, mut result: Value) -> Value {
             .or_insert_with(|| json!("complete"));
         object
             .entry("_meta")
-            .or_insert_with(|| json!({ MCP_SERVER_INFO_META: server_info() }));
+            .or_insert_with(|| json!({ MCP_SERVER_INFO_META: server_info(product) }));
     }
     result
 }
 
-fn initialize_result(params: Option<&Value>) -> Value {
+fn initialize_result(params: Option<&Value>, product: &str) -> Value {
     json!({
         "protocolVersion": negotiate_protocol(params),
         "capabilities": { "tools": {} },
-        "serverInfo": server_info()
+        "serverInfo": server_info(product)
     })
-}
-
-/// Render a broker outcome as an MCP `CallToolResult`: a human/LLM-readable text
-/// summary plus the full structured outcome.
-pub(crate) fn render_result(outcome: &Value) -> Value {
-    json!({
-        "content": [{ "type": "text", "text": summarize(outcome) }],
-        "structuredContent": outcome,
-        "isError": outcome.get("isError").and_then(Value::as_bool).unwrap_or(false),
-    })
-}
-
-fn summarize(outcome: &Value) -> String {
-    if let Some(text) = outcome.get("text").and_then(Value::as_str) {
-        return text.to_string();
-    }
-    if let Some(count) = outcome.get("count") {
-        let notes = outcome
-            .get("feedback")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if notes.is_empty() || count.as_u64() == Some(0) {
-            return "No new feedback from the user. Continue with your current plan.".to_string();
-        }
-        let mut text = format!(
-            "The user sent {} message(s) while you were working. Treat this as high-priority steering: adjust your current approach to honor it now, and briefly acknowledge what you changed.\n",
-            notes.len()
-        );
-        for (index, note) in notes.iter().enumerate() {
-            let body = note.get("text").and_then(Value::as_str).unwrap_or("");
-            text.push_str(&format!("{}. {body}\n", index + 1));
-        }
-        return text;
-    }
-    if outcome.get("answers").is_some() || outcome.get("declined").is_some() {
-        if outcome
-            .get("declined")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            return "The user dismissed the question(s) without choosing an answer. Proceed using your best judgment and reasonable defaults.".to_string();
-        }
-        let answers = outcome
-            .get("answers")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if answers.is_empty() {
-            return "The user dismissed the question(s) without choosing an answer. Proceed using your best judgment and reasonable defaults.".to_string();
-        }
-        let mut text = String::from("The user answered your question(s):\n");
-        for (index, answer) in answers.iter().enumerate() {
-            let header = answer.get("header").and_then(Value::as_str).unwrap_or("");
-            let question = answer
-                .get("question")
-                .and_then(Value::as_str)
-                .or_else(|| answer.get("questionId").and_then(Value::as_str))
-                .unwrap_or("");
-            let selected = answer
-                .get("selected")
-                .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .or_else(|| {
-                    answer.get("labels").and_then(Value::as_array).map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                })
-                .unwrap_or_default();
-            text.push_str(&format!(
-                "{}. [{header}] {question}\n   → {}\n",
-                index + 1,
-                if selected.is_empty() {
-                    "(no selection)"
-                } else {
-                    selected.as_str()
-                }
-            ));
-        }
-        return text;
-    }
-    if outcome.get("found") == Some(&json!(false)) {
-        if let Some(note) = outcome.get("note").and_then(Value::as_str) {
-            return note.to_string();
-        }
-        if let Some(id) = outcome
-            .get("conversation_id")
-            .and_then(Value::as_str)
-            .or_else(|| outcome.get("session_id").and_then(Value::as_str))
-        {
-            return format!("No conversation matches id {id}.");
-        }
-    }
-    if outcome.get("found") == Some(&json!(true)) {
-        return render_session_summary(outcome);
-    }
-    if outcome.get("tasks").is_some() {
-        return outcome.to_string();
-    }
-    if let Some(message) = outcome.get("message").and_then(Value::as_str) {
-        if let Some(task_id) = outcome.get("task_id").and_then(Value::as_str) {
-            return format!("{message} (task_id: {task_id})");
-        }
-        return message.to_string();
-    }
-    outcome.to_string()
-}
-
-fn render_session_summary(outcome: &Value) -> String {
-    let id = outcome
-        .get("conversation_id")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let agent = outcome
-        .get("agent_id")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let mut out = format!("Conversation {id} ({agent})\n");
-    if let Some(title) = outcome.get("title").and_then(Value::as_str) {
-        out.push_str(&format!("Title: {title}\n"));
-    }
-    let mut meta = Vec::new();
-    if let Some(status) = outcome.get("status").and_then(Value::as_str) {
-        meta.push(format!("status: {status}"));
-    }
-    if let Some(branch) = outcome.get("git_branch").and_then(Value::as_str) {
-        meta.push(format!("branch: {branch}"));
-    }
-    if let Some(model) = outcome.get("model").and_then(Value::as_str) {
-        meta.push(format!("model: {model}"));
-    }
-    if !meta.is_empty() {
-        out.push_str(&meta.join(" | "));
-        out.push('\n');
-    }
-    if let Some(path) = outcome.get("workspace_path").and_then(Value::as_str) {
-        out.push_str(&format!("Workspace: {path}\n"));
-    }
-    if let Some(count) = outcome.get("message_count") {
-        out.push_str(&format!("Messages: {count}\n"));
-    }
-    if outcome
-        .get("is_delegation_child")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        && let Some(parent) = outcome.get("parent_conversation_id").and_then(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| Some(value.to_string()))
-        })
-    {
-        out.push_str(&format!("Delegation child of {parent}\n"));
-    }
-    if let Some(tokens) = outcome
-        .get("stats")
-        .and_then(|stats| stats.get("total_tokens"))
-    {
-        out.push_str(&format!("Total tokens: {tokens}\n"));
-    }
-    if let Some(note) = outcome.get("note").and_then(Value::as_str) {
-        out.push_str(&format!("Note: {note}\n"));
-    }
-    if let Some(messages) = outcome.get("messages") {
-        let total = messages.get("total").and_then(Value::as_u64).unwrap_or(0);
-        let included = messages
-            .get("included")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let truncated = messages
-            .get("truncated")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let suffix = if truncated {
-            ", older turns omitted"
-        } else {
-            ""
-        };
-        out.push_str(&format!(
-            "\nRecent messages ({included}/{total}{suffix}):\n"
-        ));
-        if let Some(items) = messages.get("items").and_then(Value::as_array) {
-            for item in items {
-                let role = item.get("role").and_then(Value::as_str).unwrap_or("?");
-                let body = item
-                    .get("text")
-                    .or_else(|| item.get("content"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let tools: Vec<&str> = item
-                    .get("tools")
-                    .and_then(Value::as_array)
-                    .map(|array| array.iter().filter_map(Value::as_str).collect())
-                    .unwrap_or_default();
-                out.push_str(&format!("- [{role}] {body}"));
-                if !tools.is_empty() {
-                    out.push_str(&format!(" (tools: {})", tools.join(", ")));
-                }
-                out.push('\n');
-            }
-        }
-    }
-    out
 }
 
 fn next_handle() -> String {
@@ -1401,3 +1288,5 @@ async fn main() {
 mod pulse_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workflow_tests;

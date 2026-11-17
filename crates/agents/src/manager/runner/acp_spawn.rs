@@ -173,6 +173,12 @@ impl AgentConnectionRunner {
         {
             command.env_remove(key);
         }
+        for key in crate::codex_shadow_home::scrub_keys_for_agent_launch(
+            &self.snapshot.agent_id,
+            &self.snapshot.env,
+        ) {
+            command.env_remove(key);
+        }
         // This is a Dimo-side policy toggle, not an environment variable Pi
         // or pi-acp should observe.
         command.env_remove(PI_TRUST_WORKSPACE_ENV);
@@ -422,6 +428,13 @@ impl AgentConnectionRunner {
         {
             launch_env.remove(*key);
             scrubbed_keys.push((*key).to_string());
+        }
+        for key in crate::codex_shadow_home::scrub_keys_for_agent_launch(
+            &self.snapshot.agent_id,
+            &self.snapshot.env,
+        ) {
+            launch_env.remove(key);
+            scrubbed_keys.push(key.to_string());
         }
         launch_env.remove(PI_TRUST_WORKSPACE_ENV);
         scrubbed_keys.push(PI_TRUST_WORKSPACE_ENV.to_string());

@@ -121,18 +121,77 @@ pub fn account_session_from_codex_http(status: u16, body: &str) -> AccountSessio
 }
 
 pub async fn resolve_account_label(agent_id: &AgentId) -> Option<String> {
+    let empty = std::collections::HashMap::new();
+    resolve_account_label_with_env(dirs::home_dir().as_deref(), agent_id, &empty).await
+}
+
+pub async fn resolve_account_label_with_env(
+    home: Option<&std::path::Path>,
+    agent_id: &AgentId,
+    environment: &std::collections::HashMap<String, String>,
+) -> Option<String> {
     match agent_id.as_str() {
         "codex" => {
-            account_label_from_codex_auth(&read_json_value(metadata::codex_auth_path()?).await?)
+            let explicit_codex_home = environment
+                .get("CODEX_HOME")
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(|v| {
+                    home.map(|h| expand_home_path(h, v))
+                        .unwrap_or_else(|| std::path::PathBuf::from(v))
+                });
+            let codex_auth_path = explicit_codex_home
+                .map(|dir| dir.join("auth.json"))
+                .or_else(|| {
+                    home.map(|h| h.join(".codex").join("auth.json"))
+                        .or_else(metadata::codex_auth_path)
+                })?;
+            account_label_from_codex_auth(&read_json_value(codex_auth_path).await?)
         }
         "claude_code" => {
-            account_label_from_document(&read_json_value(metadata::claude_config_path()?).await?)
+            let explicit_claude_dir = environment
+                .get("CLAUDE_CONFIG_DIR")
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(|v| {
+                    home.map(|h| expand_home_path(h, v))
+                        .unwrap_or_else(|| std::path::PathBuf::from(v))
+                });
+            if let Some(config_dir) = explicit_claude_dir {
+                for candidate in [
+                    config_dir.join(".claude.json"),
+                    config_dir.join(".credentials.json"),
+                ] {
+                    if let Some(doc) = read_json_value(candidate).await
+                        && let Some(label) = account_label_from_document(&doc)
+                    {
+                        return Some(label);
+                    }
+                }
+                return None;
+            }
+            let claude_json = home
+                .map(|h| h.join(".claude.json"))
+                .or_else(metadata::claude_config_path)?;
+            if let Some(doc) = read_json_value(claude_json).await
+                && let Some(label) = account_label_from_document(&doc)
+            {
+                return Some(label);
+            }
+            if let Some(h) = home
+                && let Some(doc) = read_json_value(h.join(".claude").join(".credentials.json")).await
+            {
+                return account_label_from_document(&doc);
+            }
+            None
         }
         "cursor" => jwt_identity(cursor_auth::cursor_account_token().await?.as_str()),
         "grok" => account_label_from_grok_auth(&read_json_value(grok_auth_path()?).await?),
         "antigravity" | "gemini" => resolve_antigravity_account_label().await,
         "omp" => {
-            let home = dirs::home_dir()?;
+            let home = home.map(std::path::Path::to_path_buf).or_else(dirs::home_dir)?;
             let mut env = std::collections::BTreeMap::new();
             if let Ok(explicit) = std::env::var("PI_CODING_AGENT_DIR") {
                 env.insert("PI_CODING_AGENT_DIR".to_string(), explicit);

@@ -84,6 +84,14 @@ pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
         }
     }
 
+    fn injected_stdio_servers_async<'a>(
+        &'a self,
+        context: CompanionInjectionContext<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CompanionInjectionList> + Send + 'a>>
+    {
+        Box::pin(std::future::ready(self.injected_stdio_servers(context)))
+    }
+
     fn forwarded_stdio_servers(
         &self,
         _agent_id: &AgentId,

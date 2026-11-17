@@ -1,11 +1,15 @@
 ---
-status: accepted
+status: superseded in part by ADR-0088
 date: 2026-09-13
 decision-makers:
   - Dimo maintainers
 ---
 
 # 供应商预置目录是插件贡献的模板，不是导入源，也不是 CC-Switch
+
+> §3、§4、§10 已由 [ADR-0088](0088-built-in-provider-presets.md) 取代：预置内置在
+> Host 并默认可用，`dimo.provider-switch` 已删除；插件仍可经 `provider.model.catalog`
+> 追加模板。其余决定不变。
 
 设置 → Agent → 鉴权 → 供应商的新建表单需要一份**无密钥填表模板**，而不是再做
 一个 CC-Switch，也不是把 `provider.model.importSource` 扩成目录。插件经新贡献点

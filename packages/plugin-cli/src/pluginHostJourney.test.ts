@@ -108,15 +108,15 @@ describe("live contribution catalog", () => {
 
   it("accepts the installed Host snake_case catalog kind", () => {
     const catalogItems = [
-      { pluginId: "dimo.provider-switch", kind: "provider_catalog" },
+      { pluginId: "acme.provider-presets", kind: "provider_catalog" },
     ];
     expect(
-      catalogHasKinds(catalogItems, "dimo.provider-switch", [
+      catalogHasKinds(catalogItems, "acme.provider-presets", [
         "provider.model.catalog",
       ]),
     ).toBe(true);
     expect(
-      catalogLacksKinds(catalogItems, "dimo.provider-switch", [
+      catalogLacksKinds(catalogItems, "acme.provider-presets", [
         "provider.model.catalog",
       ]),
     ).toBe(false);

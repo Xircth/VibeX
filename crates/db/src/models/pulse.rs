@@ -1041,12 +1041,15 @@ impl SqlitePulseStore {
         head_item.claimed_at = Some(now.to_string());
 
         let mut coalesced_items = Vec::new();
-        if head_item.mailbox_policy == BotMailboxPolicy::CoalesceBatch {
+        if head_item.mailbox_policy == BotMailboxPolicy::CoalesceBatch
+            && !head_item.id.starts_with("wf-bot:")
+        {
             let scope_str = encode_enum_str(&head_item.conversation_scope)?;
             let fixed_scope = head_item.conversation_scope == BotConversationScope::FixedPrimary;
             let batch_sql = format!(
                 "SELECT {MAILBOX_COLUMNS} FROM pulse_bot_mailbox
                  WHERE member_id = ? AND status = 'queued'
+                   AND id NOT LIKE 'wf-bot:%'
                    AND mailbox_policy = 'coalesce_batch'
                    AND conversation_scope = ?
                    AND (? OR thread_key IS ?)
@@ -1428,5 +1431,50 @@ impl SqlitePulseStore {
     async fn count_u32(&self, sql: &str) -> Result<u32, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(sql).fetch_one(&self.pool).await?;
         Ok(u32::try_from(count.max(0)).unwrap_or(u32::MAX))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DBService;
+
+    #[tokio::test]
+    async fn coalesce_batch_never_swallows_or_merges_workflow_bot_items() {
+        let db = DBService::new_in_memory_for_tests().await.expect("db");
+        let pool = db.writer().as_pool().clone();
+        ensure_pulse_schema(&pool).await.expect("pulse schema");
+        let store = SqlitePulseStore::new(pool);
+
+        let item = |id: &str, ts: &str| PulseBotMailboxItem {
+            id: id.to_string(),
+            member_id: "bot-ops".to_string(),
+            conversation_scope: BotConversationScope::FixedPrimary,
+            mailbox_policy: BotMailboxPolicy::CoalesceBatch,
+            thread_key: None,
+            event_id: format!("ev-{id}"),
+            prompt_text: format!("prompt-{id}"),
+            status: "queued".to_string(),
+            created_at: ts.to_string(),
+            claimed_at: None,
+        };
+        store.enqueue_bot_turn(&item("pulse-1", "2026-11-17T00:00:01Z")).await.unwrap();
+        store.enqueue_bot_turn(&item("pulse-2", "2026-11-17T00:00:02Z")).await.unwrap();
+        store.enqueue_bot_turn(&item("wf-bot:run1:s1:1", "2026-11-17T00:00:03Z")).await.unwrap();
+        store.enqueue_bot_turn(&item("wf-bot:run2:s1:1", "2026-11-17T00:00:04Z")).await.unwrap();
+
+        let first = store.claim_next_bot_turn("bot-ops", "2026-11-17T00:01:00Z").await.unwrap().unwrap();
+        assert_eq!(first.primary.id, "pulse-1");
+        assert_eq!(first.coalesced_items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), vec!["pulse-2"]);
+        assert!(store.complete_bot_turn(&first.primary.id).await.unwrap());
+
+        let second = store.claim_next_bot_turn("bot-ops", "2026-11-17T00:02:00Z").await.unwrap().unwrap();
+        assert_eq!(second.primary.id, "wf-bot:run1:s1:1");
+        assert!(second.coalesced_items.is_empty());
+        assert!(store.complete_bot_turn(&second.primary.id).await.unwrap());
+
+        let third = store.claim_next_bot_turn("bot-ops", "2026-11-17T00:03:00Z").await.unwrap().unwrap();
+        assert_eq!(third.primary.id, "wf-bot:run2:s1:1");
+        assert!(third.coalesced_items.is_empty());
     }
 }

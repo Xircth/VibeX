@@ -77,9 +77,13 @@ describe('DatabaseHealthSection', () => {
     expect(foldedStatEl).toHaveClass('tabular-nums');
     expect(foldedStatEl).toHaveTextContent('42,000 / 100,000');
 
-    expect(screen.getByTestId('db-table-sizes')).toHaveTextContent(
-      'conversation_events'
+    expect(screen.getByTestId('database-health-section')).toHaveClass(
+      'settings-row'
     );
+
+    const tableSizesEl = screen.getByTestId('db-table-sizes');
+    expect(tableSizesEl).toHaveTextContent('conversation_events');
+    expect(tableSizesEl).toHaveClass('max-h-56', 'overflow-y-auto');
 
     // Optimize Database -> PRAGMA wal_checkpoint(TRUNCATE)
     fireEvent.click(screen.getByTestId('db-optimize-btn'));

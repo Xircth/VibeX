@@ -957,6 +957,7 @@ mod tests {
         let input = CreateSession {
             executor: None,
             agent_id: Some(AgentId::parse("codex").unwrap()),
+            provider_instance_id: None,
             task_id: None,
             name: Some(name.to_string()),
             initial_prompt: None,

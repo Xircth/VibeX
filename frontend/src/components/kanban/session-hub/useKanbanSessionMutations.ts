@@ -76,6 +76,9 @@ export function useKanbanSessionMutations({
         }),
         mode_override: sessionControls?.modeOverride ?? null,
         config_overrides: sessionControls?.configOverrides ?? null,
+        ...(sessionControls?.providerInstanceId
+          ? { provider_instance_id: sessionControls.providerInstanceId }
+          : {}),
       });
 
       if (executorProfile?.executor) {

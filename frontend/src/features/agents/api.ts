@@ -80,25 +80,52 @@ export const agentsApi = {
 
   /** Last matching persisted catalog, including TTL-expired rows. Freshness is a separate read. */
   capabilityCatalog: (
-    agentId: string
+    agentId: string,
+    providerInstanceId?: string | null
   ): Promise<AgentSessionControlsSnapshot | null> =>
-    backendCall('agent_capability_catalog', { agentId }),
+    backendCall('agent_capability_catalog', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
-  capabilityCatalogFresh: (agentId: string): Promise<boolean> =>
-    backendCall('agent_capability_catalog_fresh', { agentId }),
+  capabilityCatalogFresh: (
+    agentId: string,
+    providerInstanceId?: string | null
+  ): Promise<boolean> =>
+    backendCall('agent_capability_catalog_fresh', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
-  refreshCapabilityCatalog: (agentId: string): Promise<boolean> =>
-    backendCall('agent_refresh_capability_catalog', { agentId }),
+  refreshCapabilityCatalog: (
+    agentId: string,
+    providerInstanceId?: string | null
+  ): Promise<boolean> =>
+    backendCall('agent_refresh_capability_catalog', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
-  sessionDefaults: (agentId: string): Promise<AgentSessionDefaultsView> =>
-    backendCall('agent_session_defaults', { agentId }),
+  sessionDefaults: (
+    agentId: string,
+    providerInstanceId?: string | null
+  ): Promise<AgentSessionDefaultsView> =>
+    backendCall('agent_session_defaults', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   setSessionDefaults: (
     agentId: string,
-    defaults: Record<string, unknown>
+    defaults: Record<string, unknown>,
+    providerInstanceId?: string | null
   ): Promise<void> =>
     backendCall('agent_set_session_defaults', {
-      request: { agentId, defaults },
+      request: {
+        agentId,
+        defaults,
+        ...(providerInstanceId ? { providerInstanceId } : {}),
+      },
     }),
 
   snapshot: (): Promise<AgentRuntimeSnapshot> =>

@@ -1,6 +1,6 @@
 ---
 name: dimo-workflow-creator
-description: Design, edit, validate, publish, inspect, and debug Dimo *.dimo-workflow.json DAGs with the dedicated dimo-workflow-mcp.
+description: Design, edit, validate, publish, inspect, and debug Dimo *.dimo-workflow.json DAGs with the built-in Dimo-superagent-mcp.
 ---
 
 # Dimo Workflow Creator
@@ -11,14 +11,14 @@ Use this Skill when the user asks to create or change a Dimo Workflow. The sourc
 
 1. Find or create exactly one `*.dimo-workflow.json` file, either project-relative or below `~/.dimo/workflows/`.
 2. Read an existing artifact with `workflow_source_read` before editing and keep its revision.
-3. Save with `workflow_source_write` and that revision. On conflict, read again and reconcile. Never overwrite blindly.
+3. Save with `workflow_source_write` (or `workflow_graph_patch` with `path` + `expectedRevision`) and that revision. On conflict, read again and reconcile. Never overwrite blindly.
 
 ## Graph rules
 
 - Model nodes as durable steps, not as Agents. An Agent Step owns one child Conversation; retries and continuation add Turns to that same Conversation.
 - Give every step a stable kebab-case ID. Encode ordering only through `dependsOn`. Never create a cycle or reference a missing step.
 - Use `inputBindings` and JSON Pointers for data flow.
-- `outputSchema` is an example embedded into the initial prompt. It does not validate or block the final Assistant text. Downstream steps receive that text even when it is not valid JSON.
+- `outputSchema` is embedded into the prompt and strictly validated against the step's parsed JSON output before completion or downstream binding resolution succeeds.
 - Select `executorProfileId`, `modeOverride`, and `configOverrides` from the Agent's native session controls. Do not invent Workflow-specific permission modes.
 - Omit scheduling metadata unless the user asks for a workspace-isolation strategy. Use `completionPolicy: manual` only when the user wants a confirmation gate after the Agent Step.
 

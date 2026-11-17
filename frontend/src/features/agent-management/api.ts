@@ -121,29 +121,57 @@ export const agentManagementApi = {
   ): Promise<AgentEnvironmentView> =>
     backendCall('agent_management_environment_write', { request }),
 
-  actions: (agentId: AgentId): Promise<AgentManagementActionsView> =>
-    backendCall('agent_management_actions', { agentId }),
+  actions: (
+    agentId: AgentId,
+    providerInstanceId?: string | null
+  ): Promise<AgentManagementActionsView> =>
+    backendCall('agent_management_actions', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   runAction: (
     agentId: AgentId,
-    actionId: string
+    actionId: string,
+    providerInstanceId?: string | null
   ): Promise<AgentManagementActionReceipt> =>
-    backendCall('agent_management_run_action', { agentId, actionId }),
+    backendCall('agent_management_run_action', {
+      agentId,
+      actionId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
-  accountFlow: (agentId: AgentId): Promise<AgentAccountFlowView> =>
-    backendCall('agent_management_account_flow', { agentId }),
+  accountFlow: (
+    agentId: AgentId,
+    providerInstanceId?: string | null
+  ): Promise<AgentAccountFlowView> =>
+    backendCall('agent_management_account_flow', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   requestCodexDeviceCode: (): Promise<CodexDeviceCodeView> =>
     backendCall('codex_request_device_code'),
 
   pollCodexDeviceCode: (
     deviceAuthId: string,
-    userCode: string
+    userCode: string,
+    providerInstanceId?: string | null
   ): Promise<CodexDeviceCodePollView> =>
-    backendCall('codex_poll_device_code', { deviceAuthId, userCode }),
+    backendCall('codex_poll_device_code', {
+      deviceAuthId,
+      userCode,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
-  codexModelCatalog: (forceRefresh = false): Promise<AgentModelCatalogView> =>
-    backendCall('codex_model_catalog', { forceRefresh }),
+  codexModelCatalog: (
+    forceRefresh = false,
+    providerInstanceId?: string | null
+  ): Promise<AgentModelCatalogView> =>
+    backendCall('codex_model_catalog', {
+      forceRefresh,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   codexModelCatalogConfig: (): Promise<CodexModelCatalogConfigView> =>
     backendCall('codex_model_catalog_config'),
@@ -162,63 +190,100 @@ export const agentManagementApi = {
   ): Promise<AgentModelCatalogView> =>
     backendCall('kimi_model_catalog', { baseUrl, apiKey }),
 
-  modelProviders: (agentId: AgentId): Promise<AgentModelProvidersView> =>
-    backendCall('agent_model_providers', { agentId }),
+  modelProviders: (
+    agentId: AgentId,
+    providerInstanceId?: string | null
+  ): Promise<AgentModelProvidersView> =>
+    backendCall('agent_model_providers', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
-  listModelProviders: (agentId: AgentId): Promise<AgentModelProvidersView> =>
-    backendCall('agent_model_providers', { agentId }),
+  listModelProviders: (
+    agentId: AgentId,
+    providerInstanceId?: string | null
+  ): Promise<AgentModelProvidersView> =>
+    backendCall('agent_model_providers', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   modelProviderCatalog: (
     agentId: AgentId,
     providerId: string | null,
     apiUrl: string,
-    apiKey: string | null
+    apiKey: string | null,
+    providerInstanceId?: string | null
   ): Promise<AgentModelCatalogView> =>
     backendCall('agent_model_provider_catalog', {
       agentId,
       providerId,
       apiUrl,
       apiKey,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
     }),
 
   saveModelProvider: (
-    request: AgentModelProviderSaveRequest
+    request: AgentModelProviderSaveRequest & {
+      provider_instance_id?: string | null;
+      providerInstanceId?: string | null;
+    }
   ): Promise<AgentModelProvidersView> =>
     backendCall('agent_model_provider_save', { request }),
 
   bindModelProvider: (
     agentId: AgentId,
-    providerId: string | null
+    providerId: string | null,
+    providerInstanceId?: string | null
   ): Promise<AgentModelProvidersView> =>
-    backendCall('agent_model_provider_bind', { agentId, providerId }),
+    backendCall('agent_model_provider_bind', {
+      agentId,
+      providerId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   deleteModelProvider: (
     agentId: AgentId,
-    providerId: string
+    providerId: string,
+    providerInstanceId?: string | null
   ): Promise<AgentModelProvidersView> =>
-    backendCall('agent_model_provider_delete', { agentId, providerId }),
+    backendCall('agent_model_provider_delete', {
+      agentId,
+      providerId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   probeModelProvider: (
     agentId: AgentId,
     providerId: string | null,
     apiUrl?: string | null,
-    apiKey?: string | null
+    apiKey?: string | null,
+    providerInstanceId?: string | null
   ): Promise<AgentModelProviderProbeView> =>
     backendCall('agent_model_provider_probe', {
       agentId,
       providerId,
       apiUrl: apiUrl ?? null,
       apiKey: apiKey ?? null,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
     }),
 
   previewModelProviderImport: (
     agentId: AgentId,
-    source: AgentModelProviderImportSource
+    source: AgentModelProviderImportSource,
+    providerInstanceId?: string | null
   ): Promise<AgentModelProviderImportPreviewView> =>
-    backendCall('agent_model_provider_import_preview', { agentId, source }),
+    backendCall('agent_model_provider_import_preview', {
+      agentId,
+      source,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   importModelProviders: (
-    request: AgentModelProviderImportRequest
+    request: AgentModelProviderImportRequest & {
+      provider_instance_id?: string | null;
+      providerInstanceId?: string | null;
+    }
   ): Promise<AgentModelProvidersView> =>
     backendCall('agent_model_provider_import', { request }),
 
@@ -253,15 +318,27 @@ export const agentManagementApi = {
   piTrustEntries: (): Promise<PiTrustEntryView[]> =>
     backendCall('pi_trust_entries'),
 
-  authMode: (agentId: AgentId): Promise<AgentAuthModeView> =>
-    backendCall('agent_auth_mode', { agentId }),
+  authMode: (
+    agentId: AgentId,
+    providerInstanceId?: string | null
+  ): Promise<AgentAuthModeView> =>
+    backendCall('agent_auth_mode', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   setAuthMode: (
     agentId: AgentId,
     mode: string,
-    apiKey: string | null
+    apiKey: string | null,
+    providerInstanceId?: string | null
   ): Promise<AgentAuthModeView> =>
-    backendCall('agent_auth_mode_set', { agentId, mode, apiKey }),
+    backendCall('agent_auth_mode_set', {
+      agentId,
+      mode,
+      apiKey,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   openCodePlugins: (
     agentId: AgentId = 'opencode'
@@ -425,18 +502,32 @@ export const agentManagementApi = {
   remove: (agentId: AgentId): Promise<void> =>
     backendCall('agent_management_remove', { agentId }),
 
-  readConfig: (agentId: AgentId): Promise<AgentNativeConfigView> =>
-    backendCall('agent_management_config_read', { agentId }),
+  readConfig: (
+    agentId: AgentId,
+    providerInstanceId?: string | null
+  ): Promise<AgentNativeConfigView> =>
+    backendCall('agent_management_config_read', {
+      agentId,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   writeConfig: (
-    request: AgentNativeConfigPatchRequest
+    request: AgentNativeConfigPatchRequest,
+    providerInstanceId?: string | null
   ): Promise<AgentNativeConfigView> =>
-    backendCall('agent_management_config_write', { request }),
+    backendCall('agent_management_config_write', {
+      request,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   writeConfigFile: (
-    request: AgentNativeConfigFileWriteRequest
+    request: AgentNativeConfigFileWriteRequest,
+    providerInstanceId?: string | null
   ): Promise<AgentNativeConfigView> =>
-    backendCall('agent_management_config_file_write', { request }),
+    backendCall('agent_management_config_file_write', {
+      request,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+    }),
 
   diagnostics: (agentId: AgentId): Promise<AgentDiagnosticView[]> =>
     backendCall('agent_management_diagnostics', { agentId }),

@@ -3022,6 +3022,8 @@ fn upsert_grok_server(id: &str, spec: &Value) -> Result<(), McpError> {
 
 /// Product MCP identities projected into `~/.grok/config.toml`.
 const GROK_PRODUCT_MCP_IDS: &[&str] = &[
+    "Dimo-superagent-mcp",
+    "dimo-superagent-mcp",
     "dimo-delegation-mcp",
     "dimo-session-mcp",
     "dimo-workflow-mcp",

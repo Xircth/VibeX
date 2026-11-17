@@ -1,7 +1,0 @@
-# Pinned CC-Switch snapshot for catalog conversion.
-# Changing this pin requires a human review of Appendix A skip counts.
-
-repository = "https://github.com/farion1231/cc-switch"
-tag = "v3.20.3"
-tag_object = "2181dda6b4703a7870ffe8c52671947375dec6d0"
-commit = "d695a2d77fd9081eafd3e9eedcbf2a97b3410928"

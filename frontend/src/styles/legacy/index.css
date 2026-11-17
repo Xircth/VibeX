@@ -9385,7 +9385,7 @@ html.dark {
   min-width: 0;
   height: auto;
   min-height: 0;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
@@ -9455,6 +9455,79 @@ html.dark {
   padding: 8px 10px 10px;
   color: var(--text-muted);
   font-size: 0.75rem;
+}
+
+/* Custom stays reachable while the preset list scrolls or filters. */
+.agent-model-provider-catalog-option.is-pinned {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: hsl(var(--popover));
+  box-shadow: 0 1px 0 var(--border-subtle);
+}
+
+.agent-model-provider-catalog-option.is-pinned:hover,
+.agent-model-provider-catalog-option.is-pinned[data-active='true'] {
+  background:
+    linear-gradient(var(--surface-control-hover), var(--surface-control-hover)),
+    hsl(var(--popover));
+}
+
+.agent-model-provider-catalog-open {
+  display: inline-flex;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.agent-model-provider-catalog-open:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+.agent-model-provider-catalog-open:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: 1px;
+}
+
+.provider-preset-icon {
+  display: inline-grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  place-items: center;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.provider-preset-icon.is-ink {
+  background-color: var(--text-strong);
+  mask: var(--provider-preset-icon) center / contain no-repeat;
+  -webkit-mask: var(--provider-preset-icon) center / contain no-repeat;
+}
+
+.provider-preset-icon.is-initials,
+.provider-preset-icon.is-custom {
+  background: var(--surface-control);
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Brand-icon exception: logos drawn in dark ink on a transparent ground need a
+   light plate to stay legible on dark surfaces. */
+.dark .provider-preset-icon.has-backing {
+  padding: 2px;
+  background: #f5f5f5;
 }
 
 .settings-page .pi-configuration-panel {
@@ -13963,8 +14036,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     transition-duration: 0.01ms;
   }
 
-  .settings-page .agent-provider-switch,
-  .settings-page .agent-provider-switch > span,
   .settings-page .agent-auth-mode-tabs > button {
     transition-duration: 0.01ms;
   }

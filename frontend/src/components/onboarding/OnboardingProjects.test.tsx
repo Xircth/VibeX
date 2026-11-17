@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,18 +9,32 @@ import { OnboardingProjects } from './OnboardingProjects';
 const api = vi.hoisted(() => ({
   getAll: vi.fn(),
   create: vi.fn(),
+  previewImport: vi.fn(),
   openProject: vi.fn(),
   clone: vi.fn(),
+  pickDirectories: vi.fn(),
 }));
-vi.mock('@/lib/api/projects', () => ({ projectsApi: api }));
+vi.mock('@/lib/api', () => ({
+  fileSystemApi: { list: vi.fn() },
+  projectsApi: {
+    getAll: api.getAll,
+    create: api.create,
+    previewImport: api.previewImport,
+  },
+}));
+vi.mock('@/lib/hostFs', () => ({
+  pickHostDirectories: api.pickDirectories,
+}));
 vi.mock('@/components/dialogs/projects/ProjectFormDialog', () => ({
   ProjectFormDialog: { show: api.openProject },
 }));
 vi.mock('@/components/dialogs/projects/CloneRepoDialog', () => ({
   CloneRepoDialog: { show: api.clone },
 }));
+
 const t = (key: string, values?: Record<string, unknown>) =>
   i18n.t(`dialogs:onboarding.${key}`, values) as string;
+
 function project(id: string, home = false): Project {
   return {
     id,
@@ -36,11 +50,15 @@ function project(id: string, home = false): Project {
     updated_at: new Date(0),
   };
 }
+
 const home = project('home', true);
 const work = project('work');
+
 function setup(
   initialProjectIds: string[] = [],
-  onFinish = vi.fn().mockResolvedValue(undefined)
+  onFinish = vi.fn().mockResolvedValue(undefined),
+  onBack = vi.fn(),
+  onNavigateStep = vi.fn()
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -50,59 +68,92 @@ function setup(
       <QueryClientProvider client={queryClient}>
         <OnboardingProjects
           initialProjectIds={initialProjectIds}
-          onBack={vi.fn()}
+          onBack={onBack}
+          onNavigateStep={onNavigateStep}
           onFinish={onFinish}
         />
       </QueryClientProvider>
     </StrictMode>
   );
-  return onFinish;
+  return { onFinish, onBack, onNavigateStep };
 }
+
 describe('onboarding projects', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getAll.mockResolvedValue([home, work]);
+    api.getAll.mockResolvedValue([home]);
+    api.previewImport.mockResolvedValue({ is_git: false, children: [] });
   });
-  it('selects existing projects by default and allows deselecting one', async () => {
-    const finish = setup();
+
+  it('shows the zero-project stage when only Global exists and enters Global directly', async () => {
+    const { onFinish } = setup();
     expect(
-      await screen.findByRole('checkbox', {
-        name: i18n.t('app:welcomePage.globalProject'),
-      })
-    ).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('checkbox', { name: 'work' })).toHaveAttribute(
-      'aria-checked',
-      'true'
+      await screen.findByTestId('zero-project-open-folder')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('zero-project-create-project')).toBeInTheDocument();
+    expect(screen.getByTestId('zero-project-clone-repo')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('onboarding-project-list-spotlight')
+    ).toBeNull();
+
+    fireEvent.click(screen.getByTestId('zero-project-enter-global'));
+    await waitFor(() => expect(onFinish).toHaveBeenCalledWith(['home']));
+  });
+
+  it('batch-imports multiple selected folders and switches to the two-column guided list', async () => {
+    api.pickDirectories.mockResolvedValue(['C:/Work/alpha', 'C:/Work/beta']);
+    api.previewImport
+      .mockResolvedValueOnce({ is_git: true, children: [] })
+      .mockResolvedValueOnce({ is_git: false, children: [] });
+    api.create
+      .mockResolvedValueOnce(project('alpha'))
+      .mockResolvedValueOnce(project('beta'));
+
+    const { onFinish } = setup();
+    fireEvent.click(await screen.findByTestId('zero-project-open-folder'));
+
+    const spotlight = await screen.findByTestId(
+      'onboarding-project-list-spotlight'
     );
-    fireEvent.click(screen.getByRole('checkbox', { name: 'work' }));
-    fireEvent.click(screen.getByRole('button', { name: t('next') }));
-    await waitFor(() => expect(finish).toHaveBeenCalledWith(['home']));
-  });
-  it('selects imported projects and marks where they came from', async () => {
-    const finish = setup(['work']);
-    expect(await screen.findByText(t('importedProjectBadge'))).toBeVisible();
+    expect(screen.getByTestId('onboarding-projects-split')).toBeInTheDocument();
     expect(
-      screen.getByText(t('importedProjectsReceipt', { count: 1 }))
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: t('next') }));
-    await waitFor(() => expect(finish).toHaveBeenCalledWith(['home', 'work']));
-  });
-  it('keeps a deselected project deselected after the list reloads', async () => {
-    setup();
-    await screen.findByRole('checkbox', { name: 'work' });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'work' }));
-    api.getAll.mockResolvedValue([home, work, project('late')]);
-    api.openProject.mockResolvedValue({ status: 'canceled' });
+      screen.getByText(t('selectProjectToEnterGuide'))
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(t('projectsMultiImported', { count: 2 }))
+    ).toBeInTheDocument();
+    expect(
+      within(spotlight).getByTestId('onboarding-project-item-home')
+    ).toBeInTheDocument();
+    expect(
+      within(spotlight).getByTestId('onboarding-project-item-alpha')
+    ).toBeInTheDocument();
+    expect(
+      within(spotlight).getByTestId('onboarding-project-item-beta')
+    ).toBeInTheDocument();
+
+    expect(api.create).toHaveBeenNthCalledWith(1, {
+      name: 'alpha',
+      rootPath: 'C:/Work/alpha',
+      repositories: [
+        { display_name: 'alpha', git_repo_path: 'C:/Work/alpha' },
+      ],
+    });
+    expect(api.create).toHaveBeenNthCalledWith(2, {
+      name: 'beta',
+      rootPath: 'C:/Work/beta',
+      repositories: [],
+    });
+
     fireEvent.click(
-      screen.getByRole('button', { name: t('projectAction.open') })
+      within(spotlight).getByTestId('onboarding-project-item-beta')
     );
-    await waitFor(() => expect(api.openProject).toHaveBeenCalled());
-    expect(screen.getByRole('checkbox', { name: 'work' })).toHaveAttribute(
-      'aria-checked',
-      'false'
+    await waitFor(() =>
+      expect(onFinish).toHaveBeenCalledWith(['beta', 'home', 'alpha'])
     );
   });
-  it('selects newly created projects and cloned repositories', async () => {
+
+  it('adds newly created and cloned projects to the list and enters the clicked project', async () => {
     api.openProject.mockResolvedValue({
       status: 'saved',
       project: project('new-project'),
@@ -112,37 +163,37 @@ describe('onboarding projects', () => {
       repo: { name: 'clone', display_name: 'clone', path: 'C:/Work/clone' },
     });
     api.create.mockResolvedValue(project('clone'));
-    const finish = setup();
-    await screen.findByRole('checkbox', { name: 'work' });
-    fireEvent.click(
-      screen.getByRole('button', { name: t('projectAction.new') })
-    );
+
+    const { onFinish } = setup();
+    fireEvent.click(await screen.findByTestId('zero-project-create-project'));
     expect(
-      await screen.findByRole('checkbox', { name: 'new-project' })
-    ).toHaveAttribute('aria-checked', 'true');
-    fireEvent.click(
-      screen.getByRole('button', { name: t('projectAction.clone') })
-    );
+      await screen.findByTestId('onboarding-project-item-new-project')
+    ).toBeInTheDocument();
+    expect(onFinish).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('zero-project-clone-repo'));
     expect(
-      await screen.findByRole('checkbox', { name: 'clone' })
-    ).toHaveAttribute('aria-checked', 'true');
-    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+      await screen.findByTestId('onboarding-project-item-clone')
+    ).toBeInTheDocument();
+    expect(onFinish).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('onboarding-project-item-home'));
     await waitFor(() =>
-      expect(finish).toHaveBeenCalledWith([
-        'home',
-        'work',
-        'new-project',
-        'clone',
-      ])
+      expect(onFinish).toHaveBeenCalledWith(['home', 'new-project', 'clone'])
     );
   });
+
   it('keeps project selection open when final persistence fails', async () => {
+    api.getAll.mockResolvedValue([home, work]);
     setup([], vi.fn().mockRejectedValue(new Error('Disk full')));
-    fireEvent.click(await screen.findByRole('button', { name: t('next') }));
+    fireEvent.click(
+      await screen.findByTestId('onboarding-project-item-work')
+    );
     expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
-    expect(screen.getByRole('button', { name: t('next') })).toBeEnabled();
+    expect(screen.getByTestId('onboarding-project-item-work')).toBeEnabled();
   });
-  it('refreshes and selects newly imported projects when becoming active after mount', async () => {
+
+  it('refreshes and highlights imported projects when becoming active after mount', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -176,17 +227,23 @@ describe('onboarding projects', () => {
       </StrictMode>
     );
 
-    expect(
-      await screen.findByRole('checkbox', { name: 'imported-1' })
-    ).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText(t('importedProjectBadge'))).toBeVisible();
-    expect(
-      screen.getByText(t('importedProjectsReceipt', { count: 1 }))
-    ).toBeVisible();
+    const row = await screen.findByTestId('onboarding-project-item-imported-1');
+    expect(within(row).getByText(t('importedProjectBadge'))).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    fireEvent.click(row);
     await waitFor(() =>
-      expect(onFinish).toHaveBeenCalledWith(['home', 'work', 'imported-1'])
+      expect(onFinish).toHaveBeenCalledWith(['imported-1', 'home', 'work'])
     );
+  });
+
+  it('supports 5/5 breadcrumb navigation back to prior onboarding steps', async () => {
+    const { onBack, onNavigateStep } = setup();
+    expect(await screen.findByText('5 / 5')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: t('appearanceStep') }));
+    expect(onNavigateStep).toHaveBeenCalledWith('appearance');
+
+    fireEvent.click(screen.getByRole('button', { name: t('back') }));
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 });

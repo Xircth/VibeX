@@ -1187,7 +1187,6 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
         .and_then(|p| p.parent())
         .expect("workspace root");
     for (dir_name, expected_id) in [
-        ("provider-switch", "dimo.provider-switch"),
         ("plugin-development", "dimo.plugin-development"),
         ("session-enhance", "dimo.session-enhance"),
         ("browser", "dimo.browser"),
@@ -1220,7 +1219,7 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
 }
 
 #[tokio::test]
-async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dependents() {
+async fn monorepo_plugins_bootstrap_offline_in_topological_order() {
     let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
         plugins::InMemoryPluginRegistry::default(),
     ));
@@ -1233,89 +1232,138 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
         plugins::discover_monorepo_plugin_roots().len()
     );
 
-    let opencode_catalog = control
-        .list_provider_catalog("opencode")
+    let mut topo = control
+        .topological_activation_order()
         .await
-        .expect("list opencode provider catalog from monorepo provider-switch");
-    let template_ids: Vec<&str> = opencode_catalog
-        .templates
+        .expect("topological order");
+    let mut installed_ids: Vec<String> = installed
         .iter()
-        .map(|tpl| tpl.id.as_str())
+        .map(|plugin| plugin.id().to_owned())
         .collect();
-    assert!(
-        template_ids.contains(&"openrouter") && template_ids.contains(&"deepseek"),
-        "expected openrouter & deepseek in opencode catalog, got {template_ids:?}"
+    topo.sort();
+    installed_ids.sort();
+    assert_eq!(topo, installed_ids);
+}
+
+fn write_dependency_fixture(root: &Path, id: &str, dependencies: &str) -> PluginPackage {
+    write(
+        &root.join(".dimo-plugin/plugin.json"),
+        &format!(
+            r#"{{
+              "manifestVersion":4,"apiVersion":"2.0",
+              "id":"{id}","publisher":"dev.fixture","name":"{id}","version":"1.0.0",
+              "readme":"README.md",
+              "content":{{"root":"contents","index":".dimo-plugin/content.index.json"}},
+              "engines":{{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"}},
+              "entrypoints":{{"app":{{"entry":"app/main.js","protocol":"2.0"}}}},
+              "dependencies":{dependencies},
+              "integrations":[{{"id":"status-chip","kind":"app.status","label":"Status"}}]
+            }}"#
+        ),
     );
+    write(
+        &root.join("README.md"),
+        "---\nsummary: Dependency fixture.\n---\n# Fixture\n",
+    );
+    write(
+        &root.join(".dimo-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[]}"#,
+    );
+    write(
+        &root.join("app/main.js"),
+        "export default { apiVersion: '2.0', activate() {} };\n",
+    );
+    PluginPackage::inspect(root, PluginSourceKind::Snapshot)
+        .unwrap_or_else(|err| panic!("inspect {id}: {err}"))
+}
+
+#[tokio::test]
+async fn plugin_dependencies_order_activation_and_cascade_to_dependents() {
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    let base_root = tempfile::tempdir().expect("base root");
+    let consumer_root = tempfile::tempdir().expect("consumer root");
+    let consumer = write_dependency_fixture(
+        consumer_root.path(),
+        "dev.fixture.consumer",
+        r#"[{"kind":"plugin","id":"dev.fixture.base","publisher":"dev.fixture","versionRange":"^1.0.0","required":true}]"#,
+    );
+    let base = write_dependency_fixture(base_root.path(), "dev.fixture.base", "[]");
+    for package in [consumer, base] {
+        control
+            .import(package, plugins::ConflictDecision::Reject)
+            .await
+            .expect("import fixture");
+    }
 
     let topo = control
         .topological_activation_order()
         .await
         .expect("topological order");
-    let provider_pos = topo
-        .iter()
-        .position(|id| id == "dimo.provider-switch")
-        .expect("provider-switch in topo order");
-    let session_pos = topo
-        .iter()
-        .position(|id| id == "dimo.session-enhance")
-        .expect("session-enhance in topo order");
+    let base_pos = topo.iter().position(|id| id == "dev.fixture.base");
+    let consumer_pos = topo.iter().position(|id| id == "dev.fixture.consumer");
     assert!(
-        provider_pos < session_pos,
-        "provider-switch must precede dependent session-enhance in topological activation order"
+        base_pos.is_some() && base_pos < consumer_pos,
+        "upstream must precede its dependent in topological activation order: {topo:?}"
     );
-
-    let dependents = control
-        .dependent_plugins("dimo.provider-switch")
-        .await
-        .expect("dependents of provider-switch");
-    assert_eq!(dependents, vec!["dimo.session-enhance".to_owned()]);
-
-    assert!(
+    assert_eq!(
         control
-            .active_generation("dimo.provider-switch")
+            .dependent_plugins("dev.fixture.base")
             .await
-            .is_some()
-    );
-    assert!(
-        control
-            .active_generation("dimo.session-enhance")
-            .await
-            .is_some()
+            .expect("dependents of base"),
+        vec!["dev.fixture.consumer".to_owned()]
     );
 
-    // Disabling upstream `dimo.provider-switch` cascades to withdraw `dimo.session-enhance`'s live generation.
+    // Enabling the dependent enables its installed-but-disabled required upstream first.
     control
-        .set_enabled("dimo.provider-switch", false)
+        .set_enabled("dev.fixture.consumer", true)
         .await
-        .expect("disable upstream provider-switch");
+        .expect("enable consumer with auto-satisfied dependency");
     assert!(
         control
-            .active_generation("dimo.provider-switch")
+            .active_generation("dev.fixture.base")
+            .await
+            .is_some()
+    );
+    assert!(
+        control
+            .active_generation("dev.fixture.consumer")
+            .await
+            .is_some()
+    );
+
+    control
+        .set_enabled("dev.fixture.base", false)
+        .await
+        .expect("disable upstream");
+    assert!(
+        control
+            .active_generation("dev.fixture.base")
             .await
             .is_none()
     );
     assert!(
         control
-            .active_generation("dimo.session-enhance")
+            .active_generation("dev.fixture.consumer")
             .await
             .is_none(),
         "dependent plugin must be automatically suspended when upstream is disabled"
     );
 
-    // Re-enabling upstream `dimo.provider-switch` automatically remounts `dimo.session-enhance`.
     control
-        .set_enabled("dimo.provider-switch", true)
+        .set_enabled("dev.fixture.base", true)
         .await
-        .expect("re-enable upstream provider-switch");
+        .expect("re-enable upstream");
     assert!(
         control
-            .active_generation("dimo.provider-switch")
+            .active_generation("dev.fixture.base")
             .await
             .is_some()
     );
     assert!(
         control
-            .active_generation("dimo.session-enhance")
+            .active_generation("dev.fixture.consumer")
             .await
             .is_some(),
         "dependent plugin must automatically resume when upstream is re-enabled"
@@ -1323,39 +1371,119 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
 }
 
 #[tokio::test]
-async fn enabling_session_enhance_alone_auto_installs_and_enables_provider_switch() {
+async fn enabling_a_plugin_auto_installs_its_required_monorepo_official_dependency() {
     let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
         plugins::InMemoryPluginRegistry::default(),
     ));
-    let session_root =
-        plugins::monorepo_official_plugin_root("dimo.session-enhance").expect("session-enhance");
-    let package = PluginPackage::inspect(&session_root, PluginSourceKind::Marketplace)
-        .expect("inspect session-enhance");
-    control
-        .import(package, plugins::ConflictDecision::Reject)
-        .await
-        .expect("import session-enhance alone");
-
-    // Enabling `dimo.session-enhance` when `dimo.provider-switch` is not yet installed
-    // must automatically install and enable `dimo.provider-switch` first.
-    let enabled = control
-        .set_enabled("dimo.session-enhance", true)
-        .await
-        .expect("enable session-enhance with auto-satisfied dependency");
-    assert_eq!(enabled.activation, plugins::PluginActivation::Enabled);
-    assert!(
-        control
-            .active_generation("dimo.provider-switch")
-            .await
-            .is_some(),
-        "required upstream dimo.provider-switch must be auto-installed and active"
+    let root = tempfile::tempdir().expect("consumer root");
+    let consumer = write_dependency_fixture(
+        root.path(),
+        "dev.fixture.session-consumer",
+        r#"[{"kind":"plugin","id":"dimo.session-enhance","publisher":"dimo","versionRange":"^2.0.0","required":true}]"#,
     );
+    control
+        .import(consumer, plugins::ConflictDecision::Reject)
+        .await
+        .expect("import consumer alone");
+
+    let enabled = control
+        .set_enabled("dev.fixture.session-consumer", true)
+        .await
+        .expect("enable consumer with auto-installed dependency");
+    assert_eq!(enabled.activation, plugins::PluginActivation::Enabled);
     assert!(
         control
             .active_generation("dimo.session-enhance")
             .await
             .is_some(),
-        "dimo.session-enhance must be active after auto-satisfying dependency"
+        "required upstream dimo.session-enhance must be auto-installed from the monorepo and active"
+    );
+}
+
+#[tokio::test]
+async fn provider_catalog_lists_templates_from_enabled_plugins_only() {
+    let root = tempfile::tempdir().expect("catalog root");
+    write(
+        &root.path().join(".dimo-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.fixture.catalog","publisher":"dev.fixture","name":"Catalog","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".dimo-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","additionalProperties":false}},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "integrations":[
+            {"id":"opencode","kind":"provider.model.catalog","label":"OpenCode templates","resource":"catalogs/opencode.json"}
+          ]
+        }"#,
+    );
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: Catalog fixture.\n---\n# Catalog\n",
+    );
+    write(&root.path().join("config.json"), "{}");
+    write(
+        &root.path().join(".dimo-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[]}"#,
+    );
+    write(
+        &root.path().join("catalogs/opencode.json"),
+        r#"{
+          "schemaVersion":1,
+          "agentId":"opencode",
+          "templates":[
+            {
+              "id":"openrouter",
+              "name":"OpenRouter",
+              "surface":"opencode",
+              "providerId":"openrouter",
+              "npm":"@ai-sdk/openai-compatible",
+              "baseUrl":"https://openrouter.ai/api/v1",
+              "models":[{"id":"anthropic/claude-sonnet-4","name":"Claude Sonnet 4"}]
+            }
+          ]
+        }"#,
+    );
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot)
+        .expect("inspect catalog fixture");
+    assert!(
+        package.warnings.is_empty(),
+        "valid catalog must not warn: {:?}",
+        package.warnings
+    );
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    control
+        .import(package, plugins::ConflictDecision::Reject)
+        .await
+        .expect("import catalog fixture");
+
+    let disabled = control
+        .list_provider_catalog("opencode")
+        .await
+        .expect("list catalog while disabled");
+    assert!(disabled.templates.is_empty());
+
+    control
+        .set_enabled("dev.fixture.catalog", true)
+        .await
+        .expect("enable catalog fixture");
+    let listed = control
+        .list_provider_catalog("opencode")
+        .await
+        .expect("list catalog while enabled");
+    let template_ids: Vec<&str> = listed.templates.iter().map(|tpl| tpl.id.as_str()).collect();
+    assert_eq!(template_ids, vec!["openrouter"]);
+    assert_eq!(listed.sources.len(), 1);
+    assert_eq!(listed.sources[0].plugin_id, "dev.fixture.catalog");
+    assert!(
+        control
+            .list_provider_catalog("claude_code")
+            .await
+            .expect("list another agent")
+            .templates
+            .is_empty()
     );
 }
 

@@ -59,12 +59,15 @@ type AuthDraft = {
   apiKey: string;
 };
 
-function authDraftKey(agentId: AgentId) {
-  return `auth-mode:${agentId}`;
+function authDraftKey(agentId: AgentId, providerInstanceId?: string | null) {
+  return providerInstanceId
+    ? `auth-mode:${agentId}:${providerInstanceId}`
+    : `auth-mode:${agentId}`;
 }
 
 type Props = {
   agentId: AgentId;
+  providerInstanceId?: string | null;
   actions?: AgentManagementActionsView | null;
   actionRunning?: string | null;
   authentication?: AgentAuthenticationStatus;
@@ -76,6 +79,7 @@ type Props = {
   accountExtra?: ReactNode;
   nativeCredentialPresent?: (fieldId: string) => boolean;
   onChanged?: () => void | Promise<void>;
+  onViewChange?: (view: AgentAuthModeView | null) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
   onAuthenticated?: () => void;
@@ -85,6 +89,7 @@ type Props = {
 
 export function AgentAuthModeControl({
   agentId,
+  providerInstanceId = null,
   actions = null,
   actionRunning = null,
   authentication,
@@ -96,6 +101,7 @@ export function AgentAuthModeControl({
   accountExtra,
   nativeCredentialPresent,
   onChanged,
+  onViewChange,
   onDirtyChange,
   onPendingChange,
   onAuthenticated,
@@ -104,7 +110,8 @@ export function AgentAuthModeControl({
 }: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [view, setView] = useState<AgentAuthModeView | null>(null);
-  const retained = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
+  const draftKey = authDraftKey(agentId, providerInstanceId);
+  const retained = peekAgentSettingsDraft<AuthDraft>(draftKey);
   const [mode, setMode] = useState(retained?.mode ?? 'subscription');
   const [apiKey, setApiKey] = useState(retained?.apiKey ?? '');
   const [loading, setLoading] = useState(true);
@@ -123,23 +130,35 @@ export function AgentAuthModeControl({
     setHeadlessTokenPresent(false);
     setLoginMethodExpanded(false);
     setTokenInputExpanded(false);
-  }, [agentId]);
+  }, [agentId, providerInstanceId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const next = await agentManagementApi.authMode(agentId);
+      const next = providerInstanceId
+        ? await agentManagementApi.authMode(agentId, providerInstanceId)
+        : await agentManagementApi.authMode(agentId);
       setView(next);
-      const kept = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
+      onViewChange?.(next);
+      const kept = peekAgentSettingsDraft<AuthDraft>(
+        authDraftKey(agentId, providerInstanceId)
+      );
       const nextMode = kept?.mode ?? next.mode;
       setMode(nextMode);
       if (kept) setApiKey(kept.apiKey);
       const nextKind =
         next.options.find((option) => option.value === nextMode)?.kind ??
         kindOfMode(nextMode);
+      const nextSignedIn = providerInstanceId
+        ? Boolean(
+            next.account_label ||
+              (kindOfMode(next.mode) === 'subscription' &&
+                next.credential_present)
+          )
+        : accountSessionActive(authentication);
       if (
-        accountSessionActive(authentication) &&
+        nextSignedIn &&
         nextKind === 'subscription' &&
         next.mode !== nextMode &&
         !locked
@@ -153,7 +172,7 @@ export function AgentAuthModeControl({
     } finally {
       setLoading(false);
     }
-  }, [agentId, authentication, locked, t]);
+  }, [agentId, authentication, locked, onViewChange, providerInstanceId, t]);
 
   useEffect(() => void load(), [authentication, load]);
 
@@ -179,7 +198,14 @@ export function AgentAuthModeControl({
     panel === 'configuration' ||
     (panel === 'account' && Boolean(configurationOnAccount?.(mode)));
   const displayName = agentDisplayName(agentId);
-  const signedIn = accountSessionActive(authentication);
+  const signedIn = providerInstanceId
+    ? Boolean(
+        view &&
+          (view.account_label ||
+            (kindOfMode(view.mode) === 'subscription' &&
+              view.credential_present))
+      )
+    : accountSessionActive(authentication);
   const showCodexDeviceLogin = agentId === 'codex' && !signedIn;
   const accountActions = sessionActions(
     actions?.actions ?? [],
@@ -202,13 +228,13 @@ export function AgentAuthModeControl({
   }, [onPendingChange, saving]);
   useEffect(() => {
     if (!view) return;
-    const key = authDraftKey(agentId);
+    const key = authDraftKey(agentId, providerInstanceId);
     if (mode !== view.mode || apiKey.length > 0) {
       retainAgentSettingsDraft(key, { mode, apiKey });
     } else {
       clearAgentSettingsDraft(key);
     }
-  }, [agentId, apiKey, mode, view]);
+  }, [agentId, apiKey, mode, providerInstanceId, view]);
 
   const persistMode = useCallback(
     async (nextMode: string, nextApiKey = '') => {
@@ -217,17 +243,25 @@ export function AgentAuthModeControl({
       setMode(nextMode);
       rememberAgentAuthKindTab(agentId, kindOfMode(nextMode));
       try {
-        const next = await agentManagementApi.setAuthMode(
-          agentId,
-          nextMode,
-          nextApiKey.trim() || null
-        );
+        const next = providerInstanceId
+          ? await agentManagementApi.setAuthMode(
+              agentId,
+              nextMode,
+              nextApiKey.trim() || null,
+              providerInstanceId
+            )
+          : await agentManagementApi.setAuthMode(
+              agentId,
+              nextMode,
+              nextApiKey.trim() || null
+            );
         setView(next);
+        onViewChange?.(next);
         // Keep the mode the user asked for so a bound provider cannot
         // immediately snap the tab away from an explicit choice.
         setMode(nextMode);
         setApiKey('');
-        clearAgentSettingsDraft(authDraftKey(agentId));
+        clearAgentSettingsDraft(authDraftKey(agentId, providerInstanceId));
       } catch (error) {
         toast.error(errorMessage(error, t('settings:agents.authSaveFailed')));
         setMode(view?.mode ?? nextMode);
@@ -238,7 +272,7 @@ export function AgentAuthModeControl({
       await onChanged?.();
       return true;
     },
-    [agentId, locked, onChanged, t, view?.mode]
+    [agentId, locked, onChanged, onViewChange, providerInstanceId, t, view?.mode]
   );
   persistModeRef.current = persistMode;
 
@@ -579,7 +613,10 @@ export function AgentAuthModeControl({
 
             <div className="agent-auth-mode-panel" hidden={panel !== 'account'}>
               {showCodexDeviceLogin && panel === 'account' ? (
-                <CodexDeviceLogin onAuthenticated={onAuthenticated} />
+                <CodexDeviceLogin
+                  providerInstanceId={providerInstanceId}
+                  onAuthenticated={onAuthenticated}
+                />
               ) : null}
               {accountExtra && panel === 'account' ? accountExtra : null}
               {panel === 'account' ? (

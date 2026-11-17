@@ -15,6 +15,7 @@ export type PendingAgentHandoff = {
   toAgent: AgentKind | string;
   fromModelLabel: string | null;
   toModelLabel: string | null;
+  handoffTokens?: number | null;
   continuationPolicy: 'portable' | 'fresh';
 };
 
@@ -30,6 +31,7 @@ function isSamePendingHandoff(
     left.toAgent === right.toAgent &&
     left.fromModelLabel === right.fromModelLabel &&
     left.toModelLabel === right.toModelLabel &&
+    (left.handoffTokens ?? null) === (right.handoffTokens ?? null) &&
     left.continuationPolicy === right.continuationPolicy
   );
 }

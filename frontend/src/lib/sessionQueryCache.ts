@@ -17,6 +17,7 @@ export type SessionAgentSwitchedDetail = {
   sessionId: string;
   agentId: string;
   executor: string;
+  providerInstanceId?: string | null;
 };
 
 export function canonicalSessionAgentId(rawAgent: string): string {
@@ -28,10 +29,21 @@ export function canonicalSessionAgentId(rawAgent: string): string {
   return trimmed;
 }
 
+function normalizeCacheInstanceId(
+  raw: string | null | undefined
+): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'local') return null;
+  return trimmed;
+}
+
 export function syncSessionAgentInCaches(
   queryClient: QueryClient | null | undefined,
   sessionId: string | null | undefined,
-  rawExecutor: string | null | undefined
+  rawExecutor: string | null | undefined,
+  rawProviderInstanceId?: string | null
 ): void {
   const id = sessionId?.trim();
   const executor = rawExecutor?.trim();
@@ -39,6 +51,8 @@ export function syncSessionAgentInCaches(
   const agentId = canonicalSessionAgentId(executor);
   if (!agentId) return;
   const targetGroup = normalizeAgentGroupKey(agentId);
+  const nextInstanceId = normalizeCacheInstanceId(rawProviderInstanceId);
+  const hasInstanceUpdate = nextInstanceId !== undefined;
 
   syncConversationSelectedAgent(id, agentId);
 
@@ -55,10 +69,17 @@ export function syncSessionAgentInCaches(
             (typeof item.executor === 'string' && item.executor) ||
             '';
           const agentChanged = normalizeAgentGroupKey(prevAgent) !== targetGroup;
+          const currentInstance =
+            typeof item.provider_instance_id === 'string'
+              ? item.provider_instance_id
+              : null;
+          const instanceChanged =
+            hasInstanceUpdate && currentInstance !== nextInstanceId;
           if (
             item.agent_id === agentId &&
             item.executor === agentId &&
-            (!agentChanged || item.model == null)
+            (!agentChanged || item.model == null) &&
+            !instanceChanged
           ) {
             return item;
           }
@@ -67,7 +88,12 @@ export function syncSessionAgentInCaches(
             ...item,
             agent_id: agentId,
             executor: agentId,
-            ...('model' in item && agentChanged ? { model: null } : {}),
+            ...('model' in item && (agentChanged || instanceChanged)
+              ? { model: null }
+              : {}),
+            ...(hasInstanceUpdate
+              ? { provider_instance_id: nextInstanceId }
+              : {}),
           };
         });
         return touched ? next : current;
@@ -80,6 +106,9 @@ export function syncSessionAgentInCaches(
             ...current,
             agent_id: agentId,
             executor: agentId,
+            ...(hasInstanceUpdate
+              ? { provider_instance_id: nextInstanceId }
+              : {}),
           }
         : current
     );
@@ -94,6 +123,9 @@ export function syncSessionAgentInCaches(
             ...current.session,
             agent_id: agentId,
             executor: agentId,
+            ...(hasInstanceUpdate
+              ? { provider_instance_id: nextInstanceId }
+              : {}),
           },
         };
       }
@@ -106,9 +138,23 @@ export function syncSessionAgentInCaches(
         let touched = false;
         const next = current.map((item) => {
           const itemId = item?.id ?? item?.conversation_id;
-          if (itemId !== id || item.agent_id === agentId) return item;
+          const currentInstance =
+            typeof item?.provider_instance_id === 'string'
+              ? item.provider_instance_id
+              : null;
+          const instanceChanged =
+            hasInstanceUpdate && currentInstance !== nextInstanceId;
+          if (itemId !== id || (item.agent_id === agentId && !instanceChanged)) {
+            return item;
+          }
           touched = true;
-          return { ...item, agent_id: agentId };
+          return {
+            ...item,
+            agent_id: agentId,
+            ...(hasInstanceUpdate
+              ? { provider_instance_id: nextInstanceId }
+              : {}),
+          };
         });
         return touched ? next : current;
       }
@@ -143,7 +189,12 @@ export function syncSessionAgentInCaches(
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent<SessionAgentSwitchedDetail>(SESSION_AGENT_SWITCHED_EVENT, {
-        detail: { sessionId: id, agentId, executor },
+        detail: {
+          sessionId: id,
+          agentId,
+          executor,
+          ...(hasInstanceUpdate ? { providerInstanceId: nextInstanceId } : {}),
+        },
       })
     );
   }

@@ -10,7 +10,7 @@ export type BasicGuideContextValue = {
   cancelExit: () => void;
   finish: () => void;
   restart: () => void;
-  start: () => void;
+  start: (hasSelectedProject?: boolean) => void;
   skip: () => void;
   dismissEnd: () => void;
   exitOpen: boolean;

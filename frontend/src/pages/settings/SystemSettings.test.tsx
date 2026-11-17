@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   updateDataDir: vi.fn(),
   revealInFileManager: vi.fn(),
   pickHostDirectory: vi.fn(),
+  pickHostFile: vi.fn(),
+  pickHostSavePath: vi.fn(),
   backupCreate: vi.fn(),
   backupInspect: vi.fn(),
   backupRestore: vi.fn(),
@@ -43,6 +45,8 @@ vi.mock('@/components/ConfigProvider', () => ({
 
 vi.mock('@/lib/hostFs', () => ({
   pickHostDirectory: mocks.pickHostDirectory,
+  pickHostFile: mocks.pickHostFile,
+  pickHostSavePath: mocks.pickHostSavePath,
 }));
 
 vi.mock('@/lib/api/misc', () => ({
@@ -167,6 +171,8 @@ describe('SystemSettings', () => {
     }));
     mocks.revealInFileManager.mockResolvedValue(undefined);
     mocks.pickHostDirectory.mockResolvedValue('/Volumes/SSD/DimoData');
+    mocks.pickHostSavePath.mockResolvedValue('/tmp/dimo-backup.dimobak');
+    mocks.pickHostFile.mockResolvedValue('/tmp/restore.dimobak');
     mocks.backupCreate.mockResolvedValue(preview);
     mocks.backupInspect.mockResolvedValue(preview);
     mocks.backupRestore.mockResolvedValue({
@@ -184,16 +190,17 @@ describe('SystemSettings', () => {
 
     expect(await screen.findByText('updater boundary')).toBeVisible();
 
-    expect(screen.getByText('导出备份')).toHaveClass('text-sm');
-    expect(screen.getByText('恢复备份')).toHaveClass('text-sm');
-
-    const proxySection = screen.getByText('网络代理').closest('section');
-    expect(proxySection).not.toBeNull();
-    expect(within(proxySection!).getByText('未检测到系统代理')).toBeVisible();
-    await user.click(within(proxySection!).getByRole('combobox'));
+    const featuresSection = screen.getByText('系统功能').closest('section');
+    expect(featuresSection).not.toBeNull();
+    expect(
+      within(featuresSection!).getByText('未检测到系统代理')
+    ).toBeVisible();
+    await user.click(
+      within(featuresSection!).getByRole('combobox', { name: '网络代理' })
+    );
     await user.click(screen.getByRole('option', { name: '手动配置' }));
     await user.type(
-      within(proxySection!).getByPlaceholderText('http://127.0.0.1:7890'),
+      within(featuresSection!).getByPlaceholderText('http://127.0.0.1:7890'),
       'http://proxy.local:7890'
     );
     await user.tab();
@@ -206,8 +213,9 @@ describe('SystemSettings', () => {
       });
     });
 
-    const renderingSection = screen.getByText('渲染加速').closest('section');
-    await user.click(within(renderingSection!).getByRole('combobox'));
+    await user.click(
+      within(featuresSection!).getByRole('combobox', { name: '渲染加速' })
+    );
     await user.click(screen.getByRole('option', { name: '禁用 GPU' }));
     await waitFor(() => {
       expect(mocks.updateRendering).toHaveBeenCalledWith({
@@ -229,44 +237,40 @@ describe('SystemSettings', () => {
     });
   });
 
-  it('exports and inspects portable backups through the backend boundary', async () => {
+  it('exports and restores backups through native file pickers', async () => {
     const user = userEvent.setup();
     render(<SystemSettings />);
     await waitFor(() => expect(mocks.getProxy).toHaveBeenCalled());
 
-    await user.type(
-      screen.getByPlaceholderText(/dimo-backup\.dimobak/),
-      '/tmp/dimo-backup.dimobak'
-    );
-    await user.click(screen.getByRole('button', { name: '导出' }));
+    expect(screen.queryByPlaceholderText(/口令|passphrase/i)).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '导出备份' }));
     await waitFor(() => {
       expect(mocks.backupCreate).toHaveBeenCalledWith({
         path: '/tmp/dimo-backup.dimobak',
-        passphrase: null,
       });
     });
-
-    await user.type(
-      screen.getByPlaceholderText('选择或粘贴 .dimobak 文件路径'),
-      '/tmp/restore.dimobak'
+    expect(mocks.pickHostSavePath).toHaveBeenCalledWith(
+      expect.objectContaining({ extensions: ['dimobak'] })
     );
-    await user.click(screen.getByRole('button', { name: '预览' }));
+
+    await user.click(screen.getByRole('button', { name: '导入备份' }));
     await waitFor(() => {
       expect(mocks.backupInspect).toHaveBeenCalledWith({
         path: '/tmp/restore.dimobak',
-        passphrase: null,
       });
     });
-    expect(await screen.findByText('config.json')).toBeVisible();
-
-    await user.click(screen.getByRole('button', { name: '恢复' }));
+    expect(mocks.backupRestore).not.toHaveBeenCalled();
     const restoreOptions = mocks.toastWarning.mock.calls.at(-1)?.[1];
     await act(async () => restoreOptions.action.onClick());
     expect(mocks.backupRestore).toHaveBeenCalledWith({
       path: '/tmp/restore.dimobak',
-      passphrase: null,
       confirmed: true,
     });
+
+    mocks.pickHostSavePath.mockResolvedValueOnce(null);
+    await user.click(screen.getByRole('button', { name: '导出备份' }));
+    expect(mocks.backupCreate).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: '清除' }));
     const clearOptions = mocks.toastWarning.mock.calls.at(-1)?.[1];
@@ -278,14 +282,24 @@ describe('SystemSettings', () => {
     expect(mocks.clearLocalData).toHaveBeenCalledOnce();
   });
 
-  it('shows the shared JSON settings source on the system page', async () => {
+  it('groups storage location, config file, and database health under data storage', async () => {
     render(<SystemSettings />);
 
+    const storageSection = (await screen.findByText('数据存储')).closest(
+      'section'
+    );
+    expect(storageSection).not.toBeNull();
     expect(
-      await screen.findByText(/JSON 设置源|JSON source/i)
+      within(storageSection!).getAllByText('存储位置').length
+    ).toBeGreaterThan(0);
+    expect(within(storageSection!).getByText('配置文件')).toBeInTheDocument();
+    expect(
+      await within(storageSection!).findByText(
+        '/Users/test/.dimo/settings.json'
+      )
     ).toBeInTheDocument();
     expect(
-      await screen.findByText('/Users/test/.dimo/settings.json')
+      within(storageSection!).getByTestId('database-health-section')
     ).toBeInTheDocument();
   });
 
@@ -313,7 +327,7 @@ describe('SystemSettings', () => {
     render(<SystemSettings />);
 
     expect(
-      (await screen.findAllByText(/数据存储位置|Data storage location/i)).length
+      (await screen.findAllByText(/存储位置|Storage location/i)).length
     ).toBeGreaterThanOrEqual(1);
     expect(
       await screen.findByDisplayValue('/Users/test/.dimo')
@@ -323,9 +337,7 @@ describe('SystemSettings', () => {
       name: /在文件夹中打开|Open in Folder/i,
     });
     await user.click(openBtn);
-    expect(mocks.revealInFileManager).toHaveBeenCalledWith(
-      '/Users/test/.dimo'
-    );
+    expect(mocks.revealInFileManager).toHaveBeenCalledWith('/Users/test/.dimo');
 
     const changeBtn = screen.getByRole('button', {
       name: /更改目录…|Change directory…/i,

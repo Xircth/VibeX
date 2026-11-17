@@ -13,4 +13,5 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
+sha2 = "0.10"
 uuid = { workspace = true, features = ["v5"] }

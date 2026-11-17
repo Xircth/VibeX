@@ -36,7 +36,13 @@ import {
   SessionCreationStatusCard,
   formatSessionControlsError,
 } from './SessionCreationStatusCard';
+import { SessionInstanceSelector } from './SessionInstanceSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
+import { useAgentProviderInstanceOptions } from '@/hooks/useAgentProviderInstanceOptions';
+import {
+  LOCAL_PROVIDER_INSTANCE_ID,
+  normalizeProviderInstanceIdForApi,
+} from '@/lib/providerInstancesApi';
 import { cn } from '@/lib/utils';
 import {
   findWorkspaceBranchOption,
@@ -54,6 +60,7 @@ export type SessionCreationMode = 'existing_workspace' | 'new_workspace';
 export interface SessionControlsPreset {
   modeOverride: string | null;
   configOverrides: Record<string, string>;
+  providerInstanceId?: string | null;
 }
 
 function isLocalHistoryMeta(meta: unknown): boolean {
@@ -153,6 +160,25 @@ export function SessionCreationForm({
   const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
   const resolvedCancelLabel = cancelLabel ?? t('common:cancel');
   const executor = selectedExecutorProfile?.executor ?? null;
+  const instanceOptions = useAgentProviderInstanceOptions(executor);
+  const [selectedInstanceByAgent, setSelectedInstanceByAgent] = useState<
+    Record<string, string>
+  >({});
+  const canonicalInstanceAgent = instanceOptions.canonicalAgentId;
+  const chosenInstanceId = canonicalInstanceAgent
+    ? selectedInstanceByAgent[canonicalInstanceAgent]
+    : undefined;
+  const effectiveInstanceId = instanceOptions.hasMultipleInstances
+    ? instanceOptions.options.some((item) => item.instanceId === chosenInstanceId)
+      ? chosenInstanceId!
+      : instanceOptions.defaultInstanceId
+    : LOCAL_PROVIDER_INSTANCE_ID;
+  const scopedInstanceId = normalizeProviderInstanceIdForApi(
+    effectiveInstanceId
+  );
+  const defaultsScopeKey = executor
+    ? `${executor}::${scopedInstanceId ?? 'local'}`
+    : null;
   const selectedWorkspaceOption = findWorkspaceBranchOption(
     workspaceBranchOptions,
     selectedWorkspaceValue
@@ -162,8 +188,8 @@ export function SessionCreationForm({
       ? (selectedWorkspaceOption?.existingWorkspaceId ?? null)
       : null;
   const catalogQuery = useQuery({
-    queryKey: sessionControlsQueryKey(executor ?? '', null),
-    queryFn: () => loadAgentSessionControlsCatalog(executor),
+    queryKey: sessionControlsQueryKey(executor ?? '', null, scopedInstanceId),
+    queryFn: () => loadAgentSessionControlsCatalog(executor, scopedInstanceId),
     enabled: Boolean(executor),
     staleTime: 60_000,
     gcTime: Infinity,
@@ -172,17 +198,20 @@ export function SessionCreationForm({
   const liveQuery = useQuery({
     queryKey: sessionControlsQueryKey(
       executor ?? '',
-      controlsWorkspaceId ?? ''
+      controlsWorkspaceId ?? '',
+      scopedInstanceId
     ),
-    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    queryFn: () =>
+      loadAgentSessionControlsCatalog(executor!, scopedInstanceId),
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,
   });
   const schemaQuery = useQuery({
-    queryKey: sessionControlsSchemaQueryKey(executor ?? ''),
-    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    queryKey: sessionControlsSchemaQueryKey(executor ?? '', scopedInstanceId),
+    queryFn: () =>
+      loadAgentSessionControlsCatalog(executor!, scopedInstanceId),
     enabled: false,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -200,15 +229,29 @@ export function SessionCreationForm({
     liveQuery.data
   );
   const defaultsQuery = useQuery({
-    queryKey: ['agentSessionDefaults', executor],
-    queryFn: () => agentsApi.sessionDefaults(executor!),
+    queryKey: [
+      'agentSessionDefaults',
+      executor,
+      ...(scopedInstanceId ? [scopedInstanceId] : []),
+    ],
+    queryFn: () =>
+      scopedInstanceId
+        ? agentsApi.sessionDefaults(executor!, scopedInstanceId)
+        : agentsApi.sessionDefaults(executor!),
     enabled: Boolean(executor),
     staleTime: Infinity,
     retry: false,
   });
   const catalogFreshnessQuery = useQuery({
-    queryKey: ['agentCapabilityCatalogFreshness', executor],
-    queryFn: () => agentsApi.capabilityCatalogFresh(executor!),
+    queryKey: [
+      'agentCapabilityCatalogFreshness',
+      executor,
+      ...(scopedInstanceId ? [scopedInstanceId] : []),
+    ],
+    queryFn: () =>
+      scopedInstanceId
+        ? agentsApi.capabilityCatalogFresh(executor!, scopedInstanceId)
+        : agentsApi.capabilityCatalogFresh(executor!),
     enabled: Boolean(executor && activeControls),
     staleTime: 0,
     retry: false,
@@ -224,7 +267,7 @@ export function SessionCreationForm({
   const [savedDefaultsFingerprint, setSavedDefaultsFingerprint] = useState<
     string | null
   >(null);
-  const [defaultsHydratedAgent, setDefaultsHydratedAgent] = useState<
+  const [defaultsHydratedScope, setDefaultsHydratedScope] = useState<
     string | null
   >(null);
   const [catalogRefreshFailed, setCatalogRefreshFailed] = useState(false);
@@ -243,25 +286,28 @@ export function SessionCreationForm({
     setSelectedConfigValues({});
     setDefaultsSaveState('idle');
     setSavedDefaultsFingerprint(null);
-    setDefaultsHydratedAgent(null);
+    setDefaultsHydratedScope(null);
     setCatalogRefreshFailed(false);
     setRemoteSessionsOpen(false);
     setRemoteSessionAction(null);
     setRemoteSessionStatus('idle');
     setCompletedRemoteSessionIds(new Set());
     backgroundRefreshAgent.current = null;
-  }, [controlsWorkspaceId, executor]);
+  }, [controlsWorkspaceId, executor, scopedInstanceId]);
   useEffect(() => {
     if (
       !executor ||
+      !defaultsScopeKey ||
       catalogFreshnessQuery.data !== false ||
-      backgroundRefreshAgent.current === executor
+      backgroundRefreshAgent.current === defaultsScopeKey
     ) {
       return;
     }
-    backgroundRefreshAgent.current = executor;
-    void agentsApi
-      .refreshCapabilityCatalog(executor)
+    backgroundRefreshAgent.current = defaultsScopeKey;
+    void (scopedInstanceId
+      ? agentsApi.refreshCapabilityCatalog(executor, scopedInstanceId)
+      : agentsApi.refreshCapabilityCatalog(executor)
+    )
       .then(async (refreshed) => {
         if (!refreshed) {
           setCatalogRefreshFailed(true);
@@ -272,9 +318,15 @@ export function SessionCreationForm({
         await catalogFreshnessQuery.refetch();
       })
       .catch(() => setCatalogRefreshFailed(true));
-  }, [catalogFreshnessQuery, catalogQuery, executor]);
+  }, [
+    catalogFreshnessQuery,
+    catalogQuery,
+    defaultsScopeKey,
+    executor,
+    scopedInstanceId,
+  ]);
   useEffect(() => {
-    if (!executor || !defaultsQuery.isFetched) return;
+    if (!executor || !defaultsScopeKey || !defaultsQuery.isFetched) return;
     const savedValues = defaultsQuery.data?.values;
     if (savedValues) {
       setSelectedConfigValues(
@@ -291,8 +343,13 @@ export function SessionCreationForm({
         )
       );
     }
-    setDefaultsHydratedAgent(executor);
-  }, [defaultsQuery.data, defaultsQuery.isFetched, executor]);
+    setDefaultsHydratedScope(defaultsScopeKey);
+  }, [
+    defaultsQuery.data,
+    defaultsQuery.isFetched,
+    defaultsScopeKey,
+    executor,
+  ]);
 
   const supportsRemoteSessionList =
     activeControls?.capabilities?.list_sessions === true;
@@ -387,15 +444,15 @@ export function SessionCreationForm({
     if (
       !currentDefaultsFingerprint ||
       savedDefaultsFingerprint ||
-      defaultsHydratedAgent !== executor
+      defaultsHydratedScope !== defaultsScopeKey
     ) {
       return;
     }
     setSavedDefaultsFingerprint(currentDefaultsFingerprint);
   }, [
     currentDefaultsFingerprint,
-    defaultsHydratedAgent,
-    executor,
+    defaultsHydratedScope,
+    defaultsScopeKey,
     savedDefaultsFingerprint,
   ]);
   const sessionDefaultsChanged = Boolean(
@@ -420,11 +477,26 @@ export function SessionCreationForm({
     }
     setDefaultsSaveState('saving');
     try {
-      await agentsApi.setSessionDefaults(executor, rawDefaults);
-      queryClient.setQueryData(['agentSessionDefaults', executor], {
-        values: rawDefaults,
-        staleIds: [],
-      });
+      if (scopedInstanceId) {
+        await agentsApi.setSessionDefaults(
+          executor,
+          rawDefaults,
+          scopedInstanceId
+        );
+      } else {
+        await agentsApi.setSessionDefaults(executor, rawDefaults);
+      }
+      queryClient.setQueryData(
+        [
+          'agentSessionDefaults',
+          executor,
+          ...(scopedInstanceId ? [scopedInstanceId] : []),
+        ],
+        {
+          values: rawDefaults,
+          staleIds: [],
+        }
+      );
       setDefaultsSaveState('saved');
       if (currentDefaultsFingerprint) {
         setSavedDefaultsFingerprint(currentDefaultsFingerprint);
@@ -439,6 +511,9 @@ export function SessionCreationForm({
         ? {
             modeOverride,
             configOverrides,
+            ...(scopedInstanceId
+              ? { providerInstanceId: scopedInstanceId }
+              : {}),
           }
         : null
     );
@@ -447,6 +522,7 @@ export function SessionCreationForm({
     configOverrides,
     modeOverride,
     onSessionControlsPresetChange,
+    scopedInstanceId,
   ]);
   const hasControls =
     activeControls !== null &&
@@ -634,6 +710,21 @@ export function SessionCreationForm({
             className={cn('w-full', compact && 'min-w-0')}
           />
         </div>
+        {instanceOptions.hasMultipleInstances ? (
+          <SessionInstanceSelector
+            options={instanceOptions.options}
+            selectedInstanceId={effectiveInstanceId}
+            onSelectInstance={(nextInstanceId) => {
+              if (!canonicalInstanceAgent) return;
+              setSelectedInstanceByAgent((previous) => ({
+                ...previous,
+                [canonicalInstanceAgent]: nextInstanceId,
+              }));
+            }}
+            disabled={isSubmitting}
+            dropdownSide={dropdownSide}
+          />
+        ) : null}
         {hasControls && activeControls ? (
           <>
             <div
@@ -650,6 +741,7 @@ export function SessionCreationForm({
                 pending={configOverrides}
                 onSelectMode={handleSelectMode}
                 onSelectConfigOption={handleSelectConfigValue}
+                providerInstanceConfig={null}
                 disabled={isSubmitting}
                 dropdownSide={dropdownSide}
               />

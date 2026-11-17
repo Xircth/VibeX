@@ -16,11 +16,26 @@ pub enum SettingsStoreError {
     InvalidDocument,
 }
 
+const READ_RETRY_DELAYS_MS: &[u64] = &[15, 30, 60];
+
+fn is_transient_read_io_error(error: &std::io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+    ) {
+        return true;
+    }
+    matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
 pub async fn read_section<T>(path: &Path, section: &str) -> Result<Option<T>, SettingsStoreError>
 where
     T: DeserializeOwned,
 {
-    let document = read_document(path).await?;
+    let _guard = SETTINGS_WRITE_LOCK.lock().await;
+    let document = read_document_unlocked(path).await?;
     document
         .get(section)
         .cloned()
@@ -38,7 +53,7 @@ where
     T: Serialize,
 {
     let _guard = SETTINGS_WRITE_LOCK.lock().await;
-    let mut document = read_document(path).await?;
+    let mut document = read_document_unlocked(path).await?;
     let object = document
         .as_object_mut()
         .ok_or(SettingsStoreError::InvalidDocument)?;
@@ -53,7 +68,7 @@ pub async fn merge_object_section(
     updates: serde_json::Map<String, serde_json::Value>,
 ) -> Result<serde_json::Map<String, serde_json::Value>, SettingsStoreError> {
     let _guard = SETTINGS_WRITE_LOCK.lock().await;
-    let mut document = read_document(path).await?;
+    let mut document = read_document_unlocked(path).await?;
     let document_object = document
         .as_object_mut()
         .ok_or(SettingsStoreError::InvalidDocument)?;
@@ -106,19 +121,38 @@ async fn persist_document(
     })?
 }
 
-async fn read_document(path: &Path) -> Result<serde_json::Value, SettingsStoreError> {
-    let raw = match tokio::fs::read_to_string(path).await {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(serde_json::json!({}));
+async fn read_document_unlocked(path: &Path) -> Result<serde_json::Value, SettingsStoreError> {
+    for attempt in 0..=READ_RETRY_DELAYS_MS.len() {
+        let raw = match tokio::fs::read_to_string(path).await {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(serde_json::json!({}));
+            }
+            Err(error)
+                if attempt < READ_RETRY_DELAYS_MS.len() && is_transient_read_io_error(&error) =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    READ_RETRY_DELAYS_MS[attempt],
+                ))
+                .await;
+                continue;
+            }
+            Err(error) => return Err(SettingsStoreError::Io(error)),
+        };
+
+        match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(document) if document.is_object() => return Ok(document),
+            Ok(_) => return Err(SettingsStoreError::InvalidDocument),
+            Err(_) if attempt == 0 => {
+                // External non-atomic writers may briefly expose truncated JSON.
+                tokio::time::sleep(std::time::Duration::from_millis(READ_RETRY_DELAYS_MS[0])).await;
+                continue;
+            }
+            Err(error) => return Err(SettingsStoreError::Json(error)),
         }
-        Err(error) => return Err(SettingsStoreError::Io(error)),
-    };
-    let document: serde_json::Value = serde_json::from_str(&raw)?;
-    if !document.is_object() {
-        return Err(SettingsStoreError::InvalidDocument);
     }
-    Ok(document)
+
+    unreachable!("read_document_unlocked loop always returns within bounded retries")
 }
 
 #[cfg(test)]

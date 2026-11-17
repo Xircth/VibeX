@@ -61,6 +61,9 @@ type AgentDetailProps = {
   operation: AgentOperationState | null;
   preflight: AgentPreflightView | null;
   authentication?: ReactNode;
+  instanceSwitcher?: ReactNode;
+  authenticationOverride?: AgentManagementView['authentication'];
+  hidePreflightAndDiagnostics?: boolean;
   diagnostics?: AgentDiagnosticView[];
   checking: boolean;
   checkingUpdate?: boolean;
@@ -94,6 +97,9 @@ export function AgentDetail({
   operation,
   preflight,
   authentication,
+  instanceSwitcher,
+  authenticationOverride,
+  hidePreflightAndDiagnostics = false,
   diagnostics = [],
   checking,
   updateCheck,
@@ -112,6 +118,7 @@ export function AgentDetail({
   focusDiagnostics = false,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
+  const effectiveAuthentication = authenticationOverride ?? agent.authentication;
   const nativeEngine = isNativeEngineAgent(agent);
   const [disableDialogOpen, setDisableDialogOpen] = useState(false);
   const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
@@ -237,17 +244,18 @@ export function AgentDetail({
               <h2 className="text-base font-semibold text-foreground">
                 {agent.display_name}
               </h2>
+              {instanceSwitcher}
               <Badge
                 variant="outline"
                 role="status"
-                data-auth={agent.authentication}
+                data-auth={effectiveAuthentication}
                 className={cn(
                   'agent-auth-status shrink-0',
-                  authenticationTone(agent.authentication)
+                  authenticationTone(effectiveAuthentication)
                 )}
               >
-                {authenticationIcon(agent.authentication)}
-                {authenticationLabel(t, agent.authentication)}
+                {authenticationIcon(effectiveAuthentication)}
+                {authenticationLabel(t, effectiveAuthentication)}
               </Badge>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -351,10 +359,11 @@ export function AgentDetail({
 
       <div data-basic-guide="settings-agent-auth">{authentication}</div>
 
-      <section
-        aria-labelledby="agent-preflight-heading"
-        className="agent-preflight-surface"
-      >
+      {!hidePreflightAndDiagnostics ? (
+        <section
+          aria-labelledby="agent-preflight-heading"
+          className="agent-preflight-surface"
+        >
         <AgentSectionHeading
           headingId="agent-preflight-heading"
           title={t('agents.preflightTitle')}
@@ -600,9 +609,10 @@ export function AgentDetail({
             </ul>
           </div>
         ) : null}
-      </section>
+        </section>
+      ) : null}
 
-      {diagnostics.length > 0 ? (
+      {!hidePreflightAndDiagnostics && diagnostics.length > 0 ? (
         <details
           className="agent-diagnostics-surface"
           open={diagnosticsOpen}

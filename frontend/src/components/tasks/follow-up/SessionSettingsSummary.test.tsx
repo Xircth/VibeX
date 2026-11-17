@@ -568,4 +568,88 @@ describe('SessionSettingsSummary', () => {
     await user.click(screen.getByText('Fast'));
     expect(onSelectConfigOption).toHaveBeenCalledWith('fast_mode', 'true');
   });
+
+  it('renders the Instance selector row above session config only when >= 2 instances exist', async () => {
+    const user = userEvent.setup();
+    const onSelectInstance = vi.fn();
+
+    const { rerender } = render(
+      <SessionSettingsSummary
+        options={OPTIONS}
+        pending={{}}
+        onSelectConfigOption={vi.fn()}
+        providerInstanceConfig={{
+          selectedInstanceId: 'local',
+          options: [
+            {
+              instanceId: 'local',
+              agentId: 'claude_code',
+              displayName: '本地实例',
+              isDefault: true,
+              isLocal: true,
+              raw: null,
+            },
+          ],
+          onSelectInstance,
+        }}
+      />
+    );
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    expect(
+      screen.queryByTestId('session-settings-instance-trigger')
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <SessionSettingsSummary
+        options={OPTIONS}
+        pending={{}}
+        onSelectConfigOption={vi.fn()}
+        providerInstanceConfig={{
+          selectedInstanceId: 'local',
+          options: [
+            {
+              instanceId: 'local',
+              agentId: 'claude_code',
+              displayName: '本地实例',
+              isDefault: true,
+              isLocal: true,
+              raw: null,
+            },
+            {
+              instanceId: 'claude-work',
+              agentId: 'claude_code',
+              displayName: 'Work Instance',
+              isDefault: false,
+              isLocal: false,
+              raw: {
+                instanceId: 'claude-work',
+                agentId: 'claude-code',
+                displayName: 'Work Instance',
+                authMode: { mode: 'ApiKey' },
+                isDefault: false,
+              },
+            },
+          ],
+          onSelectInstance,
+        }}
+      />
+    );
+
+    const instanceTrigger = screen.getByTestId(
+      'session-settings-instance-trigger'
+    );
+    const modelRow = screen.getByText('Model');
+    expect(
+      instanceTrigger.compareDocumentPosition(modelRow) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    await user.click(instanceTrigger);
+    const workOption = await screen.findByTestId(
+      'session-settings-instance-option-claude-work'
+    );
+    fireEvent.click(workOption);
+    expect(onSelectInstance).toHaveBeenCalledWith('claude-work');
+  });
 });

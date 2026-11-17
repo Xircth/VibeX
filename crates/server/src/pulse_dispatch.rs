@@ -381,6 +381,7 @@ impl ServerApplicationDomains {
                 Ok(())
             }
             PulseDispatchAction::StartOrResumeWorkflow {
+                rule_id,
                 workflow_id,
                 pinned_version,
                 inputs,
@@ -399,7 +400,7 @@ impl ServerApplicationDomains {
                     .or_else(|| versions.first())
                     .ok_or_else(|| format!("workflow `{wf_uuid}` has no published versions"))?;
                 let workspace = self
-                    .resolve_default_workspace(None)
+                    .resolve_workflow_workspace(rule_id.as_deref(), trigger_envelope)
                     .await?
                     .ok_or_else(|| "no workspace available for workflow target".to_string())?;
                 let mut input_obj = serde_json::Map::new();
@@ -412,6 +413,44 @@ impl ServerApplicationDomains {
                     input_obj.insert("threadKey".to_string(), Value::String(tk.clone()));
                 }
                 if let Some(env) = trigger_envelope {
+                    let env_json = serde_json::to_value(env).unwrap_or(Value::Null);
+                    input_obj
+                        .entry("eventId".to_string())
+                        .or_insert_with(|| Value::String(env.event_id.clone()));
+                    input_obj
+                        .entry("eventType".to_string())
+                        .or_insert_with(|| Value::String(env.event_type.clone()));
+                    input_obj
+                        .entry("occurredAt".to_string())
+                        .or_insert_with(|| Value::String(env.occurred_at.clone()));
+                    input_obj
+                        .entry("source".to_string())
+                        .or_insert_with(|| env_json.get("source").cloned().unwrap_or(Value::Null));
+                    input_obj
+                        .entry("actor".to_string())
+                        .or_insert_with(|| env_json.get("actor").cloned().unwrap_or(Value::Null));
+                    if let Some(tk) = &env.thread_key {
+                        input_obj
+                            .entry("threadKey".to_string())
+                            .or_insert_with(|| Value::String(tk.clone()));
+                    }
+                    input_obj
+                        .entry("correlations".to_string())
+                        .or_insert_with(|| json!(env.correlations));
+                    input_obj
+                        .entry("replyChannels".to_string())
+                        .or_insert_with(|| json!(env.reply_channels));
+                    if let Some(first_rc) = env.reply_channels.first() {
+                        input_obj
+                            .entry("replyChannel".to_string())
+                            .or_insert_with(|| json!(first_rc));
+                        input_obj
+                            .entry("replyTo".to_string())
+                            .or_insert_with(|| Value::String(first_rc.channel_id.clone()));
+                    }
+                    input_obj
+                        .entry("payload".to_string())
+                        .or_insert_with(|| env.payload.clone());
                     input_obj
                         .entry("rootEventId".to_string())
                         .or_insert_with(|| Value::String(env.trace.root_event_id.clone()));
@@ -485,6 +524,7 @@ impl ServerApplicationDomains {
             &CreateSession {
                 executor: Some(parsed_agent.as_str().to_string()),
                 agent_id: Some(parsed_agent.clone()),
+                provider_instance_id: None,
                 task_id: Some(base_workspace.task_id),
                 name: Some(label),
                 initial_prompt: Some(prompt.to_string()),
@@ -816,6 +856,72 @@ impl ServerApplicationDomains {
         busy_rules
     }
 
+    pub(crate) async fn resolve_workflow_workspace(
+        &self,
+        rule_id: Option<&str>,
+        envelope: Option<&EventEnvelope>,
+    ) -> Result<Option<Workspace>, String> {
+        let mut project_id_hint = None;
+        if let Some(rid) = rule_id
+            && let Ok(Some(rule)) = self.pulse_engine.store().get_rule(rid).await
+        {
+            if let Some(raw_ws) = rule.spec.workspace_id.as_deref()
+                && let Ok(ws_id) = Uuid::parse_str(raw_ws)
+                && let Ok(Some(ws)) = Workspace::find_by_id(&self.pool, ws_id).await
+                && !ws.archived
+            {
+                return Ok(Some(ws));
+            }
+            project_id_hint = rule.spec.project_id;
+        }
+        if project_id_hint.is_none()
+            && let Some(env) = envelope
+            && let Some(repo_slug) = env.payload.get("repository").and_then(Value::as_str)
+        {
+            let repo_short = repo_slug
+                .trim()
+                .rsplit('/')
+                .next()
+                .unwrap_or(repo_slug.trim());
+            if !repo_short.is_empty() {
+                let by_ws_repo = sqlx::query_as::<_, Workspace>(
+                    "SELECT w.* FROM workspaces w
+                     JOIN workspace_repos wr ON wr.workspace_id = w.id
+                     JOIN repos r ON r.id = wr.repo_id
+                     WHERE w.archived = 0
+                       AND (lower(r.name) = lower(?) OR lower(r.display_name) = lower(?))
+                     ORDER BY w.updated_at DESC LIMIT 1",
+                )
+                .bind(repo_short)
+                .bind(repo_short)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|err| err.to_string())?;
+                if by_ws_repo.is_some() {
+                    return Ok(by_ws_repo);
+                }
+                let by_project_repo = sqlx::query_as::<_, Workspace>(
+                    "SELECT w.* FROM workspaces w
+                     JOIN project_repos pr ON pr.project_id = w.project_id
+                     JOIN repos r ON r.id = pr.repo_id
+                     WHERE w.archived = 0
+                       AND (lower(r.name) = lower(?) OR lower(r.display_name) = lower(?))
+                     ORDER BY w.updated_at DESC LIMIT 1",
+                )
+                .bind(repo_short)
+                .bind(repo_short)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|err| err.to_string())?;
+                if by_project_repo.is_some() {
+                    return Ok(by_project_repo);
+                }
+            }
+        }
+        self.resolve_default_workspace(project_id_hint.as_deref())
+            .await
+    }
+
     pub(crate) async fn resolve_default_workspace(
         &self,
         project_id_hint: Option<&str>,
@@ -859,8 +965,14 @@ async fn find_active_turn_id(pool: &sqlx::SqlitePool, conversation_id: Uuid) -> 
 }
 
 pub(crate) fn resolve_fallback_agent_id(raw: &str) -> Result<AgentId, String> {
-    AgentId::parse(raw)
-        .or_else(|_| AgentId::parse("claude-code"))
+    let trimmed = raw.trim();
+    if let Some(kind) = agents::AgentKind::from_lenient(trimmed)
+        && let Ok(canonical) = AgentId::parse(kind.as_str())
+    {
+        return Ok(canonical);
+    }
+    AgentId::parse(trimmed)
+        .or_else(|_| AgentId::parse("claude_code"))
         .map_err(|err| err.to_string())
 }
 

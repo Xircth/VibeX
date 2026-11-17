@@ -308,7 +308,7 @@ function PluginArtworkHostChrome(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function PluginArtworkProviderSwitch(props: SVGProps<SVGSVGElement>) {
+function PluginArtworkToggles(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
       <rect x="9.5" y="11" width="17" height="6" rx="3" fill="#3B82F6" />
@@ -559,11 +559,11 @@ export const CORE_FOUNDATION_GLYPHS: Record<
 > = {
   corePluginManager: PluginArtworkDefault,
   coreHmr: PluginArtworkAgentLoop,
-  coreSettings: PluginArtworkProviderSwitch,
+  coreSettings: PluginArtworkToggles,
   coreCredentials: PluginArtworkAutoReview,
   coreAgentRuntime: PluginArtworkAgentLoop,
   coreSession: PluginArtworkSessionEnhance,
-  coreLlmProviders: PluginArtworkProviderSwitch,
+  coreLlmProviders: PluginArtworkToggles,
   coreSkills: PluginArtworkPromptEnhancer,
   coreMcp: PluginArtworkOpenConnector,
   coreDelegation: PluginArtworkSubagent,
@@ -589,7 +589,6 @@ export const OFFICIAL_GLYPHS: Record<
   workflowCreator: PluginArtworkWorkflowCreator,
   sessionEnhance: PluginArtworkSessionEnhance,
   pluginDevelopment: PluginArtworkDevTools,
-  providerSwitch: PluginArtworkProviderSwitch,
   remoteSsh: PluginArtworkTerminal,
   science: PluginArtworkScience,
   browser: PluginArtworkWebSearch,

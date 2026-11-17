@@ -707,6 +707,7 @@ describe('SessionHubSidebar', () => {
           threadId: 'direct:mem-1',
           threadKind: 'dm',
           threadName: 'Bot A',
+          threadMembers: [],
         },
       };
 
@@ -717,7 +718,7 @@ describe('SessionHubSidebar', () => {
       />
     );
     expect(screen.getByText('User session')).toBeInTheDocument();
-    expect(screen.getByText('Bot session')).toBeInTheDocument();
+    expect(screen.getByText('Bot A')).toBeInTheDocument();
 
     act(() => {
       localStorage.setItem('dimo:hide-bot-sessions', 'true');
@@ -730,7 +731,7 @@ describe('SessionHubSidebar', () => {
     });
 
     expect(screen.getByText('User session')).toBeInTheDocument();
-    expect(screen.queryByText('Bot session')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bot A')).not.toBeInTheDocument();
 
     act(() => {
       localStorage.setItem('dimo:hide-bot-sessions', 'false');

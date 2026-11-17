@@ -207,12 +207,15 @@ impl CodexAppServer {
             prepare_instance_isolation_env_for_keys(spec, Some(("CODEX_HOME", "codex-home")))?;
 
         let mut cmd = new_hidden_tokio_command(&codex_path, ["app-server"]);
-        cmd.current_dir(&spec.working_dir)
-            .envs(&isolation_env)
-            .envs(&spec.env);
-        for key in &spec.scrubbed_env_keys {
-            cmd.env_remove(key);
-        }
+        cmd.current_dir(&spec.working_dir);
+        crate::codex_shadow_home::apply_codex_instance_isolation_env(
+            &mut cmd,
+            spec.provider_instance_id.as_deref(),
+            spec.isolate_profile,
+            &isolation_env,
+            &spec.env,
+            &spec.scrubbed_env_keys,
+        );
 
         match &spec.auth {
             EngineAuth::ApiKey { api_key, base_url } => {

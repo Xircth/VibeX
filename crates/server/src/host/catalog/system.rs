@@ -1075,12 +1075,14 @@ pub(crate) fn remap_settings_json_paths(
             *ws_dir = remapped;
             changed = true;
         }
-        if let Some(Value::Object(config_obj)) = obj.get_mut("config")
-            && let Some(Value::String(ws_dir)) = config_obj.get_mut("workspace_dir")
-            && let Some(remapped) = remap_path_string_prefix(ws_dir, old_dir, new_dir)
-        {
-            *ws_dir = remapped;
-            changed = true;
+        for section in ["config", "application"] {
+            if let Some(Value::Object(section_obj)) = obj.get_mut(section)
+                && let Some(Value::String(ws_dir)) = section_obj.get_mut("workspace_dir")
+                && let Some(remapped) = remap_path_string_prefix(ws_dir, old_dir, new_dir)
+            {
+                *ws_dir = remapped;
+                changed = true;
+            }
         }
     }
     if changed {
@@ -1105,6 +1107,9 @@ mod tests {
             old_dir.join("settings.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "workspace_dir": format!("{}/worktrees", old_dir.to_string_lossy()),
+                "application": {
+                    "workspace_dir": format!("{}/worktrees", old_dir.to_string_lossy()),
+                }
             }))
             .unwrap(),
         )
@@ -1128,6 +1133,10 @@ mod tests {
         .unwrap();
         let ws_dir = migrated_settings["workspace_dir"].as_str().unwrap();
         assert!(!ws_dir.contains("old_data"));
+        let app_ws_dir = migrated_settings["application"]["workspace_dir"]
+            .as_str()
+            .unwrap();
+        assert!(!app_ws_dir.contains("old_data"));
 
         // Subdirectory of current_data_dir must be rejected
         let nested = old_dir.join("nested_target");

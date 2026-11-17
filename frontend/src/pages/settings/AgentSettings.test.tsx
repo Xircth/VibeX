@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { toast } from '@/components/ui/toast';
 import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';
+import { providerInstancesApi } from '@/lib/providerInstancesApi';
 import { clearLocalStorageCache } from '@/lib/safeStorage';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
@@ -1322,5 +1323,142 @@ describe('AgentSettings', () => {
     expect(
       screen.queryByTestId('agent-model-market-intro-card')
     ).not.toBeInTheDocument();
+  });
+
+  it('shows AgentInstanceSwitcher for Codex/Claude Code only and hides preflight, bottom config, env, and plugins on custom instances while keeping auth modes', async () => {
+    const user = userEvent.setup();
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'OpenAI Codex',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode', 'reusable_model_providers'],
+      },
+      {
+        agent_id: 'grok',
+        display_name: 'Grok',
+        description: 'Grok CLI',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 1,
+        lifecycle: 'ready',
+        authentication: 'api_key',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode'],
+      },
+    ]);
+    api.authMode.mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'chatgpt_subscription',
+      credential_present: true,
+      account_label: null,
+      options: [
+        {
+          value: 'chatgpt_subscription',
+          label: '官方订阅',
+          kind: 'subscription',
+          description: '',
+          config_field_ids: [],
+          supports_account_login: true,
+          action_id: 'login',
+          supports_device_login: false,
+          device_action_id: null,
+        },
+        {
+          value: 'openai_api_key',
+          label: '官方 API',
+          kind: 'official_api',
+          description: '',
+          config_field_ids: ['OPENAI_API_KEY'],
+          supports_account_login: false,
+          action_id: null,
+          supports_device_login: false,
+          device_action_id: null,
+        },
+        {
+          value: 'model_provider',
+          label: '供应商',
+          kind: 'provider',
+          description: '',
+          config_field_ids: [],
+          supports_account_login: false,
+          action_id: null,
+          supports_device_login: false,
+          device_action_id: null,
+        },
+      ],
+    });
+    const listSpy = vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
+      {
+        instanceId: 'codex-work',
+        agentId: 'codex',
+        displayName: 'Codex Work',
+        authMode: { mode: 'OfficialOAuth' },
+        isDefault: false,
+        hasActiveSessions: false,
+      },
+    ]);
+
+    try {
+      render(<AgentSettings />);
+
+      expect(
+        await screen.findByTestId('agent-instance-switcher')
+      ).toBeInTheDocument();
+      // Local instance shows preflight + environment + native plugins
+      expect(screen.getByText('预检查')).toBeInTheDocument();
+      expect(screen.getByText('环境变量')).toBeInTheDocument();
+
+      // Switch to custom instance
+      await user.click(screen.getByTestId('agent-instance-switcher-trigger'));
+      await user.click(
+        screen.getByTestId('agent-instance-option-codex-work')
+      );
+
+      await waitFor(() => {
+        expect(api.readConfig).toHaveBeenCalledWith('codex', 'codex-work');
+      });
+      // Unsupported sections hidden on custom instance
+      expect(screen.queryByText('预检查')).not.toBeInTheDocument();
+      expect(screen.queryByText('环境变量')).not.toBeInTheDocument();
+      // 3-category auth layout still present
+      expect(
+        await screen.findByRole('tab', { name: '官方订阅' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: '官方 API' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: '供应商' })).toBeInTheDocument();
+
+      // Switch to non-multi-instance agent (Grok): switcher disappears
+      await user.click(screen.getByRole('button', { name: 'Grok' }));
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId('agent-instance-switcher')
+        ).not.toBeInTheDocument();
+      });
+    } finally {
+      listSpy.mockRestore();
+    }
   });
 });

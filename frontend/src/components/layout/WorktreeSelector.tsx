@@ -92,6 +92,7 @@ function resolveCachedWorkspaceSession(
       executor: latestSummary.executor,
       external_session_id: null,
       agent_id: latestSummary.agent_id,
+      provider_instance_id: null,
       parent_session_id: null,
       parent_tool_use_id: null,
       delegation_call_id: null,

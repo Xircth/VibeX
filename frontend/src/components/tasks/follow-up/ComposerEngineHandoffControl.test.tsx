@@ -11,12 +11,9 @@ import {
   useConversationTimeline,
 } from '@/features/conversation/useConversationTimeline';
 import type { SessionSummary as SessionSummaryRecord } from '@/lib/api';
+import { getMruProviderInstanceId } from '@/lib/providerInstanceMru';
 import { providerInstancesApi } from '@/lib/providerInstancesApi';
-import {
-  ComposerEngineHandoffModal,
-  ComposerProviderInstanceSlot,
-  useComposerEngineHandoff,
-} from './ComposerEngineHandoffControl';
+import { useComposerEngineHandoff } from './ComposerEngineHandoffControl';
 
 function SessionFactsProbe({ sessionId }: { sessionId: string | null }) {
   useConversationTimeline(sessionId);
@@ -32,20 +29,26 @@ function SessionFactsProbe({ sessionId }: { sessionId: string | null }) {
 
 function HandoffHarness({
   sessionId,
-  hasExistingTurns,
   currentExecutor,
+  currentProviderInstanceId = null,
   onApply,
+  onApplyInstance,
+  resolveTargetInstanceIdForAgent,
 }: {
   sessionId: string | null;
-  hasExistingTurns: boolean;
   currentExecutor: string;
+  currentProviderInstanceId?: string | null;
   onApply: (profile: ExecutorProfileId | null) => void;
+  onApplyInstance?: (instanceId: string | null, targetAgentId?: string | null) => void;
+  resolveTargetInstanceIdForAgent?: (agentId: string) => string | null;
 }) {
   const controller = useComposerEngineHandoff({
     sessionId,
-    hasExistingTurns,
     currentExecutor,
+    currentProviderInstanceId,
     onApplyExecutorProfile: onApply,
+    onApplyProviderInstanceId: onApplyInstance,
+    resolveTargetInstanceIdForAgent,
   });
 
   return (
@@ -64,8 +67,23 @@ function HandoffHarness({
       >
         Switch to Codex
       </button>
+      <button
+        type="button"
+        data-testid="switch-instance-personal"
+        onClick={() =>
+          controller.handleChangeProviderInstance('claude-personal')
+        }
+      >
+        Switch Instance Personal
+      </button>
+      <button
+        type="button"
+        data-testid="switch-instance-local"
+        onClick={() => controller.handleChangeProviderInstance('local')}
+      >
+        Switch Instance Local
+      </button>
       <SessionFactsProbe sessionId={sessionId} />
-      <ComposerEngineHandoffModal controller={controller} />
     </HotkeysProvider>
   );
 }
@@ -111,7 +129,7 @@ function makeDetail(
             label: 'Model',
             category: 'model',
             value: model,
-            options: [],
+            choices: [],
           },
         ]
       : [],
@@ -155,135 +173,244 @@ describe('ComposerEngineHandoffControl', () => {
   };
 
   afterEach(() => {
+    localStorage.clear();
     while (spies.length > 0) {
       spies.pop()?.mockRestore();
     }
   });
 
-  it('mounts ProviderInstanceSelector, notifies default, persists setDefault, and syncs across slots', async () => {
+  it('switches provider instance via confirmEngineHandoff, records MRU without calling setDefault, and sends local when resetting', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(['session', 'conv-inst-1'], {
+      id: 'conv-inst-1',
+      workspace_id: 'ws-1',
+      task_id: null,
+      name: 'Test Session',
+      initial_prompt: null,
+      status: 'todo',
+      executor: 'CLAUDE_CODE',
+      external_session_id: null,
+      agent_id: 'claude_code',
+      provider_instance_id: null,
+      parent_session_id: null,
+      parent_tool_use_id: null,
+      delegation_call_id: null,
+      created_at: '2026-11-14T00:00:00Z',
+      updated_at: '2026-11-14T00:00:00Z',
+    });
     trackSpy(
-      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
-        {
-          instanceId: 'claude-work',
-          agentId: 'claude-code',
-          displayName: 'Work OAuth',
-          authMode: { mode: 'OfficialOAuth' },
-          isDefault: true,
-          hasActiveSessions: false,
-        },
-        {
-          instanceId: 'claude-personal',
-          agentId: 'claude-code',
-          displayName: 'Personal Key',
-          authMode: { mode: 'ApiKey' },
-          isDefault: false,
-          hasActiveSessions: false,
-        },
-        {
-          instanceId: 'codex-pro',
-          agentId: 'codex',
-          displayName: 'Codex Pro',
-          authMode: { mode: 'OfficialOAuth' },
-          isDefault: true,
-          hasActiveSessions: false,
-        },
-      ])
+      vi
+        .spyOn(conversationApi, 'detail')
+        .mockResolvedValue(makeDetail('conv-inst-1', 'claude_code', null))
+    );
+    trackSpy(
+      vi.spyOn(conversationApi, 'touch').mockResolvedValue({
+        ok: true,
+        idleTimeoutSecs: 0,
+      })
     );
     const setDefaultSpy = trackSpy(
       vi.spyOn(providerInstancesApi, 'setDefault').mockResolvedValue(undefined)
     );
-    const onSelectPrimary = vi.fn();
-    const onSelectSecondary = vi.fn();
+    const confirmSpy = trackSpy(
+      vi
+        .spyOn(conversationApi, 'confirmEngineHandoff')
+        .mockResolvedValue(undefined)
+    );
+    const onApply = vi.fn();
+    const onApplyInstance = vi.fn();
 
-    render(
-      <>
-        <ComposerProviderInstanceSlot
-          agentId="CLAUDE_CODE"
-          selectedInstanceId={null}
-          onSelectInstance={onSelectPrimary}
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <HandoffHarness
+          sessionId="conv-inst-1"
+          currentExecutor="CLAUDE_CODE"
+          currentProviderInstanceId={null}
+          onApply={onApply}
+          onApplyInstance={onApplyInstance}
         />
-        <ComposerProviderInstanceSlot
-          agentId="CLAUDE_CODE"
-          onSelectInstance={onSelectSecondary}
-        />
-      </>
+      </QueryClientProvider>
     );
 
-    const selects = (await screen.findAllByTestId(
-      'provider-instance-select'
-    )) as HTMLSelectElement[];
-    expect(selects).toHaveLength(2);
-    expect(selects[0].options).toHaveLength(2);
-    expect(selects[0].value).toBe('claude-work');
-    expect(onSelectPrimary).toHaveBeenCalledWith('claude-work');
-
-    fireEvent.change(selects[0], { target: { value: 'claude-personal' } });
-    expect(selects[0].value).toBe('claude-personal');
-    expect(onSelectPrimary).toHaveBeenCalledWith('claude-personal');
+    fireEvent.click(screen.getByTestId('switch-instance-personal'));
 
     await waitFor(() => {
-      expect(setDefaultSpy).toHaveBeenCalledWith(
-        'claude-code',
-        'claude-personal'
-      );
-      expect(selects[1].value).toBe('claude-personal');
-      expect(onSelectSecondary).toHaveBeenCalledWith('claude-personal');
+      expect(confirmSpy).toHaveBeenCalledWith({
+        conversationId: 'conv-inst-1',
+        targetEngine: 'CLAUDE_CODE',
+        targetProviderInstanceId: 'claude-personal',
+      });
     });
+    expect(setDefaultSpy).not.toHaveBeenCalled();
+    expect(getMruProviderInstanceId('claude_code')).toBe('claude-personal');
+    expect(onApplyInstance).toHaveBeenCalledWith(
+      'claude-personal',
+      'CLAUDE_CODE'
+    );
+    expect(
+      queryClient.getQueryData<{ provider_instance_id: string | null }>([
+        'session',
+        'conv-inst-1',
+      ])?.provider_instance_id
+    ).toBe('claude-personal');
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <HandoffHarness
+          sessionId="conv-inst-1"
+          currentExecutor="CLAUDE_CODE"
+          currentProviderInstanceId="claude-personal"
+          onApply={onApply}
+          onApplyInstance={onApplyInstance}
+        />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('switch-instance-local'));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenLastCalledWith({
+        conversationId: 'conv-inst-1',
+        targetEngine: 'CLAUDE_CODE',
+        targetProviderInstanceId: 'local',
+      });
+    });
+    expect(getMruProviderInstanceId('claude_code')).toBe('local');
+    expect(onApplyInstance).toHaveBeenLastCalledWith(null, 'CLAUDE_CODE');
+    expect(
+      queryClient.getQueryData<{ provider_instance_id: string | null }>([
+        'session',
+        'conv-inst-1',
+      ])?.provider_instance_id
+    ).toBeNull();
   });
 
-  it('rolls back ComposerProviderInstanceSlot selection and shows toast.error when setDefault fails', async () => {
+  it('rolls back provider instance cache and notifies error when confirmEngineHandoff rejects on instance switch', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(['session', 'conv-inst-err'], {
+      id: 'conv-inst-err',
+      workspace_id: 'ws-1',
+      task_id: null,
+      name: 'Test Session',
+      initial_prompt: null,
+      status: 'todo',
+      executor: 'CLAUDE_CODE',
+      external_session_id: null,
+      agent_id: 'claude_code',
+      provider_instance_id: null,
+      parent_session_id: null,
+      parent_tool_use_id: null,
+      delegation_call_id: null,
+      created_at: '2026-11-14T00:00:00Z',
+      updated_at: '2026-11-14T00:00:00Z',
+    });
     trackSpy(
-      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
-        {
-          instanceId: 'claude-work',
-          agentId: 'claude-code',
-          displayName: 'Work OAuth',
-          authMode: { mode: 'OfficialOAuth' },
-          isDefault: true,
-          hasActiveSessions: false,
-        },
-        {
-          instanceId: 'claude-personal',
-          agentId: 'claude-code',
-          displayName: 'Personal Key',
-          authMode: { mode: 'ApiKey' },
-          isDefault: false,
-          hasActiveSessions: false,
-        },
-      ])
+      vi
+        .spyOn(conversationApi, 'detail')
+        .mockResolvedValue(makeDetail('conv-inst-err', 'claude_code', null))
+    );
+    trackSpy(
+      vi.spyOn(conversationApi, 'touch').mockResolvedValue({
+        ok: true,
+        idleTimeoutSecs: 0,
+      })
     );
     trackSpy(
       vi
-        .spyOn(providerInstancesApi, 'setDefault')
-        .mockRejectedValue(new Error('Failed to persist default'))
+        .spyOn(conversationApi, 'confirmEngineHandoff')
+        .mockRejectedValue(new Error('Instance handoff failed'))
     );
     const toastErrorSpy = trackSpy(
       vi.spyOn(toast, 'error').mockImplementation(() => '')
     );
-    const onSelect = vi.fn();
+    const onApplyInstance = vi.fn();
 
     render(
-      <ComposerProviderInstanceSlot
-        agentId="CLAUDE_CODE"
-        onSelectInstance={onSelect}
-      />
+      <QueryClientProvider client={queryClient}>
+        <HandoffHarness
+          sessionId="conv-inst-err"
+          currentExecutor="CLAUDE_CODE"
+          currentProviderInstanceId={null}
+          onApply={vi.fn()}
+          onApplyInstance={onApplyInstance}
+        />
+      </QueryClientProvider>
     );
 
-    const select = (await screen.findByTestId(
-      'provider-instance-select'
-    )) as HTMLSelectElement;
-    expect(select.value).toBe('claude-work');
-
-    fireEvent.change(select, { target: { value: 'claude-personal' } });
+    fireEvent.click(screen.getByTestId('switch-instance-personal'));
 
     await waitFor(() => {
-      expect(toastErrorSpy).toHaveBeenCalledWith('Failed to persist default');
-      expect(select.value).toBe('claude-work');
-      expect(onSelect).toHaveBeenLastCalledWith('claude-work');
+      expect(toastErrorSpy).toHaveBeenCalledWith('Instance handoff failed');
+      expect(onApplyInstance).toHaveBeenLastCalledWith(null, 'CLAUDE_CODE');
+    });
+    expect(
+      queryClient.getQueryData<{ provider_instance_id: string | null }>([
+        'session',
+        'conv-inst-err',
+      ])?.provider_instance_id
+    ).toBeNull();
+  });
+
+  it('forwards resolved MRU instance when switching to a different agent', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    trackSpy(
+      vi
+        .spyOn(conversationApi, 'detail')
+        .mockResolvedValue(makeDetail('conv-cross-inst', 'claude_code', null))
+    );
+    trackSpy(
+      vi.spyOn(conversationApi, 'touch').mockResolvedValue({
+        ok: true,
+        idleTimeoutSecs: 0,
+      })
+    );
+    const confirmSpy = trackSpy(
+      vi
+        .spyOn(conversationApi, 'confirmEngineHandoff')
+        .mockResolvedValue(undefined)
+    );
+    const onApply = vi.fn();
+    const onApplyInstance = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HandoffHarness
+          sessionId="conv-cross-inst"
+          currentExecutor="CLAUDE_CODE"
+          onApply={onApply}
+          onApplyInstance={onApplyInstance}
+          resolveTargetInstanceIdForAgent={(agentId) =>
+            agentId === 'CODEX' ? 'codex-work' : null
+          }
+        />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('switch-to-codex'));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith({
+        conversationId: 'conv-cross-inst',
+        targetEngine: 'CODEX',
+        targetProviderInstanceId: 'codex-work',
+      });
+    });
+    expect(onApplyInstance).toHaveBeenCalledWith('codex-work', 'CODEX');
+    expect(onApply).toHaveBeenCalledWith({
+      executor: 'CODEX',
+      variant: null,
+      model: null,
+      fast_mode: null,
     });
   });
 
-  it('previews and confirms EngineHandoffDialog when switching engines on a session with turns and syncs session list + Bot/Session details', async () => {
+  it('switches engines directly without previewing or opening a dialog and syncs session list + Bot/Session details', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -312,27 +439,7 @@ describe('ComposerEngineHandoffControl', () => {
       })
     );
     const previewSpy = trackSpy(
-      vi.spyOn(conversationApi, 'previewEngineHandoff').mockResolvedValue({
-        sourceEngine: 'Claude Code',
-        targetEngine: 'Codex',
-        totalTokens: 8400,
-        tokenBudget: 40000,
-        packedMessages: [
-          {
-            id: 'turn-1',
-            role: 'user',
-            content: 'Audit the authentication flow',
-            sortIndex: 1,
-          },
-          {
-            id: 'turn-2',
-            role: 'assistant',
-            content: 'Reviewed token validation and session middleware.',
-            sortIndex: 2,
-          },
-        ],
-        omittedIds: ['turn-0'],
-      })
+      vi.spyOn(conversationApi, 'previewEngineHandoff')
     );
     const confirmSpy = trackSpy(
       vi
@@ -345,7 +452,6 @@ describe('ComposerEngineHandoffControl', () => {
       <QueryClientProvider client={queryClient}>
         <HandoffHarness
           sessionId="conv-active-1"
-          hasExistingTurns
           currentExecutor="CLAUDE_CODE"
           onApply={onApply}
         />
@@ -361,16 +467,8 @@ describe('ComposerEngineHandoffControl', () => {
 
     fireEvent.click(screen.getByTestId('switch-to-codex'));
 
-    const dialog = await screen.findByTestId('engine-handoff-dialog');
-    expect(previewSpy).toHaveBeenCalledWith({
-      conversationId: 'conv-active-1',
-      targetEngine: 'CODEX',
-    });
-    expect(dialog).toHaveTextContent('Claude Code');
-    expect(dialog).toHaveTextContent('Codex');
-    expect(onApply).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId('handoff-confirm-btn'));
+    expect(previewSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('engine-handoff-dialog')).toBeNull();
 
     await waitFor(() => {
       expect(confirmSpy).toHaveBeenCalledWith({
@@ -437,7 +535,6 @@ describe('ComposerEngineHandoffControl', () => {
       <QueryClientProvider client={queryClient}>
         <HandoffHarness
           sessionId="conv-empty-1"
-          hasExistingTurns={false}
           currentExecutor="CLAUDE_CODE"
           onApply={onApply}
         />
@@ -481,7 +578,7 @@ describe('ComposerEngineHandoffControl', () => {
     );
   });
 
-  it('rolls back session caches and executor profile when 0-turn confirmEngineHandoff fails with a real error', async () => {
+  it('rolls back session caches and executor profile when confirmEngineHandoff fails with a real error', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -514,7 +611,6 @@ describe('ComposerEngineHandoffControl', () => {
       <QueryClientProvider client={queryClient}>
         <HandoffHarness
           sessionId="conv-empty-err"
-          hasExistingTurns={false}
           currentExecutor="CLAUDE_CODE"
           onApply={onApply}
         />

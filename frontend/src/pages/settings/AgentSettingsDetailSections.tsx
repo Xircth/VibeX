@@ -1,6 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentAuthModeView,
   AgentDiagnosticView,
   AgentId,
   AgentManagementActionsView,
@@ -42,6 +43,11 @@ import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 
 type AgentSettingsDetailSectionsProps = {
   selectedAgent: AgentManagementView;
+  providerInstanceId?: string | null;
+  isCustomInstance?: boolean;
+  instanceSwitcher?: React.ReactNode;
+  authenticationOverride?: AgentManagementView['authentication'];
+  onAuthViewChange?: (view: AgentAuthModeView | null) => void;
   liveConfig: AgentNativeConfigView | null;
   config: AgentNativeConfigView | null;
   hasAuthenticationMode: boolean;
@@ -108,6 +114,11 @@ type AgentSettingsDetailSectionsProps = {
 
 export function AgentSettingsDetailSections({
   selectedAgent,
+  providerInstanceId = null,
+  isCustomInstance = false,
+  instanceSwitcher,
+  authenticationOverride,
+  onAuthViewChange,
   liveConfig,
   config,
   hasAuthenticationMode,
@@ -160,6 +171,8 @@ export function AgentSettingsDetailSections({
   onRefreshManagement,
 }: AgentSettingsDetailSectionsProps) {
   const { t } = useTranslation(['settings', 'common']);
+  const effectiveAuthentication =
+    authenticationOverride ?? selectedAgent.authentication;
   const activeAgentOperation =
     operations[selectedAgent.agent_id] ??
     (enablingOperation?.agentId === selectedAgent.agent_id
@@ -201,10 +214,11 @@ export function AgentSettingsDetailSections({
     ) : hasAuthenticationMode ? (
       <AgentLockedSurface locked={agentLocked}>
         <AgentAuthModeControl
-          key={`${selectedAgent.agent_id}:${providerRefreshKey}`}
+          key={`${selectedAgent.agent_id}:${providerInstanceId ?? 'local'}:${providerRefreshKey}`}
+          providerInstanceId={providerInstanceId}
           actions={actions}
           actionRunning={actionRunning}
-          authentication={selectedAgent.authentication}
+          authentication={effectiveAuthentication}
           agentId={selectedAgent.agent_id}
           busy={Boolean(agentLocked || selectedAgent.retired || operationBusy)}
           headingExtra={
@@ -263,11 +277,12 @@ export function AgentSettingsDetailSections({
               ) ? (
               <AgentModelProviderManager
                 agentId={selectedAgent.agent_id}
+                providerInstanceId={providerInstanceId}
                 disabled={savingConfig || agentLocked}
                 embedded
                 signedIn={
-                  selectedAgent.authentication === 'account' ||
-                  selectedAgent.authentication === 'multiple_unknown'
+                  effectiveAuthentication === 'account' ||
+                  effectiveAuthentication === 'multiple_unknown'
                 }
                 onDirtyChange={dirtyHandlers.modelProvider}
                 onChanged={onNotifyAuthenticationChanged}
@@ -275,6 +290,7 @@ export function AgentSettingsDetailSections({
             ) : undefined
           }
           onChanged={onNotifyAuthenticationChanged}
+          onViewChange={onAuthViewChange}
           onDirtyChange={dirtyHandlers.authMode}
           onAuthenticated={onNotifyAuthenticationChanged}
           onRunAction={onRunManagementAction}
@@ -306,6 +322,9 @@ export function AgentSettingsDetailSections({
           operation={activeAgentOperation}
           preflight={preflight}
           authentication={authenticationPanel}
+          instanceSwitcher={instanceSwitcher}
+          authenticationOverride={authenticationOverride}
+          hidePreflightAndDiagnostics={isCustomInstance}
           diagnostics={diagnostics}
           focusDiagnostics={focusDiagnostics}
           onMarkAllDiagnosticsRead={onMarkAllDiagnosticsRead}
@@ -325,13 +344,14 @@ export function AgentSettingsDetailSections({
           onRemove={onRemove}
           onExportDiagnostics={onExportDiagnostics}
           onEnvironmentDiagnostics={
-            selectedAgent.built_in ||
-            selectedAgent.settings_features?.includes('authentication_mode')
+            !isCustomInstance &&
+            (selectedAgent.built_in ||
+              selectedAgent.settings_features?.includes('authentication_mode'))
               ? () => setEnvironmentDiagnosticsAgentId(selectedAgent.agent_id)
               : undefined
           }
         />
-        {environmentDiagnosticsAgentId ? (
+        {!isCustomInstance && environmentDiagnosticsAgentId ? (
           <AgentEnvironmentDiagnosticsDialog
             agentId={environmentDiagnosticsAgentId}
             open
@@ -340,7 +360,7 @@ export function AgentSettingsDetailSections({
             }}
           />
         ) : null}
-        {selectedAgent.source === 'user_definition' ? (
+        {!isCustomInstance && selectedAgent.source === 'user_definition' ? (
           <UserAgentDefinitionPanel
             definition={userDefinition}
             loading={savingUserDefinition}
@@ -351,119 +371,125 @@ export function AgentSettingsDetailSections({
           />
         ) : null}
 
-        {selectedAgent.agent_id === 'deepseek_harness' ? (
+        {!isCustomInstance ? (
+          selectedAgent.agent_id === 'deepseek_harness' ? (
+            <AgentLockedSurface locked={agentLocked}>
+              <DshSessionDefaults
+                onDirtyChange={dirtyHandlers.configuration}
+                onChanged={async () => {
+                  await onRefreshManagement();
+                }}
+              />
+            </AgentLockedSurface>
+          ) : (
+            <AgentLockedSurface locked={agentLocked}>
+              <AgentConfigurationAndDiagnostics
+                config={config}
+                locked={agentLocked}
+                fieldSurface={
+                  config?.settings_features.includes('authentication_mode')
+                    ? 'configuration'
+                    : undefined
+                }
+                saving={savingConfig}
+                conflictMessage={configConflictMessage}
+                onSave={(request) => onSaveConfig(request)}
+                onSaveFile={onSaveConfigFile}
+                onReloadConflict={onReloadConflict}
+                onAdoptExternal={onAdoptExternalConflict}
+                onOverwriteConflict={onOverwriteConflict}
+                onDirtyChange={dirtyHandlers.configuration}
+              />
+            </AgentLockedSurface>
+          )
+        ) : null}
+        {!isCustomInstance ? (
           <AgentLockedSurface locked={agentLocked}>
-            <DshSessionDefaults
-              onDirtyChange={dirtyHandlers.configuration}
+            <AgentEnvironmentEditor
+              key={`environment:${selectedAgent.agent_id}`}
+              agentId={selectedAgent.agent_id}
+              disabled={Boolean(
+                agentLocked || selectedAgent.retired || operationBusy
+              )}
               onChanged={async () => {
                 await onRefreshManagement();
               }}
+              onDirtyChange={dirtyHandlers.environment}
             />
           </AgentLockedSurface>
-        ) : (
-          <AgentLockedSurface locked={agentLocked}>
-            <AgentConfigurationAndDiagnostics
-              config={config}
-              locked={agentLocked}
-              fieldSurface={
-                config?.settings_features.includes('authentication_mode')
-                  ? 'configuration'
-                  : undefined
-              }
-              saving={savingConfig}
-              conflictMessage={configConflictMessage}
-              onSave={(request) => onSaveConfig(request)}
-              onSaveFile={onSaveConfigFile}
-              onReloadConflict={onReloadConflict}
-              onAdoptExternal={onAdoptExternalConflict}
-              onOverwriteConflict={onOverwriteConflict}
-              onDirtyChange={dirtyHandlers.configuration}
-            />
-          </AgentLockedSurface>
-        )}
-        <AgentLockedSurface locked={agentLocked}>
-          <AgentEnvironmentEditor
-            key={`environment:${selectedAgent.agent_id}`}
-            agentId={selectedAgent.agent_id}
-            disabled={Boolean(
-              agentLocked || selectedAgent.retired || operationBusy
-            )}
-            onChanged={async () => {
-              await onRefreshManagement();
-            }}
-            onDirtyChange={dirtyHandlers.environment}
-          />
-        </AgentLockedSurface>
+        ) : null}
       </div>
-      {selectedAgent.agent_id === 'deepseek_harness' ? (
-        <CollapsibleSettingsSection
-          id={`${selectedAgent.agent_id}-native-plugins`}
-          title={t('settings:agents.pluginsTab')}
-          description={t('settings:agents.pluginsDescription')}
-          expanded={nativePluginsExpanded}
-          onToggle={() => setNativePluginsExpanded((current) => !current)}
-          summary={t('settings:agents.pluginCount', { count: pluginCount })}
-        >
-          <DshPluginManager
-            onChanged={onPreflight}
-            onCount={setPluginCount}
-          />
-        </CollapsibleSettingsSection>
-      ) : selectedAgent.agent_id === 'opencode' ||
-        selectedAgent.agent_id === 'mimo_code' ? (
-        <CollapsibleSettingsSection
-          id={`${selectedAgent.agent_id}-native-plugins`}
-          title={t('settings:agents.pluginsTab')}
-          description={t('settings:agents.pluginsDescription')}
-          expanded={nativePluginsExpanded}
-          onToggle={() => setNativePluginsExpanded((current) => !current)}
-          summary={t('settings:agents.pluginCount', { count: pluginCount })}
-        >
-          <OpenCodePluginHealth
-            agentId={selectedAgent.agent_id}
-            onChanged={onPreflight}
-            onCount={setPluginCount}
-          />
-        </CollapsibleSettingsSection>
-      ) : selectedAgent.agent_id === 'grok' ? (
-        <CollapsibleSettingsSection
-          id={`${selectedAgent.agent_id}-native-plugins`}
-          title={t('settings:agents.pluginsTab')}
-          description={t('settings:agents.pluginsDescription')}
-          expanded={nativePluginsExpanded}
-          onToggle={() => setNativePluginsExpanded((current) => !current)}
-          summary={t('settings:agents.pluginCount', { count: pluginCount })}
-        >
-          <GrokPluginManager
-            onChanged={onPreflight}
-            onCount={setPluginCount}
-          />
-        </CollapsibleSettingsSection>
-      ) : selectedAgent.agent_id === 'pi' ? (
-        <CollapsibleSettingsSection
-          id={`${selectedAgent.agent_id}-native-plugins`}
-          title={t('settings:agents.pluginsTab')}
-          description={t('settings:agents.pluginsDescription')}
-          expanded={nativePluginsExpanded}
-          onToggle={() => setNativePluginsExpanded((current) => !current)}
-          summary={t('settings:agents.pluginCount', { count: pluginCount })}
-        >
-          <PiPluginManager
-            onChanged={onPreflight}
-            onCount={setPluginCount}
-          />
-        </CollapsibleSettingsSection>
-      ) : nativePluginEcosystem ? (
-        <CollapsibleSettingsSection
-          id={`${selectedAgent.agent_id}-native-plugins`}
-          title={t('settings:agents.pluginsTab')}
-          description={t('settings:agents.pluginsDescription')}
-          expanded={nativePluginsExpanded}
-          onToggle={() => setNativePluginsExpanded((current) => !current)}
-          summary={t('settings:agents.pluginCount', { count: pluginCount })}
-        >
-          <PluginsSettings ecosystem={nativePluginEcosystem} embedded />
-        </CollapsibleSettingsSection>
+      {!isCustomInstance ? (
+        selectedAgent.agent_id === 'deepseek_harness' ? (
+          <CollapsibleSettingsSection
+            id={`${selectedAgent.agent_id}-native-plugins`}
+            title={t('settings:agents.pluginsTab')}
+            description={t('settings:agents.pluginsDescription')}
+            expanded={nativePluginsExpanded}
+            onToggle={() => setNativePluginsExpanded((current) => !current)}
+            summary={t('settings:agents.pluginCount', { count: pluginCount })}
+          >
+            <DshPluginManager
+              onChanged={onPreflight}
+              onCount={setPluginCount}
+            />
+          </CollapsibleSettingsSection>
+        ) : selectedAgent.agent_id === 'opencode' ||
+          selectedAgent.agent_id === 'mimo_code' ? (
+          <CollapsibleSettingsSection
+            id={`${selectedAgent.agent_id}-native-plugins`}
+            title={t('settings:agents.pluginsTab')}
+            description={t('settings:agents.pluginsDescription')}
+            expanded={nativePluginsExpanded}
+            onToggle={() => setNativePluginsExpanded((current) => !current)}
+            summary={t('settings:agents.pluginCount', { count: pluginCount })}
+          >
+            <OpenCodePluginHealth
+              agentId={selectedAgent.agent_id}
+              onChanged={onPreflight}
+              onCount={setPluginCount}
+            />
+          </CollapsibleSettingsSection>
+        ) : selectedAgent.agent_id === 'grok' ? (
+          <CollapsibleSettingsSection
+            id={`${selectedAgent.agent_id}-native-plugins`}
+            title={t('settings:agents.pluginsTab')}
+            description={t('settings:agents.pluginsDescription')}
+            expanded={nativePluginsExpanded}
+            onToggle={() => setNativePluginsExpanded((current) => !current)}
+            summary={t('settings:agents.pluginCount', { count: pluginCount })}
+          >
+            <GrokPluginManager
+              onChanged={onPreflight}
+              onCount={setPluginCount}
+            />
+          </CollapsibleSettingsSection>
+        ) : selectedAgent.agent_id === 'pi' ? (
+          <CollapsibleSettingsSection
+            id={`${selectedAgent.agent_id}-native-plugins`}
+            title={t('settings:agents.pluginsTab')}
+            description={t('settings:agents.pluginsDescription')}
+            expanded={nativePluginsExpanded}
+            onToggle={() => setNativePluginsExpanded((current) => !current)}
+            summary={t('settings:agents.pluginCount', { count: pluginCount })}
+          >
+            <PiPluginManager
+              onChanged={onPreflight}
+              onCount={setPluginCount}
+            />
+          </CollapsibleSettingsSection>
+        ) : nativePluginEcosystem ? (
+          <CollapsibleSettingsSection
+            id={`${selectedAgent.agent_id}-native-plugins`}
+            title={t('settings:agents.pluginsTab')}
+            description={t('settings:agents.pluginsDescription')}
+            expanded={nativePluginsExpanded}
+            onToggle={() => setNativePluginsExpanded((current) => !current)}
+            summary={t('settings:agents.pluginCount', { count: pluginCount })}
+          >
+            <PluginsSettings ecosystem={nativePluginEcosystem} embedded />
+          </CollapsibleSettingsSection>
+        ) : null
       ) : null}
     </div>
   );

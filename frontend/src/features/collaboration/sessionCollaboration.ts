@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { COLLABORATION_WORKSPACE_TAB } from '@/lib/hostSurfaceIds';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
@@ -6,22 +7,41 @@ import {
   type CollaborationSessionFocus,
 } from './collaborationLayoutStore';
 
+export type KanbanSessionCollaborationMember = {
+  memberId: string;
+  name: string;
+  conversationId: string;
+};
+
 export type KanbanSessionCollaboration = {
   memberId: string;
   memberName: string;
   threadId: string;
   threadKind: string;
   threadName: string;
+  /** Group members in join order (the group avatar); empty for direct chats. */
+  threadMembers: KanbanSessionCollaborationMember[];
 };
 
-export function collaborationStoredSessionName(
-  storedName: string | null | undefined,
-  memberName: string | null | undefined
-): string | null {
-  const name = storedName?.trim() ?? '';
-  if (!name) return null;
-  if (memberName?.trim() && name === memberName.trim()) return null;
-  return name;
+/** The user side of a direct chat in Bot session titles. */
+export const COLLABORATION_SESSION_USER_LABEL = 'User';
+
+export function collaborationSessionSpaceName(
+  collaboration: Pick<KanbanSessionCollaboration, 'threadKind' | 'threadName'>
+): string {
+  return collaboration.threadKind === 'group'
+    ? collaboration.threadName
+    : COLLABORATION_SESSION_USER_LABEL;
+}
+
+/** `User → 小A` for a direct chat, `后端群 → 小A` inside a group. */
+export function collaborationSessionTitle(
+  collaboration: Pick<
+    KanbanSessionCollaboration,
+    'threadKind' | 'threadName' | 'memberName'
+  >
+): string {
+  return `${collaborationSessionSpaceName(collaboration)} → ${collaboration.memberName}`;
 }
 
 export function openCollaborationSessionFromList(input: {
@@ -38,4 +58,19 @@ export function openCollaborationSessionFromList(input: {
   };
   useCollaborationLayoutStore.getState().requestSessionFocus(focus);
   useLayoutStore.getState().setActiveTab(COLLABORATION_WORKSPACE_TAB);
+}
+
+/** Session-menu entry that opens a Bot session's chat in the collaboration space. */
+export function collaborationSessionMenuAction(
+  conversationId: string,
+  collaboration: KanbanSessionCollaboration | null
+): { label: string; onSelect: () => void } | undefined {
+  if (!collaboration) return undefined;
+  return {
+    label: i18n.t('panels:ui.collab.openBotMembername', {
+      memberName: collaboration.memberName,
+    }),
+    onSelect: () =>
+      openCollaborationSessionFromList({ conversationId, collaboration }),
+  };
 }

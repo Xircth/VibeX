@@ -56,6 +56,7 @@ function emptyDetail(
       title_locked: false,
       status: 'inprogress',
       agent_id: 'claude_code' as const,
+      provider_instance_id: null,
       model: null,
       external_session_id: null,
       message_count: 0n,

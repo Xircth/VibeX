@@ -89,6 +89,24 @@ async fn build_inline_step_context(
         }
     }
 
+    let mut steps_map = serde_json::Map::new();
+    let completed_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT step_id, output_json FROM workflow_step_runs
+         WHERE run_id = ? AND status = 'completed' AND output_json IS NOT NULL
+         ORDER BY attempt ASC",
+    )
+    .bind(run_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    for (completed_id, raw) in completed_rows {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) {
+            steps_map.insert(
+                completed_id,
+                serde_json::json!({ "output": parsed }),
+            );
+        }
+    }
+
     for target_id in extra_step_ids {
         let output_json: Option<String> = sqlx::query_scalar(
             "SELECT output_json FROM workflow_step_runs
@@ -108,9 +126,14 @@ async fn build_inline_step_context(
                     map.entry(k.clone()).or_insert_with(|| v.clone());
                 }
             }
+            steps_map.insert(
+                target_id.clone(),
+                serde_json::json!({ "output": parsed.clone() }),
+            );
             map.insert(target_id.clone(), parsed);
         }
     }
+    map.insert("steps".to_string(), serde_json::Value::Object(steps_map));
 
     Ok(serde_json::Value::Object(map))
 }

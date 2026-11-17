@@ -52,8 +52,6 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1.0"
 # Optional passphrase encryption for portable backups (P3-4).
-aes-gcm = { version = "0.10", features = ["stream"] }
-argon2 = "0.5"
 rand = "0.8"
 # Deep links (P2-5). single-instance MUST be registered before deep-link.
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

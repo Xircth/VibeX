@@ -26,6 +26,7 @@ export const EMPTY_FORM_SNAPSHOT: ProviderFormSnapshot = {
 
 export interface AgentModelProviderManagerProps {
   agentId: AgentId;
+  providerInstanceId?: string | null;
   disabled: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onChanged?: () => void | Promise<void>;

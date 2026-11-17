@@ -55,6 +55,8 @@ use crate::{
 #[serde(rename_all = "camelCase")]
 struct AgentIdArgs {
     agent_id: AgentId,
+    #[serde(default, alias = "provider_instance_id")]
+    provider_instance_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -193,6 +195,8 @@ struct AgentInstallVersionArgs {
 struct SessionDefaultsArgs {
     agent_id: AgentId,
     defaults: Option<HashMap<String, Value>>,
+    #[serde(default, alias = "provider_instance_id")]
+    provider_instance_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -532,7 +536,7 @@ impl ServerApplicationDomains {
                 let view =
                     super::native_commands::dispatch_codex_catalog_apply(&self.pool, args).await?;
                 let agent_id = AgentId::parse("codex").map_err(internal_error)?;
-                self.after_agent_native_model_change(&agent_id, "Codex 模型清单已更改")
+                self.after_agent_native_model_change(&agent_id, None, "Codex 模型清单已更改")
                     .await;
                 Ok(view)
             }
@@ -1073,6 +1077,7 @@ impl ServerApplicationDomains {
             &CreateSession {
                 executor: Some(args.agent_id.to_string()),
                 agent_id: Some(args.agent_id.clone()),
+                provider_instance_id: None,
                 task_id: Some(workspace.task_id),
                 name: args.title,
                 initial_prompt: None,
@@ -1211,6 +1216,7 @@ impl ServerApplicationDomains {
             &CreateSession {
                 executor: Some(args.agent_id.to_string()),
                 agent_id: Some(args.agent_id.clone()),
+                provider_instance_id: None,
                 task_id: Some(workspace.task_id),
                 name: title,
                 initial_prompt: imported.messages.iter().find_map(|message| {
@@ -1356,7 +1362,10 @@ impl ServerApplicationDomains {
             }
         }
         let catalog = self
-            .agent_capability_catalog(json!({ "agentId": args.agent_id }))
+            .agent_capability_catalog(json!({
+                "agentId": args.agent_id,
+                "providerInstanceId": args.provider_instance_id,
+            }))
             .await?;
         let options = serde_json::from_value::<AgentSessionControlsSnapshot>(catalog)
             .ok()
@@ -1378,10 +1387,11 @@ impl ServerApplicationDomains {
         let valid = if requested.is_empty() {
             BTreeMap::new()
         } else {
-            let snapshot = conversations::load_capability_catalog_for_session_defaults(
+            let snapshot = conversations::load_capability_catalog_for_session_defaults_for_provider_instance(
                 &self.pool,
                 &self.conversations.agent_runtime,
                 &args.agent_id,
+                args.provider_instance_id.as_deref(),
             )
             .await
             .map_err(conversation_error)?;
@@ -2091,15 +2101,20 @@ impl ServerApplicationDomains {
 
     async fn agent_model_provider_mutated(
         &self,
-        (agent_id, view): (AgentId, Value),
+        (agent_id, instance_id, view): (AgentId, Option<String>, Value),
         message: &'static str,
     ) -> Result<Value, ApplicationError> {
-        self.after_agent_native_model_change(&agent_id, message)
+        self.after_agent_native_model_change(&agent_id, instance_id.as_deref(), message)
             .await;
         Ok(view)
     }
 
-    async fn after_agent_native_model_change(&self, agent_id: &AgentId, message: &'static str) {
+    async fn after_agent_native_model_change(
+        &self,
+        agent_id: &AgentId,
+        instance_id: Option<&str>,
+        message: &'static str,
+    ) {
         self.conversations
             .agent_runtime
             .mark_agent_sessions_config_stale(agent_id, message)
@@ -2109,10 +2124,11 @@ impl ServerApplicationDomains {
         {
             tracing::warn!(%error, "failed to invalidate capability catalog");
         }
-        if let Err(error) = conversations::refresh_open_capability_catalog(
+        if let Err(error) = conversations::refresh_open_capability_catalog_for_provider_instance(
             &self.pool,
             &self.conversations.agent_runtime,
             agent_id,
+            instance_id,
         )
         .await
         {
@@ -2146,6 +2162,11 @@ impl ServerApplicationDomains {
         }
         let preview: AuthModeSetArgs = parse(args.clone())?;
         let view = super::management::dispatch_auth_mode_set(&self.pool, args).await?;
+        if let Err(error) =
+            conversations::invalidate_open_capability_catalog(&self.pool, &preview.agent_id).await
+        {
+            tracing::warn!(%error, "failed to invalidate capability catalog after auth mode change");
+        }
         self.conversations
             .agent_runtime
             .mark_agent_sessions_config_stale(&preview.agent_id, "Agent 鉴权模式已更改")
@@ -2500,6 +2521,7 @@ async fn import_one_history_selection(
         &CreateSession {
             executor: Some(selection.agent_id.to_string()),
             agent_id: Some(selection.agent_id.clone()),
+            provider_instance_id: None,
             task_id: Some(workspace.task_id),
             name: imported.title.clone(),
             initial_prompt: None,

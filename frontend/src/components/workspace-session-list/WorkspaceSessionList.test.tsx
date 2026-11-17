@@ -835,33 +835,36 @@ describe('WorkspaceSessionList', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows a collaboration badge before the session age', () => {
-    const onSessionClick = vi.fn();
+  it('names a direct Bot session User → Bot without a trailing Bot badge', () => {
     renderList(
       <WorkspaceSessionList
         sessions={[
           session({
-            firstPrompt: '请帮我看登录',
+            firstPrompt: '<dimo-private-bootstrap>hi</dimo-private-bootstrap>',
             collaboration: {
               memberId: 'mem-a',
               memberName: '小A',
               threadId: 'direct:mem-a',
-              threadKind: 'dm',
+              threadKind: 'direct',
               threadName: '小A',
+              threadMembers: [],
             },
           }),
         ]}
         isLoading={false}
         activeSessionId={null}
         activeWorkspaceId="workspace-1"
-        onSessionClick={onSessionClick}
+        onSessionClick={vi.fn()}
       />
     );
 
-    const badge = screen.getByTestId('collaboration-session-badge');
-    expect(badge).toHaveTextContent('小A');
-    fireEvent.click(badge);
-    expect(onSessionClick).not.toHaveBeenCalled();
+    const title = screen.getByTestId('collaboration-session-title');
+    expect(title).toHaveTextContent('User→小A');
+    expect(within(title).getByText('User')).toHaveClass('text-primary');
+    expect(
+      screen.getByRole('button', { name: /^User → 小A,/ })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('小A')).toHaveLength(1);
   });
 
   it('hides Bot sessions from the Workspace session list when hideBotSessions is enabled', () => {
@@ -894,6 +897,7 @@ describe('WorkspaceSessionList', () => {
               threadId: 'direct:mem-a',
               threadKind: 'dm',
               threadName: '小A',
+              threadMembers: [],
             },
           }),
         ]}
@@ -908,7 +912,7 @@ describe('WorkspaceSessionList', () => {
       screen.getByRole('button', { name: /User workspace session/ })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: /Bot workspace session/ })
+      screen.queryByRole('button', { name: /User → 小A/ })
     ).not.toBeInTheDocument();
 
     act(() => {

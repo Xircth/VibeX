@@ -22,6 +22,10 @@ pub const SESSION_FEAT_SESSION_CONTROL: u8 = 1 << 3;
 pub const SESSION_FEAT_ALL: u8 =
     SESSION_FEAT_FEEDBACK | SESSION_FEAT_ASK | SESSION_FEAT_SESSIONS | SESSION_FEAT_SESSION_CONTROL;
 
+/// Canonical unified MCP identity consolidating delegation, session,
+/// pulse automation, and workflow orchestration tools.
+pub const SUPERAGENT_MCP_NAME: &str = "Dimo-superagent-mcp";
+
 /// Host-injected / native-projected MCP identity for multi-agent delegation.
 pub const DELEGATION_MCP_NAME: &str = "dimo-delegation-mcp";
 
@@ -36,6 +40,35 @@ pub fn delegation_mcp_features(space_session: bool) -> &'static str {
     } else {
         DELEGATION_MCP_FEATURES
     }
+}
+
+/// Build the unified `--features` list for `Dimo-superagent-mcp`.
+/// `pulse` and `workflow` are built-in and always enabled.
+pub fn superagent_mcp_features(delegation: bool, space_session: bool, session_bits: u8) -> String {
+    let mut features: Vec<&'static str> = Vec::new();
+    if delegation {
+        features.push("delegation");
+        features.push("sessions");
+        features.push("collaboration");
+        if space_session {
+            features.push("space");
+        }
+    }
+    if session_bits & SESSION_FEAT_FEEDBACK != 0 {
+        features.push("feedback");
+    }
+    if session_bits & SESSION_FEAT_ASK != 0 {
+        features.push("ask");
+    }
+    if session_bits & SESSION_FEAT_SESSIONS != 0 && !features.contains(&"sessions") {
+        features.push("sessions");
+    }
+    if session_bits & SESSION_FEAT_SESSION_CONTROL != 0 {
+        features.push("session-control");
+    }
+    features.push("pulse");
+    features.push("workflow");
+    features.join(",")
 }
 
 /// Sentinel binding id for the host MultiAgent setting. Not an official plugin.
@@ -106,6 +139,7 @@ pub struct OfficialMcpRuntime {
     host_limits_ready: AtomicBool,
     host_limits: Mutex<HostDelegationLimits>,
     host_delegation_token: Mutex<Option<String>>,
+    superagent_token: Mutex<Option<String>>,
 }
 
 impl OfficialMcpRuntime {
@@ -125,20 +159,15 @@ impl OfficialMcpRuntime {
     }
 
     pub fn allow_workflow_mcp(&self) -> bool {
-        self.bindings().iter().any(|binding| {
-            binding.binary_id == "dimo-workflow-mcp" || binding.product == "workflow"
-        })
+        true
+    }
+
+    pub fn allow_pulse_mcp(&self) -> bool {
+        true
     }
 
     pub fn product_mcp_names(&self) -> Vec<String> {
-        let mut names = Vec::new();
-        if self.allow_delegation_mcp() {
-            names.push(DELEGATION_MCP_NAME.to_string());
-        }
-        if self.allow_session_mcp() {
-            names.push(SESSION_MCP_NAME.to_string());
-        }
-        names
+        vec![SUPERAGENT_MCP_NAME.to_string()]
     }
 
     pub fn set_session_features(&self, bits: u8) {
@@ -175,7 +204,50 @@ impl OfficialMcpRuntime {
         self.token_for_product("session")
     }
 
+    pub fn superagent_token(&self) -> String {
+        let mut slot = self
+            .superagent_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(existing) = slot.as_ref().filter(|value| !value.is_empty()) {
+            return existing.clone();
+        }
+        let generated = uuid::Uuid::new_v4().to_string();
+        *slot = Some(generated.clone());
+        generated
+    }
+
+    pub fn is_valid_product_token(&self, candidate: &str) -> bool {
+        if candidate.trim().is_empty() {
+            return false;
+        }
+        if self
+            .superagent_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_deref()
+            == Some(candidate)
+        {
+            return true;
+        }
+        if self
+            .host_delegation_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_deref()
+            == Some(candidate)
+        {
+            return true;
+        }
+        self.bindings()
+            .iter()
+            .any(|binding| binding.token == candidate)
+    }
+
     pub fn token_for_product(&self, product: &str) -> Option<String> {
+        if product == "superagent" {
+            return Some(self.superagent_token());
+        }
         self.bindings()
             .into_iter()
             .find(|binding| binding.product == product)
@@ -200,6 +272,10 @@ impl OfficialMcpRuntime {
             HostDelegationLimits::default();
         *self
             .host_delegation_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .superagent_token
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = None;
         self.bindings
@@ -319,8 +395,8 @@ fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
         let Some(product) = host_family_product(spec) else {
             continue;
         };
-        // Delegation is a host setting. A leftover package must not open the gate.
-        if product == "delegation" {
+        // Delegation is a host setting; workflow is built into Dimo-superagent-mcp.
+        if matches!(product, "delegation" | "workflow") {
             continue;
         }
         let binary_id = spec
@@ -564,6 +640,7 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
         "workflow" => [
             "workflow_source_read",
             "workflow_source_write",
+            "workflow_graph_patch",
             "workflow_validate",
             "workflow_publish",
             "workflow_catalog",
@@ -583,6 +660,29 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
         .into_iter()
         .map(|name| tool(name, "workflow"))
         .collect(),
+        "pulse" => [
+            "pulse_rule_list",
+            "pulse_rule_upsert",
+            "pulse_rule_toggle",
+            "pulse_event_list",
+            "pulse_event_emit",
+            "pulse_outbox_list",
+            "pulse_connector_health",
+        ]
+        .into_iter()
+        .map(|name| tool(name, "pulse"))
+        .collect(),
+        "superagent" => {
+            let mut tools = advertised_mcp_tools("delegation", features);
+            for item in advertised_mcp_tools("session", features) {
+                if !tools.iter().any(|existing| existing.name == item.name) {
+                    tools.push(item);
+                }
+            }
+            tools.extend(advertised_mcp_tools("pulse", features));
+            tools.extend(advertised_mcp_tools("workflow", features));
+            tools
+        }
         _ => Vec::new(),
     }
 }
@@ -799,7 +899,11 @@ pub fn session_features_from_config(config: &Value) -> u8 {
 pub fn binding_has_delegation_mcp(mcp_servers_json: &str) -> bool {
     serde_json::from_str::<Vec<String>>(mcp_servers_json)
         .ok()
-        .is_some_and(|names| names.iter().any(|name| name == DELEGATION_MCP_NAME))
+        .is_some_and(|names| {
+            names
+                .iter()
+                .any(|name| name == SUPERAGENT_MCP_NAME || name == DELEGATION_MCP_NAME)
+        })
 }
 
 #[cfg(test)]
@@ -1185,5 +1289,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["list_apps", "search_actions"]
         );
+    }
+
+    #[test]
+    fn superagent_mcp_exposes_workflow_pulse_and_dynamic_features() {
+        let runtime = OfficialMcpRuntime::default();
+        assert!(runtime.allow_workflow_mcp());
+        assert!(runtime.allow_pulse_mcp());
+        assert_eq!(runtime.product_mcp_names(), vec![SUPERAGENT_MCP_NAME]);
+
+        let token = runtime.superagent_token();
+        assert!(!token.is_empty());
+        assert!(runtime.is_valid_product_token(&token));
+        assert_eq!(runtime.token_for_product("superagent"), Some(token));
+
+        assert_eq!(
+            superagent_mcp_features(false, false, 0),
+            "pulse,workflow"
+        );
+        assert_eq!(
+            superagent_mcp_features(true, true, SESSION_FEAT_ASK | SESSION_FEAT_FEEDBACK),
+            "delegation,sessions,collaboration,space,feedback,ask,pulse,workflow"
+        );
+        let tools = advertised_mcp_tools("superagent", SESSION_FEAT_ASK);
+        assert!(tools.iter().any(|t| t.name == "workflow_graph_patch"));
+        assert!(tools.iter().any(|t| t.name == "pulse_rule_upsert"));
+        assert!(tools.iter().any(|t| t.name == "delegate_to_agent"));
+        assert!(tools.iter().any(|t| t.name == "ask_user_question"));
     }
 }

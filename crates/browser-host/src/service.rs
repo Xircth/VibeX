@@ -193,10 +193,19 @@ pub struct BrowserService {
     policy: BrowserPolicy,
     settings: Mutex<BrowserSettings>,
     load_notify: Notify,
+    userdata: crate::userdata::UserDataManager,
 }
 
 impl BrowserService {
     pub fn new(native: Arc<dyn NativeTabs>, available: bool) -> Self {
+        Self::with_data_dir(native, available, None)
+    }
+
+    pub fn with_data_dir(
+        native: Arc<dyn NativeTabs>,
+        available: bool,
+        data_dir: Option<std::path::PathBuf>,
+    ) -> Self {
         Self {
             occupant: Mutex::new(None),
             tabs: Mutex::new(HashMap::new()),
@@ -206,11 +215,24 @@ impl BrowserService {
             policy: BrowserPolicy::load(),
             settings: Mutex::new(BrowserSettings::default()),
             load_notify: Notify::new(),
+            userdata: crate::userdata::UserDataManager::new(data_dir),
         }
     }
 
     pub fn unavailable() -> Self {
         Self::new(Arc::new(UnavailableNative), false)
+    }
+
+    pub(crate) fn userdata(&self) -> &crate::userdata::UserDataManager {
+        &self.userdata
+    }
+
+    pub(crate) fn get_tab(&self, tab_id: &str) -> Result<BrowserTab, BrowserHostError> {
+        self.tab(tab_id)
+    }
+
+    pub(crate) fn native_handle(&self) -> &dyn NativeTabs {
+        self.native.as_ref()
     }
 
     pub fn policy(&self) -> &BrowserPolicy {
@@ -816,6 +838,7 @@ pub async fn dispatch(
             settings.profiles.retain(|p| p.id != profile_id);
             let saved = service.apply_settings(settings);
             service.native.remove_profile(&profile_id).await?;
+            let _ = service.userdata.remove_profile_data(&profile_id);
             Ok(json!({
                 "removed": true,
                 "profileId": profile_id,
@@ -1328,6 +1351,9 @@ window.__codegPicker && window.__codegPicker.start({id_json});
             };
             let _ = service.native.inject(&tab_id, script).await;
             Ok(json!({ "ok": true, "hidden": hidden }))
+        }
+        op if op.starts_with("userdata.") => {
+            crate::userdata_dispatch::dispatch_userdata(service, op, input).await
         }
         other => Err(BrowserHostError::new(
             "capability_unimplemented",

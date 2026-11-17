@@ -113,6 +113,53 @@ describe('suggestBrowserAddresses', () => {
       },
     ]);
   });
+
+  it('includes matching imported frequent history ranked by visitCount and bookmarks', () => {
+    const rows = suggestBrowserAddresses('linear', [], {
+      frequentHistory: [
+        {
+          url: 'https://linear.app/dimo/issue/DIM-2',
+          title: 'DIM-2 Import',
+          visitCount: 8,
+          lastVisitedAt: 100,
+        },
+        {
+          url: 'https://linear.app/dimo',
+          title: 'Linear Workspace',
+          visitCount: 42,
+          lastVisitedAt: 200,
+        },
+      ],
+      bookmarks: [
+        {
+          url: 'https://docs.linear.app/',
+          title: 'Linear Docs',
+        },
+      ],
+    });
+    expect(rows.slice(0, 3)).toEqual([
+      {
+        kind: 'frequent',
+        url: 'https://linear.app/dimo',
+        title: 'Linear Workspace',
+        favicon: 'https://linear.app/favicon.ico',
+        visitCount: 42,
+      },
+      {
+        kind: 'frequent',
+        url: 'https://linear.app/dimo/issue/DIM-2',
+        title: 'DIM-2 Import',
+        favicon: 'https://linear.app/favicon.ico',
+        visitCount: 8,
+      },
+      {
+        kind: 'bookmark',
+        url: 'https://docs.linear.app/',
+        title: 'Linear Docs',
+        favicon: 'https://docs.linear.app/favicon.ico',
+      },
+    ]);
+  });
 });
 
 describe('recordBrowserAddressVisit', () => {

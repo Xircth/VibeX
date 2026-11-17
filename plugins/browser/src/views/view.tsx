@@ -7,6 +7,10 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  BrowserUserDataImport,
+  type ProfileUserDataSummary,
+} from './BrowserUserDataImport';
 
 export interface PluginRemoteEnvironment {
   pluginId: string;
@@ -1656,6 +1660,7 @@ function NestedList({
 
 function ProfileList({
   profiles,
+  summaries,
   busyProfile,
   confirmClearProfile,
   onRequestClear,
@@ -1664,6 +1669,7 @@ function ProfileList({
   onRemoveProfile,
 }: {
   profiles: BrowserProfileRecord[];
+  summaries?: Record<string, ProfileUserDataSummary>;
   busyProfile: string | null;
   confirmClearProfile: string | null;
   onRequestClear: (profileId: string) => void;
@@ -1687,6 +1693,12 @@ function ProfileList({
         const isBusy = busyProfile === profile.id;
         const confirmingClear = confirmClearProfile === profile.id;
         const displayName = formatProfileDisplayName(profile);
+        const summary = summaries?.[profile.id];
+        const hasCounts =
+          summary &&
+          (summary.bookmarksCount > 0 ||
+            summary.historyCount > 0 ||
+            summary.credentialsCount > 0);
 
         return (
           <div
@@ -1706,6 +1718,11 @@ function ProfileList({
               <span className="truncate text-xs font-medium text-foreground">
                 {displayName}
               </span>
+              {hasCounts ? (
+                <span className="truncate text-[11px] text-muted-foreground tabular-nums">
+                  {`书签 ${summary.bookmarksCount} · 历史 ${summary.historyCount} · 密码 ${summary.credentialsCount}`}
+                </span>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
@@ -1780,6 +1797,9 @@ export default function BrowserSettingsRemoteView({
   const [confirmClearProfile, setConfirmClearProfile] = useState<string | null>(
     null
   );
+  const [userDataSummaries, setUserDataSummaries] = useState<
+    Record<string, ProfileUserDataSummary>
+  >({});
 
   const [statusMessage, setStatusMessage] = useState<{
     tone: 'success' | 'danger' | 'neutral';
@@ -1863,6 +1883,20 @@ export default function BrowserSettingsRemoteView({
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
+  const refreshUserDataSummaries = useCallback(async () => {
+    if (!environment?.invoke && !getTauriInvoke()) return;
+    try {
+      const res = await dispatch<{
+        summaries?: Record<string, ProfileUserDataSummary>;
+      }>('userdata.summaries', {});
+      if (res?.summaries && typeof res.summaries === 'object') {
+        setUserDataSummaries(res.summaries);
+      }
+    } catch {
+      // Host build or test harness may not support userdata.summaries yet
+    }
+  }, [dispatch, environment]);
+
   const refreshAll = useCallback(
     async (updateSettingsState = true) => {
       if (!environment?.invoke && !getTauriInvoke()) {
@@ -1883,6 +1917,7 @@ export default function BrowserSettingsRemoteView({
           }
           if (boot.capabilities) setCapabilities(boot.capabilities);
           if (Array.isArray(boot.tabs)) setTabs(boot.tabs);
+          void refreshUserDataSummaries();
           setLoading(false);
           return;
         }
@@ -1922,9 +1957,10 @@ export default function BrowserSettingsRemoteView({
         // Ignore
       }
 
+      void refreshUserDataSummaries();
       setLoading(false);
     },
-    [dispatch, environment]
+    [dispatch, environment, refreshUserDataSummaries]
   );
 
   useEffect(() => {
@@ -2682,6 +2718,7 @@ export default function BrowserSettingsRemoteView({
 
               <ProfileList
                 profiles={settings.profiles}
+                summaries={userDataSummaries}
                 busyProfile={busyProfile}
                 confirmClearProfile={confirmClearProfile}
                 onRequestClear={(id) => setConfirmClearProfile(id)}
@@ -2734,6 +2771,18 @@ export default function BrowserSettingsRemoteView({
                   {profileError}
                 </p>
               ) : null}
+
+              <BrowserUserDataImport
+                profiles={settings.profiles.map((p) => ({
+                  id: p.id,
+                  label: formatProfileDisplayName(p),
+                }))}
+                defaultTargetProfileId={settings.newTabProfile}
+                summaries={userDataSummaries}
+                dispatch={dispatch}
+                onSummariesRefresh={refreshUserDataSummaries}
+                onStatus={flashStatus}
+              />
             </div>
 
             {/* 3B. 站点规则 */}

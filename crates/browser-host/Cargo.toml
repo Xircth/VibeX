@@ -14,7 +14,17 @@ async-trait = { workspace = true }
 tracing = { workspace = true }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
+aes-gcm = "0.10"
+getrandom = "0.2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+dirs = { workspace = true }
+tempfile = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
-tempfile = { workspace = true }

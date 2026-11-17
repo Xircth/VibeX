@@ -73,6 +73,13 @@ import {
   BrowserAgentActivityControl,
   BrowserAgentShareControl,
 } from './BrowserAgentAccess';
+import {
+  BrowserBookmarksButton,
+  BrowserCredentialsButton,
+  type BrowserBookmarkItem,
+  type BrowserCredentialSummary,
+  type BrowserFrequentHistoryItem,
+} from './BrowserUserDataControls';
 import { BrowserFindBar } from './BrowserFindBar';
 import { BrowserDownloadBar, BrowserNoticeBar } from './BrowserStatusLayer';
 import {
@@ -300,6 +307,7 @@ interface BrowserTab {
   url: string;
   title: string;
   origin?: string | null;
+  profileId?: string;
   grant?: { level: string } | null;
 }
 
@@ -438,14 +446,31 @@ export function HostBrowserPanel({
   const [addressHistory, setAddressHistory] = useState<
     BrowserAddressHistoryEntry[]
   >(() => loadBrowserAddressHistory());
+  const [frequentHistory, setFrequentHistory] = useState<
+    BrowserFrequentHistoryItem[]
+  >([]);
+  const [bookmarks, setBookmarks] = useState<BrowserBookmarkItem[]>([]);
+  const [matchingCredentials, setMatchingCredentials] = useState<
+    BrowserCredentialSummary[]
+  >([]);
+  const [fillingCredentialId, setFillingCredentialId] = useState<string | null>(
+    null
+  );
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
   const addressDirtyRef = useRef(false);
   const addressFieldRef = useRef<HTMLDivElement>(null);
   const addressToolsRef = useRef<HTMLDivElement>(null);
-  const suggestions = suggestBrowserAddresses(address, addressHistory);
+  const suggestions = suggestBrowserAddresses(address, addressHistory, {
+    frequentHistory,
+    bookmarks,
+  });
   const hideSeqRef = useRef(0);
   const loadingRef = useRef(false);
+  const activeProfileId =
+    tab?.profileId || browserPrefs.settings.newTabProfile || 'default';
+  const activeProfileIdRef = useRef(activeProfileId);
+  activeProfileIdRef.current = activeProfileId;
 
   useLayoutEffect(() => {
     const tools = addressToolsRef.current;
@@ -481,6 +506,95 @@ export function HostBrowserPanel({
   panelVisibleRef.current = panelVisible;
   visibleRef.current = panelVisible;
   loadingRef.current = loading;
+
+  const loadUserDataProfile = useCallback(
+    async (profileId: string) => {
+      if (!profileId || profileId === 'ephemeral') {
+        setFrequentHistory([]);
+        setBookmarks([]);
+        return;
+      }
+      try {
+        const [histRes, bmRes] = await Promise.all([
+          dispatch('userdata.history.list', { profileId, limit: 200 }).catch(
+            () => null
+          ),
+          dispatch('userdata.bookmarks.list', { profileId }).catch(() => null),
+        ]);
+        const hist = (histRes as { history?: unknown } | null)?.history;
+        if (Array.isArray(hist)) {
+          setFrequentHistory(hist as BrowserFrequentHistoryItem[]);
+        }
+        const bms = (bmRes as { bookmarks?: unknown } | null)?.bookmarks;
+        if (Array.isArray(bms)) {
+          setBookmarks(bms as BrowserBookmarkItem[]);
+        }
+      } catch {
+        // Ignore transient or mocked transport rejections
+      }
+    },
+    [dispatch]
+  );
+
+  const loadMatchingCredentials = useCallback(
+    async (profileId: string, url: string) => {
+      const trimmedUrl = url.trim();
+      if (
+        !profileId ||
+        profileId === 'ephemeral' ||
+        !/^https?:\/\//i.test(trimmedUrl)
+      ) {
+        setMatchingCredentials([]);
+        return;
+      }
+      try {
+        const res = await dispatch('userdata.credentials.list', {
+          profileId,
+          url: trimmedUrl,
+        });
+        const list = (res as { credentials?: unknown } | null)?.credentials;
+        setMatchingCredentials(
+          Array.isArray(list) ? (list as BrowserCredentialSummary[]) : []
+        );
+      } catch {
+        setMatchingCredentials([]);
+      }
+    },
+    [dispatch]
+  );
+
+  useEffect(() => {
+    void loadUserDataProfile(activeProfileId);
+  }, [activeProfileId, loadUserDataProfile]);
+
+  useEffect(() => {
+    if (!tab?.tabId || !tab.url) {
+      setMatchingCredentials([]);
+      return;
+    }
+    void loadMatchingCredentials(activeProfileId, tab.url);
+  }, [activeProfileId, loadMatchingCredentials, tab?.tabId, tab?.url]);
+
+  useEffect(() => {
+    const onUserDataChanged = () => {
+      void loadUserDataProfile(activeProfileIdRef.current);
+      if (tabIdRef.current && tab?.url) {
+        void loadMatchingCredentials(activeProfileIdRef.current, tab.url);
+      }
+    };
+    const onWindowFocus = () => {
+      void loadUserDataProfile(activeProfileIdRef.current);
+    };
+    window.addEventListener('dimo:browser-userdata-changed', onUserDataChanged);
+    window.addEventListener('focus', onWindowFocus);
+    return () => {
+      window.removeEventListener(
+        'dimo:browser-userdata-changed',
+        onUserDataChanged
+      );
+      window.removeEventListener('focus', onWindowFocus);
+    };
+  }, [loadMatchingCredentials, loadUserDataProfile, tab?.url]);
 
   const syncBounds = useCallback(async () => {
     const tabId = tabIdRef.current;
@@ -639,6 +753,21 @@ export function HostBrowserPanel({
             saveBrowserAddressHistory(next);
             return next;
           });
+          if (
+            tabId &&
+            payload.url &&
+            activeProfileIdRef.current &&
+            activeProfileIdRef.current !== 'ephemeral'
+          ) {
+            void dispatchRef
+              .current('userdata.history.record', {
+                profileId: activeProfileIdRef.current,
+                url: payload.url,
+                title: payload.title ?? undefined,
+                favicon: icon ?? undefined,
+              })
+              .catch(() => undefined);
+          }
         }
       }
       const pageTitle = payload.title?.trim();
@@ -1385,6 +1514,72 @@ export function HostBrowserPanel({
     });
   };
 
+  const handleAddBookmarkCurrent = () => {
+    const targetUrl = completeBrowserAddress(currentUrl);
+    if (!targetUrl) {
+      toast.error(t('browserPanel.badAddress'));
+      return;
+    }
+    const profileId = activeProfileIdRef.current;
+    void dispatch('userdata.bookmarks.add', {
+      profileId,
+      url: targetUrl,
+      title: tab?.title || provisionalTitle(targetUrl) || targetUrl,
+      favicon: faviconFor(targetUrl),
+    })
+      .then(() => {
+        toast.success(t('browserPanel.bookmarkAdded'));
+        window.dispatchEvent(new CustomEvent('dimo:browser-userdata-changed'));
+        return loadUserDataProfile(profileId);
+      })
+      .catch((cause: unknown) => {
+        toast.error(getInvokeErrorMessage(cause));
+      });
+  };
+
+  const handleRemoveBookmark = (id?: string, url?: string) => {
+    const profileId = activeProfileIdRef.current;
+    void dispatch('userdata.bookmarks.remove', {
+      profileId,
+      ...(id ? { id } : {}),
+      ...(url ? { url } : {}),
+    })
+      .then(() => {
+        toast.success(t('browserPanel.bookmarkRemoved'));
+        window.dispatchEvent(new CustomEvent('dimo:browser-userdata-changed'));
+        return loadUserDataProfile(profileId);
+      })
+      .catch((cause: unknown) => {
+        toast.error(getInvokeErrorMessage(cause));
+      });
+  };
+
+  const handleFillCredential = async (credentialId: string) => {
+    const tabId = tabIdRef.current;
+    if (!tabId) return;
+    setFillingCredentialId(credentialId);
+    try {
+      const outcome = (await dispatch('userdata.credentials.fill', {
+        tabId,
+        credentialId,
+        profileId: activeProfileIdRef.current,
+      })) as {
+        ok?: boolean;
+        filledUsername?: boolean;
+        filledPassword?: boolean;
+      };
+      if (outcome?.ok && (outcome.filledUsername || outcome.filledPassword)) {
+        toast.success(t('browserPanel.autofillSuccess'));
+      } else {
+        toast.error(t('browserPanel.autofillNoField'));
+      }
+    } catch (cause) {
+      toast.error(getInvokeErrorMessage(cause));
+    } finally {
+      setFillingCredentialId(null);
+    }
+  };
+
   return (
     <div
       ref={rootRef}
@@ -1531,6 +1726,22 @@ export function HostBrowserPanel({
             ref={addressToolsRef}
             className="absolute inset-y-0 right-1 z-[1] flex items-center gap-0.5"
           >
+            <BrowserCredentialsButton
+              credentials={matchingCredentials}
+              tabId={tab?.tabId ?? null}
+              fillingId={fillingCredentialId}
+              onFill={(credentialId) => void handleFillCredential(credentialId)}
+            />
+            <BrowserBookmarksButton
+              currentUrl={currentUrl}
+              bookmarks={bookmarks}
+              onAddCurrent={handleAddBookmarkCurrent}
+              onRemoveBookmark={handleRemoveBookmark}
+              onOpenUrl={(target) => {
+                const completed = completeBrowserAddress(target);
+                if (completed) goToUrl(completed);
+              }}
+            />
             <BrowserAgentActivityControl tabId={tab?.tabId ?? null} />
             <button
               type="button"
@@ -1662,6 +1873,16 @@ export function HostBrowserPanel({
                       <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
                         {suggestion.title}
                       </span>
+                      {suggestion.kind === 'frequent' ||
+                      suggestion.kind === 'bookmark' ? (
+                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary">
+                          {t(
+                            suggestion.kind === 'frequent'
+                              ? 'browserPanel.suggestionFrequent'
+                              : 'browserPanel.suggestionBookmark'
+                          )}
+                        </span>
+                      ) : null}
                       <span className="max-w-[42%] shrink-0 truncate text-[0.625rem] leading-[0.875rem] text-muted-foreground">
                         {suggestion.url
                           .replace(/^https?:\/\//, '')

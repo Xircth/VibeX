@@ -12,10 +12,30 @@ export type BrowserAddressHistoryEntry = {
 };
 
 export type BrowserAddressSuggestion = {
-  kind: 'completion' | 'history';
+  kind: 'completion' | 'history' | 'frequent' | 'bookmark';
   url: string;
   title: string;
   favicon: string | null;
+  visitCount?: number;
+};
+
+export type FrequentHistorySuggestionSource = {
+  url: string;
+  title: string;
+  favicon?: string | null;
+  visitCount: number;
+  lastVisitedAt: number;
+};
+
+export type BookmarkSuggestionSource = {
+  url: string;
+  title: string;
+  favicon?: string | null;
+};
+
+export type BrowserAddressSuggestionExtras = {
+  frequentHistory?: readonly FrequentHistorySuggestionSource[];
+  bookmarks?: readonly BookmarkSuggestionSource[];
 };
 
 function hostnameOf(url: string): string {
@@ -258,11 +278,12 @@ function rankHost(hostNeedle: string, host: string): number | null {
   return best;
 }
 
-function historyMatches(
-  entry: BrowserAddressHistoryEntry,
+function entryMatches(
+  entry: { url: string; title: string },
   needle: string
 ): boolean {
   if (entry.title.toLowerCase().includes(needle)) return true;
+  if (entry.url.toLowerCase().includes(needle)) return true;
   const host = hostnameOf(entry.url).toLowerCase();
   if (rankHost(hostPart(needle), host) != null) return true;
   try {
@@ -289,13 +310,15 @@ function catalogUrl(host: string): string | null {
 
 /**
  * Address-bar completions only. Phrases with spaces produce nothing.
- * Visited URLs come first. Known sites still match by prefix, substring, or
- * a short stem (`git` / `gith` → github.com, gitee.com) before the full name
- * is typed. The list stays closed until three characters are entered.
+ * Visited URLs, imported/recorded frequent history, and bookmarks come first.
+ * Known sites still match by prefix, substring, or a short stem (`git` / `gith`
+ * → github.com, gitee.com) before the full name is typed. The list stays closed
+ * until three characters are entered.
  */
 export function suggestBrowserAddresses(
   raw: string,
-  history: readonly BrowserAddressHistoryEntry[]
+  history: readonly BrowserAddressHistoryEntry[],
+  extras?: BrowserAddressSuggestionExtras
 ): BrowserAddressSuggestion[] {
   const query = raw.trim();
   if (!query || /\s/.test(query)) return [];
@@ -303,7 +326,7 @@ export function suggestBrowserAddresses(
   if (needle.length < ADDRESS_QUERY_MIN_LENGTH) return [];
 
   const visited = history
-    .filter((entry) => historyMatches(entry, needle))
+    .filter((entry) => entryMatches(entry, needle))
     .sort((left, right) => left.visitedAt - right.visitedAt);
 
   const suggestions: BrowserAddressSuggestion[] = visited.map((entry) => ({
@@ -313,6 +336,43 @@ export function suggestBrowserAddresses(
     favicon: entry.favicon,
   }));
   const seen = new Set(suggestions.map((item) => canonicalUrl(item.url)));
+
+  if (extras?.frequentHistory?.length) {
+    const frequentMatches = extras.frequentHistory
+      .filter((entry) => entryMatches(entry, needle))
+      .sort(
+        (left, right) =>
+          right.visitCount - left.visitCount ||
+          right.lastVisitedAt - left.lastVisitedAt
+      );
+    for (const entry of frequentMatches) {
+      const key = canonicalUrl(entry.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push({
+        kind: 'frequent',
+        url: entry.url,
+        title: entry.title || hostnameOf(entry.url),
+        favicon: entry.favicon ?? faviconForAddress(entry.url),
+        visitCount: entry.visitCount,
+      });
+    }
+  }
+
+  if (extras?.bookmarks?.length) {
+    for (const entry of extras.bookmarks) {
+      if (!entryMatches(entry, needle)) continue;
+      const key = canonicalUrl(entry.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push({
+        kind: 'bookmark',
+        url: entry.url,
+        title: entry.title || hostnameOf(entry.url),
+        favicon: entry.favicon ?? faviconForAddress(entry.url),
+      });
+    }
+  }
 
   const catalog = KNOWN_SITES.map((site, index) => ({
     site,

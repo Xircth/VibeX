@@ -1474,4 +1474,141 @@ describe('HostBrowserPanel', () => {
       ).toBeNull()
     );
   });
+
+  it('surfaces imported frequent history in address bar suggestions and autofills matched local credentials', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        const op = args?.input?.operation;
+        if (op === 'userdata.history.list') {
+          return Promise.resolve({
+            profileId: 'default',
+            history: [
+              {
+                url: 'https://console.example.internal/login',
+                title: 'Example Internal Console',
+                visitCount: 38,
+                lastVisitedAt: 1700000000000,
+                source: 'chrome',
+              },
+            ],
+          });
+        }
+        if (op === 'userdata.bookmarks.list') {
+          return Promise.resolve({
+            profileId: 'default',
+            bookmarks: [
+              {
+                id: 'bm-1',
+                title: 'Example Docs',
+                url: 'https://docs.example.internal/',
+                folder: 'Dev',
+              },
+            ],
+          });
+        }
+        if (op === 'userdata.credentials.list') {
+          return Promise.resolve({
+            profileId: 'default',
+            credentials: [
+              {
+                id: 'cred-1',
+                name: 'Example Internal',
+                url: 'https://console.example.internal/login',
+                origin: 'https://console.example.internal',
+                host: 'console.example.internal',
+                username: 'alice@example.com',
+                source: 'csv',
+                updatedAt: 1700000000000,
+              },
+            ],
+          });
+        }
+        if (op === 'userdata.credentials.fill') {
+          return Promise.resolve({
+            ok: true,
+            filledUsername: true,
+            filledPassword: true,
+            reason: null,
+          });
+        }
+        if (op === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-cred',
+            url: 'https://console.example.internal/login',
+            title: 'Example Internal Console',
+            profileId: 'default',
+            grant: { level: 'none' },
+          });
+        }
+        return Promise.resolve({ ok: true });
+      }
+    );
+
+    render(
+      <HostBrowserPanel
+        pluginId="dimo.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'userdata.history.list' }),
+        })
+      )
+    );
+
+    const combobox = screen.getByRole('combobox');
+    await user.type(combobox, 'console.example');
+
+    const options = await screen.findAllByRole('option');
+    expect(options[0]).toHaveTextContent('Example Internal Console');
+    expect(options[0]).toHaveTextContent(
+      i18n.t('browserPanel.suggestionFrequent', { ns: 'panels' })
+    );
+
+    await user.click(options[0]);
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'tab.create',
+            input: expect.objectContaining({
+              url: 'https://console.example.internal/login',
+            }),
+          }),
+        })
+      )
+    );
+
+    const autofillButton = await screen.findByRole('button', {
+      name: i18n.t('browserPanel.autofill', { ns: 'panels' }),
+    });
+    await user.click(autofillButton);
+    const credItem = await screen.findByRole('menuitem', {
+      name: /alice@example\.com/,
+    });
+    expect(document.body.textContent).not.toContain('super-secret');
+    await user.click(credItem);
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'userdata.credentials.fill',
+            input: expect.objectContaining({
+              tabId: 'tab-cred',
+              credentialId: 'cred-1',
+            }),
+          }),
+        })
+      )
+    );
+  });
 });

@@ -608,4 +608,26 @@ test('browser_prefer and browser_screenshot support contact-sheet burst, reduced
   }
 });
 
+test('userdata settings UI is wired and MCP never exposes saved credentials or userdata tools', async () => {
+  const viewSource = await readFile(join(root, 'src/views/view.tsx'), 'utf8');
+  assert.match(viewSource, /BrowserUserDataImport/);
+  assert.match(viewSource, /userdata\.summaries/);
+
+  const importSource = await readFile(
+    join(root, 'src/views/BrowserUserDataImport.tsx'),
+    'utf8'
+  );
+  assert.match(importSource, /userdata\.import\.detect/);
+  assert.match(importSource, /userdata\.import\.run/);
+  assert.match(importSource, /userdata\.credentials\.list/);
+
+  const mcpSource = await readFile(join(root, 'runtime/mcp-server.mjs'), 'utf8');
+  assert.doesNotMatch(mcpSource, /userdata\.|credentials\.|passwordCsv/i);
+
+  const workerSource = await readFile(join(root, 'runtime/worker.mjs'), 'utf8');
+  assert.match(
+    workerSource,
+    /environment\.host\.call\('browser',\s*operation,\s*payload\)/
+  );
+});
 

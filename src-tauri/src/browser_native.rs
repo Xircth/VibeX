@@ -2511,7 +2511,12 @@ impl TauriNativeTabs {
 
 pub fn desktop_browser_service(app: tauri::AppHandle) -> Arc<browser_host::BrowserService> {
     let native = Arc::new(TauriNativeTabs::new(app));
-    let service = Arc::new(browser_host::BrowserService::new(native.clone(), true));
+    let userdata_dir = utils::assets::host_data_dir().join("browser-userdata");
+    let service = Arc::new(browser_host::BrowserService::with_data_dir(
+        native.clone(),
+        true,
+        Some(userdata_dir),
+    ));
     native.bind(Arc::downgrade(&service));
     service
 }

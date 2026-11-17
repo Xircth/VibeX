@@ -113,6 +113,22 @@ describe('WorkspaceActivityRail', () => {
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
     ).toEqual(['会话列表', 'Bot 助手', '文件', 'Git']);
+    expect(screen.getByRole('button', { name: '会话列表' })).toHaveAttribute(
+      'data-basic-guide',
+      'rail-session-list'
+    );
+    expect(screen.getByRole('button', { name: 'Bot 助手' })).toHaveAttribute(
+      'data-basic-guide',
+      'rail-bots'
+    );
+    expect(screen.getByRole('button', { name: '文件' })).toHaveAttribute(
+      'data-basic-guide',
+      'rail-file-tree'
+    );
+    expect(screen.getByRole('button', { name: 'Git' })).toHaveAttribute(
+      'data-basic-guide',
+      'rail-git'
+    );
     expect(
       screen.queryByRole('button', { name: '取消分割' })
     ).not.toBeInTheDocument();

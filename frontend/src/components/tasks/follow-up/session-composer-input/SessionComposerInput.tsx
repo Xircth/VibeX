@@ -20,7 +20,6 @@ import {
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
-import { useBasicGuideHelloSeed } from '@/features/basic-guide/useBasicGuideHelloSeed';
 import { useAgentMentions } from '../AgentMention';
 import {
   isComposerCaretAtDocumentStart,
@@ -71,7 +70,6 @@ export function SessionComposerInput({
 }: SessionComposerInputProps) {
   const value = rawValue ?? '';
   const { t } = useTranslation('tasks');
-  useBasicGuideHelloSeed(value, onChange);
   const sendShortcut =
     useOptionalUserSystem()?.config?.send_message_shortcut ?? 'Enter';
   const {

@@ -380,4 +380,60 @@ describe('BasicGuideSpotlight', () => {
       'is-moving'
     );
   });
+
+  it('ignores targets inside inert or hidden ancestors', () => {
+    const inertWrapper = document.createElement('div');
+    inertWrapper.inert = true;
+    const inertTarget = document.createElement('button');
+    inertTarget.dataset.basicGuide = 'welcome-select-folder';
+    inertWrapper.appendChild(inertTarget);
+    document.body.appendChild(inertWrapper);
+    vi.spyOn(inertTarget, 'getBoundingClientRect').mockReturnValue({
+      x: 100,
+      y: 100,
+      top: 100,
+      left: 100,
+      width: 240,
+      height: 44,
+      bottom: 144,
+      right: 340,
+      toJSON() {
+        return {};
+      },
+    } as DOMRect);
+
+    const hiddenWrapper = document.createElement('div');
+    hiddenWrapper.hidden = true;
+    const hiddenTarget = document.createElement('button');
+    hiddenTarget.dataset.basicGuide = 'welcome-global-project';
+    hiddenWrapper.appendChild(hiddenTarget);
+    document.body.appendChild(hiddenWrapper);
+    vi.spyOn(hiddenTarget, 'getBoundingClientRect').mockReturnValue({
+      x: 100,
+      y: 220,
+      top: 220,
+      left: 100,
+      width: 240,
+      height: 36,
+      bottom: 256,
+      right: 340,
+      toJSON() {
+        return {};
+      },
+    } as DOMRect);
+
+    render(
+      <BasicGuideSpotlight
+        targets={[
+          { id: 'welcome-select-folder', copyKey: 'select-project-create' },
+          { id: 'welcome-global-project', copyKey: 'select-project-global' },
+        ]}
+        resolveCopy={(key) => key}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+
+    expect(document.querySelector('.basic-guide-spotlight')).toBeNull();
+    expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
+  });
 });

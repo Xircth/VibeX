@@ -9,42 +9,25 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useUserSystem } from '@/components/ConfigProvider';
-import { useAgentManagement } from '@/features/agent-management';
-import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
-import { listenToConversationEvents } from '@/features/conversation/events';
 import { useLayoutStore } from '@/stores/useLayoutStore';
-import type { ConversationRowOpBatch } from 'shared/types';
 
-import {
-  isAcpConnectorAvailable,
-  isAgentLoggedIn,
-  isAgentOperationallyAvailable,
-} from './agentStatusPresentation';
 import { BasicGuideContext } from './BasicGuideContext';
 import {
-  BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT,
-  BASIC_GUIDE_SESSION_AGENT_EVENT,
   SUBSTEP_META,
   type BasicGuideSubstep,
   type PersistedBasicGuide,
   advanceGuide,
   completeGuide,
   completeStep1,
-  completeStep2,
   dismissEndCopy,
   clickAdvancesSubstep,
-  conversationIdFromPathname,
-  isConfigureSessionSubstep,
-  isStep2LiveSessionSubstep,
-  isProjectRoute,
-  isSettingsAgentsRoute,
+  isElementInertOrHidden,
   isSettingsRoute,
   nextSubstep,
+  reconcileLaunchStateForConfig,
   restartBasicGuide,
   resolveLaunchState,
-  sessionCreateHrefLooksOpen,
   shouldCompleteStep1OnRoute,
-  shouldCompleteStep2FromAgentOutput,
   shouldRedirectToGuideWelcome,
   skipBasicGuide,
   startBasicGuide,
@@ -55,17 +38,6 @@ import {
   writeBasicGuide,
 } from './basicGuideStorage';
 
-function hasAvailableAgent(
-  agents: Array<{ enabled: boolean; lifecycle: string }>
-): boolean {
-  return agents.some((agent) =>
-    isAgentOperationallyAvailable({
-      enabled: agent.enabled,
-      lifecycle: agent.lifecycle as never,
-    })
-  );
-}
-
 function clickedGuideTarget(
   event: Event,
   ids: readonly string[]
@@ -73,6 +45,7 @@ function clickedGuideTarget(
   const path = event.composedPath();
   for (const node of path) {
     if (!(node instanceof HTMLElement)) continue;
+    if (isElementInertOrHidden(node)) continue;
     const id = node.dataset.basicGuide;
     if (id && ids.includes(id)) return node;
   }
@@ -83,7 +56,6 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
   const { config, loading } = useUserSystem();
   const location = useLocation();
   const navigate = useNavigate();
-  const { state: agentState } = useAgentManagement();
   const [state, setState] = useState<PersistedBasicGuide>(() =>
     resolveLaunchState({
       raw:
@@ -94,11 +66,14 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
     })
   );
   const [exitOpen, setExitOpen] = useState(false);
-  const openedAgentStatusRef = useRef(false);
-  const clickedSessionsRef = useRef(new Set<string>());
-  const sawCreateFormRef = useRef(false);
   const previousPathRef = useRef(location.pathname);
+  const skippedInSessionRef = useRef(false);
+  const reconciledUnacknowledgedRef = useRef(false);
+  const configRef = useRef(config);
+  const loadingRef = useRef(loading);
   const stateRef = useRef(state);
+  configRef.current = config;
+  loadingRef.current = loading;
   stateRef.current = state;
 
   const persist = useCallback((next: PersistedBasicGuide) => {
@@ -108,44 +83,70 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    return subscribeBasicGuide((next) => {
+    return subscribeBasicGuide((next, source) => {
       if (!next) return;
+      if (source === 'storage') {
+        const reconciled = reconcileLaunchStateForConfig({
+          state: next,
+          hasPersistedGuide: true,
+          onboardingAcknowledged: Boolean(
+            configRef.current?.onboarding_acknowledged
+          ),
+          configLoading: loadingRef.current || !configRef.current,
+          skippedInSession: skippedInSessionRef.current,
+        });
+        if (reconciled) {
+          persist(reconciled);
+          return;
+        }
+      }
       stateRef.current = next;
       setState(next);
     });
-  }, []);
+  }, [persist]);
 
   useEffect(() => {
-    if (readBasicGuide()) return;
-    const next = resolveLaunchState({
-      raw: null,
-      onboardingAcknowledged: Boolean(config?.onboarding_acknowledged),
+    if (loading || !config) return;
+    if (config.onboarding_acknowledged) {
+      reconciledUnacknowledgedRef.current = false;
+      const reconciled = reconcileLaunchStateForConfig({
+        state: stateRef.current,
+        hasPersistedGuide: Boolean(readBasicGuide()),
+        onboardingAcknowledged: true,
+        configLoading: false,
+      });
+      if (reconciled) {
+        persist(reconciled);
+      }
+      return;
+    }
+    if (reconciledUnacknowledgedRef.current) return;
+    reconciledUnacknowledgedRef.current = true;
+    const reconciled = reconcileLaunchStateForConfig({
+      state: stateRef.current,
+      hasPersistedGuide: Boolean(readBasicGuide()),
+      onboardingAcknowledged: false,
+      configLoading: false,
+      skippedInSession: skippedInSessionRef.current,
     });
-    if (next.phase === 'completed') persist(next);
-  }, [config?.onboarding_acknowledged, persist]);
+    if (reconciled) {
+      persist(reconciled);
+    }
+  }, [config, loading, persist]);
 
   const goNext = useCallback(
     (from: BasicGuideSubstep) => {
       const current = stateRef.current;
       if (current.phase !== 'active' || current.substep !== from) return;
       if (from === 'select-project') return;
-      if (from === 'send-hello') {
-        persist(completeStep2(current));
-        return;
-      }
       const next = nextSubstep(from);
       if (!next) {
-        persist(current);
+        persist(completeGuide(current, 'finished'));
         return;
       }
       persist(advanceGuide(current, next));
     },
     [persist]
-  );
-
-  const available = useMemo(
-    () => hasAvailableAgent(agentState.agents),
-    [agentState.agents]
   );
 
   useEffect(() => {
@@ -175,201 +176,13 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
       return;
     }
     useLayoutStore.getState().setActiveTab('workspace');
-    persist(completeStep1(current, available));
-  }, [available, location.pathname, persist]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (current.reachedStep < 1) return;
-    if (openedAgentStatusRef.current) return;
-    if (!isProjectRoute(location.pathname)) return;
-    openedAgentStatusRef.current = true;
-    window.dispatchEvent(new Event(BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT));
-  }, [location.pathname, state.reachedStep, state.phase]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (current.substep !== 'need-agent') return;
-    if (isSettingsAgentsRoute(location.pathname)) {
-      goNext('need-agent');
-    }
-  }, [goNext, location.pathname]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (current.substep !== 'return-main') return;
-    if (!isSettingsRoute(location.pathname)) {
-      persist(advanceGuide(current, 'click-new-session'));
-    }
+    persist(completeStep1(current));
   }, [location.pathname, persist]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (
-      current.substep === 'click-new-session' &&
-      sessionCreateHrefLooksOpen(location.search)
-    ) {
-      sawCreateFormRef.current = true;
-      goNext('click-new-session');
-    }
-  }, [goNext, location.search]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (!isConfigureSessionSubstep(current.substep)) return;
-    if (sessionCreateHrefLooksOpen(location.search)) {
-      sawCreateFormRef.current = true;
-      return;
-    }
-    if (!sawCreateFormRef.current) return;
-
-    const tryAdvance = () => {
-      if (!isConfigureSessionSubstep(stateRef.current.substep)) return;
-      if (sessionCreateHrefLooksOpen(window.location.search)) return;
-      if (document.querySelector('[data-basic-guide="session-composer"]')) {
-        persist(advanceGuide(stateRef.current, 'send-hello'));
-      }
-    };
-    tryAdvance();
-    const observer = new MutationObserver(tryAdvance);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [location.pathname, location.search, persist, state.substep]);
-
-  useEffect(() => {
-    const onAgentPicked = () => {
-      const current = stateRef.current;
-      if (current.phase !== 'active') return;
-      if (current.substep !== 'configure-session-agent') return;
-      goNext('configure-session-agent');
-    };
-    window.addEventListener(BASIC_GUIDE_SESSION_AGENT_EVENT, onAgentPicked);
-    return () => {
-      window.removeEventListener(
-        BASIC_GUIDE_SESSION_AGENT_EVENT,
-        onAgentPicked
-      );
-    };
-  }, [goNext]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (current.substep !== 'kanban-click-sessions') return;
-    const monitor = document.querySelector(
-      '[data-basic-guide="kanban-monitor"]'
-    );
-    const count = Number(monitor?.getAttribute('data-monitor-count') ?? '0');
-    if (count > 0) goNext('kanban-click-sessions');
-  }, [goNext, location.pathname, state.substep]);
-
-  useEffect(() => {
-    const current = stateRef.current;
-    if (current.phase !== 'active') return;
-    if (
-      current.substep !== 'settings-agent-enable' &&
-      current.substep !== 'settings-agent-acp' &&
-      current.substep !== 'settings-agent-auth' &&
-      current.substep !== 'need-agent' &&
-      current.substep !== 'settings-agent-icon'
-    ) {
-      return;
-    }
-    const selected =
-      agentState.agents.find(
-        (agent) => agent.agent_id === agentState.selectedAgentId
-      ) ?? agentState.agents.find(isEnabledInstalledAgent);
-
-    if (current.substep === 'need-agent' && available) {
-      persist(advanceGuide(current, 'return-main'));
-      return;
-    }
-    if (current.substep === 'settings-agent-enable' && selected?.enabled) {
-      if (!isAcpConnectorAvailable(selected)) {
-        persist(advanceGuide(current, 'settings-agent-acp'));
-        return;
-      }
-      if (!isAgentLoggedIn(selected.authentication)) {
-        persist(advanceGuide(current, 'settings-agent-auth'));
-        return;
-      }
-      persist(advanceGuide(current, 'return-main'));
-      return;
-    }
-    if (
-      current.substep === 'settings-agent-acp' &&
-      selected &&
-      isAcpConnectorAvailable(selected)
-    ) {
-      if (!isAgentLoggedIn(selected.authentication)) {
-        persist(advanceGuide(current, 'settings-agent-auth'));
-        return;
-      }
-      persist(advanceGuide(current, 'return-main'));
-      return;
-    }
-    if (
-      current.substep === 'settings-agent-auth' &&
-      selected &&
-      isAgentLoggedIn(selected.authentication)
-    ) {
-      persist(advanceGuide(current, 'return-main'));
-    }
-    if (
-      (current.substep === 'settings-agent-icon' ||
-        current.substep === 'settings-agent-enable' ||
-        current.substep === 'settings-agent-acp' ||
-        current.substep === 'settings-agent-auth') &&
-      available
-    ) {
-      persist(advanceGuide(current, 'return-main'));
-    }
-  }, [
-    agentState.agents,
-    agentState.selectedAgentId,
-    available,
-    persist,
-    state.substep,
-  ]);
-
-  useEffect(() => {
-    if (state.phase !== 'active') return;
-    if (!isStep2LiveSessionSubstep(state.substep)) return;
-    const conversationId = conversationIdFromPathname(location.pathname);
-    let disposed = false;
-    const stops: Array<() => void> = [];
-    const onBatch = (batch: ConversationRowOpBatch) => {
-      if (disposed) return;
-      if (!shouldCompleteStep2FromAgentOutput(stateRef.current, batch)) {
-        return;
-      }
-      persist(completeStep2(stateRef.current));
-    };
-    const listen = (id?: string) => {
-      void listenToConversationEvents(onBatch, id).then((unlisten) => {
-        if (disposed) unlisten();
-        else stops.push(unlisten);
-      });
-    };
-    listen();
-    if (conversationId) listen(conversationId);
-    return () => {
-      disposed = true;
-      for (const stop of stops) stop();
-    };
-  }, [location.pathname, persist, state.phase, state.substep]);
 
   useEffect(() => {
     if (state.phase !== 'active') return;
     const meta = SUBSTEP_META[state.substep];
-    if (meta.advance !== 'click' && state.substep !== 'kanban-click-sessions') {
-      return;
-    }
+    if (meta.advance !== 'click') return;
     const onClick = (event: Event) => {
       const current = stateRef.current;
       if (current.phase !== 'active') return;
@@ -378,18 +191,6 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
       if (!target) return;
       const targetId = target.dataset.basicGuide;
       if (!targetId || !clickAdvancesSubstep(current.substep, targetId)) {
-        return;
-      }
-      if (current.substep === 'click-new-session') {
-        sawCreateFormRef.current = true;
-      }
-      if (current.substep === 'kanban-click-sessions') {
-        const sessionId = target.dataset.sessionId;
-        if (!sessionId) return;
-        clickedSessionsRef.current.add(sessionId);
-        if (clickedSessionsRef.current.size >= 2) {
-          goNext('kanban-click-sessions');
-        }
         return;
       }
       goNext(current.substep);
@@ -401,14 +202,8 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
   const continueStep = useCallback(() => {
     const current = stateRef.current;
     if (current.phase !== 'active') return;
-    if (current.substep === 'return-main') {
-      if (isSettingsRoute(location.pathname)) {
-        persist(advanceGuide(current, 'click-new-session'));
-        return;
-      }
-    }
     goNext(current.substep);
-  }, [goNext, location.pathname, persist]);
+  }, [goNext]);
 
   const requestExit = useCallback(() => setExitOpen(true), []);
   const cancelExit = useCallback(() => setExitOpen(false), []);
@@ -420,9 +215,7 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
     persist(completeGuide(stateRef.current, 'finished'));
   }, [persist]);
   const restart = useCallback(() => {
-    openedAgentStatusRef.current = false;
-    clickedSessionsRef.current = new Set();
-    sawCreateFormRef.current = false;
+    skippedInSessionRef.current = false;
     persist(restartBasicGuide());
     if (!isSettingsRoute(location.pathname)) {
       navigate('/local-projects', { replace: true });
@@ -438,14 +231,15 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
       const started = startBasicGuide(current);
       if (hasSelectedProject && started.phase === 'active') {
         useLayoutStore.getState().setActiveTab('workspace');
-        persist(completeStep1(started, available));
+        persist(completeStep1(started));
         return;
       }
       persist(started);
     },
-    [available, persist]
+    [persist]
   );
   const skip = useCallback(() => {
+    skippedInSessionRef.current = true;
     persist(skipBasicGuide());
   }, [persist]);
 

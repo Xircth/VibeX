@@ -492,7 +492,6 @@
     "importedProjectBadge": "Imported",
     "importedProjectsReceipt": "{{count}} imported projects are selected below.",
     "projectListTitle": "Select a project to enter",
-    "selectProjectToEnterGuide": "Click any project (or Global) in the list on the right to enter the workspace",
     "projectsMultiImported": "Imported {{count}} projects",
     "detectingHistorySources": "Checking installed Agents for local history…",
     "scanWaiting": "Waiting"

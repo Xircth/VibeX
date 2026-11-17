@@ -1,8 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
+import { HotkeysProvider } from 'react-hotkeys-hook';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from 'shared/types';
+import { BasicGuideOverlay } from '@/features/basic-guide';
+import { BasicGuideContext } from '@/features/basic-guide/BasicGuideContext';
+import {
+  ACTIVE_GUIDE,
+  IDLE_GUIDE,
+} from '@/features/basic-guide/basicGuideState';
 import i18n from '@/i18n';
 import { OnboardingProjects } from './OnboardingProjects';
 
@@ -87,20 +95,28 @@ describe('onboarding projects', () => {
 
   it('shows the zero-project stage when only Global exists and enters Global directly', async () => {
     const { onFinish } = setup();
-    expect(
-      await screen.findByTestId('zero-project-open-folder')
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('zero-project-create-project')).toBeInTheDocument();
+    const openFolder = await screen.findByTestId('zero-project-open-folder');
+    expect(openFolder).toBeInTheDocument();
+    expect(openFolder).toHaveAttribute(
+      'data-basic-guide',
+      'welcome-select-folder'
+    );
+    expect(screen.getByTestId('zero-project-create-project')).toHaveAttribute(
+      'data-basic-guide',
+      'welcome-create-project'
+    );
     expect(screen.getByTestId('zero-project-clone-repo')).toBeInTheDocument();
-    expect(
-      screen.queryByTestId('onboarding-project-list-spotlight')
-    ).toBeNull();
+    expect(screen.getByTestId('zero-project-enter-global')).toHaveAttribute(
+      'data-basic-guide',
+      'welcome-global-project'
+    );
+    expect(screen.queryByTestId('onboarding-project-list')).toBeNull();
 
     fireEvent.click(screen.getByTestId('zero-project-enter-global'));
     await waitFor(() => expect(onFinish).toHaveBeenCalledWith(['home']));
   });
 
-  it('batch-imports multiple selected folders and switches to the two-column guided list', async () => {
+  it('batch-imports multiple selected folders and switches to the clean two-column list without fake spotlight chrome', async () => {
     api.pickDirectories.mockResolvedValue(['C:/Work/alpha', 'C:/Work/beta']);
     api.previewImport
       .mockResolvedValueOnce({ is_git: true, children: [] })
@@ -112,24 +128,29 @@ describe('onboarding projects', () => {
     const { onFinish } = setup();
     fireEvent.click(await screen.findByTestId('zero-project-open-folder'));
 
-    const spotlight = await screen.findByTestId(
-      'onboarding-project-list-spotlight'
-    );
+    const list = await screen.findByTestId('onboarding-project-list');
     expect(screen.getByTestId('onboarding-projects-split')).toBeInTheDocument();
     expect(
-      screen.getByText(t('selectProjectToEnterGuide'))
-    ).toBeInTheDocument();
+      screen.queryByTestId('onboarding-project-list-spotlight')
+    ).toBeNull();
     expect(
       screen.getByText(t('projectsMultiImported', { count: 2 }))
     ).toBeInTheDocument();
+    expect(list).toHaveAttribute('data-basic-guide', 'welcome-project-list');
+    expect(screen.getByTestId('zero-project-open-folder')).not.toHaveAttribute(
+      'data-basic-guide'
+    );
     expect(
-      within(spotlight).getByTestId('onboarding-project-item-home')
-    ).toBeInTheDocument();
+      screen.getByTestId('zero-project-create-project')
+    ).not.toHaveAttribute('data-basic-guide');
     expect(
-      within(spotlight).getByTestId('onboarding-project-item-alpha')
-    ).toBeInTheDocument();
+      within(list).getByTestId('onboarding-project-item-home')
+    ).not.toHaveAttribute('data-basic-guide');
     expect(
-      within(spotlight).getByTestId('onboarding-project-item-beta')
+      within(list).getByTestId('onboarding-project-item-alpha')
+    ).not.toHaveAttribute('data-basic-guide');
+    expect(
+      within(list).getByTestId('onboarding-project-item-beta')
     ).toBeInTheDocument();
 
     expect(api.create).toHaveBeenNthCalledWith(1, {
@@ -146,7 +167,7 @@ describe('onboarding projects', () => {
     });
 
     fireEvent.click(
-      within(spotlight).getByTestId('onboarding-project-item-beta')
+      within(list).getByTestId('onboarding-project-item-beta')
     );
     await waitFor(() =>
       expect(onFinish).toHaveBeenCalledWith(['beta', 'home', 'alpha'])
@@ -245,5 +266,203 @@ describe('onboarding projects', () => {
 
     fireEvent.click(screen.getByRole('button', { name: t('back') }));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('activates the basic guide on Step 5 and exposes spotlights for create/select and global', async () => {
+    const start = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const makeCtx = (phase: 'idle' | 'active' | 'completed') => ({
+      state:
+        phase === 'idle'
+          ? IDLE_GUIDE
+          : phase === 'active'
+            ? ACTIVE_GUIDE
+            : {
+                phase: 'completed' as const,
+                reachedStep: 2 as const,
+                substep: 'show-end' as const,
+                endCopy: 'none' as const,
+              },
+      continueStep: vi.fn(),
+      requestExit: vi.fn(),
+      confirmExit: vi.fn(),
+      cancelExit: vi.fn(),
+      finish: vi.fn(),
+      restart: vi.fn(),
+      start,
+      skip: vi.fn(),
+      dismissEnd: vi.fn(),
+      exitOpen: false,
+    });
+
+    const { rerender } = render(
+      <HotkeysProvider initiallyActiveScopes={['dialog']}>
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <BasicGuideContext.Provider value={makeCtx('idle')}>
+              <OnboardingProjects
+                active={false}
+                onBack={vi.fn()}
+                onFinish={vi.fn().mockResolvedValue(undefined)}
+              />
+              <BasicGuideOverlay />
+            </BasicGuideContext.Provider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      </HotkeysProvider>
+    );
+
+    expect(start).not.toHaveBeenCalled();
+
+    rerender(
+      <HotkeysProvider initiallyActiveScopes={['dialog']}>
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <BasicGuideContext.Provider value={makeCtx('idle')}>
+              <OnboardingProjects
+                active
+                onBack={vi.fn()}
+                onFinish={vi.fn().mockResolvedValue(undefined)}
+              />
+              <BasicGuideOverlay />
+            </BasicGuideContext.Provider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      </HotkeysProvider>
+    );
+
+    await waitFor(() => expect(start).toHaveBeenCalledWith(false));
+
+    rerender(
+      <HotkeysProvider initiallyActiveScopes={['dialog']}>
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <BasicGuideContext.Provider value={makeCtx('active')}>
+              <OnboardingProjects
+                active
+                onBack={vi.fn()}
+                onFinish={vi.fn().mockResolvedValue(undefined)}
+              />
+              <BasicGuideOverlay />
+            </BasicGuideContext.Provider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      </HotkeysProvider>
+    );
+
+    const openFolder = await screen.findByTestId('zero-project-open-folder');
+    const createProject = screen.getByTestId('zero-project-create-project');
+    const enterGlobal = screen.getByTestId('zero-project-enter-global');
+
+    for (const [el, rect] of [
+      [openFolder, { left: 400, top: 220, width: 320, height: 52 }],
+      [createProject, { left: 400, top: 280, width: 320, height: 52 }],
+      [enterGlobal, { left: 520, top: 430, width: 200, height: 28 }],
+    ] as const) {
+      vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+        x: rect.left,
+        y: rect.top,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        right: rect.left + rect.width,
+        bottom: rect.top + rect.height,
+        toJSON: () => ({}),
+      } as DOMRect);
+    }
+
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => {
+      expect(
+        document.querySelector(
+          '[data-basic-guide-callout="select-project-create"]'
+        )
+      ).toHaveTextContent('项目就是一个文件夹');
+      expect(
+        document.querySelector(
+          '[data-basic-guide-callout="select-project-global"]'
+        )
+      ).toHaveTextContent('全局');
+    });
+  });
+
+  it('highlights only the right-hand project list when projects already exist', async () => {
+    api.getAll.mockResolvedValue([home, work]);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <HotkeysProvider initiallyActiveScopes={['dialog']}>
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <BasicGuideContext.Provider
+              value={{
+                state: ACTIVE_GUIDE,
+                continueStep: vi.fn(),
+                requestExit: vi.fn(),
+                confirmExit: vi.fn(),
+                cancelExit: vi.fn(),
+                finish: vi.fn(),
+                restart: vi.fn(),
+                start: vi.fn(),
+                skip: vi.fn(),
+                dismissEnd: vi.fn(),
+                exitOpen: false,
+              }}
+            >
+              <OnboardingProjects
+                active
+                onBack={vi.fn()}
+                onFinish={vi.fn().mockResolvedValue(undefined)}
+              />
+              <BasicGuideOverlay />
+            </BasicGuideContext.Provider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      </HotkeysProvider>
+    );
+
+    const list = await screen.findByTestId('onboarding-project-list');
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({
+      x: 520,
+      y: 220,
+      left: 520,
+      top: 220,
+      width: 520,
+      height: 160,
+      right: 1040,
+      bottom: 380,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => {
+      expect(
+        document.querySelector(
+          '[data-basic-guide-spotlight="welcome-project-list"]'
+        )
+      ).toBeInTheDocument();
+      expect(
+        document.querySelector(
+          '[data-basic-guide-callout="select-project-list"]'
+        )
+      ).toHaveTextContent('请点击一个项目以打开');
+    });
+    expect(
+      document.querySelector(
+        '[data-basic-guide-callout="select-project-create"]'
+      )
+    ).toBeNull();
+    expect(
+      document.querySelector(
+        '[data-basic-guide-callout="select-project-global"]'
+      )
+    ).toBeNull();
   });
 });

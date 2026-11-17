@@ -499,11 +499,13 @@ function ActivityRailItem({
       data-basic-guide={
         itemId === PANEL_IDS.SESSION_LIST
           ? 'rail-session-list'
-          : itemId === PANEL_IDS.FILE_TREE
-            ? 'rail-file-tree'
-            : itemId === PANEL_IDS.GIT
-              ? 'rail-git'
-              : undefined
+          : itemId === PANEL_IDS.BOTS
+            ? 'rail-bots'
+            : itemId === PANEL_IDS.FILE_TREE
+              ? 'rail-file-tree'
+              : itemId === PANEL_IDS.GIT
+                ? 'rail-git'
+                : undefined
       }
       aria-label={label}
       aria-pressed={active}

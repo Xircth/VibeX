@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { isElementInertOrHidden } from './basicGuideState';
 import { GuideCopy } from './GuideCopy';
 import {
   BASIC_GUIDE_IDLE_MS,
@@ -130,6 +131,7 @@ function measureTargets(targets: readonly SpotlightTarget[]): MeasuredTarget[] {
       `[data-basic-guide="${target.id}"]`
     );
     nodes.forEach((node) => {
+      if (isElementInertOrHidden(node)) return;
       const rect = node.getBoundingClientRect();
       if (rect.width < 2 || rect.height < 2) return;
       boxes.push({
@@ -176,16 +178,32 @@ export function BasicGuideSpotlight({
 
   useEffect(() => {
     const update = () => {
-      setBoxes(mergeOverlapping(measureTargets(targetsRef.current)));
+      const nextViewport = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      setBoxes(
+        mergeOverlapping(measureTargets(targetsRef.current), nextViewport)
+      );
       setPanel(measurePanel(panelSelector));
-      setViewport({ width: window.innerWidth, height: window.innerHeight });
+      setViewport(nextViewport);
     };
     update();
     const interval = window.setInterval(update, 250);
+    const observer =
+      typeof MutationObserver !== 'undefined' && document.body
+        ? new MutationObserver(update)
+        : null;
+    observer?.observe(document.body, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ['data-basic-guide', 'inert', 'hidden', 'aria-hidden'],
+    });
     window.addEventListener('resize', update);
     window.addEventListener('scroll', update, true);
     return () => {
       window.clearInterval(interval);
+      observer?.disconnect();
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };

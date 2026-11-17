@@ -24,6 +24,7 @@ import { APP_NAME } from '@/lib/branding';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { pickHostDirectories } from '@/lib/hostFs';
 import { orderImportedProjects } from '@/lib/importedProject';
+import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { cn } from '@/lib/utils';
 
 const EMPTY_PROJECT_IDS: readonly string[] = [];
@@ -62,6 +63,7 @@ function StageActionRow({
   compact = false,
   disabled = false,
   onClick,
+  guideId,
   testId,
 }: {
   icon: LucideIcon;
@@ -71,6 +73,7 @@ function StageActionRow({
   compact?: boolean;
   disabled?: boolean;
   onClick: () => void;
+  guideId?: string;
   testId: string;
 }) {
   return (
@@ -78,6 +81,7 @@ function StageActionRow({
       type="button"
       disabled={disabled}
       onClick={onClick}
+      data-basic-guide={guideId}
       data-testid={testId}
       className={cn(
         'group flex w-full items-center rounded-xl border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60',
@@ -134,6 +138,7 @@ export function OnboardingProjects({
   const localDesktopHost = useLocalDesktopHost();
   const isZh = (i18n.resolvedLanguage ?? i18n.language ?? '').startsWith('zh');
   const queryClient = useQueryClient();
+  const basicGuide = useOptionalBasicGuide();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [busy, setBusy] = useState(false);
@@ -205,6 +210,13 @@ export function OnboardingProjects({
     if (!active) return;
     void refreshProjects();
   }, [active, importedIdsKey, refreshProjects]);
+
+  useEffect(() => {
+    if (!active || loading) return;
+    if (basicGuide?.state.phase === 'idle') {
+      basicGuide.start(false);
+    }
+  }, [active, basicGuide, loading]);
 
   useEffect(() => {
     if (active) document.getElementById('onboarding-title')?.focus();
@@ -448,6 +460,7 @@ export function OnboardingProjects({
   );
 
   const actionBusy = busy || importing;
+  const guideTargetsActive = active && !loading && !dialogOpen;
 
   return (
     <main
@@ -642,27 +655,16 @@ export function OnboardingProjects({
                 aria-label={t('dialogs:onboarding.projectListTitle')}
                 className="min-w-0 space-y-2.5"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold text-foreground">
-                    {t('dialogs:onboarding.projectListTitle')}
-                  </h2>
-                  <p
-                    role="status"
-                    className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full bg-primary"
-                      aria-hidden="true"
-                    />
-                    <span>
-                      {t('dialogs:onboarding.selectProjectToEnterGuide')}
-                    </span>
-                  </p>
-                </div>
+                <h2 className="text-sm font-semibold text-foreground">
+                  {t('dialogs:onboarding.projectListTitle')}
+                </h2>
 
                 <div
-                  data-testid="onboarding-project-list-spotlight"
-                  className="rounded-xl border-2 border-foreground/85 bg-foreground/[0.02] p-2.5 shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]"
+                  data-basic-guide={
+                    guideTargetsActive ? 'welcome-project-list' : undefined
+                  }
+                  data-testid="onboarding-project-list"
+                  className="rounded-xl border border-border/70 bg-foreground/[0.02] p-2.5"
                 >
                   <ul className="max-h-[320px] space-y-1.5 overflow-y-auto pr-0.5">
                     {projects.map((project) => {
@@ -733,6 +735,9 @@ export function OnboardingProjects({
                     '导入本地已有代码目录或工作文件夹'
                   )}
                   onClick={() => void handleOpenFolders()}
+                  guideId={
+                    guideTargetsActive ? 'welcome-select-folder' : undefined
+                  }
                   testId="zero-project-open-folder"
                 />
 
@@ -745,6 +750,9 @@ export function OnboardingProjects({
                     '初始化一个新的本地项目目录'
                   )}
                   onClick={() => void handleCreateProject()}
+                  guideId={
+                    guideTargetsActive ? 'welcome-create-project' : undefined
+                  }
                   testId="zero-project-create-project"
                 />
 
@@ -790,6 +798,9 @@ export function OnboardingProjects({
                   <button
                     type="button"
                     disabled={actionBusy}
+                    data-basic-guide={
+                      guideTargetsActive ? 'welcome-global-project' : undefined
+                    }
                     data-testid="zero-project-enter-global"
                     onClick={() => void enterProject(globalProject.id)}
                     className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"

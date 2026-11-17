@@ -324,6 +324,39 @@ describe('spotlightGeometry', () => {
       ])
     ).toEqual(['select-project-create']);
   });
+
+  it('keeps top-bar spotlights inside viewport bounds with compact padding', () => {
+    const [host] = mergeOverlapping(
+      [
+        box(
+          'toolbar-host-selector',
+          'toolbar-host-selector',
+          { left: 40, top: 4, width: 96, height: 28 },
+          { padding: 2 }
+        ),
+      ],
+      { width: 1280, height: 800 }
+    );
+    expect(host).toMatchObject({
+      left: 38,
+      top: 2,
+      width: 100,
+      height: 32,
+    });
+
+    const [clamped] = mergeOverlapping(
+      [
+        box('edge-button', 'edge', { left: 1, top: 2, width: 80, height: 28 }),
+      ],
+      { width: 1280, height: 800 }
+    );
+    expect(clamped).toMatchObject({
+      left: 1,
+      top: 2,
+      width: 84,
+      height: 32,
+    });
+  });
 });
 
 describe('pairCalloutMoves', () => {

@@ -29,16 +29,21 @@ export function writeBasicGuide(state: PersistedBasicGuide): void {
   );
 }
 
+export type BasicGuideChangeSource = 'local' | 'storage';
+
 export function subscribeBasicGuide(
-  onChange: (state: PersistedBasicGuide | null) => void
+  onChange: (
+    state: PersistedBasicGuide | null,
+    source: BasicGuideChangeSource
+  ) => void
 ): () => void {
   const handleCustom = (event: Event) => {
     const detail = (event as CustomEvent<PersistedBasicGuide>).detail;
-    onChange(detail ?? readBasicGuide());
+    onChange(detail ?? readBasicGuide(), 'local');
   };
   const handleStorage = (event: StorageEvent) => {
     if (event.key !== BASIC_GUIDE_STORAGE_KEY) return;
-    onChange(parsePersistedBasicGuide(event.newValue));
+    onChange(parsePersistedBasicGuide(event.newValue), 'storage');
   };
   window.addEventListener(BASIC_GUIDE_CHANGED_EVENT, handleCustom);
   window.addEventListener('storage', handleStorage);

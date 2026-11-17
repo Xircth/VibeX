@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -19,7 +19,6 @@ import { OnboardingAgentStatusBadge } from '@/components/onboarding/OnboardingAg
 import type { AgentOperationState } from '@/features/agent-management';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import { AstryxStepper, AstryxStepperItem } from '@/features/basic-guide';
-import { BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT } from '@/features/basic-guide/basicGuideState';
 import { presentAgentStatusRow } from '@/features/basic-guide/agentStatusPresentation';
 import { cn } from '@/lib/utils';
 
@@ -64,11 +63,10 @@ export function AgentStatusMenu({
 }: AgentStatusMenuProps) {
   const { t } = useTranslation(['statusbar', 'settings', 'tasks']);
   const [open, setOpen] = useState(false);
-  const [forcedOpen, setForcedOpen] = useState(false);
   const onMenuOpenRef = useRef(onMenuOpen);
   onMenuOpenRef.current = onMenuOpen;
 
-  const menuOpen = open || forcedOpen;
+  const menuOpen = open;
   const openMenu = () => {
     if (!menuOpen) {
       onMenuOpenRef.current?.();
@@ -76,23 +74,8 @@ export function AgentStatusMenu({
     setOpen(true);
   };
 
-  useEffect(() => {
-    const onForceOpen = () => {
-      onMenuOpenRef.current?.();
-      setForcedOpen(true);
-      setOpen(true);
-    };
-    window.addEventListener(BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT, onForceOpen);
-    return () =>
-      window.removeEventListener(
-        BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT,
-        onForceOpen
-      );
-  }, []);
-
   const closeMenu = () => {
     setOpen(false);
-    setForcedOpen(false);
   };
   const menuId = useId();
   const enabledAgents = useMemo(
@@ -130,7 +113,7 @@ export function AgentStatusMenu({
       data-basic-guide="agent-status-menu"
       onMouseEnter={openMenu}
       onMouseLeave={() => {
-        if (!forcedOpen) setOpen(false);
+        setOpen(false);
       }}
       onFocusCapture={openMenu}
       onBlurCapture={(event) => {

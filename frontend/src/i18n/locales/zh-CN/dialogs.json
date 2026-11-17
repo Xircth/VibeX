@@ -492,7 +492,6 @@
     "importedProjectBadge": "已导入",
     "importedProjectsReceipt": "下方已选中 {{count}} 个导入的项目。",
     "projectListTitle": "选择项目进入工作台",
-    "selectProjectToEnterGuide": "点击右侧列表中的任意项目（或全局空间）即可进入工作台",
     "projectsMultiImported": "已导入 {{count}} 个项目",
     "detectingHistorySources": "正在检查可导入的 Agent…",
     "scanWaiting": "等待中"

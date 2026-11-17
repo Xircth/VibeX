@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -68,14 +69,12 @@ export function BasicGuideOverlay() {
   const meta = SUBSTEP_META[state.substep];
   const showCoaching = !showingEnd && state.substep !== 'show-end';
   const spotlightTargets = showCoaching ? substepSpotlights(state.substep) : [];
-  const hasFooterAction =
-    state.substep === 'show-end' ||
-    (meta.continueVisible && meta.targets.length === 0);
+  const hasFooterAction = meta.continueVisible && meta.targets.length === 0;
   const showStepPanel =
     !isSettingsRoute(location.pathname) && (showingEnd || hasFooterAction);
   const onKanban = isKanbanGuideSurface(location.pathname, activeTab);
 
-  return (
+  const overlayContent = (
     <>
       {showCoaching ? (
         <BasicGuideSpotlight
@@ -128,16 +127,6 @@ export function BasicGuideOverlay() {
               </div>
             ) : (
               <div className="basic-guide-panel__footer">
-                {state.substep === 'show-end' ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-basic-guide="guide-finish"
-                    onClick={ctx.finish}
-                  >
-                    {t('finish')}
-                  </Button>
-                ) : null}
                 {meta.continueVisible && meta.targets.length === 0 ? (
                   <Button
                     type="button"
@@ -153,6 +142,14 @@ export function BasicGuideOverlay() {
           </div>
         </aside>
       ) : null}
+    </>
+  );
+
+  return (
+    <>
+      {typeof document !== 'undefined' && document.body
+        ? createPortal(overlayContent, document.body)
+        : overlayContent}
 
       <Dialog
         open={exitOpen}

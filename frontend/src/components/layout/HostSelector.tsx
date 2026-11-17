@@ -799,6 +799,7 @@ export function HostSelector() {
           <button
             type="button"
             data-testid="toolbar-host-selector"
+            data-basic-guide="toolbar-host-selector"
             aria-label={t('toolbar.selectHost', '切换运行主机')}
             aria-expanded={open}
             className={cn(

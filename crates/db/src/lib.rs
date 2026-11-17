@@ -597,6 +597,248 @@ mod tests {
             db_err.message()
         );
     }
+
+    #[tokio::test]
+    async fn rename_plugin_ids_to_dimo_succeeds_with_foreign_keys_enabled() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+
+        let migrator = sqlx::migrate!("./migrations");
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+                version BIGINT PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time BIGINT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create _sqlx_migrations");
+
+        for migration in migrator.iter() {
+            if migration.migration_type.is_down_migration() || migration.version < 20261116010000 {
+                continue;
+            }
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (?, ?, 1, ?, 1)",
+            )
+            .bind(migration.version)
+            .bind(migration.description.as_ref())
+            .bind(migration.checksum.as_ref())
+            .execute(&pool)
+            .await
+            .expect("pre-mark post-target migration");
+        }
+        migrator.run(&pool).await.expect("run pre-migrations");
+        sqlx::query("DELETE FROM _sqlx_migrations WHERE version >= 20261116010000")
+            .execute(&pool)
+            .await
+            .expect("unmark target and later migrations");
+
+        // Populate v2 parent + child rows (including UNIQUE legacy_plugin_id).
+        let legacy_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO plugin_v2_registry
+                (plugin_id, schema_version, name, normalized_manifest_json, source, membership,
+                 legacy_plugin_id, created_at, updated_at)
+             VALUES ('vibex.office', 2, 'Office', '{}', 'builtin', 'builtin', ?, '2026-01-01', '2026-01-01'),
+                    ('third.party', 2, 'Third Party', '{}', 'added', 'added', NULL, '2026-01-01', '2026-01-01')",
+        )
+        .bind(legacy_id)
+        .execute(&pool)
+        .await
+        .expect("insert v2 registry");
+        sqlx::query(
+            "INSERT INTO plugin_v2_activation (plugin_id, enabled, updated_at)
+             VALUES ('vibex.office', 1, '2026-01-01'), ('third.party', 1, '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v2 activation");
+
+        // Populate control plane parent + child rows.
+        sqlx::query(
+            "INSERT INTO plugin_control_registry
+                (plugin_id, name, version, source_kind, source_path, package_json, created_at, updated_at)
+             VALUES ('vibex-plugin-computer-use', 'Computer Use', '1.0.0', 'builtin', '/tmp/cu', '{}', '2026-01-01', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert control registry");
+        sqlx::query(
+            "INSERT INTO plugin_control_activation (plugin_id, enabled, updated_at)
+             VALUES ('vibex-plugin-computer-use', 1, '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert control activation");
+
+        // Populate v4 packages, installations, activation intents, generations,
+        // contributions, agent/mcp bindings, and kv storage.
+        sqlx::query(
+            "INSERT INTO plugin_packages_v4
+                (publisher, plugin_id, version, package_digest, source_kind, source_path,
+                 manifest_json, package_json, created_at)
+             VALUES ('vibex', 'vibex.browser', '2.0.0', 'digest-browser', 'marketplace', '/tmp/b',
+                     '{\"id\":\"vibex.browser\",\"publisher\":\"vibex\"}',
+                     '{\"id\":\"vibex.browser\",\"publisher\":\"vibex\"}', '2026-01-01'),
+                    ('vibex', 'vibex-plugin-computer-use', '1.0.0', 'digest-cu', 'marketplace', '/tmp/cu',
+                     '{\"id\":\"vibex-plugin-computer-use\",\"publisher\":\"vibex\"}',
+                     '{\"id\":\"vibex-plugin-computer-use\",\"publisher\":\"vibex\"}', '2026-01-01'),
+                    ('acme', 'third.party', '1.0.0', 'digest-3p', 'marketplace', '/tmp/3p',
+                     '{\"id\":\"third.party\",\"publisher\":\"acme\"}',
+                     '{\"id\":\"third.party\",\"publisher\":\"acme\"}', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v4 packages");
+
+        sqlx::query(
+            "INSERT INTO plugin_installations_v4
+                (plugin_id, publisher, current_package_digest, rollback_package_digest,
+                 data_retention, installed_at, updated_at)
+             VALUES ('vibex.browser', 'vibex', 'digest-browser', NULL, 'retain', '2026-01-01', '2026-01-01'),
+                    ('vibex-plugin-computer-use', 'vibex', 'digest-cu', NULL, 'retain', '2026-01-01', '2026-01-01'),
+                    ('third.party', 'acme', 'digest-3p', NULL, 'retain', '2026-01-01', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v4 installations");
+
+        sqlx::query(
+            "INSERT INTO plugin_activation_intents_v4 (plugin_id, enabled, target_digest, updated_at)
+             VALUES ('vibex.browser', 1, 'digest-browser', '2026-01-01'),
+                    ('vibex-plugin-computer-use', 1, 'digest-cu', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v4 activation intents");
+
+        sqlx::query(
+            "INSERT INTO plugin_generations_v4
+                (plugin_id, package_digest, state, evidence_json, created_at, published_at)
+             VALUES ('vibex.browser', 'digest-browser', 'active', '{}', '2026-01-01', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v4 generation");
+        let gen_id: i64 = sqlx::query_scalar(
+            "SELECT generation_id FROM plugin_generations_v4 WHERE plugin_id = 'vibex.browser'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("generation id");
+
+        sqlx::query(
+            "INSERT INTO plugin_contributions_v4
+                (generation_id, plugin_id, kind, contribution_id, declaration_json, readiness)
+             VALUES (?, 'vibex.browser', 'skill', 'browse',
+                     '{\"pluginId\":\"vibex.browser\",\"id\":\"browse\"}', 'ready')",
+        )
+        .bind(gen_id)
+        .execute(&pool)
+        .await
+        .expect("insert v4 contribution");
+
+        sqlx::query(
+            "INSERT INTO plugin_agent_bindings_v4
+                (plugin_id, agent_id, desired, applied, updated_at)
+             VALUES ('vibex.browser', 'claude_code', 1, 1, '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v4 agent binding");
+
+        sqlx::query(
+            "INSERT INTO plugin_mcp_bindings_v4
+                (plugin_id, mcp_id, agent_id, desired, applied, updated_at)
+             VALUES ('vibex.browser', 'browser-mcp', 'claude_code', 1, 1, '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert v4 mcp binding");
+
+        sqlx::query(
+            "INSERT INTO plugin_kv_storage (plugin_id, key, value_json, updated_at)
+             VALUES ('vibex.browser', 'prefs', '{\"ok\":true}', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert kv storage");
+
+        run_migrations(&pool)
+            .await
+            .expect("rename_plugin_ids_to_dimo must succeed with foreign_keys = ON");
+
+        let fk_violations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
+            .fetch_one(&pool)
+            .await
+            .expect("foreign key check");
+        assert_eq!(fk_violations, 0);
+
+        let v4_ids: Vec<(String, String)> = sqlx::query_as(
+            "SELECT plugin_id, publisher FROM plugin_installations_v4 ORDER BY plugin_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("v4 installations");
+        assert_eq!(
+            v4_ids,
+            vec![
+                ("dimo-plugin-computer-use".to_string(), "dimo".to_string()),
+                ("dimo.browser".to_string(), "dimo".to_string()),
+                ("third.party".to_string(), "acme".to_string()),
+            ]
+        );
+
+        let pkg_json: String = sqlx::query_scalar(
+            "SELECT package_json FROM plugin_packages_v4 WHERE plugin_id = 'dimo.browser' AND publisher = 'dimo'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("updated package_json");
+        let parsed: serde_json::Value = serde_json::from_str(&pkg_json).expect("valid json");
+        assert_eq!(parsed["id"], "dimo.browser");
+        assert_eq!(parsed["publisher"], "dimo");
+
+        let contrib: (String, String) = sqlx::query_as(
+            "SELECT plugin_id, declaration_json FROM plugin_contributions_v4 WHERE generation_id = ?",
+        )
+        .bind(gen_id)
+        .fetch_one(&pool)
+        .await
+        .expect("updated contribution");
+        assert_eq!(contrib.0, "dimo.browser");
+        let contrib_json: serde_json::Value =
+            serde_json::from_str(&contrib.1).expect("valid contrib json");
+        assert_eq!(contrib_json["pluginId"], "dimo.browser");
+
+        let restored_legacy: Option<Uuid> = sqlx::query_scalar(
+            "SELECT legacy_plugin_id FROM plugin_v2_registry WHERE plugin_id = 'dimo.office'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("restored legacy_plugin_id");
+        assert_eq!(restored_legacy, Some(legacy_id));
+
+        let kv_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM plugin_kv_storage WHERE plugin_id = 'dimo.browser'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("kv count");
+        assert_eq!(kv_count, 1);
+    }
 }
 
 /// Process-wide single-connection write pool (`max_connections(1)`).

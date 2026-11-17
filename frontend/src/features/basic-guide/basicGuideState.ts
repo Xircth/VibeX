@@ -2,11 +2,6 @@ import type { SpotlightTarget } from './spotlightGeometry';
 
 export const BASIC_GUIDE_STORAGE_KEY = 'dimo:basic-guide';
 export const BASIC_GUIDE_CHANGED_EVENT = 'dimo:basic-guide-changed';
-export const BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT =
-  'dimo:basic-guide-open-agent-status';
-export const BASIC_GUIDE_SESSION_AGENT_EVENT =
-  'dimo:basic-guide-session-agent';
-export const BASIC_GUIDE_HELLO = '你好';
 
 export type GuideSpotlightTarget = SpotlightTarget;
 
@@ -16,42 +11,15 @@ export type BasicGuideEndCopy = 'none' | 'finished' | 'exited';
 
 export type BasicGuideSubstep =
   | 'select-project'
-  | 'need-agent'
-  | 'settings-agent-icon'
-  | 'settings-agent-enable'
-  | 'settings-agent-acp'
-  | 'settings-agent-auth'
-  | 'return-main'
-  | 'click-new-session'
-  | 'configure-session-agent'
-  | 'configure-session-config'
-  | 'submit-session'
-  | 'send-hello'
+  | 'toolbar-host-selector'
+  | 'project-switcher'
   | 'rail-session-list'
+  | 'rail-bots'
   | 'rail-file-tree'
   | 'rail-git'
-  | 'click-kanban'
-  | 'kanban-create-session'
-  | 'kanban-click-sessions'
-  | 'kanban-execution'
-  | 'kanban-monitor'
-  | 'kanban-move-to-execution'
-  | 'usage-next-page'
-  | 'usage-overview-cards'
-  | 'usage-nav-overview'
-  | 'usage-nav-folders'
-  | 'usage-nav-agents'
-  | 'usage-nav-models'
-  | 'usage-nav-sessions'
-  | 'usage-nav-plan'
   | 'show-end';
 
-export type BasicGuideAdvance =
-  | 'route'
-  | 'click'
-  | 'auto'
-  | 'continue'
-  | 'finish';
+export type BasicGuideAdvance = 'route' | 'click' | 'continue' | 'finish';
 
 export type PersistedBasicGuide = {
   phase: BasicGuidePhase;
@@ -62,34 +30,12 @@ export type PersistedBasicGuide = {
 
 export const SUBSTEP_ORDER: readonly BasicGuideSubstep[] = [
   'select-project',
-  'need-agent',
-  'settings-agent-icon',
-  'settings-agent-enable',
-  'settings-agent-acp',
-  'settings-agent-auth',
-  'return-main',
-  'click-new-session',
-  'configure-session-agent',
-  'configure-session-config',
-  'submit-session',
-  'send-hello',
+  'toolbar-host-selector',
+  'project-switcher',
   'rail-session-list',
+  'rail-bots',
   'rail-file-tree',
   'rail-git',
-  'click-kanban',
-  'kanban-create-session',
-  'kanban-click-sessions',
-  'kanban-execution',
-  'kanban-monitor',
-  'kanban-move-to-execution',
-  'usage-next-page',
-  'usage-overview-cards',
-  'usage-nav-overview',
-  'usage-nav-folders',
-  'usage-nav-agents',
-  'usage-nav-models',
-  'usage-nav-sessions',
-  'usage-nav-plan',
   'show-end',
 ];
 
@@ -115,6 +61,7 @@ export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
       'welcome-create-project',
       'welcome-select-folder',
       'welcome-global-project',
+      'welcome-project-list',
     ],
     advance: 'route',
     continueVisible: false,
@@ -133,200 +80,60 @@ export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
         id: 'welcome-global-project',
         copyKey: 'select-project-global',
       },
+      {
+        id: 'welcome-project-list',
+        copyKey: 'select-project-list',
+        shape: 'rect',
+      },
     ],
   },
-  'need-agent': {
+  'toolbar-host-selector': {
     mainStep: 2,
-    targets: ['open-settings', 'settings-nav-agents'],
-    advance: 'click',
-    continueVisible: false,
-  },
-  'settings-agent-icon': {
-    mainStep: 2,
-    targets: ['settings-agent-bar'],
-    advance: 'click',
-    continueVisible: false,
-  },
-  'settings-agent-enable': {
-    mainStep: 2,
-    targets: ['settings-agent-enable'],
-    advance: 'auto',
-    continueVisible: false,
-  },
-  'settings-agent-acp': {
-    mainStep: 2,
-    targets: ['settings-agent-enable'],
-    advance: 'auto',
-    continueVisible: false,
-  },
-  'settings-agent-auth': {
-    mainStep: 2,
-    targets: ['settings-agent-auth'],
-    advance: 'auto',
-    continueVisible: false,
-  },
-  'return-main': {
-    mainStep: 2,
-    targets: [],
+    targets: ['toolbar-host-selector'],
     advance: 'continue',
     continueVisible: true,
-  },
-  'click-new-session': {
-    mainStep: 2,
-    targets: ['toolbar-new-session'],
-    advance: 'click',
-    continueVisible: false,
     spotlights: [
       {
-        id: 'toolbar-new-session',
-        copyKey: 'click-new-session',
-        shape: 'circle',
+        id: 'toolbar-host-selector',
+        copyKey: 'toolbar-host-selector',
+        padding: 2,
       },
     ],
   },
-  'configure-session-agent': {
+  'project-switcher': {
     mainStep: 2,
-    targets: ['session-agent-selector'],
-    advance: 'auto',
+    targets: ['project-switcher'],
+    advance: 'continue',
     continueVisible: true,
-  },
-  'configure-session-config': {
-    mainStep: 2,
-    targets: ['session-config'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'submit-session': {
-    mainStep: 2,
-    targets: ['session-create-submit'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'send-hello': {
-    mainStep: 2,
-    targets: ['session-composer', 'session-send'],
-    advance: 'auto',
-    continueVisible: false,
     spotlights: [
       {
-        id: 'session-composer',
-        copyKey: 'send-hello',
-      },
-      {
-        id: 'session-send',
-        shape: 'circle',
+        id: 'project-switcher',
+        copyKey: 'project-switcher',
+        padding: 2,
       },
     ],
   },
   'rail-session-list': {
-    mainStep: 3,
+    mainStep: 2,
     targets: ['rail-session-list'],
     advance: 'click',
-    continueVisible: false,
+    continueVisible: true,
+  },
+  'rail-bots': {
+    mainStep: 2,
+    targets: ['rail-bots'],
+    advance: 'click',
+    continueVisible: true,
   },
   'rail-file-tree': {
-    mainStep: 3,
+    mainStep: 2,
     targets: ['rail-file-tree'],
     advance: 'click',
-    continueVisible: false,
+    continueVisible: true,
   },
   'rail-git': {
-    mainStep: 3,
+    mainStep: 2,
     targets: ['rail-git'],
-    advance: 'click',
-    continueVisible: false,
-  },
-  'click-kanban': {
-    mainStep: 3,
-    targets: ['toolbar-kanban'],
-    advance: 'click',
-    continueVisible: false,
-  },
-  'kanban-create-session': {
-    mainStep: 3,
-    targets: ['kanban-session-list', 'kanban-session-list-new'],
-    advance: 'click',
-    continueVisible: false,
-    spotlights: [
-      {
-        id: 'kanban-session-list',
-        copyKey: 'kanban-create-session',
-      },
-      {
-        id: 'kanban-session-list-new',
-        shape: 'circle',
-      },
-    ],
-  },
-  'kanban-click-sessions': {
-    mainStep: 3,
-    targets: ['kanban-session-list', 'kanban-session-item'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'kanban-execution': {
-    mainStep: 3,
-    targets: ['kanban-execution'],
-    advance: 'continue',
-    continueVisible: true,
-  },
-  'kanban-monitor': {
-    mainStep: 3,
-    targets: ['kanban-monitor'],
-    advance: 'continue',
-    continueVisible: true,
-  },
-  'kanban-move-to-execution': {
-    mainStep: 3,
-    targets: ['kanban-move-to-execution'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'usage-next-page': {
-    mainStep: 3,
-    targets: ['kanban-next-page'],
-    advance: 'click',
-    continueVisible: false,
-  },
-  'usage-overview-cards': {
-    mainStep: 3,
-    targets: ['usage-overview-cards'],
-    advance: 'continue',
-    continueVisible: true,
-  },
-  'usage-nav-overview': {
-    mainStep: 3,
-    targets: ['usage-nav', 'usage-nav-overview'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'usage-nav-folders': {
-    mainStep: 3,
-    targets: ['usage-nav', 'usage-nav-folders'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'usage-nav-agents': {
-    mainStep: 3,
-    targets: ['usage-nav', 'usage-nav-agents'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'usage-nav-models': {
-    mainStep: 3,
-    targets: ['usage-nav', 'usage-nav-models'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'usage-nav-sessions': {
-    mainStep: 3,
-    targets: ['usage-nav', 'usage-nav-sessions'],
-    advance: 'click',
-    continueVisible: true,
-  },
-  'usage-nav-plan': {
-    mainStep: 3,
-    targets: ['usage-nav', 'usage-nav-plan'],
     advance: 'click',
     continueVisible: true,
   },
@@ -381,22 +188,25 @@ export function parsePersistedBasicGuide(
       return null;
     }
     if (!isReachedStep(parsed.reachedStep)) return null;
-    const rawSubstep: string =
-      typeof parsed.substep === 'string' ? String(parsed.substep) : '';
-    const migratedSubstep =
-      rawSubstep === 'configure-session'
-        ? 'configure-session-agent'
-        : rawSubstep;
-    const substep = isSubstep(migratedSubstep)
-      ? migratedSubstep
-      : 'select-project';
+    const rawSubstep = typeof parsed.substep === 'string' ? parsed.substep : '';
+    const substep: BasicGuideSubstep = isSubstep(rawSubstep)
+      ? rawSubstep
+      : parsed.reachedStep >= 1
+        ? 'toolbar-host-selector'
+        : 'select-project';
+    const reachedStep: BasicGuideReachedStep =
+      parsed.phase === 'active' &&
+      substep !== 'select-project' &&
+      parsed.reachedStep === 0
+        ? 1
+        : parsed.reachedStep;
     const endCopy =
       parsed.endCopy === 'finished' || parsed.endCopy === 'exited'
         ? parsed.endCopy
         : 'none';
     return {
       phase: parsed.phase,
-      reachedStep: parsed.reachedStep,
+      reachedStep,
       substep,
       endCopy,
     };
@@ -412,6 +222,9 @@ export function resumeBasicGuide(
   if (persisted.reachedStep === 0) {
     return { ...persisted, substep: 'select-project', endCopy: 'none' };
   }
+  if (persisted.substep === 'show-end') {
+    return completeGuide(persisted, 'finished');
+  }
   return persisted;
 }
 
@@ -426,6 +239,43 @@ export function resolveLaunchState({
   if (parsed) return resumeBasicGuide(parsed);
   if (onboardingAcknowledged) return COMPLETED_GUIDE;
   return IDLE_GUIDE;
+}
+
+export function reconcileLaunchStateForConfig({
+  state,
+  hasPersistedGuide,
+  onboardingAcknowledged,
+  configLoading,
+  skippedInSession = false,
+}: {
+  state: PersistedBasicGuide;
+  hasPersistedGuide: boolean;
+  onboardingAcknowledged: boolean;
+  configLoading: boolean;
+  skippedInSession?: boolean;
+}): PersistedBasicGuide | null {
+  if (configLoading) return null;
+  if (!onboardingAcknowledged) {
+    if (skippedInSession) return null;
+    if (
+      state.phase === 'completed' ||
+      state.reachedStep > 0 ||
+      (state.phase === 'active' && state.substep !== 'select-project')
+    ) {
+      return { ...IDLE_GUIDE };
+    }
+    return null;
+  }
+  if (!hasPersistedGuide) {
+    const next = resolveLaunchState({
+      raw: null,
+      onboardingAcknowledged: true,
+    });
+    if (next.phase === 'completed' && state.phase !== 'completed') {
+      return next;
+    }
+  }
+  return null;
 }
 
 export function startBasicGuide(
@@ -459,7 +309,8 @@ export function nextSubstep(
 ): BasicGuideSubstep | null {
   const index = SUBSTEP_ORDER.indexOf(substep);
   if (index < 0 || index >= SUBSTEP_ORDER.length - 1) return null;
-  return SUBSTEP_ORDER[index + 1] ?? null;
+  const next = SUBSTEP_ORDER[index + 1] ?? null;
+  return next === 'show-end' ? null : next;
 }
 
 export function advanceGuide(
@@ -479,7 +330,7 @@ export function advanceGuide(
 
 export function completeStep1(
   state: PersistedBasicGuide,
-  hasAvailableAgent: boolean
+  _hasAvailableAgent = true
 ): PersistedBasicGuide {
   if (state.phase !== 'active' || state.reachedStep > 0) {
     return state;
@@ -487,17 +338,7 @@ export function completeStep1(
   return {
     phase: 'active',
     reachedStep: 1,
-    substep: hasAvailableAgent ? 'click-new-session' : 'need-agent',
-    endCopy: 'none',
-  };
-}
-
-export function completeStep2(state: PersistedBasicGuide): PersistedBasicGuide {
-  if (state.phase !== 'active') return state;
-  return {
-    phase: 'active',
-    reachedStep: 2,
-    substep: 'rail-session-list',
+    substep: 'toolbar-host-selector',
     endCopy: 'none',
   };
 }
@@ -528,13 +369,6 @@ export function isGuideVisible(state: PersistedBasicGuide): boolean {
   );
 }
 
-export function sessionCreateHrefLooksOpen(search: string): boolean {
-  const params = new URLSearchParams(search);
-  return (
-    params.get('newSession') === '1' || params.get('createSession') === '1'
-  );
-}
-
 export function isProjectRoute(pathname: string): boolean {
   return /^\/local-projects\/[^/]+/u.test(pathname);
 }
@@ -556,12 +390,6 @@ export function isWelcomeRoute(pathname: string): boolean {
     pathname === '/' ||
     pathname === '/local-projects' ||
     pathname === '/local-projects/'
-  );
-}
-
-export function isSettingsAgentsRoute(pathname: string): boolean {
-  return (
-    pathname === '/settings/agents' || pathname.startsWith('/settings/agents/')
   );
 }
 
@@ -603,50 +431,6 @@ export function shouldCompleteStep1OnRoute(
   );
 }
 
-export function isConfigureSessionSubstep(substep: BasicGuideSubstep): boolean {
-  return (
-    substep === 'configure-session-agent' ||
-    substep === 'configure-session-config' ||
-    substep === 'submit-session'
-  );
-}
-
-export function isStep2LiveSessionSubstep(substep: BasicGuideSubstep): boolean {
-  return isConfigureSessionSubstep(substep) || substep === 'send-hello';
-}
-
-export function conversationIdFromPathname(pathname: string): string | null {
-  const match = pathname.match(/\/workspaces\/[^/]+\/sessions\/([^/?#]+)\/?$/);
-  return match?.[1] ?? null;
-}
-
-export function batchShowsAgentOutput(batch: {
-  ops: Array<{
-    op: string;
-    row?: { row?: { kind?: string; turn?: { role?: string } } };
-  }>;
-}): boolean {
-  return batch.ops.some((op) => {
-    if (op.op === 'append_text') return true;
-    if (op.op !== 'upsert') return false;
-    return (
-      op.row?.row?.kind === 'message_turn' &&
-      op.row.row.turn?.role === 'assistant'
-    );
-  });
-}
-
-export function shouldCompleteStep2FromAgentOutput(
-  state: PersistedBasicGuide,
-  batch: Parameters<typeof batchShowsAgentOutput>[0]
-): boolean {
-  return (
-    state.phase === 'active' &&
-    isStep2LiveSessionSubstep(state.substep) &&
-    batchShowsAgentOutput(batch)
-  );
-}
-
 export function substepSpotlights(
   substep: BasicGuideSubstep
 ): GuideSpotlightTarget[] {
@@ -664,21 +448,22 @@ export function clickAdvancesSubstep(
   substep: BasicGuideSubstep,
   targetId: string
 ): boolean {
-  switch (substep) {
-    case 'need-agent':
-      return targetId === 'settings-nav-agents';
-    case 'kanban-create-session':
-      return targetId === 'kanban-session-list-new';
-    case 'kanban-click-sessions':
-      return targetId === 'kanban-session-item';
-    case 'usage-nav-overview':
-    case 'usage-nav-folders':
-    case 'usage-nav-agents':
-    case 'usage-nav-models':
-    case 'usage-nav-sessions':
-    case 'usage-nav-plan':
-      return targetId === substep;
-    default:
-      return SUBSTEP_META[substep].targets.includes(targetId);
+  return SUBSTEP_META[substep].targets.includes(targetId);
+}
+
+export function isElementInertOrHidden(node: HTMLElement): boolean {
+  let current: HTMLElement | null = node;
+  while (current) {
+    if (
+      current.inert ||
+      current.hidden ||
+      current.hasAttribute('inert') ||
+      current.hasAttribute('hidden') ||
+      current.getAttribute('aria-hidden') === 'true'
+    ) {
+      return true;
+    }
+    current = current.parentElement;
   }
+  return false;
 }

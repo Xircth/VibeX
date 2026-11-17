@@ -109,13 +109,13 @@ describe('BasicGuideOverlay', () => {
     expect(value.requestExit).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the step panel pinned without a workspace offset', () => {
+  it('keeps the step panel pinned without a workspace offset when showing the end banner', () => {
     renderOverlay(
       {
-        phase: 'active',
-        reachedStep: 1,
-        substep: 'return-main',
-        endCopy: 'none',
+        phase: 'completed',
+        reachedStep: 2,
+        substep: 'show-end',
+        endCopy: 'finished',
       },
       undefined,
       {
@@ -131,10 +131,10 @@ describe('BasicGuideOverlay', () => {
   it('moves the step panel to 10px on the kanban page', () => {
     renderOverlay(
       {
-        phase: 'active',
+        phase: 'completed',
         reachedStep: 2,
         substep: 'show-end',
-        endCopy: 'none',
+        endCopy: 'finished',
       },
       undefined,
       {
@@ -173,48 +173,21 @@ describe('BasicGuideOverlay', () => {
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
   });
 
-  it('keeps callout copy on settings only when that window has the box', () => {
-    mountGuideTarget('settings-agent-bar');
+  it('does not render a manual finish button and hides the exit button once finished', () => {
     renderOverlay(
       {
-        phase: 'active',
-        reachedStep: 1,
-        substep: 'settings-agent-icon',
-        endCopy: 'none',
-      },
-      undefined,
-      { pathname: '/settings/agents' }
-    );
-    expect(
-      screen.queryByRole('complementary', { name: '基础引导' })
-    ).toBeNull();
-    expect(
-      document.querySelector('[data-basic-guide-callout="settings-agent-icon"]')
-    ).toHaveTextContent('先点选一个 Agent');
-  });
-
-  it('shows the finish button without coaching copy while keeping exit button separate', () => {
-    renderOverlay(
-      {
-        phase: 'active',
+        phase: 'completed',
         reachedStep: 2,
         substep: 'show-end',
-        endCopy: 'none',
+        endCopy: 'finished',
       },
       undefined,
       { withExitButton: true }
     );
     const panel = screen.getByRole('complementary', { name: '基础引导' });
-    expect(within(panel).getByRole('button', { name: '结束' })).toBeInTheDocument();
-    expect(
-      within(panel).queryByRole('button', { name: '跳过基础引导' })
-    ).toBeNull();
-    expect(
-      screen.queryByText('熟悉完页面后，点击结束即可。')
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: '跳过基础引导' })
-    ).toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: '结束' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '结束' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '跳过基础引导' })).toBeNull();
   });
 
   it('asks for confirmation before exiting to Settings → General', async () => {
@@ -258,144 +231,77 @@ describe('BasicGuideOverlay', () => {
     ).toBeNull();
   });
 
-  it('rings the send button without connecting it to the composer copy', () => {
-    mountGuideTarget('session-composer', {
-      left: 640,
-      top: 420,
-      width: 420,
-      height: 160,
-    });
-    mountGuideTarget('session-send', {
-      left: 1008,
-      top: 540,
-      width: 32,
-      height: 32,
-    });
-    renderOverlay({
-      phase: 'active',
-      reachedStep: 1,
-      substep: 'send-hello',
-      endCopy: 'none',
-    });
-
-    expect(document.querySelectorAll('.basic-guide-spotlight')).toHaveLength(2);
-    expect(
-      document.querySelector('[data-basic-guide-spotlight="session-send"]')
-    ).toHaveAttribute('data-shape', 'circle');
-    expect(
-      document.querySelectorAll('[data-basic-guide-callout]')
-    ).toHaveLength(1);
-    expect(
-      document.querySelector('[data-basic-guide-callout="send-hello"]')
-    ).toHaveTextContent('在输入框中编辑「你好」');
-    expect(
-      document.querySelectorAll('[data-basic-guide-connectors] path')
-    ).toHaveLength(1);
-  });
-
-  it('coaches the execution area first, with Continue on its callout', async () => {
+  it('coaches Host selector, Project selector, and the 4 left rail buttons with Continue on each callout', async () => {
     const user = userEvent.setup();
-    mountGuideTarget('kanban-execution', {
-      left: 820,
-      top: 48,
-      width: 400,
-      height: 680,
-    });
-    mountGuideTarget('kanban-monitor', {
-      left: 280,
-      top: 80,
-      width: 500,
-      height: 560,
-    });
-    const { value } = renderOverlay({
-      phase: 'active',
-      reachedStep: 2,
-      substep: 'kanban-execution',
-      endCopy: 'none',
-    });
+    const targets: Array<
+      [
+        | 'toolbar-host-selector'
+        | 'project-switcher'
+        | 'rail-session-list'
+        | 'rail-bots'
+        | 'rail-file-tree'
+        | 'rail-git',
+        string,
+        { left: number; top: number; width: number; height: number },
+      ]
+    > = [
+      [
+        'toolbar-host-selector',
+        'Host 选择器',
+        { left: 160, top: 8, width: 110, height: 28 },
+      ],
+      [
+        'project-switcher',
+        '项目选择器',
+        { left: 280, top: 8, width: 130, height: 28 },
+      ],
+      [
+        'rail-session-list',
+        '会话列表',
+        { left: 8, top: 64, width: 28, height: 28 },
+      ],
+      [
+        'rail-bots',
+        'Bot 助手',
+        { left: 8, top: 96, width: 28, height: 28 },
+      ],
+      [
+        'rail-file-tree',
+        '文件树',
+        { left: 8, top: 128, width: 28, height: 28 },
+      ],
+      ['rail-git', 'Git 面板', { left: 8, top: 160, width: 28, height: 28 }],
+    ];
 
-    expect(
-      screen.queryByRole('complementary', { name: '基础引导' })
-    ).toBeNull();
-    expect(
-      document.querySelector('[data-basic-guide-spotlight="kanban-execution"]')
-    ).toBeInTheDocument();
-    expect(
-      document.querySelector('[data-basic-guide-spotlight="kanban-monitor"]')
-    ).toBeNull();
-    expect(
-      document.querySelector('[data-basic-guide-callout="kanban-execution"]')
-    ).toHaveTextContent('这是会话执行区');
-    expect(
-      document.querySelector('[data-basic-guide-callout="kanban-monitor"]')
-    ).toBeNull();
-    const continueButton = within(
-      document.querySelector(
-        '[data-basic-guide-callout="kanban-execution"]'
-      ) as HTMLElement
-    ).getByRole('button', { name: '继续' });
-    expect(continueButton).toHaveClass('basic-guide-callout__continue');
-    await user.click(continueButton);
-    expect(value.continueStep).toHaveBeenCalled();
-  });
+    for (const [substep, expectedText, rect] of targets) {
+      document
+        .querySelectorAll('[data-basic-guide]')
+        .forEach((node) => node.remove());
+      mountGuideTarget(substep, rect);
+      const { value, unmount } = renderOverlay({
+        phase: 'active',
+        reachedStep: 1,
+        substep,
+        endCopy: 'none',
+      });
 
-  it('coaches the monitor area next, with Continue on its callout', async () => {
-    const user = userEvent.setup();
-    mountGuideTarget('kanban-execution', {
-      left: 820,
-      top: 48,
-      width: 400,
-      height: 680,
-    });
-    mountGuideTarget('kanban-monitor', {
-      left: 280,
-      top: 80,
-      width: 500,
-      height: 560,
-    });
-    const { value } = renderOverlay({
-      phase: 'active',
-      reachedStep: 2,
-      substep: 'kanban-monitor',
-      endCopy: 'none',
-    });
-
-    expect(
-      screen.queryByRole('complementary', { name: '基础引导' })
-    ).toBeNull();
-    expect(
-      document.querySelector('[data-basic-guide-spotlight="kanban-monitor"]')
-    ).toBeInTheDocument();
-    expect(
-      document.querySelector('[data-basic-guide-spotlight="kanban-execution"]')
-    ).toBeNull();
-    expect(
-      document.querySelector('[data-basic-guide-callout="kanban-monitor"]')
-    ).toHaveTextContent('这是会话监控区');
-    expect(
-      document.querySelector('[data-basic-guide-callout="kanban-execution"]')
-    ).toBeNull();
-    const continueButton = within(
-      document.querySelector(
-        '[data-basic-guide-callout="kanban-monitor"]'
-      ) as HTMLElement
-    ).getByRole('button', { name: '继续' });
-    expect(continueButton).toHaveClass('basic-guide-callout__continue');
-    await user.click(continueButton);
-    expect(value.continueStep).toHaveBeenCalled();
-  });
-
-  it('keeps Continue on the step panel when a substep has no target', () => {
-    renderOverlay({
-      phase: 'active',
-      reachedStep: 1,
-      substep: 'return-main',
-      endCopy: 'none',
-    });
-    const panel = screen.getByRole('complementary', { name: '基础引导' });
-    expect(
-      within(panel).getByRole('button', { name: '继续' })
-    ).toBeInTheDocument();
-    expect(document.querySelector('.basic-guide-callout__continue')).toBeNull();
+      expect(
+        screen.queryByRole('complementary', { name: '基础引导' })
+      ).toBeNull();
+      expect(
+        document.querySelector(`[data-basic-guide-spotlight="${substep}"]`)
+      ).toBeInTheDocument();
+      const callout = document.querySelector(
+        `[data-basic-guide-callout="${substep}"]`
+      ) as HTMLElement;
+      expect(callout).toHaveTextContent(expectedText);
+      const continueButton = within(callout).getByRole('button', {
+        name: '继续',
+      });
+      expect(continueButton).toHaveClass('basic-guide-callout__continue');
+      await user.click(continueButton);
+      expect(value.continueStep).toHaveBeenCalledTimes(1);
+      unmount();
+    }
   });
 });

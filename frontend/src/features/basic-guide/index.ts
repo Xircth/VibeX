@@ -2,8 +2,6 @@ export { BasicGuideProvider } from './BasicGuideProvider';
 export { BasicGuideExitButton, BasicGuideOverlay } from './BasicGuideOverlay';
 export { useBasicGuide, useOptionalBasicGuide } from './BasicGuideContext';
 export {
-  BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT,
-  BASIC_GUIDE_SESSION_AGENT_EVENT,
   BASIC_GUIDE_STORAGE_KEY,
   completeStep1,
   restartBasicGuide,

@@ -12,6 +12,7 @@ export type SpotlightTarget = {
   copyKey?: string;
   group?: string;
   shape?: 'auto' | 'circle' | 'rect';
+  padding?: number;
 };
 
 export type MeasuredTarget = SpotlightTarget & Rect;
@@ -47,6 +48,8 @@ export const CIRCLE_MAX_EDGE = 44;
 export const CIRCLE_ASPECT = 0.75;
 export const MERGE_GAP = 4;
 export const GROUP_MERGE_GAP = 16;
+export const SPOTLIGHT_RECT_PAD = 4;
+export const SPOTLIGHT_VIEWPORT_INSET = 2;
 export const CALLOUT_MAX_WIDTH = 240;
 export const CALLOUT_MIN_WIDTH = 140;
 export const VIEWPORT_MARGIN = 12;
@@ -117,7 +120,10 @@ export function rectContains(outer: Rect, inner: Rect): boolean {
   );
 }
 
-export function padMeasured(box: MeasuredTarget): MergedSpotlight {
+export function padMeasured(
+  box: MeasuredTarget,
+  viewport?: { width: number; height: number }
+): MergedSpotlight {
   const circle = isCircleLike(box, box.shape);
   const sourceIds = box.id ? [box.id] : [];
   const copyKeys = box.copyKey ? [box.copyKey] : [];
@@ -125,9 +131,29 @@ export function padMeasured(box: MeasuredTarget): MergedSpotlight {
     const size = Math.max(box.width, box.height);
     const cx = box.left + box.width / 2;
     const cy = box.top + box.height / 2;
+    const rawLeft = cx - size / 2;
+    const rawTop = cy - size / 2;
+    const left = viewport
+      ? Math.min(
+          Math.max(rawLeft, SPOTLIGHT_VIEWPORT_INSET),
+          Math.max(
+            SPOTLIGHT_VIEWPORT_INSET,
+            viewport.width - SPOTLIGHT_VIEWPORT_INSET - size
+          )
+        )
+      : rawLeft;
+    const top = viewport
+      ? Math.min(
+          Math.max(rawTop, SPOTLIGHT_VIEWPORT_INSET),
+          Math.max(
+            SPOTLIGHT_VIEWPORT_INSET,
+            viewport.height - SPOTLIGHT_VIEWPORT_INSET - size
+          )
+        )
+      : rawTop;
     return {
-      left: cx - size / 2,
-      top: cy - size / 2,
+      left,
+      top,
       width: size,
       height: size,
       shape: 'circle',
@@ -136,11 +162,36 @@ export function padMeasured(box: MeasuredTarget): MergedSpotlight {
       group: box.group,
     };
   }
+  const pad = Math.max(0, box.padding ?? SPOTLIGHT_RECT_PAD);
+  const padLeft = viewport
+    ? Math.min(pad, Math.max(0, box.left - SPOTLIGHT_VIEWPORT_INSET))
+    : pad;
+  const padRight = viewport
+    ? Math.min(
+        pad,
+        Math.max(
+          0,
+          viewport.width - SPOTLIGHT_VIEWPORT_INSET - (box.left + box.width)
+        )
+      )
+    : pad;
+  const padTop = viewport
+    ? Math.min(pad, Math.max(0, box.top - SPOTLIGHT_VIEWPORT_INSET))
+    : pad;
+  const padBottom = viewport
+    ? Math.min(
+        pad,
+        Math.max(
+          0,
+          viewport.height - SPOTLIGHT_VIEWPORT_INSET - (box.top + box.height)
+        )
+      )
+    : pad;
   return {
-    left: box.left - 4,
-    top: box.top - 4,
-    width: box.width + 8,
-    height: box.height + 8,
+    left: box.left - padLeft,
+    top: box.top - padTop,
+    width: box.width + padLeft + padRight,
+    height: box.height + padTop + padBottom,
     shape: 'rect',
     sourceIds,
     copyKeys,
@@ -148,10 +199,13 @@ export function padMeasured(box: MeasuredTarget): MergedSpotlight {
   };
 }
 
-export function mergeOverlapping(boxes: MeasuredTarget[]): MergedSpotlight[] {
+export function mergeOverlapping(
+  boxes: MeasuredTarget[],
+  viewport?: { width: number; height: number }
+): MergedSpotlight[] {
   const items = boxes
     .filter((box) => box.width >= 2 && box.height >= 2)
-    .map(padMeasured);
+    .map((box) => padMeasured(box, viewport));
 
   let changed = true;
   while (changed) {

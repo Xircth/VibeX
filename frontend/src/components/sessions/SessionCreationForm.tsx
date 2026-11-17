@@ -20,7 +20,6 @@ import {
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
-import { BASIC_GUIDE_SESSION_AGENT_EVENT } from '@/features/basic-guide/basicGuideState';
 import { openAgentDiagnostics } from '@/features/agent-management/agentSettingsFocus';
 import { sessionDefaultsWritePayload } from '@/features/agents/sessionDefaults';
 import {
@@ -709,7 +708,6 @@ export function SessionCreationForm({
               selectedProfile={selectedExecutorProfile}
               onChange={(profile) => {
                 onSelectedExecutorProfileChange(profile);
-                window.dispatchEvent(new Event(BASIC_GUIDE_SESSION_AGENT_EVENT));
               }}
               disabled={isSubmitting}
               dropdownSide={dropdownSide}

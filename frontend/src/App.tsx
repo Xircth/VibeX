@@ -137,7 +137,11 @@ function MainAppContent({ children }: { children: ReactNode }) {
       // Saving the choices here must not dismiss it; acknowledgement waits
       // until the user finishes choosing projects.
       if (skipped) {
-        writeBasicGuide(skipBasicGuide());
+        if (basicGuide) {
+          basicGuide.skip();
+        } else {
+          writeBasicGuide(skipBasicGuide());
+        }
         return;
       }
       const baseConfig =
@@ -153,7 +157,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
       configRef.current = saved;
       updateConfig(saved);
     },
-    [updateConfig]
+    [basicGuide, updateConfig]
   );
 
   const finishFirstRun = useCallback(

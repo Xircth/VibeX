@@ -184,6 +184,26 @@ describe('AccountSettings', () => {
         .spyOn(accountApi, 'saveHostConfig')
         .mockRejectedValue(new AccountError('unsupported'))
     );
+    trackSpy(
+      vi
+        .spyOn(accountApi, 'listSavedHosts')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
+    trackSpy(
+      vi
+        .spyOn(accountApi, 'putSavedHosts')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
+    trackSpy(
+      vi
+        .spyOn(accountApi, 'deleteSavedHost')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
+    trackSpy(
+      vi
+        .spyOn(accountApi, 'webHandoff')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
   });
 
   it('hides Subscription & Usage and Host list when signed out of Dimo', () => {

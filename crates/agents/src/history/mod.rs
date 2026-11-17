@@ -1268,7 +1268,12 @@ fn decode_claude_project_dir(encoded: &str) -> PathBuf {
         // Windows-style: "C--Users-18190-Documents-projects-Dimo"
         // Drive letter + "--" → "C:\" then "-" → "\"
         let drive = &encoded[..1];
-        let rest = &encoded[2..];
+        let rest_start = if encoded.as_bytes().get(2) == Some(&b'-') {
+            3
+        } else {
+            2
+        };
+        let rest = &encoded[rest_start..];
         let decoded = rest.replace('-', "\\");
         PathBuf::from(format!("{drive}:\\{decoded}"))
     } else {
@@ -4293,6 +4298,15 @@ mod tests {
 
     #[test]
     fn claude_project_path_from_file_extracts_project_dir() {
+        let file = Path::new("/home/user/.claude/projects/-home-user-projects-Dimo/session.jsonl");
+        let path = claude_project_path_from_file(file, AgentKind::ClaudeCode)
+            .expect("should extract project path");
+        assert_eq!(path.to_string_lossy(), "/home/user/projects/Dimo");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn claude_project_path_from_file_extracts_windows_project_dir() {
         let file = Path::new(
             r"C:\Users\18190\.claude\projects\C--Users-18190-Documents-projects-Dimo\session.jsonl",
         );

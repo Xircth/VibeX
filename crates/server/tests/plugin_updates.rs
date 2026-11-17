@@ -276,6 +276,7 @@ impl Drop for HostProcess {
 
 #[tokio::test]
 async fn standalone_host_updates_plugins_over_http() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let (origin, _, fixture_task) = fixture().await;
     let data = tempfile::tempdir().unwrap();
     let package = tempfile::tempdir().unwrap();

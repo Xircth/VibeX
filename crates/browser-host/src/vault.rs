@@ -19,6 +19,7 @@ const VAULT_VERSION: u32 = 1;
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
 const VAULT_FILENAME: &str = "credentials.vault";
+#[cfg(windows)]
 const DPAPI_KEY_FILENAME: &str = "vault.key.dpapi";
 #[cfg(not(any(windows, target_os = "macos")))]
 const UNIX_FALLBACK_KEY_FILENAME: &str = "vault.key";

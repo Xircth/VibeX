@@ -280,7 +280,13 @@ pub fn sanitize_runtime_executable_lock_env(
 }
 
 fn launch_command_name(program: &Path) -> Option<&str> {
-    let stem = program.file_stem()?.to_str()?;
+    let stem = match program.to_str() {
+        Some(raw) => {
+            let file_name = raw.rsplit(['/', '\\']).next()?;
+            Path::new(file_name).file_stem()?.to_str()?
+        }
+        None => program.file_stem()?.to_str()?,
+    };
     let name = stem
         .strip_suffix(".cmd")
         .or_else(|| stem.strip_suffix(".CMD"))

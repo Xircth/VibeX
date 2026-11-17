@@ -23,6 +23,7 @@ fn isolated_bundled(filesystem: Arc<dyn NativeFileSystem>, home: PathBuf) -> Nat
         "GROK_HOME",
         "OPENCLAW_HOME",
         "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
         "GEMINI_HOME",
     ]
     .into_iter()
@@ -576,12 +577,7 @@ async fn opencode_inline_provider_api_key_is_api_key_login() {
         PathBuf::from("/home/user/.local/share/opencode/auth.json"),
         b"{}".to_vec(),
     );
-    let opencode_config = std::env::var("XDG_CONFIG_HOME")
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .map(|xdg| PathBuf::from(xdg).join("opencode").join("opencode.json"))
-        .unwrap_or_else(|| PathBuf::from("/home/user/.config/opencode/opencode.json"));
+    let opencode_config = PathBuf::from("/home/user/.config/opencode/opencode.json");
     filesystem.files.lock().unwrap().insert(
         opencode_config,
         br#"{

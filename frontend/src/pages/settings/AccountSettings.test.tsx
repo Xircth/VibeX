@@ -14,6 +14,7 @@ import {
   ACCOUNT_HOST_CONFIGS_STORAGE_KEY,
   resetAccountHostConfigsForTests,
 } from '@/features/model-router/accountHostConfigs';
+import { resetAccountSavedHostsForTests } from '@/features/model-router/accountSavedHosts';
 import * as openExternalModule from '@/features/model-router/openExternal';
 import { resetAccountOverviewCache } from '@/features/model-router/useDimoAccount';
 import { configApi, webServiceApi } from '@/lib/api';
@@ -104,6 +105,7 @@ describe('AccountSettings', () => {
     window.localStorage.clear();
     resetAccountOverviewCache();
     resetAccountHostConfigsForTests();
+    resetAccountSavedHostsForTests();
 
     trackSpy(
       vi.spyOn(configApi, 'getConfig').mockResolvedValue({
@@ -186,6 +188,11 @@ describe('AccountSettings', () => {
     );
     trackSpy(
       vi
+        .spyOn(accountApi, 'deleteHostConfig')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
+    trackSpy(
+      vi
         .spyOn(accountApi, 'listSavedHosts')
         .mockRejectedValue(new AccountError('unsupported'))
     );
@@ -202,6 +209,16 @@ describe('AccountSettings', () => {
     trackSpy(
       vi
         .spyOn(accountApi, 'webHandoff')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
+    trackSpy(
+      vi
+        .spyOn(accountApi, 'issueRelayLease')
+        .mockRejectedValue(new AccountError('unsupported'))
+    );
+    trackSpy(
+      vi
+        .spyOn(accountApi, 'overviewWithToken')
         .mockRejectedValue(new AccountError('unsupported'))
     );
   });

@@ -6,7 +6,6 @@
 
 use std::{
     collections::HashMap,
-    fmt::Write as _,
     io::Write as _,
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -17,7 +16,6 @@ use api_types::AgentKind;
 use async_trait::async_trait;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use workspace_utils::process::new_hidden_tokio_command;
 
@@ -380,23 +378,31 @@ pub trait SecretBackend: Send + Sync + 'static {
 /// Default production secret backend using OS credential utilities + hidden `op` CLI.
 #[derive(Debug, Default, Clone)]
 pub struct OsSecretBackend {
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     keychain_dir_override: Option<PathBuf>,
 }
 
 impl OsSecretBackend {
     pub fn new() -> Self {
         Self {
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
             keychain_dir_override: None,
         }
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     pub fn with_keychain_dir(dir: PathBuf) -> Self {
         Self {
             keychain_dir_override: Some(dir),
         }
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     fn windows_dpapi_file(&self, key_id: &str) -> PathBuf {
+        use std::fmt::Write as _;
+
+        use sha2::{Digest, Sha256};
+
         let base = self
             .keychain_dir_override
             .clone()

@@ -1,7 +1,5 @@
 use std::{path::Path, time::Duration};
 
-use workspace_utils::process::configure_std_command_no_window;
-
 use super::{
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalRegistry,
     DEFAULT_OUTPUT_BYTE_LIMIT, HARD_OUTPUT_BYTE_LIMIT, OutputTap, TERMINAL_OUTPUT_BUFFER,
@@ -581,6 +579,8 @@ fn process_is_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
+        use workspace_utils::process::configure_std_command_no_window;
+
         let mut command = std::process::Command::new("tasklist.exe");
         configure_std_command_no_window(&mut command);
         let Ok(output) = command

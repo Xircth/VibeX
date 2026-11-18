@@ -31,10 +31,10 @@ describe('resolvedTheme', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.classList.contains('light')).toBe(false);
     expect(document.documentElement.style.backgroundColor).toBe(
-      'rgb(27, 27, 27)'
+      'var(--surface-shell)'
     );
     expect(document.documentElement.style.colorScheme).toBe('only dark');
-    expect(document.body.style.backgroundColor).toBe('rgb(27, 27, 27)');
+    expect(document.body.style.backgroundColor).toBe('var(--surface-shell)');
   });
 
   it('leaves the desktop toast shell transparent', () => {

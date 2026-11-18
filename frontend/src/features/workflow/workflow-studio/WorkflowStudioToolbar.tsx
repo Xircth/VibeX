@@ -232,7 +232,7 @@ export function WorkflowStudioToolbar({
           onClick={onBack}
           aria-label={t('studio.back')}
           title={t('studio.back')}
-          className="workflow-studio-top-chrome pointer-events-auto h-7 shrink-0 gap-1 bg-[#F6F6F6] px-2 text-xs font-medium shadow-none hover:bg-[#EFEFEF]"
+          className="workflow-studio-top-chrome pointer-events-auto h-7 shrink-0 gap-1 px-2 text-xs font-medium shadow-none hover:bg-[var(--surface-raised-control-hover)]"
         >
           <ArrowLeft className="size-3.5" />
           {t('studio.back')}

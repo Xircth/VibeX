@@ -7,8 +7,9 @@ export type CachedResolvedTheme = 'light' | 'dark';
 export const RESOLVED_THEME_KEY = 'dimo:resolved-theme';
 
 export const PAGE_CANVAS: Record<CachedResolvedTheme, string> = {
-  light: '#ffffff',
-  dark: '#1b1b1b',
+  // The theme class is applied before this color, so one shell token covers both schemes.
+  light: 'var(--surface-shell)',
+  dark: 'var(--surface-shell)',
 };
 
 export function readCachedResolvedTheme(): CachedResolvedTheme | null {

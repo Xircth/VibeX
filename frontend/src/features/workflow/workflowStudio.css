@@ -68,7 +68,7 @@
 .workflow-studio-top-chrome {
   border: 1px solid hsl(var(--border) / 0.9);
   border-radius: var(--radius-container);
-  background: #f6f6f6;
+  background: var(--surface-raised-control);
   box-shadow:
     0 1px 2px hsl(var(--shadow-ink) / 0.05),
     0 6px 18px -4px hsl(var(--shadow-ink) / 0.1);
@@ -126,9 +126,9 @@
   align-items: stretch;
   height: 28px;
   overflow: hidden;
-  border-radius: 12px;
-  background: #111111;
-  color: #fff;
+  border-radius: var(--radius-container);
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
 .workflow-save-action-group button {
@@ -143,7 +143,7 @@
 }
 
 .workflow-save-action-group button:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.08);
+  background: hsl(var(--primary-foreground) / 0.08);
 }
 
 .workflow-save-action-group button:disabled {
@@ -155,7 +155,7 @@
   width: 1px;
   align-self: stretch;
   margin: 6px 0;
-  background: rgb(255 255 255 / 0.22);
+  background: hsl(var(--primary-foreground) / 0.22);
 }
 
 .workflow-save-action-group-chevron {

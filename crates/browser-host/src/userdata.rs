@@ -474,7 +474,10 @@ impl UserDataManager {
             }
             let _ = fs::remove_dir_all(root);
         }
-        self.memory.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        self.memory
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
     }
 
     fn profile_dir(&self, profile_id: &str) -> Option<PathBuf> {

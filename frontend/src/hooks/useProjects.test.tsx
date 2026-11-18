@@ -134,9 +134,7 @@ describe('useProjects and useProjectMutations in WebUI/remote mode', () => {
     vi.useFakeTimers();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     let attempt = 0;
-    let resolveTail:
-      | ((value: IteratorResult<RemoteEvent>) => void)
-      | undefined;
+    let resolveTail: ((value: IteratorResult<RemoteEvent>) => void) | undefined;
     const savedProject = makeProject({
       id: 'proj-050',
       name: 'Migrated 0.5.0 Project',

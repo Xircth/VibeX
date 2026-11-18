@@ -191,10 +191,7 @@ pub fn sweep_stale_agent_runtime_temps() {
         removed += sweep_runtime_temp_bases_in(&base);
     }
     if removed > 0 {
-        tracing::info!(
-            removed,
-            "removed stale ACP temporary directories"
-        );
+        tracing::info!(removed, "removed stale ACP temporary directories");
     }
 }
 

@@ -132,8 +132,7 @@ export function OnboardingHistoryImport({
   const leaveEarly = useRef(false);
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
-  const running =
-    busy || importPhase !== null || job?.status === 'running';
+  const running = busy || importPhase !== null || job?.status === 'running';
   const continueOnboarding = useCallback(async () => {
     if (continued.current) return;
     continued.current = true;
@@ -842,9 +841,7 @@ export function OnboardingHistoryImport({
                 {job.progress ? (
                   <p className="onboarding-import-title tabular-nums">
                     {t('onboarding.importResult', job.progress)}
-                    {job.progress.title
-                      ? ` · ${job.progress.title}`
-                      : ''}
+                    {job.progress.title ? ` · ${job.progress.title}` : ''}
                   </p>
                 ) : null}
                 {job.result?.errors.map((message, index) => (

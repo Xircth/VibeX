@@ -97,7 +97,10 @@ let lastLocalPreferenceWriteAt = 0;
 let localResetEpochAt = 0;
 
 function isWithinLocalResetWindow(now = Date.now()): boolean {
-  return localResetEpochAt > 0 && now - localResetEpochAt < LOCAL_RESET_SUPPRESSION_MS;
+  return (
+    localResetEpochAt > 0 &&
+    now - localResetEpochAt < LOCAL_RESET_SUPPRESSION_MS
+  );
 }
 
 export function clearLocalFrontendStorage(): void {

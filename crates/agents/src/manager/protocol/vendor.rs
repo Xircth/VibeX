@@ -172,7 +172,10 @@ pub(in crate::manager) fn qualify_omp_model_labels(options: &mut [AcpSessionConf
             }
             SessionConfigSelectOptions::Grouped(groups) => {
                 for group in groups {
-                    group.options.iter_mut().for_each(qualify_model_choice_label);
+                    group
+                        .options
+                        .iter_mut()
+                        .for_each(qualify_model_choice_label);
                 }
             }
             #[allow(unreachable_patterns)]
@@ -536,11 +539,8 @@ mod tests {
         let mut options = vec![model_option(vec![
             SessionConfigSelectOption::new("mint/gpt-5.6-terra", "GPT-5.6 Terra")
                 .description("mint/gpt-5.6-terra".to_string()),
-            SessionConfigSelectOption::new(
-                "cc-switch-open-router/stealth/ox-alpha",
-                "Ox Alpha",
-            )
-            .description("cc-switch-open-router/stealth/ox-alpha".to_string()),
+            SessionConfigSelectOption::new("cc-switch-open-router/stealth/ox-alpha", "Ox Alpha")
+                .description("cc-switch-open-router/stealth/ox-alpha".to_string()),
         ])];
 
         qualify_omp_model_labels(&mut options);
@@ -555,7 +555,10 @@ mod tests {
             .iter()
             .map(|choice| choice.name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, ["mint/GPT-5.6 Terra", "cc-switch-open-router/Ox Alpha"]);
+        assert_eq!(
+            names,
+            ["mint/GPT-5.6 Terra", "cc-switch-open-router/Ox Alpha"]
+        );
     }
 
     #[test]

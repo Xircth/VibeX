@@ -1104,8 +1104,8 @@ pub(super) fn remove_managed_plugin_snapshot(
 
 fn is_remote_safe_plugin_host_call(capability: &str, operation: &str) -> bool {
     match capability {
-        "storage" | "storage.kv" | "browser" | "artifact.preview" | "artifact"
-        | "conversation" | "collaboration" | "workspace" | "blob" | "log" | "app" => true,
+        "storage" | "storage.kv" | "browser" | "artifact.preview" | "artifact" | "conversation"
+        | "collaboration" | "workspace" | "blob" | "log" | "app" => true,
         "provider.presets" => operation == "list",
         "plugin.self" => matches!(operation, "status" | "doctor"),
         _ => false,

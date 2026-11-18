@@ -736,12 +736,9 @@ async fn unauthenticated_connect_request_cannot_revoke_mobile_or_probe_device_na
         .await
         .expect("response");
     assert_eq!(resp.status(), StatusCode::CREATED);
-    let created: PollDeviceConnectResponse = serde_json::from_slice(
-        &to_bytes(resp.into_body(), 16 * 1024)
-            .await
-            .expect("body"),
-    )
-    .expect("json");
+    let created: PollDeviceConnectResponse =
+        serde_json::from_slice(&to_bytes(resp.into_body(), 16 * 1024).await.expect("body"))
+            .expect("json");
     assert_eq!(created.status, DeviceConnectRequestStatus::Pending);
 
     // Victim's active mobile credential MUST remain valid before host approval.

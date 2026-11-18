@@ -146,7 +146,10 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(internal_error)?
                 .ok_or_else(|| {
-                    ApplicationError::not_found(format!("Workspace {} not found", args.workspace_id))
+                    ApplicationError::not_found(format!(
+                        "Workspace {} not found",
+                        args.workspace_id
+                    ))
                 })?;
         let stats = args.stats_only.unwrap_or(false);
         let channel = if stats {

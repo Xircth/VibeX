@@ -33,7 +33,10 @@ export function browserSurfaceRectsOverlap(
 ): boolean {
   const right = Math.min(a.right, b.right);
   const bottom = Math.min(a.bottom, b.bottom);
-  return right - Math.max(a.left, b.left) >= 1 && bottom - Math.max(a.top, b.top) >= 1;
+  return (
+    right - Math.max(a.left, b.left) >= 1 &&
+    bottom - Math.max(a.top, b.top) >= 1
+  );
 }
 
 /**
@@ -48,7 +51,11 @@ export function clipBrowserSurfaceRect(
   if (!host) return rect;
   let clipped = rect;
   let parent = host.parentElement;
-  while (parent && parent !== document.body && parent !== document.documentElement) {
+  while (
+    parent &&
+    parent !== document.body &&
+    parent !== document.documentElement
+  ) {
     if (parent.matches(CANVAS_STAGE_CLIP_SELECTOR)) {
       const bounds = parent.getBoundingClientRect();
       if (bounds.width > 0 && bounds.height > 0) {
@@ -86,7 +93,8 @@ export function canvasLayerCoversBrowser(host: HTMLElement | null): boolean {
   const ownNode = host.closest('.react-flow__node') as HTMLElement | null;
   if (ownNode) {
     const ownZ = parseFlowNodeZIndex(ownNode);
-    const allNodes = flowRoot.querySelectorAll<HTMLElement>('.react-flow__node');
+    const allNodes =
+      flowRoot.querySelectorAll<HTMLElement>('.react-flow__node');
     for (const otherNode of allNodes) {
       if (
         otherNode === ownNode ||
@@ -110,7 +118,9 @@ export function canvasLayerCoversBrowser(host: HTMLElement | null): boolean {
               Node.DOCUMENT_POSITION_FOLLOWING
           ));
       if (!stacksAbove) continue;
-      if (browserSurfaceRectsOverlap(clipped, otherNode.getBoundingClientRect())) {
+      if (
+        browserSurfaceRectsOverlap(clipped, otherNode.getBoundingClientRect())
+      ) {
         return true;
       }
     }

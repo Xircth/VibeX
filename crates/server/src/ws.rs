@@ -708,9 +708,8 @@ where
 {
     let text = serde_json::to_string(&message).map_err(|_| ())?;
     let wire_text = if let Some(key) = e2ee_key {
-        let encrypted =
-            crate::e2ee::encrypt_payload(key, crate::e2ee::AAD_WS, text.as_bytes())
-                .map_err(|_| ())?;
+        let encrypted = crate::e2ee::encrypt_payload(key, crate::e2ee::AAD_WS, text.as_bytes())
+            .map_err(|_| ())?;
         serde_json::json!({
             "type": "e2ee",
             "d": encrypted,
@@ -759,12 +758,9 @@ mod tests {
         let plaintext = r#"{"type":"ping"}"#;
         assert!(decode_ws_text(plaintext, Some(&session), &mut active_key).is_err());
 
-        let encrypted = crate::e2ee::encrypt_payload(
-            &session.key,
-            crate::e2ee::AAD_WS,
-            plaintext.as_bytes(),
-        )
-        .expect("encrypt ws payload");
+        let encrypted =
+            crate::e2ee::encrypt_payload(&session.key, crate::e2ee::AAD_WS, plaintext.as_bytes())
+                .expect("encrypt ws payload");
         let wrapped = serde_json::json!({ "type": "e2ee", "d": encrypted }).to_string();
         assert_eq!(
             decode_ws_text(&wrapped, Some(&session), &mut active_key).expect("decrypt ws frame"),
@@ -789,12 +785,9 @@ mod tests {
             plaintext
         );
 
-        let encrypted = crate::e2ee::encrypt_payload(
-            &session.key,
-            crate::e2ee::AAD_WS,
-            plaintext.as_bytes(),
-        )
-        .expect("encrypt ws payload");
+        let encrypted =
+            crate::e2ee::encrypt_payload(&session.key, crate::e2ee::AAD_WS, plaintext.as_bytes())
+                .expect("encrypt ws payload");
         let wrapped = serde_json::json!({ "type": "e2ee", "d": encrypted }).to_string();
         assert!(decode_ws_text(&wrapped, Some(&session), &mut active_key).is_ok());
         assert!(active_key.is_some());

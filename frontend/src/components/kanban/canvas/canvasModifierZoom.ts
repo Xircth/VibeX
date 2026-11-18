@@ -25,10 +25,8 @@ export function nextCanvasModifierZoom(input: {
   minZoom: number;
   maxZoom: number;
 }): CanvasZoomViewport {
-  const modeScale =
-    input.deltaMode === 1 ? 0.05 : input.deltaMode ? 1 : 0.002;
-  const wheelDelta =
-    -input.deltaY * modeScale * (input.pinchBoost ? 10 : 1);
+  const modeScale = input.deltaMode === 1 ? 0.05 : input.deltaMode ? 1 : 0.002;
+  const wheelDelta = -input.deltaY * modeScale * (input.pinchBoost ? 10 : 1);
   const zoom = clamp(
     input.viewport.zoom * Math.pow(2, wheelDelta),
     input.minZoom,

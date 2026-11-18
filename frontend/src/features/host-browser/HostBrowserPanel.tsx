@@ -1132,8 +1132,10 @@ export function HostBrowserPanel({
       }
     };
     const hide =
-      overlayCoversBrowser(hostRef.current, latestOverlayOcclusionRef.current) ||
-      canvasLayerCoversBrowser(hostRef.current);
+      overlayCoversBrowser(
+        hostRef.current,
+        latestOverlayOcclusionRef.current
+      ) || canvasLayerCoversBrowser(hostRef.current);
     if (
       occludedRef.current === hide &&
       hideTargetRef.current == null &&

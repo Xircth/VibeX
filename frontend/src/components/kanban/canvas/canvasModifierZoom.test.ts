@@ -14,9 +14,9 @@ describe('canvas modifier zoom', () => {
     expect(isCanvasModifierZoomWheel({ ctrlKey: false, metaKey: true })).toBe(
       true
     );
-    expect(
-      isCanvasModifierZoomWheel({ ctrlKey: false, metaKey: false })
-    ).toBe(false);
+    expect(isCanvasModifierZoomWheel({ ctrlKey: false, metaKey: false })).toBe(
+      false
+    );
   });
 
   it('zooms toward the pointer and keeps that canvas point under the cursor', () => {

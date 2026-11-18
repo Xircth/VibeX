@@ -1660,9 +1660,9 @@ impl ServerApplicationDomains {
         } else {
             resolved_path
         };
-        let parent = path
-            .parent()
-            .ok_or_else(|| ApplicationError::bad_request("Workflow source has no parent directory"))?;
+        let parent = path.parent().ok_or_else(|| {
+            ApplicationError::bad_request("Workflow source has no parent directory")
+        })?;
         if !parent.is_dir() {
             return Err(ApplicationError::not_found(format!(
                 "Parent directory does not exist: {}",

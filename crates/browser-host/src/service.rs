@@ -387,7 +387,10 @@ impl BrowserService {
             let _ = self.native.close(&tab_id).await;
         }
         let _ = self.native.reset_all().await;
-        self.occupant.lock().unwrap_or_else(|p| p.into_inner()).take();
+        self.occupant
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
         self.policy.set_user_rules(Vec::new());
         *self.settings.lock().unwrap_or_else(|p| p.into_inner()) = BrowserSettings::default();
         self.userdata.clear_all();

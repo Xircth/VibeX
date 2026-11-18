@@ -63,7 +63,8 @@ export function useProjects(): UseProjectsResult {
     (remote && remoteProjects.data !== undefined) || (!remote && data)
       ? projects
       : undefined;
-  const waitingForInitialRetry = !isInitialized && isRetrying && retryCount <= 2;
+  const waitingForInitialRetry =
+    !isInitialized && isRetrying && retryCount <= 2;
   const errorObj = useMemo(
     () =>
       remote

@@ -435,8 +435,7 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
                     .into_response();
             };
             if !resp_bytes.is_empty() {
-                let Ok(encrypted_b64) =
-                    encrypt_payload(&active_session.key, AAD_RESP, &resp_bytes)
+                let Ok(encrypted_b64) = encrypt_payload(&active_session.key, AAD_RESP, &resp_bytes)
                 else {
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -626,7 +625,10 @@ mod tests {
         use tower::ServiceExt;
 
         let app = Router::new()
-            .route("/health", get(|| async { Json(serde_json::json!({"ok": true})) }))
+            .route(
+                "/health",
+                get(|| async { Json(serde_json::json!({"ok": true})) }),
+            )
             .route(
                 "/api/v1/echo",
                 post(|body: String| async move { Json(serde_json::json!({ "body": body })) }),

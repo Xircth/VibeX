@@ -63,9 +63,9 @@ describe('history import status button', () => {
     armQuietHistoryImport();
     render(<HistoryImportStatusButton />);
     fireEvent.click(screen.getByRole('button', { name: label('open') }));
-    expect(screen.getByRole('region', { name: label('title') })).toHaveTextContent(
-      'Build the importer'
-    );
+    expect(
+      screen.getByRole('region', { name: label('title') })
+    ).toHaveTextContent('Build the importer');
     expect(
       screen.getByText(label('running', { current: 1, total: 4 }))
     ).toBeInTheDocument();

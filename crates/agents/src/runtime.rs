@@ -462,14 +462,13 @@ impl AgentRuntime {
         if driver_enabled && let Some(idle_timeout) = crate::idle_sweep::idle_timeout_from_env() {
             let compact_state = Arc::clone(&state);
             let compact_manager = Arc::clone(&connection_manager);
-            let compact_trigger: crate::idle_sweep::IdleCompactionTrigger =
-                Arc::new(move || {
-                    let state = Arc::clone(&compact_state);
-                    let manager = Arc::clone(&compact_manager);
-                    Box::pin(async move {
-                        Self::dispatch_idle_compactions(&state, &manager).await;
-                    })
-                });
+            let compact_trigger: crate::idle_sweep::IdleCompactionTrigger = Arc::new(move || {
+                let state = Arc::clone(&compact_state);
+                let manager = Arc::clone(&compact_manager);
+                Box::pin(async move {
+                    Self::dispatch_idle_compactions(&state, &manager).await;
+                })
+            });
             tokio::spawn(crate::idle_sweep::idle_sweep_task(
                 Arc::clone(&connection_manager),
                 idle_timeout,
@@ -525,7 +524,10 @@ impl AgentRuntime {
                 }
                 let now = Utc::now();
                 let prompt_id = AgentPromptId::new();
-                if !matches!(session.queue.submit(prompt_id), QueueTransition::Started { .. }) {
+                if !matches!(
+                    session.queue.submit(prompt_id),
+                    QueueTransition::Started { .. }
+                ) {
                     continue;
                 }
                 session.snapshot.active_prompt_id = session.queue.active();
@@ -545,7 +547,9 @@ impl AgentRuntime {
                 prompt_id
             };
 
-            connection_manager.touch_connection_activity(connection_id).await;
+            connection_manager
+                .touch_connection_activity(connection_id)
+                .await;
             if let Err(error) = connection_manager
                 .send_prompt_with_display_blocks(
                     connection_id,
@@ -628,8 +632,8 @@ impl AgentRuntime {
                     {
                         continue;
                     }
-                    let is_background_compaction = active_before
-                        .is_some_and(|id| state.background_compactions.contains(&id));
+                    let is_background_compaction =
+                        active_before.is_some_and(|id| state.background_compactions.contains(&id));
                     let activity = crate::request_status::activity_for_event(&manager_event.event);
                     if matches!(manager_event.event, AgentEvent::RequestActivity { .. })
                         && manager_event.prompt_id != active_before
@@ -699,43 +703,42 @@ impl AgentRuntime {
                             manager_event.session_id,
                             manager_event.event,
                         );
-                        let activity_envelope = if let (Some(prompt_id), Some(activity)) =
-                            (active_before, activity)
-                        {
-                            let now = Utc::now();
-                            let previous = state.request_activity.get(&prompt_id);
-                            let cancelling = previous.is_some_and(|(held, _)| {
-                                held.phase == crate::request_status::RequestPhase::Cancelling
-                            });
-                            let changed = previous.is_none_or(|(held, at)| {
-                                held != &activity
-                                    || now.signed_duration_since(*at).num_seconds() >= 5
-                            });
-                            if changed
-                                && (!cancelling
-                                    || activity.phase
-                                        == crate::request_status::RequestPhase::Cancelling)
-                            {
-                                state
-                                    .request_activity
-                                    .insert(prompt_id, (activity.clone(), now));
-                                (!explicit_activity).then(|| {
-                                    Self::queue_envelope_locked(
-                                        &mut state,
-                                        manager_event.connection_id,
-                                        manager_event.session_id,
-                                        AgentEvent::RequestActivity {
-                                            prompt_id,
-                                            activity,
-                                        },
-                                    )
-                                })
+                        let activity_envelope =
+                            if let (Some(prompt_id), Some(activity)) = (active_before, activity) {
+                                let now = Utc::now();
+                                let previous = state.request_activity.get(&prompt_id);
+                                let cancelling = previous.is_some_and(|(held, _)| {
+                                    held.phase == crate::request_status::RequestPhase::Cancelling
+                                });
+                                let changed = previous.is_none_or(|(held, at)| {
+                                    held != &activity
+                                        || now.signed_duration_since(*at).num_seconds() >= 5
+                                });
+                                if changed
+                                    && (!cancelling
+                                        || activity.phase
+                                            == crate::request_status::RequestPhase::Cancelling)
+                                {
+                                    state
+                                        .request_activity
+                                        .insert(prompt_id, (activity.clone(), now));
+                                    (!explicit_activity).then(|| {
+                                        Self::queue_envelope_locked(
+                                            &mut state,
+                                            manager_event.connection_id,
+                                            manager_event.session_id,
+                                            AgentEvent::RequestActivity {
+                                                prompt_id,
+                                                activity,
+                                            },
+                                        )
+                                    })
+                                } else {
+                                    None
+                                }
                             } else {
                                 None
-                            }
-                        } else {
-                            None
-                        };
+                            };
                         if let Some(prompt_id) = active_before
                             && state.prompts.get(&prompt_id).is_some_and(|p| {
                                 matches!(
@@ -6167,7 +6170,8 @@ mod tests {
                     },
                 },
             };
-            let active_before = AgentRuntime::active_prompt_for_manager_event_locked(&state, &event);
+            let active_before =
+                AgentRuntime::active_prompt_for_manager_event_locked(&state, &event);
             assert_eq!(active_before, Some(compact_prompt_id));
             AgentRuntime::apply_manager_event_locked(&mut state, &event);
             let next = AgentRuntime::prompt_to_dispatch_after_manager_event_locked(

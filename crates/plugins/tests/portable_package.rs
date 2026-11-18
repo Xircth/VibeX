@@ -822,6 +822,39 @@ fn v4_rejects_unknown_manifest_fields_before_install() {
 }
 
 #[test]
+fn v4_accepts_pre_rename_vibex_engine_as_dimo() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        &root.path().join(".dimo-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.dimo.legacy-engine","publisher":"dev.dimo","name":"Legacy Engine","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "contributes":{"agent.skills":[{"id":"skill","kindVersion":1,"path":"skills/skill"}]}
+        }"#,
+    );
+    write(
+        &root.path().join("skills/skill/SKILL.md"),
+        "---\nname: skill\ndescription: Skill\n---\n",
+    );
+
+    PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot)
+        .expect("engines.vibex is the pre-rename host engine");
+
+    write(
+        &root.path().join(".dimo-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.dimo.legacy-engine","publisher":"dev.dimo","name":"Legacy Engine","version":"1.0.0",
+          "engines":{"other":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "contributes":{"agent.skills":[{"id":"skill","kindVersion":1,"path":"skills/skill"}]}
+        }"#,
+    );
+    let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap_err();
+    assert!(error.to_string().contains("unknown v4 engine `other`"));
+}
+
+#[test]
 fn worker_frame_size_defaults_to_32_mib_and_accepts_a_declared_size() {
     let root = tempfile::tempdir().unwrap();
     write(

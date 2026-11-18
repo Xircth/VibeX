@@ -108,6 +108,7 @@ import { cn } from '@/lib/utils';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   findPreviousUserMessageVirtualIndex,
+  getVirtualWindowTranslateY,
   isConversationExpansionToggle,
   wheelDetachesConversationFollow,
   type VirtualizedListRef,
@@ -1175,149 +1176,157 @@ const AgentTimelineConversation = forwardRef<
                         className="relative w-full"
                         style={{ height: `${totalSize}px` }}
                       >
-                        {virtualRows.map((virtualRow) => {
-                          const entry = virtualEntries[virtualRow.index];
-                          if (!entry) return null;
-                          const item =
-                            visibleTimelineItems[entry.timelineIndex];
-                          if (!item) return null;
-                          const globalTimelineIndex =
-                            entry.timelineIndex + visibleTimelineStartIndex;
-                          const row =
-                            item.kind === 'message' ? item.item : null;
-                          const turnId = row
-                            ? dimoTurnIdFromTimelineRowId(row.turn.id)
-                            : null;
-                          const isCurrentFindMatch =
-                            row != null &&
-                            currentFindMatch != null &&
-                            timeline[currentFindMatch.rowIndex]?.key ===
-                              row.key;
-                          const foldEdge = virtualRowFoldEdge(
-                            virtualEntries,
-                            virtualRow.index
-                          );
-                          const isStreamingStatsRow =
-                            Boolean(row) &&
-                            entry.isLast &&
-                            row?.phase === 'streaming' &&
-                            streamingStatusInfo?.rowKey === row.key;
-                          const jumpTarget =
-                            row?.turn.role === 'assistant' && entry.isLast
-                              ? findPreviousUserMessageVirtualIndex(
-                                  userMessageIndexes,
-                                  virtualRow.index
-                                )
+                        <div
+                          className="absolute top-0 left-0 w-full"
+                          style={{
+                            transform: getVirtualWindowTranslateY(
+                              virtualRows[0]?.start,
+                              scrollMargin
+                            ),
+                          }}
+                        >
+                          {virtualRows.map((virtualRow) => {
+                            const entry = virtualEntries[virtualRow.index];
+                            if (!entry) return null;
+                            const item =
+                              visibleTimelineItems[entry.timelineIndex];
+                            if (!item) return null;
+                            const globalTimelineIndex =
+                              entry.timelineIndex + visibleTimelineStartIndex;
+                            const row =
+                              item.kind === 'message' ? item.item : null;
+                            const turnId = row
+                              ? dimoTurnIdFromTimelineRowId(row.turn.id)
                               : null;
-                          const fileChanges =
-                            row?.turn.role === 'assistant' &&
-                            entry.isLast &&
-                            turnId
-                              ? (fileChangesByTurnId.get(turnId) ?? null)
-                              : null;
-                          const hasTurnError = row
-                            ? turnIdsWithErrors.has(turnId!) ||
-                              inlineRuntimePresentation.isConnectionRecovering
-                            : false;
-                          const suppressStatusRowPadding =
-                            entry.slice?.kind === 'status' &&
-                            inlineRuntimePresentation.suppressAssistantStreamingStatus;
-                          const hideAssistantStats = Boolean(
-                            row &&
+                            const isCurrentFindMatch =
+                              row != null &&
+                              currentFindMatch != null &&
+                              timeline[currentFindMatch.rowIndex]?.key ===
+                                row.key;
+                            const foldEdge = virtualRowFoldEdge(
+                              virtualEntries,
+                              virtualRow.index
+                            );
+                            const isStreamingStatsRow =
+                              Boolean(row) &&
                               entry.isLast &&
-                              row.phase === 'streaming' &&
-                              row.turn.blocks.length === 0 &&
-                              inlineRuntimePresentation.placement ===
-                                'stream' &&
-                              inlineRuntimePresentation.status != null
-                          );
-                          return (
-                            <TimelineVirtualRowItem
-                              key={virtualRow.key}
-                              virtualIndex={virtualRow.index}
-                              virtualStart={virtualRow.start}
-                              scrollMargin={scrollMargin}
-                              measureElement={rowVirtualizer.measureElement}
-                              item={item}
-                              timeline={
-                                item.kind === 'side' &&
-                                item.row.row.kind === 'question_request'
-                                  ? timeline
-                                  : EMPTY_TIMELINE_FOR_ROW
-                              }
-                              slice={entry.slice}
-                              isLastSlice={entry.isLast}
-                              foldEdge={foldEdge}
-                              isActiveNavTarget={
-                                activeNavEntry?.index === globalTimelineIndex
-                              }
-                              isCurrentFindMatch={isCurrentFindMatch}
-                              attempt={attempt}
-                              task={task}
-                              workspacePath={workspaceRoot}
-                              collapseProcess={collapseProcess}
-                              expandFileChanges={expandFileChanges}
-                              delegations={delegations}
-                              questions={timelineQuestions}
-                              dismissedQuestionIds={dismissedQuestionIds}
-                              onDismissQuestion={handleDismissQuestion}
-                              onOpenChild={handleOpenChild}
-                              contextCompact={
-                                row
-                                  ? (contextCompactByRowKey.get(row.key) ??
-                                    null)
-                                  : null
-                              }
-                              hasTurnError={hasTurnError}
-                              userOrdinal={
-                                row?.turn.role === 'user'
-                                  ? (userOrdinalByKey.get(row.key) ?? 0)
-                                  : 0
-                              }
-                              isEditableUser={
-                                row
-                                  ? isEditableUserTimelineRow(
-                                      row,
-                                      lastUserRowKey
-                                    )
-                                  : false
-                              }
-                              onRetryTurn={handleRetry}
-                              onRespondQuestion={handleRespondQuestion}
-                              isRespondingQuestion={
-                                item.kind === 'side' &&
-                                item.row.row.kind === 'question_request' &&
-                                respondingQuestionId ===
-                                  item.row.row.request.question_id
-                              }
-                              fileChanges={fileChanges}
-                              onUndoTurnChanges={handleUndoTurnChanges}
-                              isTurnInFlight={isTurnInFlight}
-                              forkAgents={forkAgents}
-                              jumpTarget={jumpTarget}
-                              onJumpToVirtualIndex={handleJumpToVirtualIndex}
-                              onForkFromTurn={handleForkFromTurn}
-                              liveStatsFallback={
-                                row?.key === lastAssistantKey &&
-                                !isStreamingStatsRow
-                                  ? liveStats
-                                  : null
-                              }
-                              streamingLiveStatus={
-                                isStreamingStatsRow
-                                  ? (streamingStatusInfo?.status ?? null)
-                                  : null
-                              }
-                              suppressStreamingStatus={
-                                inlineRuntimePresentation.suppressAssistantStreamingStatus
-                              }
-                              suppressStatusRowPadding={
-                                suppressStatusRowPadding
-                              }
-                              hideAssistantStats={hideAssistantStats}
-                            />
-                          );
-                        })}
+                              row?.phase === 'streaming' &&
+                              streamingStatusInfo?.rowKey === row.key;
+                            const jumpTarget =
+                              row?.turn.role === 'assistant' && entry.isLast
+                                ? findPreviousUserMessageVirtualIndex(
+                                    userMessageIndexes,
+                                    virtualRow.index
+                                  )
+                                : null;
+                            const fileChanges =
+                              row?.turn.role === 'assistant' &&
+                              entry.isLast &&
+                              turnId
+                                ? (fileChangesByTurnId.get(turnId) ?? null)
+                                : null;
+                            const hasTurnError = row
+                              ? turnIdsWithErrors.has(turnId!) ||
+                                inlineRuntimePresentation.isConnectionRecovering
+                              : false;
+                            const suppressStatusRowPadding =
+                              entry.slice?.kind === 'status' &&
+                              inlineRuntimePresentation.suppressAssistantStreamingStatus;
+                            const hideAssistantStats = Boolean(
+                              row &&
+                                entry.isLast &&
+                                row.phase === 'streaming' &&
+                                row.turn.blocks.length === 0 &&
+                                inlineRuntimePresentation.placement ===
+                                  'stream' &&
+                                inlineRuntimePresentation.status != null
+                            );
+                            return (
+                              <TimelineVirtualRowItem
+                                key={virtualRow.key}
+                                virtualIndex={virtualRow.index}
+                                measureElement={rowVirtualizer.measureElement}
+                                item={item}
+                                timeline={
+                                  item.kind === 'side' &&
+                                  item.row.row.kind === 'question_request'
+                                    ? timeline
+                                    : EMPTY_TIMELINE_FOR_ROW
+                                }
+                                slice={entry.slice}
+                                isLastSlice={entry.isLast}
+                                foldEdge={foldEdge}
+                                isActiveNavTarget={
+                                  activeNavEntry?.index === globalTimelineIndex
+                                }
+                                isCurrentFindMatch={isCurrentFindMatch}
+                                attempt={attempt}
+                                task={task}
+                                workspacePath={workspaceRoot}
+                                collapseProcess={collapseProcess}
+                                expandFileChanges={expandFileChanges}
+                                delegations={delegations}
+                                questions={timelineQuestions}
+                                dismissedQuestionIds={dismissedQuestionIds}
+                                onDismissQuestion={handleDismissQuestion}
+                                onOpenChild={handleOpenChild}
+                                contextCompact={
+                                  row
+                                    ? (contextCompactByRowKey.get(row.key) ??
+                                      null)
+                                    : null
+                                }
+                                hasTurnError={hasTurnError}
+                                userOrdinal={
+                                  row?.turn.role === 'user'
+                                    ? (userOrdinalByKey.get(row.key) ?? 0)
+                                    : 0
+                                }
+                                isEditableUser={
+                                  row
+                                    ? isEditableUserTimelineRow(
+                                        row,
+                                        lastUserRowKey
+                                      )
+                                    : false
+                                }
+                                onRetryTurn={handleRetry}
+                                onRespondQuestion={handleRespondQuestion}
+                                isRespondingQuestion={
+                                  item.kind === 'side' &&
+                                  item.row.row.kind === 'question_request' &&
+                                  respondingQuestionId ===
+                                    item.row.row.request.question_id
+                                }
+                                fileChanges={fileChanges}
+                                onUndoTurnChanges={handleUndoTurnChanges}
+                                isTurnInFlight={isTurnInFlight}
+                                forkAgents={forkAgents}
+                                jumpTarget={jumpTarget}
+                                onJumpToVirtualIndex={handleJumpToVirtualIndex}
+                                onForkFromTurn={handleForkFromTurn}
+                                liveStatsFallback={
+                                  row?.key === lastAssistantKey &&
+                                  !isStreamingStatsRow
+                                    ? liveStats
+                                    : null
+                                }
+                                streamingLiveStatus={
+                                  isStreamingStatsRow
+                                    ? (streamingStatusInfo?.status ?? null)
+                                    : null
+                                }
+                                suppressStreamingStatus={
+                                  inlineRuntimePresentation.suppressAssistantStreamingStatus
+                                }
+                                suppressStatusRowPadding={
+                                  suppressStatusRowPadding
+                                }
+                                hideAssistantStats={hideAssistantStats}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
                     </TimelineImagePanel>
                     {inlineRuntimePresentation.placement === 'stream' &&

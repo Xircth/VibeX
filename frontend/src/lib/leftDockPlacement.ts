@@ -167,16 +167,37 @@ export function swapLeftDockPanels(
   ).component;
 
   if (typeof component?.moveGroupOrPanel === 'function') {
+    // Exchange the two slots in one move. A center drop merges the panels
+    // into one group and leaves the other empty; layout listeners then hide
+    // or delete that group, so the panel moved into it disappears.
+    const stackedBeforeMove =
+      boxA &&
+      boxB &&
+      Math.abs(boxA.x - boxB.x) <= 4 &&
+      Math.abs(boxA.y - boxB.y) > 4;
+    const position = stackedBeforeMove
+      ? boxA.y < boxB.y
+        ? 'bottom'
+        : 'top'
+      : !boxA || !boxB || boxA.x <= boxB.x
+        ? 'right'
+        : 'left';
     component.moveGroupOrPanel({
       from: { groupId: groupA.id, panelId: panelAId },
-      to: { group: groupB, position: 'center' },
-      keepEmptyGroups: true,
+      to: { group: groupB, position },
     });
-    component.moveGroupOrPanel({
-      from: { groupId: groupB.id, panelId: panelBId },
-      to: { group: groupA, position: 'center' },
-      keepEmptyGroups: true,
-    });
+    if (stackedBeforeMove) {
+      if (heightA > 0 && heightB > 0 && Math.abs(heightA - heightB) > 2) {
+        groupA.api.setSize({ height: heightB });
+        groupB.api.setSize({ height: heightA });
+      }
+    }
+    settleDockviewGroupWidths([
+      ...otherGroupSnapshots,
+      { group: groupA, width: widthA },
+      { group: groupB, width: widthB },
+    ]);
+    return true;
   } else {
     const stackedVertically =
       boxA &&
@@ -223,32 +244,6 @@ export function swapLeftDockPanels(
     ]);
     return true;
   }
-
-  const stackedVertically =
-    boxA &&
-    boxB &&
-    Math.abs(boxA.x - boxB.x) <= 4 &&
-    Math.abs(boxA.y - boxB.y) > 4;
-
-  if (stackedVertically) {
-    if (heightA > 0 && heightB > 0 && Math.abs(heightA - heightB) > 2) {
-      groupA.api.setSize({ height: heightB });
-      groupB.api.setSize({ height: heightA });
-    }
-    settleDockviewGroupWidths([
-      ...otherGroupSnapshots,
-      { group: groupA, width: widthA },
-      { group: groupB, width: widthA },
-    ]);
-  } else {
-    settleDockviewGroupWidths([
-      ...otherGroupSnapshots,
-      { group: groupA, width: widthB },
-      { group: groupB, width: widthA },
-    ]);
-  }
-
-  return true;
 }
 
 export function resolveShellNavDropTarget(

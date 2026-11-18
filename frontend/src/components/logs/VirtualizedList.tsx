@@ -107,6 +107,45 @@ export function getVirtualRowTranslateY(
   return `translateY(${start - scrollMargin}px)`;
 }
 
+/**
+ * Offset of the in-flow virtual window.
+ *
+ * Visible rows stack in document order inside one translated box. A stale
+ * height estimate can leave a gap or a short scroll range, but it cannot
+ * paint a later turn on top of an earlier one.
+ */
+export function getVirtualWindowTranslateY(
+  firstStart: number | undefined,
+  scrollMargin: number
+): string {
+  return getVirtualRowTranslateY(firstStart ?? scrollMargin, scrollMargin);
+}
+
+/**
+ * Write real layout heights for rows that are mounted.
+ *
+ * `virtualizer.measure()` drops the whole size cache back to the estimate.
+ * During a live turn that estimate is shorter than the painted row, so every
+ * following turn is placed too high until the observer fills the cache again.
+ */
+export function remeasureMountedVirtualRows(
+  list: ParentNode,
+  resizeItem: (index: number, size: number) => void
+): void {
+  // One level only. A nested transcript inside a turn has its own data-index
+  // values, and feeding those to this list's virtualizer would resize the
+  // wrong rows.
+  const nodes = list.querySelectorAll<HTMLElement>(
+    ':scope > [data-index], :scope > * > [data-index]'
+  );
+  nodes.forEach((node) => {
+    const index = Number(node.getAttribute('data-index'));
+    const height = node.offsetHeight;
+    if (!Number.isFinite(index) || height <= 1) return;
+    resizeItem(index, height);
+  });
+}
+
 type OffsetNode = {
   offsetTop: number;
   offsetParent: unknown;
@@ -185,7 +224,9 @@ export function measureUnscaledBlockHeight(
   instance?: { measurementsCache?: Array<{ size: number } | undefined> }
 ): number {
   const height = element.offsetHeight;
-  if (height > 0) return height;
+  // Hidden or just-mounted rows can report 0 or 1px. Keeping that sample
+  // pins the virtualizer until the row is recycled and hides the live turn.
+  if (height > 1) return height;
   const index = Number(element.getAttribute('data-index'));
   const previous = Number.isFinite(index)
     ? instance?.measurementsCache?.[index]?.size
@@ -216,7 +257,14 @@ export function conversationOpenPinState(input: {
   settlePassesRemaining: number;
   itemCount: number;
   nearBottom: boolean;
+  viewportHeight?: number;
 }): { pinned: boolean; settlePassesRemaining: number } {
+  if ((input.viewportHeight ?? -1) === 0) {
+    return {
+      pinned: true,
+      settlePassesRemaining: input.settlePassesRemaining,
+    };
+  }
   if (input.settlePassesRemaining > 0) {
     return {
       pinned: true,
@@ -245,8 +293,22 @@ export function conversationFollowIntent(input: {
   scrollTop: number;
   nearBottom: boolean;
   attached: boolean;
+  viewportHeight?: number;
+  previousScrollHeight?: number;
+  scrollHeight?: number;
 }): ConversationFollowIntent {
+  if ((input.viewportHeight ?? 1) <= 0) return 'keep';
   if (!input.trustedUserScroll) return 'keep';
+  const heightDrop =
+    input.previousScrollHeight != null && input.scrollHeight != null
+      ? input.previousScrollHeight - input.scrollHeight
+      : 0;
+  const topDrop = input.previousScrollTop - input.scrollTop;
+  // The browser clamps scrollTop when scrollHeight shrinks. That event is
+  // trusted, but it is not the user leaving the tail.
+  if (topDrop > 1 && heightDrop > 0 && topDrop <= heightDrop + 1) {
+    return 'keep';
+  }
   if (input.scrollTop < input.previousScrollTop - 1) return 'detach';
   if (
     !input.attached &&
@@ -298,16 +360,28 @@ export function conversationTailFollowAction(input: {
   settlePassesRemaining: number;
   itemCount: number;
   nearBottom: boolean;
+  viewportHeight?: number;
 }): {
   action: 'pin' | 'release';
   attached: boolean;
   settlePassesRemaining: number;
 } {
+  // A hidden canvas node reports a 0-height viewport. Treating that frame as
+  // a session open burns the settle window and can detach before paint.
+  if ((input.viewportHeight ?? -1) === 0) {
+    const attached = input.attached || input.sessionChanged;
+    return {
+      action: attached ? 'pin' : 'release',
+      attached,
+      settlePassesRemaining: input.settlePassesRemaining,
+    };
+  }
   if (input.sessionChanged) {
     const pin = conversationOpenPinState({
       settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES,
       itemCount: input.itemCount,
       nearBottom: true,
+      viewportHeight: input.viewportHeight,
     });
     return {
       action: pin.pinned ? 'pin' : 'release',
@@ -326,12 +400,26 @@ export function conversationTailFollowAction(input: {
     settlePassesRemaining: input.settlePassesRemaining,
     itemCount: input.itemCount,
     nearBottom: input.nearBottom,
+    viewportHeight: input.viewportHeight,
   });
   return {
     action: pin.pinned ? 'pin' : 'release',
     attached: pin.pinned,
     settlePassesRemaining: pin.settlePassesRemaining,
   };
+}
+
+/** Follow is on, the viewport is real, and the last row is outside the window. */
+export function conversationTailNeedsRescue(input: {
+  attached: boolean;
+  viewportHeight: number;
+  itemCount: number;
+  visibleIndexes: readonly number[];
+}): boolean {
+  if (!input.attached || input.viewportHeight <= 0 || input.itemCount <= 0) {
+    return false;
+  }
+  return !input.visibleIndexes.includes(input.itemCount - 1);
 }
 
 type CancelableVirtualizerScroll = {

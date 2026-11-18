@@ -1,4 +1,5 @@
 import {
+  createContext,
   useContext,
   useEffect,
   useRef,
@@ -52,12 +53,19 @@ import {
   sessionListTitle,
   workspaceSessionStatusTone,
 } from './workspaceSessionListModel';
+import {
+  canvasSessionListMarker,
+  useCanvasSessionSlotIds,
+} from '@/components/kanban/canvas/canvasSessionSlots';
 import { SessionListAppearanceContext } from '@/lib/sessionListAppearance';
 
 import {
   STATUS_LABEL_KEY,
   WorkspaceSessionStatusIndicator,
 } from './WorkspaceSessionStatus';
+
+/** Status and mixed groupings already show status on the group header. */
+export const ShowSessionStatusLightContext = createContext(true);
 
 export function WorkspaceSessionRow({
   session,
@@ -100,6 +108,10 @@ export function WorkspaceSessionRow({
 }) {
   const { t } = useTranslation(['panels', 'tasks', 'common']);
   const appearance = useContext(SessionListAppearanceContext);
+  const showStatusLight = useContext(ShowSessionStatusLightContext);
+  const canvasSlotIds = useCanvasSessionSlotIds();
+  const resolvedMarker =
+    canvasSessionListMarker(session.id, canvasSlotIds) ?? marker ?? null;
   const kanbanSessions = useOptionalKanbanSessionContext();
   const title = sessionListTitle(session);
   const hoverDetails = useSessionCardHoverDetails(session, title);
@@ -129,10 +141,12 @@ export function WorkspaceSessionRow({
     <span
       className={cn(
         'workspace-session-row-marker',
-        marker?.bar ?? 'bg-muted-foreground/35'
+        resolvedMarker?.bar ?? 'bg-muted-foreground/35'
       )}
       style={
-        marker?.hue ? { backgroundColor: `hsl(${marker.hue})` } : undefined
+        resolvedMarker?.hue
+          ? { backgroundColor: `hsl(${resolvedMarker.hue})` }
+          : undefined
       }
       aria-hidden="true"
     />
@@ -384,12 +398,14 @@ export function WorkspaceSessionRow({
                         />
                       ) : null}
                     </span>
-                    <span
-                      role="img"
-                      aria-label={statusLabel}
-                      title={statusLabel}
-                      className={`workspace-session-card-status workspace-session-status workspace-session-status--${tone}`}
-                    />
+                    {showStatusLight ? (
+                      <span
+                        role="img"
+                        aria-label={statusLabel}
+                        title={statusLabel}
+                        className={`workspace-session-card-status workspace-session-status workspace-session-status--${tone}`}
+                      />
+                    ) : null}
                     <span className="workspace-session-card-workspace">
                       {markerElement}
                       <span
@@ -424,10 +440,14 @@ export function WorkspaceSessionRow({
                       />
                     ) : null}
                     <span className="workspace-session-meta-idle gap-1.5">
-                      <WorkspaceSessionStatusIndicator
-                        tone={tone}
-                        className="workspace-session-row-status"
-                      />
+                      {showStatusLight ? (
+                        <span className="workspace-session-status-slot">
+                          <WorkspaceSessionStatusIndicator
+                            tone={tone}
+                            className="workspace-session-row-status"
+                          />
+                        </span>
+                      ) : null}
                       {compactAge ? (
                         <span
                           className="workspace-session-age"

@@ -8,7 +8,9 @@ import {
   buildDraftFollowUpScratchUpdate,
   getDefaultProfileHydrationDecision,
   getDefaultExecutorProfile,
+  draftRepeatsQueuedMessage,
   getDraftScratchHydrationDecision,
+  getQueuedDraftEchoSuppression,
   getExecutorProfileAutosaveDecision,
   extractDraftFollowUpData,
   getDraftExecutorProfile,
@@ -535,6 +537,83 @@ describe('session composer draft helpers', () => {
       model: 'opus',
       permission: 'ask',
     });
+  });
+
+  it('does not hydrate a scratch that repeats a queued message', () => {
+    expect(draftRepeatsQueuedMessage('  keep going  ', ['keep going'])).toBe(
+      true
+    );
+    expect(draftRepeatsQueuedMessage('   ', ['keep going'])).toBe(false);
+
+    expect(
+      getDraftScratchHydrationDecision({
+        isScratchLoading: false,
+        hydratedScratchId: undefined,
+        scratchId: 'session-1',
+        scratchData: {
+          message: 'keep going',
+          images: ['vibe://queued'],
+          executor_config: { executor: 'codex' as const },
+          queued: false,
+          mode_override: 'plan',
+          config_overrides: { model: 'opus' },
+        },
+        queuedMessageTexts: ['earlier', 'keep going'],
+      })
+    ).toEqual({
+      hydratedScratchId: 'session-1',
+      shouldHydrate: true,
+      message: '',
+      imagePaths: [],
+      modeOverride: 'plan',
+      configOverrides: { model: 'opus' },
+    });
+  });
+
+  it('clears a hydrated queue echo once and keeps a later retype', () => {
+    expect(
+      getQueuedDraftEchoSuppression({
+        isEditingQueued: false,
+        userEdited: false,
+        hydratedEcho: 'keep going',
+        localMessage: 'keep going',
+        queuedMessageTexts: ['keep going'],
+        alreadySuppressedEcho: null,
+      })
+    ).toEqual({ suppress: true, userEdited: false });
+
+    expect(
+      getQueuedDraftEchoSuppression({
+        isEditingQueued: true,
+        userEdited: false,
+        hydratedEcho: 'keep going',
+        localMessage: 'keep going',
+        queuedMessageTexts: ['keep going'],
+        alreadySuppressedEcho: null,
+      })
+    ).toEqual({ suppress: false, userEdited: false });
+
+    expect(
+      getQueuedDraftEchoSuppression({
+        isEditingQueued: false,
+        userEdited: false,
+        hydratedEcho: 'keep going',
+        localMessage: 'keep going',
+        queuedMessageTexts: ['keep going'],
+        alreadySuppressedEcho: 'keep going',
+      })
+    ).toEqual({ suppress: false, userEdited: false });
+
+    expect(
+      getQueuedDraftEchoSuppression({
+        isEditingQueued: false,
+        userEdited: false,
+        hydratedEcho: 'keep going',
+        localMessage: 'keep going, but edited',
+        queuedMessageTexts: ['keep going'],
+        alreadySuppressedEcho: null,
+      })
+    ).toEqual({ suppress: false, userEdited: true });
   });
 
   it('does not clobber text typed before the draft stream connects', () => {

@@ -748,6 +748,45 @@ export function displayedCanvasNodes(
   return pruneMissingSessions(nodes, effectiveLiveIds);
 }
 
+/**
+ * A session card can land on the canvas before the catalog contains it, and a
+ * refresh can drop that id for one snapshot. Those cards stay until the catalog
+ * has actually observed the session and then lost it. Held ids are the same
+ * promise made synchronously, before React applies the hold.
+ */
+export function retainUnconfirmedCanvasSessions(
+  displayed: readonly SessionCanvasNode[],
+  stored: readonly SessionCanvasNode[],
+  observedSessionIds: ReadonlySet<string> | null,
+  heldSessionIds: ReadonlySet<string>
+): SessionCanvasNode[] {
+  if (displayed.length === stored.length) {
+    return displayed as SessionCanvasNode[];
+  }
+  const visible = new Set(displayed.map((node) => node.id));
+  let keptExtra = false;
+  const next = stored.filter((node) => {
+    if (visible.has(node.id)) return true;
+    if (
+      node.kind === 'group' ||
+      isPanelCanvasNode(node) ||
+      node.sessionId.length === 0
+    ) {
+      return false;
+    }
+    if (heldSessionIds.has(node.sessionId)) {
+      keptExtra = true;
+      return true;
+    }
+    if (observedSessionIds && !observedSessionIds.has(node.sessionId)) {
+      keptExtra = true;
+      return true;
+    }
+    return false;
+  });
+  return keptExtra ? next : (displayed as SessionCanvasNode[]);
+}
+
 export function preferLiveKanbanSessions<T>(
   live: readonly T[],
   previous: readonly T[]

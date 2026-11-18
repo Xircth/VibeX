@@ -37,11 +37,13 @@ import {
   cancelVirtualizerFollowScroll,
   conversationFollowIntent,
   conversationTailFollowAction,
+  conversationTailNeedsRescue,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   isConversationNearBottom,
   measureScrollMargin,
   measureUnscaledBlockHeight,
+  remeasureMountedVirtualRows,
   observeUnscaledElementRect,
   scheduleMeasuredScrollToIndex,
   scrollTopAfterPrepend,
@@ -108,6 +110,9 @@ export function useTimelineScrollController({
   const [, setIsFollowingTail] = useState(true);
   const followTailRef = useRef(true);
   const lastScrollTopRef = useRef(0);
+  const lastScrollHeightRef = useRef(0);
+  const tailRescuePassesRef = useRef(0);
+  const tailRescueItemCountRef = useRef(0);
   const programmaticScrollDepthRef = useRef(0);
   const smoothFollowRef = useRef(false);
   const seenExpansionRef = useRef<number | null>(null);
@@ -522,7 +527,10 @@ export function useTimelineScrollController({
       if (!container) return;
       const previous = lastScrollTopRef.current;
       const scrollTop = container.scrollTop;
+      const previousHeight = lastScrollHeightRef.current;
+      const scrollHeight = container.scrollHeight;
       lastScrollTopRef.current = scrollTop;
+      lastScrollHeightRef.current = scrollHeight;
       const intent = conversationFollowIntent({
         trustedUserScroll:
           event.nativeEvent.isTrusted &&
@@ -531,6 +539,9 @@ export function useTimelineScrollController({
         scrollTop,
         nearBottom: isConversationNearBottom(container),
         attached: followTailRef.current,
+        viewportHeight: container.clientHeight,
+        previousScrollHeight: previousHeight,
+        scrollHeight,
       });
       if (intent === 'detach') {
         detachFromBottom();
@@ -728,13 +739,33 @@ export function useTimelineScrollController({
       updateScrollMargin();
       const nextHeight = container.clientHeight;
       if (nextHeight === viewportHeight) return;
+      const revealed = viewportHeight === 0 && nextHeight > 0;
       viewportHeight = nextHeight;
-      if (nextHeight > 0 && followTailRef.current) pinToBottom('auto');
+      // Streaming growth changes the list, not the viewport. Pinning on every
+      // resize is what makes a hidden-then-shown tail jitter without painting.
+      if (!revealed || !followTailRef.current) return;
+      remeasureMountedVirtualRows(list, rowVirtualizer.resizeItem);
+      pinToBottom('auto');
+      if (typeof requestAnimationFrame !== 'function') return;
+      requestAnimationFrame(() => {
+        const current = containerRef.current;
+        const currentList = virtualListRef.current;
+        if (
+          !current ||
+          !currentList ||
+          current.clientHeight <= 0 ||
+          !followTailRef.current
+        ) {
+          return;
+        }
+        remeasureMountedVirtualRows(currentList, rowVirtualizer.resizeItem);
+        pinToBottom('auto');
+      });
     });
     observer.observe(container);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [pinToBottom, sideRowsLength, updateScrollMargin]);
+  }, [pinToBottom, rowVirtualizer, sideRowsLength, updateScrollMargin]);
 
   useLayoutEffect(() => {
     updateActiveIndex();
@@ -791,6 +822,7 @@ export function useTimelineScrollController({
       seenExpansionRef.current !== currentExpandableRevision;
     expansionInViewRef.current = false;
     seenExpansionRef.current = currentExpandableRevision;
+    const viewportHeight = container?.clientHeight ?? 0;
     const decision = conversationTailFollowAction({
       attached: followTailRef.current,
       sessionChanged,
@@ -798,6 +830,7 @@ export function useTimelineScrollController({
       settlePassesRemaining: openSettlePassesRef.current,
       itemCount: virtualEntries.length,
       nearBottom: isAtBottomRef.current,
+      viewportHeight,
     });
     followTailRef.current = decision.attached;
     setIsFollowingTail((current) =>
@@ -816,6 +849,7 @@ export function useTimelineScrollController({
       }
       return;
     }
+    if (viewportHeight === 0) return;
     if (virtualEntries.length === 0) {
       if (!isAtBottomRef.current) {
         isAtBottomRef.current = true;
@@ -839,6 +873,33 @@ export function useTimelineScrollController({
     totalSize,
     virtualEntries.length,
   ]);
+
+  useLayoutEffect(() => {
+    const list = virtualListRef.current;
+    if (!list || virtualEntries.length === 0) return;
+    remeasureMountedVirtualRows(list, rowVirtualizer.resizeItem);
+  }, [rowVirtualizer, virtualEntries]);
+
+  useLayoutEffect(() => {
+    if (tailRescueItemCountRef.current !== virtualEntries.length) {
+      tailRescueItemCountRef.current = virtualEntries.length;
+      tailRescuePassesRef.current = 0;
+    }
+    const container = containerRef.current;
+    const needsRescue = conversationTailNeedsRescue({
+      attached: followTailRef.current,
+      viewportHeight: container?.clientHeight ?? 0,
+      itemCount: virtualEntries.length,
+      visibleIndexes: virtualRows.map((row) => row.index),
+    });
+    if (!needsRescue || tailRescuePassesRef.current >= 4) return;
+    tailRescuePassesRef.current += 1;
+    const list = virtualListRef.current;
+    if (list) {
+      remeasureMountedVirtualRows(list, rowVirtualizer.resizeItem);
+    }
+    pinToBottom('auto');
+  }, [pinToBottom, rowVirtualizer, virtualEntries.length, virtualRows]);
 
   useImperativeHandle(
     ref,

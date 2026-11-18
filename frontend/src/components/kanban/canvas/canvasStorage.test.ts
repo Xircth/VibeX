@@ -18,6 +18,7 @@ import {
   getCanvasWorkspaceRevision,
   loadCanvasDocument,
   loadCanvasWorkspace,
+  shouldAdoptLoadedCanvasWorkspace,
   renameCanvasBoard,
   saveCanvasDocument,
   saveCanvasWorkspace,
@@ -129,6 +130,71 @@ describe('canvasStorage', () => {
       localStorage.getItem(CANVAS_BUNDLE_KEY) ?? '{}'
     ) as Record<string, { viewport: unknown }>;
     expect(bundle[projectId]?.viewport).toEqual({ x: 4, y: 8, zoom: 1 });
+  });
+
+  it('prefers the per-project board over a stale preference bundle', () => {
+    localStorage.setItem(
+      CANVAS_BUNDLE_KEY,
+      JSON.stringify({
+        [projectId]: {
+          nodes: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+        },
+      })
+    );
+    localStorage.setItem(
+      canvasDocumentStorageKey(projectId),
+      JSON.stringify({
+        nodes: [
+          {
+            id: 'live',
+            kind: 'session',
+            sessionId: 'live',
+            parentId: null,
+            name: '',
+            createdAt: 0,
+            showAll: false,
+            x: 3,
+            y: 4,
+            width: CARD_WIDTH,
+            height: CARD_HEIGHT,
+            expanded: false,
+          },
+        ],
+        viewport: { x: 3, y: 4, zoom: 1 },
+      })
+    );
+
+    expect(loadCanvasDocument(projectId).nodes.map((node) => node.id)).toEqual([
+      'live',
+    ]);
+  });
+
+  it('rejects an empty reload that did not advance the revision', () => {
+    expect(
+      shouldAdoptLoadedCanvasWorkspace({
+        currentNodeCount: 2,
+        loadedNodeCount: 0,
+        loadedRevision: 4,
+        knownRevision: 4,
+      })
+    ).toBe(false);
+    expect(
+      shouldAdoptLoadedCanvasWorkspace({
+        currentNodeCount: 2,
+        loadedNodeCount: 0,
+        loadedRevision: 5,
+        knownRevision: 4,
+      })
+    ).toBe(true);
+    expect(
+      shouldAdoptLoadedCanvasWorkspace({
+        currentNodeCount: 2,
+        loadedNodeCount: 1,
+        loadedRevision: 4,
+        knownRevision: 4,
+      })
+    ).toBe(true);
   });
 
   it('restores a document from the preference bundle after the per-project key is gone', () => {

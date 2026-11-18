@@ -38,7 +38,7 @@ pub(in crate::manager) type ActiveTurnProbeSlot =
 #[derive(Debug, Clone)]
 pub(in crate::manager) struct AgentConnectionRunner {
     pub(in crate::manager) snapshot: ManagedAgentConnectionSnapshot,
-    pub(in crate::manager) event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    pub(in crate::manager) event_tx: ManagerEventSender,
     pub(in crate::manager) session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     pub(in crate::manager) session_controls:
         Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
@@ -279,7 +279,7 @@ pub(in crate::manager) fn map_steer_response(
 impl AgentConnectionRunner {
     pub(in crate::manager) fn new(
         snapshot: ManagedAgentConnectionSnapshot,
-        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+        event_tx: ManagerEventSender,
         delegation_injector: Option<Arc<dyn DelegationInjector>>,
     ) -> Self {
         let auto_approve_mode = Arc::new(Mutex::new(snapshot.auto_approve_mode));

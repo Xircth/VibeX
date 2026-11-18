@@ -19,6 +19,8 @@ import {
   SelectionMode,
   ViewportPortal,
   useReactFlow,
+  useStoreApi,
+  type Edge,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -39,6 +41,10 @@ import {
   subscribeCanvasReveal,
 } from '@/lib/canvasSessionReveal';
 import { sessionAttentionKind } from '@/components/kanban/session-hub/utils';
+import {
+  clearCanvasSessionSlotIdsIfCurrent,
+  setCanvasSessionSlotIds,
+} from './canvasSessionSlots';
 import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { cn } from '@/lib/utils';
@@ -123,6 +129,7 @@ import {
   parseCanvasNodeId,
   canvasWindowSlotIndex,
   displayedCanvasNodes,
+  retainUnconfirmedCanvasSessions,
   flowNodeBox,
   placedCanvasSessionIds,
   preferLiveKanbanSessions,
@@ -151,12 +158,14 @@ import {
   CANVAS_BUNDLE_KEY,
   CANVAS_WORKSPACE_UPDATED_EVENT,
   canvasDocumentStorageKey,
+  canvasWorkspaceNodeCount,
   createCanvasBoard,
   deleteCanvasBoard,
   flushCanvasDocumentPersist,
   getActiveCanvasEntry,
   getCanvasWorkspaceRevision,
   loadCanvasWorkspace,
+  shouldAdoptLoadedCanvasWorkspace,
   renameCanvasBoard,
   saveCanvasWorkspace,
   selectCanvasBoard,
@@ -239,6 +248,43 @@ interface SessionCanvasViewProps {
     sessionId: string;
     workspaceId: string;
   }) => void;
+}
+
+const CANVAS_HOLD_RELEASE_MS = 1500;
+const EMPTY_FLOW_EDGES: Edge[] = [];
+const CANVAS_PAN_ON_DRAG: number[] = [];
+const CANVAS_MULTI_SELECTION_KEYS = ['Meta', 'Control', 'Shift'];
+const CANVAS_FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1 };
+const CANVAS_PRO_OPTIONS = { hideAttribution: true };
+
+function dropHintStructureKey(hint: CanvasDropHint | null): string {
+  if (!hint) return '';
+  if (hint.type === 'group' || hint.type === 'same') {
+    return `${hint.type}:${hint.groupId}`;
+  }
+  if (hint.type === 'merge') return `merge:${hint.targetId}`;
+  return hint.type;
+}
+
+function publishCanvasDragPositions(
+  store: {
+    getState: () => {
+      nodes?: Node[];
+      setNodes?: (nodes: Node[]) => void;
+    };
+  },
+  overlay: ReadonlyMap<string, { x: number; y: number }>
+) {
+  if (overlay.size === 0) return;
+  const state = store.getState();
+  if (!state.setNodes || !state.nodes || state.nodes.length === 0) return;
+  let changed = false;
+  const next = state.nodes.map((node) => {
+    const updated = applyDragOverlayToFlowNode(node, overlay);
+    if (updated !== node) changed = true;
+    return updated;
+  });
+  if (changed) state.setNodes(next);
 }
 
 function toFlowNode(
@@ -392,6 +438,7 @@ function SessionCanvasFlow({
   const listVisible = useKanbanCanvasListVisible();
   const { fitView, setCenter, screenToFlowPosition, getViewport, setViewport } =
     useReactFlow();
+  const flowStore = useStoreApi();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [creationHost, setCreationHost] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(
@@ -458,9 +505,16 @@ function SessionCanvasFlow({
   const saveTimer = useRef<number | null>(null);
   const documentRef = useRef(documentState);
   documentRef.current = documentState;
+  const dragOverlayRef = useRef<ReadonlyMap<string, { x: number; y: number }>>(
+    new Map()
+  );
+  const draggedIdRef = useRef<string | null>(null);
+  const stableFlowNodesRef = useRef<Node[] | null>(null);
+  const dragFreezeKeyRef = useRef<string | null>(null);
 
   const applyExternalWorkspace = useCallback(
     (loaded: SessionCanvasWorkspace, revision: number) => {
+      if (draggedIdRef.current || dragOverlayRef.current.size > 0) return;
       if (saveTimer.current != null) {
         window.clearTimeout(saveTimer.current);
         saveTimer.current = null;
@@ -490,10 +544,19 @@ function SessionCanvasFlow({
       ) {
         return;
       }
-      applyExternalWorkspace(
-        loadCanvasWorkspace(projectId),
-        getCanvasWorkspaceRevision(projectId)
-      );
+      const loaded = loadCanvasWorkspace(projectId);
+      const loadedRevision = getCanvasWorkspaceRevision(projectId);
+      if (
+        !shouldAdoptLoadedCanvasWorkspace({
+          currentNodeCount: canvasWorkspaceNodeCount(workspaceRef.current),
+          loadedNodeCount: canvasWorkspaceNodeCount(loaded),
+          loadedRevision,
+          knownRevision: knownRevisionRef.current,
+        })
+      ) {
+        return;
+      }
+      applyExternalWorkspace(loaded, loadedRevision);
     };
     const handleWorkspaceUpdated = (event: Event) => {
       const detail = (event as CustomEvent<CanvasWorkspaceUpdatedDetail>)
@@ -534,8 +597,6 @@ function SessionCanvasFlow({
   const [dragOverlay, setDragOverlay] = useState<
     ReadonlyMap<string, { x: number; y: number }>
   >(() => new Map());
-  const dragOverlayRef = useRef(dragOverlay);
-  dragOverlayRef.current = dragOverlay;
   const [alignGuides, setAlignGuides] = useState<AlignmentGuide[]>([]);
   const [, setHistoryVersion] = useState(0);
   const historyByCanvasRef = useRef(
@@ -596,7 +657,27 @@ function SessionCanvasFlow({
   const [heldSessionIds, setHeldSessionIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
+  const heldSessionIdsRef = useRef(heldSessionIds);
+  const observedLiveIdsRef = useRef<Set<string> | null>(null);
+  const heldSinceRef = useRef(new Map<string, number>());
+  const initialDocumentSessionIdsRef = useRef<ReadonlySet<string> | null>(null);
+  const observedProjectRef = useRef(projectId);
+  if (observedProjectRef.current !== projectId) {
+    observedProjectRef.current = projectId;
+    observedLiveIdsRef.current = null;
+    initialDocumentSessionIdsRef.current = null;
+    heldSinceRef.current.clear();
+  }
+  if (initialDocumentSessionIdsRef.current === null) {
+    initialDocumentSessionIdsRef.current = new Set(
+      documentState.nodes
+        .filter((node) => node.kind !== 'group' && node.sessionId.length > 0)
+        .map((node) => node.sessionId)
+    );
+  }
   const liveIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const sessionsReadyRef = useRef(sessionsReady);
+  sessionsReadyRef.current = sessionsReady;
   const runningIdsRef = useRef<ReadonlySet<string>>(new Set());
   const reviewIdsRef = useRef<ReadonlySet<string>>(new Set());
   const placedSessionIdsRef = useRef<readonly string[]>([]);
@@ -621,6 +702,24 @@ function SessionCanvasFlow({
     new Set(displaySessions.map((session) => session.id))
   );
   liveIdsRef.current = liveIds;
+  if (sessionsReady && liveIds.size > 0) {
+    if (observedLiveIdsRef.current === null) {
+      const observed = new Set<string>();
+      for (const id of liveIds) {
+        if (!heldSessionIdsRef.current.has(id)) observed.add(id);
+      }
+      for (const id of initialDocumentSessionIdsRef.current ?? []) {
+        if (!heldSessionIdsRef.current.has(id)) observed.add(id);
+      }
+      observedLiveIdsRef.current = observed;
+    } else {
+      for (const id of liveIds) {
+        if (!heldSessionIdsRef.current.has(id)) {
+          observedLiveIdsRef.current.add(id);
+        }
+      }
+    }
+  }
   const sessionsById = useMemo(
     () => new Map(displaySessions.map((session) => [session.id, session])),
     [displaySessions]
@@ -697,6 +796,10 @@ function SessionCanvasFlow({
         setDraggedId(null);
         setDragOverlay(new Map());
         dragOverlayRef.current = new Map();
+        draggedIdRef.current = null;
+        dragFreezeKeyRef.current = null;
+        stableFlowNodesRef.current = null;
+        surfaceRef.current?.removeAttribute('data-canvas-dragging');
         setAlignGuides([]);
         setHistoryVersion((value) => value + 1);
         window.requestAnimationFrame(() => {
@@ -751,21 +854,27 @@ function SessionCanvasFlow({
     [commitWorkspaceTransition]
   );
 
-  const nodes = useMemo(
-    () =>
-      displayedCanvasNodes(
-        documentState.nodes,
-        liveIds,
-        sessionsReady,
-        heldSessionIds
-      ),
-    [documentState.nodes, heldSessionIds, liveIds, sessionsReady]
-  );
+  const nodes = useMemo(() => {
+    const held = heldSessionIdsRef.current;
+    const displayed = displayedCanvasNodes(
+      documentState.nodes,
+      liveIds,
+      sessionsReady,
+      held
+    );
+    return retainUnconfirmedCanvasSessions(
+      displayed,
+      documentState.nodes,
+      observedLiveIdsRef.current,
+      held
+    );
+  }, [documentState.nodes, heldSessionIds, liveIds, sessionsReady]);
   const allPlacedSessionIds = reuseStringListIfEqual(
     placedSessionIdsRef.current,
     placedCanvasSessionIds(nodes)
   );
   placedSessionIdsRef.current = allPlacedSessionIds;
+  const publishedSlotIdsRef = useRef<readonly string[]>(allPlacedSessionIds);
   const runningSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const session of sessionsById.values()) {
@@ -847,9 +956,26 @@ function SessionCanvasFlow({
   }, [queryClient, selectedIds, sessionsById, runningSessionIds]);
 
   useEffect(() => {
-    if (nodes.length < documentState.nodes.length) {
-      persist({ ...documentRef.current, nodes });
-    }
+    if (nodes.length >= documentState.nodes.length) return;
+    const timer = window.setTimeout(() => {
+      const stored = documentRef.current.nodes;
+      const displayed = displayedCanvasNodes(
+        stored,
+        liveIdsRef.current,
+        sessionsReadyRef.current,
+        heldSessionIdsRef.current
+      );
+      const retained = retainUnconfirmedCanvasSessions(
+        displayed,
+        stored,
+        observedLiveIdsRef.current,
+        heldSessionIdsRef.current
+      );
+      if (retained.length < stored.length) {
+        persist({ ...documentRef.current, nodes: retained });
+      }
+    }, CANVAS_HOLD_RELEASE_MS);
+    return () => window.clearTimeout(timer);
   }, [documentState.nodes.length, nodes, persist]);
 
   const updateNodes = useCallback(
@@ -924,7 +1050,7 @@ function SessionCanvasFlow({
     [layoutNodes, runningSessionIds, reviewSessionIds]
   );
 
-  const rfNodes = useMemo(() => {
+  const structuralRfNodes = useMemo(() => {
     const cache = flowNodeCacheRef.current;
     const nextCache = new Map<string, Node>();
     const lookups = flowLookupsFromData(flowData, draggedId, selectedIds);
@@ -938,8 +1064,7 @@ function SessionCanvasFlow({
         allPlacedSessionIds,
         runningSessionIds
       );
-      const overlaid = applyDragOverlayToFlowNode(built, dragOverlay);
-      const reused = reuseUnchangedFlowNode(cache.get(overlaid.id), overlaid);
+      const reused = reuseUnchangedFlowNode(cache.get(built.id), built);
       nextCache.set(reused.id, reused);
       return reused;
     });
@@ -947,7 +1072,6 @@ function SessionCanvasFlow({
     return result;
   }, [
     allPlacedSessionIds,
-    dragOverlay,
     draggedId,
     dropHint,
     flowData,
@@ -955,6 +1079,26 @@ function SessionCanvasFlow({
     runningSessionIds,
     selectedIds,
   ]);
+  const dragStructureKey = draggedId
+    ? `${draggedId}|${dropHintStructureKey(dropHint)}|${[...selectedIds].sort().join(',')}`
+    : '';
+  if (!draggedId) {
+    dragFreezeKeyRef.current = null;
+    stableFlowNodesRef.current = null;
+  } else if (dragFreezeKeyRef.current !== dragStructureKey) {
+    dragFreezeKeyRef.current = dragStructureKey;
+    const overlay = dragOverlayRef.current;
+    stableFlowNodesRef.current =
+      overlay.size === 0
+        ? structuralRfNodes
+        : structuralRfNodes.map((node) =>
+            applyDragOverlayToFlowNode(node, overlay)
+          );
+  }
+  const flowNodes =
+    draggedId && stableFlowNodesRef.current
+      ? stableFlowNodesRef.current
+      : structuralRfNodes;
 
   const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
   const [connectingState, setConnectingState] = useState<{
@@ -1192,12 +1336,13 @@ function SessionCanvasFlow({
   );
 
   const holdSessionId = useCallback((sessionId: string) => {
-    setHeldSessionIds((current) => {
-      if (current.has(sessionId)) return current;
-      const next = new Set(current);
-      next.add(sessionId);
-      return next;
-    });
+    if (heldSessionIdsRef.current.has(sessionId)) return;
+    const next = new Set(heldSessionIdsRef.current);
+    next.add(sessionId);
+    heldSessionIdsRef.current = next;
+    heldSinceRef.current.delete(sessionId);
+    observedLiveIdsRef.current?.delete(sessionId);
+    setHeldSessionIds(next);
   }, []);
 
   const canvasFlowCenter = useCallback(() => {
@@ -1583,19 +1728,50 @@ function SessionCanvasFlow({
   }, [projectId, sessionsById, sessionsReady]);
 
   useEffect(() => {
-    setHeldSessionIds((current) => {
-      if (current.size === 0) return current;
-      let changed = false;
-      const next = new Set(current);
-      for (const id of current) {
-        if (liveIds.has(id)) {
+    const held = heldSessionIdsRef.current;
+    if (held.size === 0) return;
+    const now = Date.now();
+    for (const id of held) {
+      if (liveIds.has(id)) {
+        if (!heldSinceRef.current.has(id)) heldSinceRef.current.set(id, now);
+      } else {
+        heldSinceRef.current.delete(id);
+      }
+    }
+    const present = [...held].filter((id) => liveIds.has(id));
+    if (present.length === 0) return;
+    const earliest = Math.min(
+      ...present.map((id) => heldSinceRef.current.get(id) ?? now)
+    );
+    const wait = Math.max(0, CANVAS_HOLD_RELEASE_MS - (now - earliest));
+    const timer = window.setTimeout(() => {
+      const released: string[] = [];
+      const stamp = Date.now();
+      setHeldSessionIds((current) => {
+        let changed = false;
+        const next = new Set(current);
+        for (const id of current) {
+          if (!liveIdsRef.current.has(id)) continue;
+          const since = heldSinceRef.current.get(id);
+          if (since == null || stamp - since < CANVAS_HOLD_RELEASE_MS) {
+            continue;
+          }
           next.delete(id);
+          heldSinceRef.current.delete(id);
+          released.push(id);
           changed = true;
         }
-      }
-      return changed ? next : current;
-    });
-  }, [liveIds]);
+        if (!changed) return current;
+        heldSessionIdsRef.current = next;
+        return next;
+      });
+      if (released.length === 0) return;
+      const observed = observedLiveIdsRef.current ?? new Set<string>();
+      for (const id of released) observed.add(id);
+      observedLiveIdsRef.current = observed;
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [heldSessionIds, liveIds]);
 
   useEffect(() => {
     const ids = [
@@ -1614,6 +1790,18 @@ function SessionCanvasFlow({
     windowIdsKeyRef.current = key;
     onWindowSessionIdsChange?.(allPlacedIds);
   }, [nodes, onWindowSessionIdsChange]);
+
+  useEffect(() => {
+    publishedSlotIdsRef.current = allPlacedSessionIds;
+    setCanvasSessionSlotIds(allPlacedSessionIds);
+  }, [allPlacedSessionIds]);
+
+  useEffect(
+    () => () => {
+      clearCanvasSessionSlotIdsIfCurrent(publishedSlotIdsRef.current);
+    },
+    []
+  );
 
   const expandCard = useCallback(
     (instanceId: string) => {
@@ -2087,6 +2275,7 @@ function SessionCanvasFlow({
     if (nextOverlay !== dragOverlayRef.current) {
       dragOverlayRef.current = nextOverlay;
       setDragOverlay(nextOverlay);
+      publishCanvasDragPositions(flowStore, nextOverlay);
     }
     setSelectedIds((current) => {
       let changed = false;
@@ -2116,11 +2305,13 @@ function SessionCanvasFlow({
       }
       return resolved;
     });
-  }, []);
+  }, [flowStore]);
 
   const handleNodeDragStart = useCallback((_event: unknown, dragged: Node) => {
     const instanceId = parseCanvasNodeId(dragged.id);
     if (!instanceId) return;
+    draggedIdRef.current = instanceId;
+    surfaceRef.current?.setAttribute('data-canvas-dragging', '');
     setDraggedId(instanceId);
     const items = documentRef.current.nodes;
     const model = nodeById(items, instanceId);
@@ -2205,6 +2396,10 @@ function SessionCanvasFlow({
       }
       alignPrimaryRef.current = null;
       alignCandidatesRef.current = [];
+      draggedIdRef.current = null;
+      dragFreezeKeyRef.current = null;
+      stableFlowNodesRef.current = null;
+      surfaceRef.current?.removeAttribute('data-canvas-dragging');
       setAlignGuides([]);
       setDropHint(null);
       setDraggedId(null);
@@ -2534,6 +2729,30 @@ function SessionCanvasFlow({
     [dropPanelAt]
   );
 
+  const handleSelectionStart = useCallback(() => {
+    marqueeSelectingRef.current = true;
+  }, []);
+  const handleSelectionEnd = useCallback(() => {
+    setSelectedIds((current) =>
+      expandSelectionToGroups(documentRef.current.nodes, current)
+    );
+    window.setTimeout(() => {
+      marqueeSelectingRef.current = false;
+    }, 0);
+  }, []);
+  const preventFlowContextMenu = useCallback(
+    (event: { preventDefault: () => void }) => {
+      event.preventDefault();
+    },
+    []
+  );
+  const handleFlowInit = useCallback(
+    (instance: { getZoom: () => number }) => {
+      zoomRef.current = instance.getZoom();
+    },
+    []
+  );
+
   const handleNativeDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       if (!event.dataTransfer.types.includes('application/x-dimo-panel')) {
@@ -2556,8 +2775,8 @@ function SessionCanvasFlow({
       >
         <div className="h-full w-full" data-context-menu-zone="forbidden">
           <ReactFlow
-            nodes={rfNodes}
-            edges={[]}
+            nodes={flowNodes}
+            edges={EMPTY_FLOW_EDGES}
             nodeTypes={NODE_TYPES}
             nodesConnectable={false}
             edgesReconnectable={false}
@@ -2568,47 +2787,30 @@ function SessionCanvasFlow({
             onNodeDrag={handleNodeDrag}
             onNodeDragStop={handleNodeDragStop}
             onNodeDoubleClick={handleNodeDoubleClick}
-            onSelectionStart={() => {
-              marqueeSelectingRef.current = true;
-            }}
-            onSelectionEnd={() => {
-              setSelectedIds((current) =>
-                expandSelectionToGroups(documentRef.current.nodes, current)
-              );
-              window.setTimeout(() => {
-                marqueeSelectingRef.current = false;
-              }, 0);
-            }}
-            onPaneContextMenu={(event) => {
-              event.preventDefault();
-            }}
-            onNodeContextMenu={(event) => {
-              event.preventDefault();
-            }}
-            onSelectionContextMenu={(event) => {
-              event.preventDefault();
-            }}
+            onSelectionStart={handleSelectionStart}
+            onSelectionEnd={handleSelectionEnd}
+            onPaneContextMenu={preventFlowContextMenu}
+            onNodeContextMenu={preventFlowContextMenu}
+            onSelectionContextMenu={preventFlowContextMenu}
             onMove={handleMove}
             onMoveEnd={handleMoveEnd}
-            onInit={(instance) => {
-              zoomRef.current = instance.getZoom();
-            }}
+            onInit={handleFlowInit}
             fitView={documentState.viewport == null}
-            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            fitViewOptions={CANVAS_FIT_VIEW_OPTIONS}
             defaultViewport={documentState.viewport ?? undefined}
             minZoom={CANVAS_MIN_ZOOM}
             maxZoom={CANVAS_MAX_ZOOM}
             elevateNodesOnSelect={false}
             onlyRenderVisibleElements={!canvasHasLiveSurfaces(nodes)}
-            panOnDrag={[]}
+            panOnDrag={CANVAS_PAN_ON_DRAG}
             selectionOnDrag
             selectionMode={SelectionMode.Partial}
             panOnScroll
             selectionKeyCode={null}
-            multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
+            multiSelectionKeyCode={CANVAS_MULTI_SELECTION_KEYS}
             deleteKeyCode={null}
             zoomOnDoubleClick={false}
-            proOptions={{ hideAttribution: true }}
+            proOptions={CANVAS_PRO_OPTIONS}
           >
             <Background
               variant={BackgroundVariant.Dots}

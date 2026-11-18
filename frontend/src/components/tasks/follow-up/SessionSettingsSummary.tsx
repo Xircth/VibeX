@@ -21,6 +21,7 @@ import type { AgentInstanceOption } from '@/lib/providerInstancesApi';
 import { cn } from '@/lib/utils';
 import { EffortSlider } from '@/components/tasks/effort-slider/EffortSlider';
 import { AgentRail, type AgentRailProps } from './AgentRail';
+import { ModelChoiceItems } from './ProviderModelChoices';
 import {
   configOptionDisplayState,
   jsonValueToString,
@@ -776,7 +777,7 @@ function ChoiceRow({
         className={cn(
           isEffortOption(row.option)
             ? 'w-auto max-w-none border-0 bg-transparent p-0 shadow-none'
-            : 'min-w-[13rem]'
+            : 'max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height,20rem))] min-w-[13rem]'
         )}
       >
         {isEffortOption(row.option) ? (
@@ -795,22 +796,16 @@ function ChoiceRow({
             <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {row.option.label}
             </DropdownMenuLabel>
-            {displayChoices.map((choice) => {
-              const active = choice.value === presentedActiveValue;
-              return (
-                <DropdownMenuItem
-                  key={choice.value}
-                  onSelect={() => {
-                    setOpen(false);
-                    onSelect(row.option.key, choice.value);
-                  }}
-                  title={choice.description ?? undefined}
-                >
-                  <span className="min-w-0 flex-1 truncate">{choice.name}</span>
-                  {active ? <Check className="h-4 w-4" /> : null}
-                </DropdownMenuItem>
-              );
-            })}
+            <ModelChoiceItems
+              choices={displayChoices}
+              activeValue={presentedActiveValue}
+              groupProviders={isModelOption(row.option)}
+              appearance="summary"
+              onSelect={(value) => {
+                setOpen(false);
+                onSelect(row.option.key, value);
+              }}
+            />
           </>
         )}
       </DropdownMenuSubContent>

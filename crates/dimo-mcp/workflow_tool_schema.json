@@ -1,7 +1,7 @@
 [
   {
     "name": "workflow_source_read",
-    "description": "Read a workspace Workflow source artifact and its CAS revision.",
+    "description": "Read a workspace Workflow source artifact and its CAS revision. When the file is the workflow open on the Dimo canvas, the result includes canvasViewing=true and marker=dimo.canvas.viewing.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -141,7 +141,7 @@
   },
   {
     "name": "workflow_catalog",
-    "description": "List reusable Workflow definitions and optionally their version history.",
+    "description": "List reusable Workflow definitions and optionally their version history. The workflow currently open on the Dimo canvas is marked canvasViewing=true with marker=dimo.canvas.viewing and sourcePath. Edit that sourcePath so the user sees the change on the canvas. The singleton unnamed draft is ~/.dimo/workflows/新建任务.dimo-workflow.json.",
     "inputSchema": {
       "type": "object",
       "properties": {

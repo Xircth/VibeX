@@ -12,6 +12,7 @@ import {
 import {
   closeEmptyTabBarGroups,
   defaultSessionWidth,
+  scheduleCloseEmptyTabBarGroups,
   dismissEditorColumnAfterLastTab,
   getEditorGroups,
   getLeftGroup,
@@ -292,7 +293,7 @@ export function attachDockviewWorkspaceListeners(
         }
       }
       normalizeGroupIds(api);
-      closeEmptyTabBarGroups(api);
+      scheduleCloseEmptyTabBarGroups(api);
       return;
     }
 
@@ -329,7 +330,7 @@ export function attachDockviewWorkspaceListeners(
         }
       }
     }
-    closeEmptyTabBarGroups(api);
+    scheduleCloseEmptyTabBarGroups(api);
   });
 
   const normalizeGroupsDisposable = api.onDidAddGroup((group) => {
@@ -434,7 +435,7 @@ export function attachDockviewWorkspaceListeners(
     }
 
     normalizeGroupIds(api);
-    closeEmptyTabBarGroups(api);
+    scheduleCloseEmptyTabBarGroups(api);
   });
 
   const removeGroupDisposable = api.onDidRemoveGroup(() => {

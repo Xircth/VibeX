@@ -499,7 +499,7 @@ impl AgentRuntime {
         connection_manager: Arc<AgentConnectionManager>,
         event_sink: Arc<dyn RuntimeEventSink>,
         event_tx: broadcast::Sender<AgentEventEnvelope>,
-        mut manager_event_rx: mpsc::UnboundedReceiver<AgentConnectionManagerEvent>,
+        mut manager_event_rx: crate::manager::ManagerEventReceiver,
     ) {
         tokio::spawn(async move {
             while let Some(manager_event) = manager_event_rx.recv().await {
@@ -2413,6 +2413,24 @@ impl AgentRuntime {
                         state.prompt_display_blocks.remove(&input.prompt_id);
                         state.prompt_options.remove(&input.prompt_id);
                         state.request_activity.remove(&input.prompt_id);
+                        // The event pump drops a later PromptFinished once this
+                        // prompt is no longer active. Emit it here so the
+                        // workbench clears the stop button. A queued follow-up
+                        // stays active until the runner's own PromptFinished.
+                        Self::emit_with_parts_locked(
+                            &mut state,
+                            &*self.event_sink,
+                            &self.event_tx,
+                            input.connection_id,
+                            Some(input.session_id),
+                            AgentEvent::PromptFinished {
+                                finished: crate::AgentPromptFinished {
+                                    prompt_id: input.prompt_id,
+                                    stop_reason: Some("cancelled".to_string()),
+                                    usage: None,
+                                },
+                            },
+                        );
                     }
                 }
 
@@ -3805,6 +3823,70 @@ mod tests {
             }),
             "cancel handshake must not emit a user-visible diagnostic"
         );
+    }
+
+    #[tokio::test]
+    async fn runtime_cancel_of_the_only_prompt_emits_prompt_finished() {
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
+        let prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "only".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                prompt_id: prompt.id,
+            })
+            .await
+            .unwrap();
+
+        let snapshot = runtime.snapshot().await;
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|candidate| candidate.id == session.id)
+            .unwrap();
+        assert_eq!(session.active_prompt_id, None);
+        assert!(sink.events.lock().unwrap().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                AgentEvent::PromptFinished { finished }
+                    if finished.prompt_id == prompt.id
+                        && finished.stop_reason.as_deref() == Some("cancelled")
+            )
+        }));
     }
 
     #[tokio::test]

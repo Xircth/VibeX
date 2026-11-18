@@ -44,6 +44,85 @@ pub fn is_workflow_tool(name: &str) -> bool {
     )
 }
 
+fn user_home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+}
+
+fn read_canvas_focus() -> Option<Value> {
+    let path = user_home_dir()?
+        .join(".dimo")
+        .join("workflows")
+        .join(".canvas-focus.json");
+    let text = fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&text).ok()?;
+    if value.get("viewing").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    Some(value)
+}
+
+/// Mark the workflow open on the Dimo canvas so an Agent can edit that source.
+pub(crate) fn annotate_catalog_with_focus(list: Value, focus: Option<&Value>) -> Value {
+    let Some(focus) = focus else {
+        return list;
+    };
+    if focus.get("viewing").and_then(Value::as_bool) != Some(true) {
+        return list;
+    }
+    let Value::Array(items) = list else {
+        return list;
+    };
+    let focus_path = focus.get("path").and_then(Value::as_str).unwrap_or("");
+    let focus_name = focus.get("name").and_then(Value::as_str).unwrap_or("");
+    let focus_id = focus
+        .get("definitionId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut matched = false;
+    let mut next = Vec::with_capacity(items.len() + 1);
+    for mut item in items {
+        if let Some(obj) = item.as_object_mut() {
+            let id = obj.get("id").and_then(Value::as_str).unwrap_or("");
+            let name = obj.get("name").and_then(Value::as_str).unwrap_or("");
+            let source = obj.get("sourcePath").and_then(Value::as_str).unwrap_or("");
+            let same = if !focus_id.is_empty() {
+                id == focus_id
+            } else if !focus_path.is_empty() {
+                !source.is_empty() && source == focus_path
+            } else {
+                !focus_name.is_empty() && name == focus_name
+            };
+            if same {
+                matched = true;
+                obj.insert("canvasViewing".to_string(), json!(true));
+                obj.insert("marker".to_string(), json!("dimo.canvas.viewing"));
+                if !focus_path.is_empty() {
+                    obj.insert("sourcePath".to_string(), json!(focus_path));
+                }
+            }
+        }
+        next.push(item);
+    }
+    if !matched {
+        next.insert(
+            0,
+            json!({
+                "id": "dimo-canvas-viewing",
+                "name": focus_name,
+                "sourcePath": focus_path,
+                "definitionId": focus.get("definitionId").cloned().unwrap_or(Value::Null),
+                "canvasViewing": true,
+                "marker": "dimo.canvas.viewing",
+                "latestVersionId": null,
+                "unpublishedSource": true,
+            }),
+        );
+    }
+    Value::Array(next)
+}
+
 pub async fn execute_workflow_tool<C: HostCommandCaller>(
     caller: &C,
     name: &str,
@@ -115,11 +194,20 @@ pub async fn execute_workflow_tool<C: HostCommandCaller>(
                     ));
                 }
             };
-            Ok(json!({
+            let mut result = json!({
                 "path": rel_path,
                 "definition": definition,
                 "revision": sha256_revision(content.as_bytes()),
-            }))
+            });
+            if let Some(focus) = read_canvas_focus() {
+                if focus.get("path").and_then(Value::as_str) == Some(rel_path) {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("canvasViewing".to_string(), json!(true));
+                        obj.insert("marker".to_string(), json!("dimo.canvas.viewing"));
+                    }
+                }
+            }
+            Ok(result)
         }
         "workflow_source_write" => {
             let Some(rel_path) = str_prop(arguments, &["path"])
@@ -231,7 +319,12 @@ pub async fn execute_workflow_tool<C: HostCommandCaller>(
                 )
                 .await
             } else {
-                call_wrapped(caller, "workflow_list", &op_id, &json!({ "limit": 100 })).await
+                let listed =
+                    call_wrapped(caller, "workflow_list", &op_id, &json!({ "limit": 100 })).await?;
+                Ok(annotate_catalog_with_focus(
+                    listed,
+                    read_canvas_focus().as_ref(),
+                ))
             }
         }
         "workflow_run_inspect" => {

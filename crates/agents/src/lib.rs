@@ -333,8 +333,9 @@ pub use runtime::{
     runtime_event_channel,
 };
 pub use runtime_temp::{
-    agent_runtime_temp_dir, bind_agent_runtime_temp_env, prepare_agent_runtime_temp,
-    prepare_and_bind_agent_runtime_temp,
+    AgentRuntimeTempSession, agent_runtime_temp_dir, bind_agent_runtime_temp_env,
+    prepare_agent_runtime_temp, prepare_agent_runtime_temp_session,
+    prepare_and_bind_agent_runtime_temp, sweep_stale_agent_runtime_temps,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{

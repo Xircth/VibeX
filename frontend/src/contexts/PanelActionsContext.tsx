@@ -523,14 +523,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const getLeftGroup = useCallback((dockviewApi: DockviewApi) => {
-    return (
-      dockviewApi.getGroup(GROUP_IDS.LEFT) ??
-      dockviewApi.groups.find(
-        (group) =>
-          isLeftGroup(group) &&
-          group.element?.getAttribute('data-shell-nav-side') !== 'right'
-      ) ??
-      dockviewApi.groups.find((group) => isLeftGroup(group))
+    const canonical = dockviewApi.getGroup(GROUP_IDS.LEFT);
+    if (canonical && !isRightShellNavGroup(canonical)) return canonical;
+    return dockviewApi.groups.find(
+      (group) => isLeftGroup(group) && !isRightShellNavGroup(group)
     );
   }, []);
 
@@ -1692,7 +1688,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const previousGroup = existing?.group;
       if (existing) {
-        dockviewApi.removePanel(existing);
+        try {
+          dockviewApi.removePanel(existing);
+        } catch (error) {
+          // A layout listener can remove the emptied group before Dockview
+          // finishes removePanel, which throws. Keep going when the panel
+          // itself is already gone so it can be placed again.
+          if (dockviewApi.getPanel(panelId)) throw error;
+        }
         if (
           previousGroup &&
           previousGroup.panels.length === 0 &&

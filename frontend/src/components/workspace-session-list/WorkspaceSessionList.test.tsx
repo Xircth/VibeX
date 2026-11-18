@@ -4,6 +4,7 @@ import type { ReactElement } from 'react';
 import type { Workspace } from 'shared/types';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { registerCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
+import { setCanvasSessionSlotIds } from '@/components/kanban/canvas/canvasSessionSlots';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { setSessionListAppearance } from '@/lib/sessionListAppearance';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
@@ -80,6 +81,7 @@ function session(
 describe('WorkspaceSessionList', () => {
   beforeEach(() => {
     localStorage.clear();
+    setCanvasSessionSlotIds([]);
   });
 
   it('groups sessions under the workspace branch or worktree name', () => {
@@ -425,6 +427,41 @@ describe('WorkspaceSessionList', () => {
 
     expect(document.querySelector('.session-marker-execution')).not.toBeNull();
     expect(document.querySelector('.session-marker-slot-1')).not.toBeNull();
+  });
+
+  it('colors list markers from the canvas node slot instead of the red execution bar', () => {
+    const main = workspace({ id: 'ws-main', branch: 'main' });
+    setCanvasSessionSlotIds(['monitor-session', 'execution-session']);
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 'execution-session',
+            workspace: main,
+            firstPrompt: 'Execution session prompt',
+          }),
+          session({
+            id: 'monitor-session',
+            workspace: main,
+            firstPrompt: 'Monitor session prompt',
+            updatedAt: '2026-08-17T11:00:00Z',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="ws-main"
+        currentExecutionPlacement={{ sessionId: 'execution-session' }}
+        monitorPlacements={[{ sessionId: 'monitor-session' }]}
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(document.querySelector('.session-marker-execution')).toBeNull();
+    expect(document.querySelector('.session-marker-slot-1')).not.toBeNull();
+    expect(document.querySelector('.session-marker-slot-2')).not.toBeNull();
+    expect(document.querySelector('.session-marker-slot-2')).toHaveStyle({
+      backgroundColor: 'hsl(var(--session-slot-2))',
+    });
   });
 
   it('colors a blocked permission session as review, not in progress', () => {
@@ -952,6 +989,11 @@ describe('WorkspaceSessionList', () => {
 
     expect(screen.getByRole('button', { name: '进行中' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '已完成' })).toBeInTheDocument();
+    expect(document.querySelector('.workspace-session-row-status')).toBeNull();
+    expect(document.querySelector('.workspace-session-card-status')).toBeNull();
+    expect(
+      document.querySelector('.workspace-session-status--inprogress')
+    ).not.toBeNull();
   });
 
   it('nests status groups inside each workspace in mixed view and expands the active session path', () => {
@@ -1023,6 +1065,15 @@ describe('WorkspaceSessionList', () => {
     expect(
       within(featureSection).getByRole('button', { name: /Feature running/ })
     ).toBeInTheDocument();
+    expect(
+      mainSection.querySelector('.workspace-session-row-status')
+    ).toBeNull();
+    expect(
+      mainSection.querySelector('.workspace-session-card-status')
+    ).toBeNull();
+    expect(
+      mainSection.querySelector('.workspace-session-group-status')
+    ).not.toBeNull();
   });
 
   it('drops a minimized session card when dragging a session row onto the Infinite Canvas', () => {

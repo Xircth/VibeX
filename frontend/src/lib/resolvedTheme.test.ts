@@ -15,6 +15,8 @@ describe('resolvedTheme', () => {
     clearLocalStorageCache();
     document.documentElement.classList.remove('light', 'dark');
     document.documentElement.removeAttribute('style');
+    document.body.removeAttribute('style');
+    window.history.replaceState({}, '', '/');
   });
 
   it('persists and reads the last resolved theme', () => {
@@ -28,6 +30,19 @@ describe('resolvedTheme', () => {
     applyResolvedThemeClass('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.classList.contains('light')).toBe(false);
+    expect(document.documentElement.style.backgroundColor).toBe(
+      'rgb(27, 27, 27)'
+    );
+    expect(document.documentElement.style.colorScheme).toBe('only dark');
+    expect(document.body.style.backgroundColor).toBe('rgb(27, 27, 27)');
+  });
+
+  it('leaves the desktop toast shell transparent', () => {
+    window.history.replaceState({}, '', '/desktop-toast');
+    applyResolvedThemeClass('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.style.backgroundColor).toBe('');
+    expect(document.body.style.backgroundColor).toBe('');
   });
 
   it('leaves the accent to the active theme without an override', () => {

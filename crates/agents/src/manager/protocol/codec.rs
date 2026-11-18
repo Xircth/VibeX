@@ -251,6 +251,9 @@ pub(in crate::manager) fn rewrite_air_or_vendor_notification(val: &mut serde_jso
 }
 
 pub(in crate::manager) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
+    if nul_only_terminal_output_delta(&line) {
+        return String::new();
+    }
     let line = omit_null_error_data(line);
     if notification_has_null_session_id(&line) {
         return String::new();
@@ -280,6 +283,50 @@ pub(in crate::manager) fn sanitize_incoming_jsonrpc_line(line: String) -> String
     } else {
         line
     }
+}
+
+/// Pure-NUL `terminal_output_delta` frames (JSON `\u0000` runs) carry no
+/// terminal text. Drop them before they are copied into the transcript,
+/// the tool ledger, or the runtime event pump.
+fn nul_only_terminal_output_delta(line: &str) -> bool {
+    if !line.contains("terminal_output_delta") {
+        return false;
+    }
+    let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+    let Some(update) = message.pointer("/params/update") else {
+        return false;
+    };
+    let kind = update
+        .get("sessionUpdate")
+        .or_else(|| update.get("session_update"))
+        .and_then(serde_json::Value::as_str);
+    if kind != Some("tool_call_update") {
+        return false;
+    }
+    let Some(data) = update
+        .pointer("/_meta/terminal_output_delta/data")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    if data.is_empty() || !data.chars().all(|ch| ch == '\0') {
+        return false;
+    }
+    const OTHER_TOOL_STATE: [&str; 8] = [
+        "status",
+        "content",
+        "title",
+        "locations",
+        "rawOutput",
+        "rawInput",
+        "raw_output",
+        "raw_input",
+    ];
+    !OTHER_TOOL_STATE
+        .iter()
+        .any(|key| update.get(*key).is_some())
 }
 
 /// Grok 1.0.40+ narrates `session/new` on `_x.ai/session/setup` with

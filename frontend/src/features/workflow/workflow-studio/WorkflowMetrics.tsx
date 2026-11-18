@@ -6,18 +6,25 @@ export function WorkflowMetrics({
   agentCount,
   releaseVersion,
   dirty,
+  bare = false,
 }: {
   nodeCount: number;
   agentCount: number;
   releaseVersion?: string;
   dirty: boolean;
+  /** Sit inside another chrome chip instead of drawing its own card. */
+  bare?: boolean;
 }) {
   const { t } = useTranslation('workflow');
   const [open, setOpen] = useState(false);
   return (
     <button
       type="button"
-      className="workflow-studio-floating-controls pointer-events-auto flex h-10 shrink-0 items-center gap-1.5 px-3 text-[10px] text-muted-foreground tabular-nums"
+      className={
+        bare
+          ? 'flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[10px] text-muted-foreground tabular-nums hover:text-foreground'
+          : 'workflow-studio-floating-controls pointer-events-auto flex h-10 shrink-0 items-center gap-1.5 px-3 text-[10px] text-muted-foreground tabular-nums'
+      }
       aria-expanded={open}
       aria-label={t('studio.previewInformation')}
       onMouseEnter={() => setOpen(true)}

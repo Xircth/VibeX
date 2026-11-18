@@ -24,6 +24,7 @@ import {
   type PulseSourceTestResult,
   type PulseSourceUpsertInput,
 } from '@/lib/api/pulse';
+import { requestKanbanSessionCreateForm } from '@/lib/requestCreateSession';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
 import {
@@ -271,7 +272,7 @@ export function PulseDeckView({
   const handleCreateWorkflowWithAgent = () => {
     sidebarAutoOpenedForStudioRef.current =
       !useLayoutStore.getState().isKanbanSessionVisible;
-    ensureRightSessionSidebarOpen();
+    requestKanbanSessionCreateForm();
     requestOpenWorkflowStudio({
       createNew: true,
     });

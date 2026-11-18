@@ -1,7 +1,8 @@
-import { lazy, type ComponentType } from 'react';
+import { lazy, useEffect, type ComponentType } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { MainLegacyScope } from '@/app/MainLegacyScope';
+import { revealDesktopWindowAfterPaint } from '@/lib/revealDesktopWindow';
 import {
   loadAccountSettings,
   loadAgentSettings,
@@ -69,6 +70,8 @@ const WebServiceSettings = lazyNamed(
 );
 
 export function SettingsAppRoutes() {
+  useEffect(() => revealDesktopWindowAfterPaint(), []);
+
   return (
     <Routes>
       <Route

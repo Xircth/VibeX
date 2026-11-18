@@ -206,7 +206,7 @@ export function KanbanSessionHub({
   const { data: lastActiveWorkspace } = useTaskAttempt(
     lastActiveWorkspaceId ?? undefined
   );
-  const { sessions, workspaces, isLoading } =
+  const { sessions, sessionsResolved, workspaces, isLoading } =
     useKanbanProjectSessions(projectId);
   const hideBotSessions = useHideBotSessions();
   const visibleListSessions = useMemo(
@@ -1432,7 +1432,7 @@ export function KanbanSessionHub({
               <LazySessionCanvasView
                 projectId={projectId ?? ''}
                 sessions={sessionsForCanvas}
-                sessionsReady={!isLoading}
+                sessionsReady={sessionsResolved}
                 listWidth={sessionListWidth}
                 projectName={project?.name ?? ''}
                 list={sidebarElement}

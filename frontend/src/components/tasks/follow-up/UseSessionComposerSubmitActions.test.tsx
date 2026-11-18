@@ -52,7 +52,7 @@ function renderSubmitActions({
 }
 
 describe('useSessionComposerSubmitActions', () => {
-  it('queues valid follow-up payloads after clearing transient state and saving scratch', async () => {
+  it('queues valid follow-up payloads and clears the draft scratch', async () => {
     const {
       result,
       clearStopping,
@@ -68,7 +68,6 @@ describe('useSessionComposerSubmitActions', () => {
 
     expect(clearStopping).toHaveBeenCalledOnce();
     expect(cancelDebouncedSave).toHaveBeenCalledOnce();
-    expect(saveToScratch).toHaveBeenCalledWith('continue', profile);
     expect(queueMessage).toHaveBeenCalledWith(
       'conflicts\n\nreview\n\ncontinue',
       profile,
@@ -76,7 +75,14 @@ describe('useSessionComposerSubmitActions', () => {
       [],
       'conflicts\n\nreview\n\ncontinue'
     );
+    expect(saveToScratch).toHaveBeenCalledWith('', profile, []);
+    expect(saveToScratch.mock.invocationCallOrder[0]).toBeGreaterThan(
+      queueMessage.mock.invocationCallOrder[0]
+    );
     expect(onAfterQueueCleanup).toHaveBeenCalledOnce();
+    expect(onAfterQueueCleanup.mock.invocationCallOrder[0]).toBeGreaterThan(
+      saveToScratch.mock.invocationCallOrder[0]
+    );
   });
 
   it('suppresses queue side effects when no queued follow-up can be built', async () => {
@@ -174,6 +180,7 @@ describe('useSessionComposerSubmitActions', () => {
     const onQueueError = vi.fn();
     const onRestoreFailedQueueDraft = vi.fn();
     const onAfterQueueCleanup = vi.fn();
+    const saveToScratch = vi.fn().mockResolvedValue(undefined);
     const queueMessage = vi
       .fn()
       .mockRejectedValue(
@@ -192,7 +199,7 @@ describe('useSessionComposerSubmitActions', () => {
         isEditingQueued: true,
         clearStopping: vi.fn(),
         cancelDebouncedSave: vi.fn(),
-        saveToScratch: vi.fn().mockResolvedValue(undefined),
+        saveToScratch,
         queueMessage,
         onAfterQueueCleanup,
         onSubmitFollowUp: vi.fn(),
@@ -206,6 +213,7 @@ describe('useSessionComposerSubmitActions', () => {
     });
 
     expect(onAfterQueueCleanup).not.toHaveBeenCalled();
+    expect(saveToScratch).not.toHaveBeenCalled();
     expect(onRestoreFailedQueueDraft).toHaveBeenCalledWith(
       'edited message before claim',
       ['vibe://attached-1']

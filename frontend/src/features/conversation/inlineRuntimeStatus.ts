@@ -136,8 +136,16 @@ export function deriveInlineStreamRuntimeStatus(
     (connection != null && !connection.bound && !connectionFailed);
   const isConnectionRecovering =
     Boolean(reconnectNotice) || connection?.status === 'recovering';
+  const requestPhase = request?.activity.phase ?? null;
+  const requestTerminal =
+    requestPhase != null && isRequestTerminal(requestPhase);
+  // A cancelled or otherwise finished request must not keep a stream
+  // "连接中..." spinner. Reconnect after that belongs on the composer, and
+  // only once the turn itself is no longer in flight.
+  const showConnectionPending =
+    connectionPending && !(requestTerminal && isTurnInFlight);
 
-  if (connectionPending) {
+  if (showConnectionPending) {
     if (hasStreamingAssistantContent && !isConnectionRecovering) {
       return SILENT_PRESENTATION;
     }

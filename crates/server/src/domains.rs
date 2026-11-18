@@ -340,6 +340,7 @@ impl ServerApplicationDomains {
             | DomainCommand::RepoOpenPrs
             | DomainCommand::WorkflowSourceRead
             | DomainCommand::WorkflowSourceWrite
+            | DomainCommand::WorkflowCanvasFocus
             | DomainCommand::AgentListLiveTerminals
             | DomainCommand::AgentPlanUsage
             | DomainCommand::FrontendPreferencesGet

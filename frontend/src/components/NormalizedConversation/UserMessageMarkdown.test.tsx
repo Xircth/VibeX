@@ -396,4 +396,109 @@ describe('UserMessageMarkdown', () => {
     expect(container).toHaveTextContent('<u>html</u>');
     expect(container).toHaveTextContent('| table | syntax |');
   });
+
+  it('renders an ordered list that follows a paragraph', () => {
+    const { container } = render(
+      <StyledUserMessage value={'说明一下\n1. 第一步\n2. 第二步\n3. 第三步'} />
+    );
+
+    const ordered = container.querySelector('ol');
+    const paragraph = screen.getByRole('paragraph');
+
+    expect(ordered?.querySelectorAll(':scope > li')).toHaveLength(3);
+    expect(ordered).toHaveTextContent('第一步');
+    expect(ordered).toHaveTextContent('第二步');
+    expect(ordered).toHaveTextContent('第三步');
+    expect(paragraph).toHaveTextContent('说明一下');
+    expect(paragraph).not.toHaveTextContent('第一步');
+  });
+
+  it('renders later ordered items that do not start at 1', () => {
+    const { container } = render(
+      <StyledUserMessage value={'说明一下\n2. 第二步\n3. 第三步'} />
+    );
+
+    const ordered = container.querySelector('ol');
+
+    expect(ordered).toHaveAttribute('start', '2');
+    expect(ordered?.querySelectorAll(':scope > li')).toHaveLength(2);
+    expect(screen.getByRole('paragraph')).not.toHaveTextContent('第二步');
+  });
+
+  it('renders list markers that use a non-breaking space', () => {
+    const { container } = render(
+      <StyledUserMessage value={'说明一下\n1.\u00A0第一步\n2.\u00A0第二步'} />
+    );
+
+    expect(
+      container.querySelector('ol')?.querySelectorAll(':scope > li')
+    ).toHaveLength(2);
+    expect(screen.getByRole('paragraph')).not.toHaveTextContent('第一步');
+
+    const unordered = render(
+      <StyledUserMessage value={'另外\n-\u00A0无序项\n-\u00A0下一项'} />
+    );
+
+    expect(
+      unordered.container.querySelector('ul')?.querySelectorAll(':scope > li')
+    ).toHaveLength(2);
+  });
+
+  it('renders an ordered list whose first item stays on the intro line', () => {
+    const { container } = render(
+      <StyledUserMessage value={'请处理：1. 第一步\n2. 第二步\n3. 第三步'} />
+    );
+
+    const ordered = container.querySelector('ol');
+
+    expect(ordered?.querySelectorAll(':scope > li')).toHaveLength(3);
+    expect(screen.getByRole('paragraph')).toHaveTextContent('请处理：');
+    expect(screen.getByRole('paragraph')).not.toHaveTextContent('第一步');
+  });
+
+  it('splits ordered items that were glued onto one line', () => {
+    const { container } = render(
+      <StyledUserMessage value={'请处理：1. 第一步2. 第二步3. 第三步'} />
+    );
+
+    expect(
+      container.querySelector('ol')?.querySelectorAll(':scope > li')
+    ).toHaveLength(3);
+    expect(screen.getByRole('paragraph')).toHaveTextContent('请处理：');
+  });
+
+  it('renders Chinese enumeration markers as an ordered list', () => {
+    const { container } = render(
+      <StyledUserMessage value={'说明\n1、第一步\n2、第二步'} />
+    );
+
+    const ordered = container.querySelector('ol');
+
+    expect(ordered?.querySelectorAll(':scope > li')).toHaveLength(2);
+    expect(ordered).toHaveTextContent('第一步');
+    expect(ordered).toHaveTextContent('第二步');
+    expect(screen.getByRole('paragraph')).not.toHaveTextContent('第一步');
+  });
+
+  it('keeps a decimal and an inline enumeration out of a list', () => {
+    const { container } = render(
+      <StyledUserMessage value={'圆周率是\n3.14 左右\n见第1、然后继续'} />
+    );
+
+    expect(container.querySelector('ol')).toBeNull();
+    expect(container).toHaveTextContent('3.14 左右');
+    expect(container).toHaveTextContent('见第1、然后继续');
+  });
+
+  it('keeps list-like lines inside a code fence', () => {
+    const { container } = render(
+      <StyledUserMessage
+        value={'before\n```\n1. not a list\n2. still code\n```'}
+      />
+    );
+
+    expect(container.querySelector('ol')).toBeNull();
+    expect(container.querySelector('code')).toHaveTextContent('1. not a list');
+    expect(container.querySelector('code')).toHaveTextContent('2. still code');
+  });
 });

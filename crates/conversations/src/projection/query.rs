@@ -99,7 +99,7 @@ impl ProjectionFold {
     /// Deterministic synthetic `(sort_index, TimelineRow)` list matching SQLite's
     /// `turn_ordinal * 1_000_000 + offset` layout so cold-fold fallbacks produce valid
     /// keyset cursors identical in semantics to materialized `conversation_timeline_rows`.
-    pub(super) fn timeline_rows_with_sort_index(&self) -> Vec<(i64, TimelineRow)> {
+    pub(crate) fn timeline_rows_with_sort_index(&self) -> Vec<(i64, TimelineRow)> {
         let mut turn_ordinals = HashMap::with_capacity(self.turn_order.len());
         for (idx, turn_id) in self.turn_order.iter().enumerate() {
             turn_ordinals.insert(*turn_id, (idx as i64) + 1);
@@ -112,15 +112,20 @@ impl ProjectionFold {
 
         let mut next_slot_by_ord = HashMap::<i64, i64>::new();
         let mut out = Vec::new();
+        // A turn that is not registered yet must not share the global
+        // `[0, 999_999]` band. That band sorts above every real turn, so the
+        // next snapshot that learns the ordinal would move the row back down.
+        let unplaced_ord = turn_ordinals.values().copied().max().unwrap_or(0) + 1;
         for row in self.timeline_rows() {
             let ord = if let Some(turn_id_opt) = side_turn_by_id.get(row.row_id.as_str()) {
-                turn_id_opt
-                    .and_then(|tid| turn_ordinals.get(&tid).copied())
-                    .unwrap_or(0)
+                match turn_id_opt {
+                    Some(tid) => turn_ordinals.get(tid).copied().unwrap_or(unplaced_ord),
+                    None => 0,
+                }
             } else if let Some((prefix, _)) = row.row_id.split_once(':')
                 && let Ok(tid) = Uuid::parse_str(prefix)
             {
-                turn_ordinals.get(&tid).copied().unwrap_or(0)
+                turn_ordinals.get(&tid).copied().unwrap_or(unplaced_ord)
             } else {
                 0
             };
@@ -851,7 +856,56 @@ fn extract_turn_text(turn: &MessageTurn) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use agents::conversation::{
+        ConversationError, ConversationErrorView, ConversationSessionNotice,
+    };
+
     use super::*;
+
+    #[test]
+    fn unplaced_turn_row_sorts_after_global_side_rows() {
+        let mut fold = ProjectionFold::default();
+        let global = TimelineRow {
+            row_id: "notice:1".into(),
+            revision: 1,
+            row: ConversationTimelineRow::SessionNotice {
+                notice: ConversationSessionNotice {
+                    title: "notice".into(),
+                    message: None,
+                    severity: "info".into(),
+                    ..Default::default()
+                },
+            },
+        };
+        let orphan = TimelineRow {
+            row_id: "err:missing".into(),
+            revision: 2,
+            row: ConversationTimelineRow::TurnError {
+                error: ConversationErrorView {
+                    turn_id: Some(Uuid::new_v4()),
+                    error: ConversationError::new("failed", None, None),
+                },
+            },
+        };
+        fold.side_rows.push(global.clone());
+        fold.side_rows.push(orphan.clone());
+
+        let indexed = fold.timeline_rows_with_sort_index();
+        let global_sort = indexed
+            .iter()
+            .find(|(_, row)| row.row_id == global.row_id)
+            .expect("global side row")
+            .0;
+        let orphan_sort = indexed
+            .iter()
+            .find(|(_, row)| row.row_id == orphan.row_id)
+            .expect("unplaced turn row")
+            .0;
+
+        assert!(global_sort < SORT_INDEX_SLOT_SPAN);
+        assert!(orphan_sort >= SORT_INDEX_SLOT_SPAN);
+        assert!(orphan_sort > global_sort);
+    }
 
     #[test]
     fn keyset_cursor_round_trips_and_rejects_garbage() {

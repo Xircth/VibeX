@@ -34,7 +34,13 @@ function revisionOf(row: TimelineRow): bigint {
   return typeof row.revision === 'bigint' ? row.revision : BigInt(row.revision);
 }
 
-/** Keep already-paged rows when the open path only sends the tail window. */
+/**
+ * Keep already-paged rows when the open path only sends the tail window.
+ *
+ * A row that arrives before the first shared id is older history. A row with
+ * a newer revision than that anchor is a tail row that sorted too early; it
+ * stays after the window instead of being prepended above earlier turns.
+ */
 export function mergeOpenTimelineRows(
   existing: TimelineRow[],
   incoming: TimelineRow[]
@@ -59,7 +65,11 @@ export function mergeOpenTimelineRows(
       continue;
     }
     if (firstSharedIncomingIndex >= 0) {
-      if (index < firstSharedIncomingIndex) {
+      const anchor = incoming[firstSharedIncomingIndex]!;
+      if (
+        index < firstSharedIncomingIndex &&
+        revisionOf(row) <= revisionOf(anchor)
+      ) {
         older.push(row);
       } else {
         newer.push(row);

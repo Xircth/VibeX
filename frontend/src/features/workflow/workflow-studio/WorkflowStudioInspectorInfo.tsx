@@ -5,6 +5,7 @@ import {
   AstryxSelect,
   type AstryxSelectOption,
 } from '@/components/ui/astryx-select';
+import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,6 +47,9 @@ export function WorkflowStudioInspectorInfo({
     onRerunFromNode,
     removeSelected,
     updateStep,
+    agentControls,
+    agentControlsLoading,
+    agentControlsError,
   } = studio;
 
   const [approvalNote, setApprovalNote] = useState('');
@@ -372,11 +376,65 @@ export function WorkflowStudioInspectorInfo({
                   onChange={(nextAgentId) => {
                     updateStep(selectedStep.id, (step) =>
                       step.kind === 'session' || step.kind === 'agent'
-                        ? { ...step, agentId: nextAgentId }
+                        ? {
+                            ...step,
+                            agentId: nextAgentId,
+                            modeOverride: null,
+                            configOverrides: {},
+                          }
                         : step
                     );
                   }}
                 />
+              </div>
+              <div
+                className="space-y-1"
+                data-testid="inspector-step-session-config"
+              >
+                <Label className="text-[11px] text-muted-foreground">
+                  {t('inspector.lightTweaks.sessionConfigLabel')}
+                </Label>
+                {agentControlsLoading ? (
+                  <p
+                    role="status"
+                    className="text-[11px] text-muted-foreground"
+                  >
+                    {t('inspector.lightTweaks.sessionConfigLoading')}
+                  </p>
+                ) : agentControlsError ? (
+                  <p role="alert" className="text-[11px] text-destructive">
+                    {t('inspector.lightTweaks.sessionConfigFailed')}
+                  </p>
+                ) : agentControls ? (
+                  <SessionControlsFields
+                    className="!grid-cols-1"
+                    modes={agentControls.modes}
+                    currentModeId={agentControls.current_mode ?? null}
+                    configOptions={agentControls.config_options}
+                    selectedModeId={selectedStep.modeOverride}
+                    pendingConfigValues={selectedStep.configOverrides ?? {}}
+                    onSelectMode={(modeId) => {
+                      updateStep(selectedStep.id, (step) =>
+                        step.kind === 'session' || step.kind === 'agent'
+                          ? { ...step, modeOverride: modeId }
+                          : step
+                      );
+                    }}
+                    onSelectConfigValue={(key, value) => {
+                      updateStep(selectedStep.id, (step) =>
+                        step.kind === 'session' || step.kind === 'agent'
+                          ? {
+                              ...step,
+                              configOverrides: {
+                                ...step.configOverrides,
+                                [key]: value,
+                              },
+                            }
+                          : step
+                      );
+                    }}
+                  />
+                ) : null}
               </div>
               <div className="space-y-1">
                 <Label

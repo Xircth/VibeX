@@ -618,4 +618,73 @@ describe('SessionSettingsSummary', () => {
     fireEvent.click(workOption);
     expect(onSelectInstance).toHaveBeenCalledWith('claude-work');
   });
+
+  it('opens provider/model catalogs as a provider list, then that provider’s models', async () => {
+    const user = userEvent.setup();
+    const onSelectConfigOption = vi.fn();
+    render(
+      <SessionSettingsSummary
+        options={[
+          {
+            key: 'model',
+            label: 'Model',
+            category: 'model',
+            value: 'google/gemini-2.5-flash',
+            choices: [
+              {
+                value: 'google/gemini-2.5-flash',
+                label: 'google/Gemini 2.5 Flash',
+              },
+              {
+                value: 'google/gemini-2.5-pro',
+                label: 'google/Gemini 2.5 Pro',
+              },
+              { value: 'opencode/beam-free', label: 'opencode/Beam Free' },
+              {
+                value: 'dimo-modelrouter/deepseek-v4-pro',
+                label: 'dimo-modelrouter/deepseek-v4-pro',
+              },
+            ],
+          },
+        ]}
+        pending={{}}
+        onSelectConfigOption={onSelectConfigOption}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /本次会话/ }));
+    await user.click(screen.getByText('Model'));
+
+    expect(screen.getByTestId('model-provider-google')).toBeInTheDocument();
+    expect(screen.getByTestId('model-provider-opencode')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('model-provider-dimo-modelrouter')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Gemini 2.5 Flash' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'google/Gemini 2.5 Flash' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.pointerMove(screen.getByTestId('model-provider-google'), {
+      pointerType: 'mouse',
+    });
+
+    const flash = await screen.findByRole('menuitem', {
+      name: 'Gemini 2.5 Flash',
+    });
+    expect(
+      screen.getByRole('menuitem', { name: 'Gemini 2.5 Pro' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Beam Free' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(flash);
+    expect(onSelectConfigOption).toHaveBeenCalledWith(
+      'model',
+      'google/gemini-2.5-flash'
+    );
+  });
 });

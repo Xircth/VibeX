@@ -99,6 +99,26 @@ describe('mergeOpenTimelineRows', () => {
     ]);
   });
 
+  it('appends a higher-revision row that the snapshot listed before the shared anchor', () => {
+    const merged = mergeOpenTimelineRows(
+      [row('t0', 1n), row('t9', 9n)],
+      [row('t10', 10n), row('t0', 1n), row('t9', 9n)]
+    );
+    expect(merged.map((item) => item.row_id)).toEqual([
+      't0:user',
+      't9:user',
+      't10:user',
+    ]);
+  });
+
+  it('still prepends an older row listed before the shared anchor', () => {
+    const merged = mergeOpenTimelineRows(
+      [row('t9', 9n)],
+      [row('t0', 1n), row('t9', 9n)]
+    );
+    expect(merged.map((item) => item.row_id)).toEqual(['t0:user', 't9:user']);
+  });
+
   it('places newer incoming rows after existing rows by relative anchor index even when existing[0] has a higher cross-namespace revision', () => {
     const merged = mergeOpenTimelineRows(
       [row('t0', 500n), row('t9', 9n)],

@@ -6304,6 +6304,10 @@ html.dark {
     max-width: 100%;
   }
 
+  .workspace-session-group + .workspace-session-group {
+    margin-top: 1rem;
+  }
+
   .workspace-session-status-label {
     display: inline-flex;
     max-width: 100%;
@@ -6535,6 +6539,25 @@ html.dark {
     align-items: center;
   }
 
+  .workspace-session-status-slot {
+    display: inline-flex;
+    width: 0.75rem;
+    height: 0.75rem;
+    flex: 0 0 0.75rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .workspace-session-status-slot > .workspace-session-status {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+
+  .workspace-session-status-slot > .workspace-session-status--inprogress {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+
   .workspace-session-row-actions {
     display: inline-flex;
     flex: 0 0 auto;
@@ -6623,6 +6646,9 @@ html.dark {
   }
 
   .workspace-session-age {
+    width: 2.75rem;
+    flex: 0 0 2.75rem;
+    text-align: right;
     color: var(--text-muted);
     font-size: 0.6875rem;
     font-variant-numeric: tabular-nums;
@@ -17266,6 +17292,25 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   ),
 .canvas-surface[data-canvas-panning] .canvas-session-group,
 .canvas-surface[data-canvas-panning] .canvas-session-window {
+  animation: none !important;
+}
+
+.canvas-surface[data-canvas-dragging] .react-flow__node {
+  transition: none !important;
+}
+
+.canvas-surface[data-canvas-dragging] .react-flow__node.dragging {
+  will-change: transform;
+}
+
+.canvas-surface[data-canvas-dragging]
+  :is(
+    .canvas-session-card .session-hub-card,
+    .canvas-session-card.session-hub-card
+  ),
+.canvas-surface[data-canvas-dragging] .canvas-session-group,
+.canvas-surface[data-canvas-dragging] .canvas-session-window {
+  transition: none !important;
   animation: none !important;
 }
 

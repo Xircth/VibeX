@@ -510,21 +510,6 @@ export function TaskFollowUpSection({
     setDismissedQuestionIds(new Set());
   }, [sessionId]);
 
-  const { handleAfterSendCleanup } = useSessionComposerDraftHydration({
-    scratchId: scratchIdValue,
-    isScratchLoading,
-    scratchData,
-    localMessage,
-    setLocalMessage,
-    setAttachedImages,
-    setSelectedMode,
-    setSelectedConfigValues,
-    cancelDebouncedSave,
-    deleteScratch,
-    savedRevision: lastSavedRevision,
-    serverRevision: scratchRevision,
-  });
-
   const { activeRetryProcessId } = useRetryUi();
   const isRetryActive = !!activeRetryProcessId;
 
@@ -542,6 +527,7 @@ export function TaskFollowUpSection({
     delayQueue,
     isQueued,
     queueIndicatorState,
+    isQueueStatusPending,
   } = useSessionComposerQueue({
     sessionId,
     workspaceId,
@@ -557,6 +543,35 @@ export function TaskFollowUpSection({
       })
     ),
     excludeOperationId: pendingSendOperationId,
+  });
+  const queuedDraftTextKey = JSON.stringify(
+    [
+      ...queueIndicatorState.queuedMessages,
+      ...queueIndicatorState.delayedMessages,
+    ].map((message) => message.data.message)
+  );
+  const queuedDraftTexts = useMemo(
+    () => JSON.parse(queuedDraftTextKey) as string[],
+    [queuedDraftTextKey]
+  );
+  const { handleAfterSendCleanup } = useSessionComposerDraftHydration({
+    scratchId: scratchIdValue,
+    isScratchLoading: isScratchLoading || isQueueStatusPending,
+    scratchData,
+    localMessage,
+    setLocalMessage,
+    setAttachedImages,
+    setSelectedMode,
+    setSelectedConfigValues,
+    cancelDebouncedSave,
+    deleteScratch,
+    savedRevision: lastSavedRevision,
+    serverRevision: scratchRevision,
+    queuedMessageTexts: queuedDraftTexts,
+    isEditingQueued: Boolean(editingInput),
+    onQueuedDraftSuppressed: () => {
+      void saveToScratch('', effectiveExecutorProfile, []);
+    },
   });
   const handleEditQueuedMessage = useCallback(
     (queuedMessage: QueuedMessage) => {

@@ -150,11 +150,19 @@ fn providers_from_maps(
         }
     }
 
-    let default_provider = default_provider
+    let requested_default = default_provider
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(OFFICIAL_PROVIDER_ID)
-        .to_string();
+        .map(str::to_string);
+    let default_provider = match requested_default.as_deref() {
+        Some(id)
+            if id != OFFICIAL_PROVIDER_ID && providers.iter().any(|provider| provider.id == id) =>
+        {
+            id.to_string()
+        }
+        _ => projected_custom_provider_id(&providers)
+            .unwrap_or_else(|| OFFICIAL_PROVIDER_ID.to_string()),
+    };
     let default_model = default_model
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -256,7 +264,15 @@ pub fn save_provider(
 pub fn delete_provider(
     paths: &DshPaths,
     provider_id: &str,
-) -> Result<(DshProvidersView, Vec<NativeFileMutation>), String> {
+    environment: &HashMap<String, String>,
+) -> Result<
+    (
+        DshProvidersView,
+        Vec<NativeFileMutation>,
+        BTreeMap<String, Option<String>>,
+    ),
+    String,
+> {
     let id = normalize_provider_id(provider_id)?;
     if id == OFFICIAL_PROVIDER_ID {
         return Err("不能删除官方 DeepSeek Provider".to_string());
@@ -264,20 +280,188 @@ pub fn delete_provider(
     let (mut settings, settings_original) = read_yaml_state(&paths.settings)?;
     let (mut credentials, credentials_original) = read_yaml_state(&paths.credentials)?;
     sanitize_credentials_mapping(&mut credentials);
+    let (removed_url, removed_model_ids) = pi_provider_snapshot(&settings, &id);
     let removed_env = remove_pi_provider(&mut settings, &id);
     if let Some(env_name) = removed_env.filter(|name| name != OFFICIAL_API_KEY_ENV)
         && !credential_still_referenced(&settings, &env_name)
     {
         remove_credential_ref(&mut credentials, &env_name);
     }
+    let released = removed_url.as_deref().is_some_and(|url| {
+        !url.is_empty()
+            && !is_official_base_url(url)
+            && !provider_base_url_still_used(&settings, url)
+    });
+    let reverted = released
+        && removed_url.as_deref().is_some_and(|url| {
+            revert_projected_official_endpoint(&mut settings, url, &removed_model_ids)
+        });
+    let mut env_updates = BTreeMap::new();
+    if released {
+        let env_matches = removed_url.as_deref().is_some_and(|url| {
+            environment
+                .get(BASE_URL_ENV)
+                .is_some_and(|current| normalized_base_url(current).eq_ignore_ascii_case(url))
+        });
+        if env_matches {
+            env_updates.insert(BASE_URL_ENV.to_string(), None);
+        }
+        if reverted || env_matches {
+            let active_model = environment
+                .get(ACP_MODEL_ENV)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty());
+            if active_model.is_some_and(|model| removed_model_ids.iter().any(|id| id == model)) {
+                env_updates.insert(
+                    ACP_MODEL_ENV.to_string(),
+                    Some(DEFAULT_OFFICIAL_MODEL.to_string()),
+                );
+            }
+        }
+    }
+    let default_model_owned = match env_updates.get(ACP_MODEL_ENV) {
+        Some(model) => model.clone(),
+        None => environment.get(ACP_MODEL_ENV).cloned(),
+    };
     let mutations = vec![
         yaml_mutation(&paths.settings, settings_original, &settings, false)?,
         yaml_mutation(&paths.credentials, credentials_original, &credentials, true)?,
     ];
     Ok((
-        providers_from_maps(paths, &settings, &credentials, None, None),
+        providers_from_maps(
+            paths,
+            &settings,
+            &credentials,
+            None,
+            default_model_owned.as_deref(),
+        ),
         mutations,
+        env_updates,
     ))
+}
+
+fn projected_custom_provider_id(providers: &[DshProviderView]) -> Option<String> {
+    let official_url = providers
+        .iter()
+        .find(|provider| provider.id == OFFICIAL_PROVIDER_ID)
+        .and_then(|provider| provider.base_url.as_deref())
+        .map(normalized_base_url)
+        .filter(|url| !url.is_empty() && !is_official_base_url(url))?;
+    let matches = providers
+        .iter()
+        .filter(|provider| {
+            provider.id != OFFICIAL_PROVIDER_ID
+                && provider
+                    .base_url
+                    .as_deref()
+                    .is_some_and(|url| normalized_base_url(url).eq_ignore_ascii_case(&official_url))
+        })
+        .map(|provider| provider.id.clone())
+        .collect::<Vec<_>>();
+    if matches.len() == 1 {
+        matches.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn normalized_base_url(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_string()
+}
+
+fn pi_provider_snapshot(settings: &serde_yaml::Mapping, id: &str) -> (Option<String>, Vec<String>) {
+    let Some(entry) = settings
+        .get(Value::String("llm-pi-ai".into()))
+        .and_then(Value::as_mapping)
+        .and_then(|section| section.get(Value::String("providers".into())))
+        .and_then(Value::as_mapping)
+        .and_then(|providers| providers.get(Value::String(id.to_string())))
+        .and_then(Value::as_mapping)
+    else {
+        return (None, Vec::new());
+    };
+    (
+        entry
+            .get(Value::String("baseURL".into()))
+            .and_then(Value::as_str)
+            .map(normalized_base_url)
+            .filter(|url| !url.is_empty()),
+        yaml_model_ids(entry),
+    )
+}
+
+fn yaml_model_ids(entry: &serde_yaml::Mapping) -> Vec<String> {
+    entry
+        .get(Value::String("models".into()))
+        .and_then(Value::as_sequence)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| {
+            let id = model
+                .as_mapping()
+                .and_then(|entry| entry.get(Value::String("id".into())))
+                .and_then(Value::as_str)
+                .or_else(|| model.as_str())?;
+            let id = id.trim();
+            (!id.is_empty()).then(|| id.to_string())
+        })
+        .collect()
+}
+
+fn provider_base_url_still_used(settings: &serde_yaml::Mapping, url: &str) -> bool {
+    settings
+        .get(Value::String("llm-pi-ai".into()))
+        .and_then(Value::as_mapping)
+        .and_then(|section| section.get(Value::String("providers".into())))
+        .and_then(Value::as_mapping)
+        .into_iter()
+        .flat_map(serde_yaml::Mapping::values)
+        .filter_map(Value::as_mapping)
+        .any(|entry| {
+            entry
+                .get(Value::String("baseURL".into()))
+                .and_then(Value::as_str)
+                .is_some_and(|candidate| normalized_base_url(candidate).eq_ignore_ascii_case(url))
+        })
+}
+
+fn revert_projected_official_endpoint(
+    settings: &mut serde_yaml::Mapping,
+    removed_url: &str,
+    removed_model_ids: &[String],
+) -> bool {
+    let Some(section) = settings
+        .get_mut(Value::String("llm-deepseek".into()))
+        .and_then(Value::as_mapping_mut)
+    else {
+        return false;
+    };
+    let matches = section
+        .get(Value::String("baseURL".into()))
+        .and_then(Value::as_str)
+        .is_some_and(|url| normalized_base_url(url).eq_ignore_ascii_case(removed_url));
+    if !matches {
+        return false;
+    }
+    let official_ids = yaml_model_ids(section);
+    section.remove(Value::String("baseURL".into()));
+    if !removed_model_ids.is_empty() && same_model_ids(&official_ids, removed_model_ids) {
+        if let Ok(sequence) = model_sequence(&official_models()) {
+            section.insert(Value::String("models".into()), Value::Sequence(sequence));
+        }
+    }
+    true
+}
+
+fn same_model_ids(left: &[String], right: &[String]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut left = left.to_vec();
+    let mut right = right.to_vec();
+    left.sort();
+    right.sort();
+    left == right
 }
 
 pub fn resolve_stored_api_key(
@@ -1555,7 +1739,8 @@ mod tests {
             "DEEPSEEK_API_KEY: keep\nMY_GATEWAY_API_KEY: drop\n",
         )
         .unwrap();
-        let (view, mutations) = delete_provider(&paths, "my-gateway").unwrap();
+        let (view, mutations, _env) =
+            delete_provider(&paths, "my-gateway", &HashMap::new()).unwrap();
         for mutation in &mutations {
             if let Some(bytes) = &mutation.replacement {
                 std::fs::write(&mutation.path, bytes).unwrap();
@@ -1580,8 +1765,172 @@ mod tests {
             credentials: dir.path().join(".credentials.yaml"),
             profile_dir: dir.path().join("profiles").join("default"),
         };
-        let error = delete_provider(&paths, "deepseek-official").unwrap_err();
+        let error = delete_provider(&paths, "deepseek-official", &HashMap::new()).unwrap_err();
         assert!(error.contains("官方"));
+    }
+
+    fn test_paths(root: &std::path::Path) -> DshPaths {
+        DshPaths {
+            home: root.to_path_buf(),
+            settings: root.join("settings.yaml"),
+            credentials: root.join(".credentials.yaml"),
+            profile_dir: root.join("profiles").join("default"),
+        }
+    }
+
+    fn write_saved(paths: &DshPaths, request: DshProviderSaveRequest) {
+        let (_, mutations) = save_provider(paths, request).unwrap();
+        for mutation in &mutations {
+            if let Some(bytes) = &mutation.replacement {
+                std::fs::write(&mutation.path, bytes).unwrap();
+            }
+        }
+    }
+
+    fn gateway_request(set_default: bool) -> DshProviderSaveRequest {
+        DshProviderSaveRequest {
+            id: "my-gateway".into(),
+            display_name: Some("Gateway".into()),
+            notes: None,
+            api: Some("openai-completions".into()),
+            base_url: Some("https://gateway.example/v1".into()),
+            api_key: Some("sk-test".into()),
+            models: vec![DshProviderModelView {
+                id: "router-large".into(),
+                name: None,
+            }],
+            set_default,
+            default_model: Some("router-large".into()),
+        }
+    }
+
+    #[test]
+    fn projected_custom_provider_stays_enabled_after_official_slot_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = test_paths(dir.path());
+        write_saved(&paths, gateway_request(true));
+        write_saved(
+            &paths,
+            DshProviderSaveRequest {
+                id: "other-gateway".into(),
+                display_name: Some("Other".into()),
+                notes: None,
+                api: Some("openai-completions".into()),
+                base_url: Some("https://other.example/v1".into()),
+                api_key: None,
+                models: vec![DshProviderModelView {
+                    id: "other-model".into(),
+                    name: None,
+                }],
+                set_default: false,
+                default_model: None,
+            },
+        );
+        let view =
+            load_providers(&paths, Some(OFFICIAL_PROVIDER_ID), Some("router-large")).unwrap();
+        assert_eq!(view.default_provider, "my-gateway");
+        assert_eq!(view.default_model, "router-large");
+    }
+
+    #[test]
+    fn deleting_projected_provider_removes_only_that_endpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = test_paths(dir.path());
+        write_saved(&paths, gateway_request(true));
+        write_saved(
+            &paths,
+            DshProviderSaveRequest {
+                id: "other-gateway".into(),
+                display_name: Some("Other".into()),
+                notes: None,
+                api: Some("openai-completions".into()),
+                base_url: Some("https://other.example/v1".into()),
+                api_key: None,
+                models: vec![DshProviderModelView {
+                    id: "other-model".into(),
+                    name: None,
+                }],
+                set_default: false,
+                default_model: None,
+            },
+        );
+        let env = HashMap::from([
+            (
+                BASE_URL_ENV.to_string(),
+                "https://gateway.example/v1".to_string(),
+            ),
+            (ACP_MODEL_ENV.to_string(), "router-large".to_string()),
+            (
+                ACP_PROVIDER_ENV.to_string(),
+                OFFICIAL_PROVIDER_ID.to_string(),
+            ),
+        ]);
+        let (view, mutations, env_updates) = delete_provider(&paths, "my-gateway", &env).unwrap();
+        for mutation in &mutations {
+            if let Some(bytes) = &mutation.replacement {
+                std::fs::write(&mutation.path, bytes).unwrap();
+            }
+        }
+        assert!(
+            view.providers
+                .iter()
+                .any(|provider| provider.id == "other-gateway")
+        );
+        assert!(
+            view.providers
+                .iter()
+                .all(|provider| provider.id != "my-gateway")
+        );
+        assert_eq!(view.default_provider, OFFICIAL_PROVIDER_ID);
+        let settings = std::fs::read_to_string(&paths.settings).unwrap();
+        assert!(!settings.contains("https://gateway.example/v1"));
+        assert!(settings.contains("https://other.example/v1"));
+        assert!(settings.contains("deepseek-v4-flash"));
+        assert!(!settings.contains("router-large"));
+        assert_eq!(env_updates.get(BASE_URL_ENV), Some(&None));
+        assert_eq!(
+            env_updates.get(ACP_MODEL_ENV),
+            Some(&Some(DEFAULT_OFFICIAL_MODEL.to_string()))
+        );
+        assert!(!env_updates.contains_key(ACP_PROVIDER_ENV));
+    }
+
+    #[test]
+    fn deleting_one_of_two_providers_that_share_a_url_keeps_the_projection() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = test_paths(dir.path());
+        write_saved(&paths, gateway_request(true));
+        write_saved(
+            &paths,
+            DshProviderSaveRequest {
+                id: "same-gateway".into(),
+                display_name: Some("Same".into()),
+                notes: None,
+                api: Some("openai-completions".into()),
+                base_url: Some("https://gateway.example/v1/".into()),
+                api_key: None,
+                models: vec![DshProviderModelView {
+                    id: "router-large".into(),
+                    name: None,
+                }],
+                set_default: false,
+                default_model: None,
+            },
+        );
+        let env = HashMap::from([(
+            BASE_URL_ENV.to_string(),
+            "https://gateway.example/v1".to_string(),
+        )]);
+        let (view, mutations, env_updates) = delete_provider(&paths, "same-gateway", &env).unwrap();
+        for mutation in &mutations {
+            if let Some(bytes) = &mutation.replacement {
+                std::fs::write(&mutation.path, bytes).unwrap();
+            }
+        }
+        assert_eq!(view.default_provider, "my-gateway");
+        assert!(env_updates.is_empty());
+        let settings = std::fs::read_to_string(&paths.settings).unwrap();
+        assert!(settings.contains("https://gateway.example/v1"));
     }
 
     #[test]

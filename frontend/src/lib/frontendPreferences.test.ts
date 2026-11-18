@@ -82,5 +82,29 @@ describe('syncFrontendPreferences', () => {
     expect(isPortablePreferenceKey('agent_model_market_intro')).toBe(false);
     expect(isPortablePreferenceKey('account_avatar_hover_intro')).toBe(false);
     expect(isPortablePreferenceKey('accent_color')).toBe(true);
+    expect(isPortablePreferenceKey('kanban_canvas')).toBe(false);
+  });
+
+  it('does not apply a remote canvas bundle over the local board', async () => {
+    const local = JSON.stringify({
+      'project-1': { nodes: [{ id: 'live' }] },
+    });
+    localStorage.setItem('dimo:kanban-canvas', local);
+    api.get.mockResolvedValue({
+      kanban_canvas: { 'project-1': { nodes: [] } },
+    });
+    const events: string[] = [];
+    const onStorage = (event: Event) => {
+      if (event instanceof StorageEvent && event.key) events.push(event.key);
+    };
+    window.addEventListener('storage', onStorage);
+
+    const changed = await syncFrontendPreferences(api);
+
+    window.removeEventListener('storage', onStorage);
+    expect(changed).toBe(false);
+    expect(localStorage.getItem('dimo:kanban-canvas')).toBe(local);
+    expect(events).not.toContain('dimo:kanban-canvas');
+    expect(api.update).not.toHaveBeenCalled();
   });
 });

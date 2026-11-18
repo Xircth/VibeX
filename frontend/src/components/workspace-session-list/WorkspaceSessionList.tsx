@@ -62,7 +62,10 @@ import {
   type SessionListSortSpec,
   type WorkspaceSessionGroup,
 } from './workspaceSessionListModel';
-import { WorkspaceSessionRow } from './WorkspaceSessionRow';
+import {
+  ShowSessionStatusLightContext,
+  WorkspaceSessionRow,
+} from './WorkspaceSessionRow';
 import {
   STATUS_LABEL_KEY,
   WorkspaceSessionStatusIndicator,
@@ -390,60 +393,62 @@ export function WorkspaceSessionList({
 
   const list = (
     <SessionListAppearanceContext.Provider value={appearance}>
-      {dndContextProvided ? (
-        <WorkspaceSessionListDndMonitor
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => {
-            setActiveId(null);
-            setActiveDragCardWidth(null);
-          }}
-        />
-      ) : null}
-      <div className="workspace-session-list">
-        {pinnedSessions.length > 0 ? (
-          <WorkspaceSessionSection
-            sectionId={PINNED_SESSION_GROUP_ID}
-            label={t('workspaceSessionList.pinnedGroup')}
-            icon="pin"
-            sessions={pinnedSessions}
-            expanded={!collapsedIds.has(PINNED_SESSION_GROUP_ID)}
-            sortable={false}
-            externalDrag={
-              enableExternalDrag || (!dndContextProvided && !isDeleteMode)
-            }
-            activeSessionId={activeSessionId}
-            isDeleteMode={isDeleteMode}
-            selectedSessionIds={selectedSessionIds}
-            monitorPlacements={monitorPlacements}
-            currentExecutionPlacement={currentExecutionPlacement}
-            onToggle={() => toggleGroup(PINNED_SESSION_GROUP_ID)}
-            onSessionClick={onSessionClick}
-            onToggleSessionSelection={onToggleSessionSelection}
-            onPinSession={onPinSession}
-            onArchiveSession={onArchiveSession}
-            onRenameSession={onRenameSession}
-            onDeleteSession={onDeleteSession}
-            onRestoreSession={onRestoreSession}
+      <ShowSessionStatusLightContext.Provider value={viewMode === 'workspace'}>
+        {dndContextProvided ? (
+          <WorkspaceSessionListDndMonitor
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => {
+              setActiveId(null);
+              setActiveDragCardWidth(null);
+            }}
           />
         ) : null}
-        {groups.map((group) => renderGroup(group))}
-      </div>
-      <SessionListDragOverlay>
-        {activeSession ? (
-          <div
-            className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none`}
-            style={sessionListDragOverlaySizeStyle(activeDragCardWidth)}
-          >
-            <WorkspaceSessionRow
-              session={activeSession}
-              isSelected={activeSession.id === activeSessionId}
-              overlay
-              onClick={() => undefined}
+        <div className="workspace-session-list">
+          {pinnedSessions.length > 0 ? (
+            <WorkspaceSessionSection
+              sectionId={PINNED_SESSION_GROUP_ID}
+              label={t('workspaceSessionList.pinnedGroup')}
+              icon="pin"
+              sessions={pinnedSessions}
+              expanded={!collapsedIds.has(PINNED_SESSION_GROUP_ID)}
+              sortable={false}
+              externalDrag={
+                enableExternalDrag || (!dndContextProvided && !isDeleteMode)
+              }
+              activeSessionId={activeSessionId}
+              isDeleteMode={isDeleteMode}
+              selectedSessionIds={selectedSessionIds}
+              monitorPlacements={monitorPlacements}
+              currentExecutionPlacement={currentExecutionPlacement}
+              onToggle={() => toggleGroup(PINNED_SESSION_GROUP_ID)}
+              onSessionClick={onSessionClick}
+              onToggleSessionSelection={onToggleSessionSelection}
+              onPinSession={onPinSession}
+              onArchiveSession={onArchiveSession}
+              onRenameSession={onRenameSession}
+              onDeleteSession={onDeleteSession}
+              onRestoreSession={onRestoreSession}
             />
-          </div>
-        ) : null}
-      </SessionListDragOverlay>
+          ) : null}
+          {groups.map((group) => renderGroup(group))}
+        </div>
+        <SessionListDragOverlay>
+          {activeSession ? (
+            <div
+              className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none`}
+              style={sessionListDragOverlaySizeStyle(activeDragCardWidth)}
+            >
+              <WorkspaceSessionRow
+                session={activeSession}
+                isSelected={activeSession.id === activeSessionId}
+                overlay
+                onClick={() => undefined}
+              />
+            </div>
+          ) : null}
+        </SessionListDragOverlay>
+      </ShowSessionStatusLightContext.Provider>
     </SessionListAppearanceContext.Provider>
   );
 

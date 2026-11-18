@@ -37,6 +37,7 @@ import { useManagedAgentOptions } from '@/features/agent-management';
 import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 import { BUILT_IN_SAMPLE_EVENTS } from '@/features/pulse';
 import { PULSE_DECK_CHANGED_EVENT } from '@/hooks/usePulseDeckSnapshot';
+import { attemptsApi } from '@/lib/api/attempts';
 import { projectsApi } from '@/lib/api/projects';
 import {
   createPulseApi,
@@ -64,10 +65,25 @@ import {
   type StudioWorkflowStep,
   type WorkflowTranslateFn,
 } from './WorkflowStudio';
+import {
+  CANONICAL_UNNAMED_WORKFLOW_PATH,
+  isUnnamedWorkflowName,
+  publishCanvasFocus,
+  sourcePathForWorkflowName,
+  writeWorkflowSourceFile,
+} from './canvasDraft';
+import { UnnamedTaskNameDialog } from './UnnamedTaskNameDialog';
 import { resolveWorkflowAgentId } from './workflowAgent';
 import { createWorkflowApi, workflowsApi } from './workflowApi';
+import { createWorkflowSourceApi } from './workflowSourceApi';
 
 type StudioTriggerStep = Extract<StudioWorkflowStep, { kind: 'trigger' }>;
+
+type UnnamedTaskPrompt =
+  | { intent: 'leave' }
+  | { intent: 'create' }
+  | { intent: 'switch'; definitionId: string }
+  | { intent: 'save'; isPublish: boolean };
 
 export type WorkflowStudioOpenDetail = {
   definitionId?: string | null;
@@ -87,6 +103,28 @@ export type WorkflowStudioDockPanelProps = Partial<IDockviewPanelProps> & {
   onBack?: () => void;
   rightToolbarSlot?: ReactNode;
 };
+
+async function readWorkflowSourceDocument(
+  api: ReturnType<typeof createWorkflowSourceApi>,
+  path: string
+): Promise<{ definition: WorkflowDefinition; revision: string } | null> {
+  try {
+    const existing = await api.read(path);
+    if (
+      !existing ||
+      typeof existing.content !== 'string' ||
+      !existing.content.trim()
+    ) {
+      return null;
+    }
+    return {
+      definition: JSON.parse(existing.content) as WorkflowDefinition,
+      revision: existing.revision,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function serializeStudioDefinition(
   definition: StudioWorkflowDefinition
@@ -145,6 +183,10 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         : createPulseApi(transport),
     [transport]
   );
+  const sourceApi = useMemo(
+    () => createWorkflowSourceApi(transport),
+    [transport]
+  );
 
   const [definitions, setDefinitions] = useState<WorkflowDefinitionSummary[]>(
     []
@@ -162,6 +204,8 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   const [savedDefinition, setSavedDefinition] =
     useState<StudioWorkflowDefinition>(definition);
   const [undoStack, setUndoStack] = useState<StudioWorkflowDefinition[]>([]);
+  const [redoStack, setRedoStack] = useState<StudioWorkflowDefinition[]>([]);
+  const [fullTesting, setFullTesting] = useState(false);
   const [capturedEvents, setCapturedEvents] = useState<EventEnvelope[]>(() => [
     ...BUILT_IN_SAMPLE_EVENTS,
   ]);
@@ -182,8 +226,14 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [sourcePath, setSourcePath] = useState(CANONICAL_UNNAMED_WORKFLOW_PATH);
+  const [namePrompt, setNamePrompt] = useState<UnnamedTaskPrompt | null>(null);
+  const [promptName, setPromptName] = useState('');
+  const [promptError, setPromptError] = useState<string | null>(null);
 
   const hasUserEditedRef = useRef(false);
+  const sourceRevisionRef = useRef<string | null>(null);
+  const applyingRemoteRef = useRef(false);
   const definitionsRef = useRef<WorkflowDefinitionSummary[]>([]);
   const loadingCatalogRef = useRef(true);
   const agentPollTimerRef = useRef<number | null>(null);
@@ -194,14 +244,84 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       serializeStudioDefinition(savedDefinition),
     [definition, savedDefinition]
   );
+  const definitionRef = useRef(definition);
+  definitionRef.current = definition;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const sourcePathRef = useRef(sourcePath);
+  sourcePathRef.current = sourcePath;
 
-  const triggerSteps = useMemo(
-    () =>
-      definition.steps.filter(
-        (step): step is StudioTriggerStep => step.kind === 'trigger'
-      ),
-    [definition.steps]
+  const focusViewedWorkflow = useCallback(
+    (path: string, name: string, definitionId: string | null) => {
+      void publishCanvasFocus(transport, {
+        path,
+        name,
+        definitionId,
+        viewing: true,
+      }).catch(() => undefined);
+    },
+    [transport]
   );
+
+  const bindCanvasSource = useCallback(
+    async (
+      next: StudioWorkflowDefinition,
+      definitionId: string | null,
+      preferredPath?: string | null
+    ) => {
+      const path =
+        preferredPath?.trim() || sourcePathForWorkflowName(next.name);
+      if (!isUnnamedWorkflowName(next.name)) {
+        const existing = await readWorkflowSourceDocument(sourceApi, path);
+        if (existing) {
+          const fromFile = toStudioWorkflowDefinition(existing.definition);
+          const hydrated: StudioWorkflowDefinition = {
+            ...fromFile,
+            name: next.name || fromFile.name,
+            orchestratorPreset:
+              fromFile.orchestratorPreset ?? next.orchestratorPreset ?? null,
+          };
+          setDefinition(hydrated);
+          setSavedDefinition(hydrated);
+          setUndoStack([]);
+          setRedoStack([]);
+          setSourcePath(path);
+          sourceRevisionRef.current = existing.revision;
+          focusViewedWorkflow(path, hydrated.name, definitionId);
+          return;
+        }
+      }
+      try {
+        const revision = await writeWorkflowSourceFile(
+          sourceApi,
+          path,
+          toBackendWorkflowDefinition(next),
+          null
+        );
+        sourceRevisionRef.current = revision;
+      } catch {
+        sourceRevisionRef.current = null;
+      }
+      setSourcePath(path);
+      focusViewedWorkflow(path, next.name, definitionId);
+    },
+    [focusViewedWorkflow, sourceApi]
+  );
+
+  const refreshUnnamedDraftFile = useCallback(async () => {
+    const starter = createStarterWorkflow(defaultAgentId, t);
+    try {
+      await writeWorkflowSourceFile(
+        sourceApi,
+        CANONICAL_UNNAMED_WORKFLOW_PATH,
+        toBackendWorkflowDefinition(starter),
+        null
+      );
+    } catch {
+      // The in-memory starter still opens when the source directory is unavailable.
+    }
+    return starter;
+  }, [defaultAgentId, sourceApi, t]);
 
   const loadWorkflowSelection = useCallback(
     async (summary: WorkflowDefinitionSummary) => {
@@ -219,6 +339,8 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
             setDefinition(hydrated);
             setSavedDefinition(hydrated);
             setUndoStack([]);
+            setRedoStack([]);
+            await bindCanvasSource(hydrated, summary.id);
             return;
           } catch {
             // fall through to starter
@@ -232,6 +354,8 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         setDefinition(fresh);
         setSavedDefinition(fresh);
         setUndoStack([]);
+        setRedoStack([]);
+        await bindCanvasSource(fresh, summary.id);
         return;
       }
       setLoadingWorkflow(true);
@@ -252,6 +376,12 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         setDefinition(nextDefinition);
         setSavedDefinition(nextDefinition);
         setUndoStack([]);
+        setRedoStack([]);
+        await bindCanvasSource(
+          nextDefinition,
+          summary.id,
+          versionView.sourcePath
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setErrorMessage(message);
@@ -259,7 +389,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         setLoadingWorkflow(false);
       }
     },
-    [defaultAgentId, t, workflowClient]
+    [bindCanvasSource, defaultAgentId, t, workflowClient]
   );
 
   const applyPresetTemplateById = useCallback(
@@ -277,6 +407,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       setDefinition(nextDefinition);
       setSavedDefinition(nextDefinition);
       setUndoStack([]);
+      setRedoStack([]);
       setErrorMessage(null);
       setStatusMessage(null);
       return true;
@@ -284,9 +415,9 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     [defaultAgentId, t]
   );
 
-  const startNewWorkflowDraft = useCallback(() => {
+  const startNewWorkflowDraft = useCallback(async () => {
     hasUserEditedRef.current = true;
-    const fresh = createStarterWorkflow(defaultAgentId, t);
+    const fresh = await refreshUnnamedDraftFile();
     setSelectedDefinitionId(null);
     setSourceRuleId(null);
     setActiveVersion(null);
@@ -294,9 +425,13 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     setDefinition(fresh);
     setSavedDefinition(fresh);
     setUndoStack([]);
+    setRedoStack([]);
     setErrorMessage(null);
     setStatusMessage(null);
-  }, [defaultAgentId, t]);
+    setSourcePath(CANONICAL_UNNAMED_WORKFLOW_PATH);
+    sourceRevisionRef.current = null;
+    focusViewedWorkflow(CANONICAL_UNNAMED_WORKFLOW_PATH, fresh.name, null);
+  }, [focusViewedWorkflow, refreshUnnamedDraftFile]);
 
   const handleOpenRequest = useCallback(
     async (
@@ -308,7 +443,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       setSourceRuleId(detail.sourceRuleId ?? null);
 
       if (detail.createNew) {
-        startNewWorkflowDraft();
+        await startNewWorkflowDraft();
         return true;
       }
 
@@ -350,6 +485,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         setDefinition(detail.initialDefinition);
         setSavedDefinition(detail.initialDefinition);
         setUndoStack([]);
+        setRedoStack([]);
         setErrorMessage(null);
         setStatusMessage(null);
         return true;
@@ -375,6 +511,9 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       loadingCatalogRef.current = true;
       setLoadingCatalog(true);
       setErrorMessage(null);
+      if (!preserveCurrentSelection) {
+        await refreshUnnamedDraftFile();
+      }
 
       const [definitionsResult, eventsResult, sourcesResult] =
         await Promise.allSettled([
@@ -435,7 +574,13 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         await loadWorkflowSelection(list[0]);
       }
     },
-    [handleOpenRequest, loadWorkflowSelection, pulseClient, workflowClient]
+    [
+      handleOpenRequest,
+      loadWorkflowSelection,
+      pulseClient,
+      refreshUnnamedDraftFile,
+      workflowClient,
+    ]
   );
 
   useEffect(() => {
@@ -444,8 +589,70 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       if (agentPollTimerRef.current != null) {
         window.clearInterval(agentPollTimerRef.current);
       }
+      void publishCanvasFocus(transport, { viewing: false }).catch(
+        () => undefined
+      );
     };
-  }, [loadWorkspaceData]);
+  }, [loadWorkspaceData, transport]);
+
+  useEffect(() => {
+    if (applyingRemoteRef.current) return;
+    const path = sourcePath;
+    const handle = window.setTimeout(() => {
+      const current = definitionRef.current;
+      void (async () => {
+        const existing = await readWorkflowSourceDocument(sourceApi, path);
+        if (
+          existing &&
+          existing.revision !== sourceRevisionRef.current &&
+          !dirtyRef.current
+        ) {
+          return;
+        }
+        const revision = await writeWorkflowSourceFile(
+          sourceApi,
+          path,
+          toBackendWorkflowDefinition(current),
+          sourceRevisionRef.current
+        );
+        sourceRevisionRef.current = revision;
+        focusViewedWorkflow(path, current.name, selectedDefinitionId);
+      })().catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(handle);
+  }, [
+    definition,
+    focusViewedWorkflow,
+    selectedDefinitionId,
+    sourceApi,
+    sourcePath,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      const path = sourcePathRef.current;
+      void readWorkflowSourceDocument(sourceApi, path).then((existing) => {
+        if (cancelled || !existing) return;
+        if (existing.revision === sourceRevisionRef.current) return;
+        if (dirtyRef.current) return;
+        applyingRemoteRef.current = true;
+        const hydrated = toStudioWorkflowDefinition(existing.definition);
+        setDefinition(hydrated);
+        setSavedDefinition(hydrated);
+        setUndoStack([]);
+        setRedoStack([]);
+        sourceRevisionRef.current = existing.revision;
+        window.setTimeout(() => {
+          applyingRemoteRef.current = false;
+        }, 0);
+      });
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sourceApi]);
 
   useEffect(() => {
     const onOpenWorkflowStudio = (event: Event) => {
@@ -688,6 +895,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           return current;
         }
         setUndoStack((stack) => [...stack.slice(-39), current]);
+        setRedoStack([]);
         return next;
       });
     },
@@ -698,11 +906,101 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     setUndoStack((stack) => {
       const previous = stack.at(-1);
       if (!previous) return stack;
-      setDefinition(previous);
+      setDefinition((current) => {
+        setRedoStack((redo) => [...redo.slice(-39), current]);
+        return previous;
+      });
       setStatusMessage(null);
       return stack.slice(0, -1);
     });
   }, []);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack((stack) => {
+      const next = stack.at(-1);
+      if (!next) return stack;
+      setDefinition((current) => {
+        setUndoStack((undo) => [...undo.slice(-39), current]);
+        return next;
+      });
+      setStatusMessage(null);
+      return stack.slice(0, -1);
+    });
+  }, []);
+
+  const handleFullTest = useCallback(async () => {
+    const issues = validateStudioWorkflowExhaustively(definition, t);
+    if (issues.length > 0) {
+      const summary = t('studio.validationBlockedSave', {
+        count: issues.length,
+        first: issues[0].message,
+      });
+      setErrorMessage(summary);
+      toast.error(summary);
+      return;
+    }
+    const executableIds = new Set(
+      definition.steps
+        .filter((step) => step.kind === 'session' || step.kind === 'agent')
+        .map((step) => step.id)
+    );
+    const entry = definition.steps.find(
+      (step) =>
+        executableIds.has(step.id) &&
+        !step.dependsOn.some((dependency) => executableIds.has(dependency))
+    );
+    if (!entry) {
+      toast.error(t('studio.fullTestNeedsStep'));
+      return;
+    }
+    setFullTesting(true);
+    setErrorMessage(null);
+    try {
+      const backendDefinition = toBackendWorkflowDefinition(definition);
+      await workflowClient.validate(backendDefinition);
+      let workspaceId: string | undefined;
+      if (projectId) {
+        const projectWorkspaces = await attemptsApi
+          .getProjectWorkspaces(projectId)
+          .catch(() => []);
+        workspaceId = projectWorkspaces[0]?.id;
+      }
+      if (!workspaceId) {
+        const workspaces = await attemptsApi.getAllWorkspaces().catch(() => []);
+        workspaceId = workspaces[0]?.id;
+      }
+      if (!workspaceId) {
+        toast.error(t('studio.fullTestNeedsWorkspace'));
+        return;
+      }
+      const run = await workflowClient.debug(backendDefinition, entry.id, {
+        definitionId: selectedDefinitionId ?? undefined,
+        workspaceId,
+        input: {},
+        scope: 'downstream',
+      });
+      setSelectedRunId(run.id);
+      setRuns((current) => [
+        run,
+        ...current.filter((item) => item.id !== run.id),
+      ]);
+      await refreshRunDetails(run.id);
+      toast.success(t('studio.fullTestStarted'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setFullTesting(false);
+    }
+  }, [
+    definition,
+    projectId,
+    refreshRunDetails,
+    selectedDefinitionId,
+    t,
+    workflowClient,
+  ]);
 
   const handleOpenPulseDeck = useCallback(() => {
     window.dispatchEvent(
@@ -714,11 +1012,17 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   }, []);
 
   const syncTriggersToPulse = useCallback(
-    async (published: WorkflowVersionView) => {
-      if (triggerSteps.length === 0) return 0;
+    async (
+      published: WorkflowVersionView,
+      studio: StudioWorkflowDefinition
+    ) => {
+      const triggers = studio.steps.filter(
+        (step): step is StudioTriggerStep => step.kind === 'trigger'
+      );
+      if (triggers.length === 0) return 0;
       const updatedRuleIds: Record<string, string> = {};
-      for (let index = 0; index < triggerSteps.length; index += 1) {
-        const trigger = triggerSteps[index]!;
+      for (let index = 0; index < triggers.length; index += 1) {
+        const trigger = triggers[index]!;
         const existingRuleId =
           savedRuleIds[trigger.id] ?? (index === 0 ? sourceRuleId : null);
         const savedRule = await pulseClient.saveRule({
@@ -726,10 +1030,10 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           enabled: trigger.evalMode !== 'off',
           spec: buildWorkflowTriggerRuleSpec({
             studio: {
-              ...definition,
+              ...studio,
               steps: [
                 trigger,
-                ...definition.steps.filter((s) => s.id !== trigger.id),
+                ...studio.steps.filter((s) => s.id !== trigger.id),
               ],
             },
             workflowId: published.definitionId,
@@ -741,24 +1045,21 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         updatedRuleIds[trigger.id] = savedRule.id;
       }
       setSavedRuleIds((current) => ({ ...current, ...updatedRuleIds }));
-      if (updatedRuleIds[triggerSteps[0]!.id]) {
-        setSourceRuleId(updatedRuleIds[triggerSteps[0]!.id]!);
+      if (updatedRuleIds[triggers[0]!.id]) {
+        setSourceRuleId(updatedRuleIds[triggers[0]!.id]!);
       }
-      return triggerSteps.length;
+      return triggers.length;
     },
-    [
-      definition,
-      projectId,
-      pulseClient,
-      savedRuleIds,
-      sourceRuleId,
-      triggerSteps,
-    ]
+    [projectId, pulseClient, savedRuleIds, sourceRuleId]
   );
 
   const persistWorkflow = useCallback(
-    async (options: { isPublish: boolean }) => {
-      const issues = validateStudioWorkflowExhaustively(definition, t);
+    async (options: {
+      isPublish: boolean;
+      nextDefinition?: StudioWorkflowDefinition;
+    }) => {
+      const target = options.nextDefinition ?? definition;
+      const issues = validateStudioWorkflowExhaustively(target, t);
       if (issues.length > 0) {
         const summary = t('studio.validationBlockedSave', {
           count: issues.length,
@@ -777,19 +1078,39 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       }
 
       try {
-        const backendDefinition = toBackendWorkflowDefinition(definition);
+        const backendDefinition = toBackendWorkflowDefinition(target);
+        const persistedPath = sourcePathForWorkflowName(target.name);
+        try {
+          const revision = await writeWorkflowSourceFile(
+            sourceApi,
+            persistedPath,
+            backendDefinition,
+            sourcePathRef.current === persistedPath
+              ? sourceRevisionRef.current
+              : null
+          );
+          setSourcePath(persistedPath);
+          sourceRevisionRef.current = revision;
+          focusViewedWorkflow(persistedPath, target.name, selectedDefinitionId);
+        } catch {
+          // Publishing still records the definition when the source file is unavailable.
+        }
         await workflowClient.validate(backendDefinition);
         const published = await workflowClient.publish(
           backendDefinition,
-          selectedDefinitionId ?? activeVersion?.definitionId ?? undefined
+          selectedDefinitionId ?? activeVersion?.definitionId ?? undefined,
+          undefined,
+          persistedPath
         );
         setActiveVersion(published);
         setSelectedDefinitionId(published.definitionId);
-        setSavedDefinition(definition);
+        setSavedDefinition(target);
 
         let syncedCount = 0;
-        if (triggerSteps.length > 0) {
-          syncedCount = await syncTriggersToPulse(published).catch(() => 0);
+        if (target.steps.some((step) => step.kind === 'trigger')) {
+          syncedCount = await syncTriggersToPulse(published, target).catch(
+            () => 0
+          );
         }
 
         const nextList = await workflowClient
@@ -826,10 +1147,11 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     [
       activeVersion?.definitionId,
       definition,
+      focusViewedWorkflow,
       selectedDefinitionId,
+      sourceApi,
       syncTriggersToPulse,
       t,
-      triggerSteps.length,
       workflowClient,
     ]
   );
@@ -1019,6 +1341,110 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     [refreshRunDetails, selectedRunId, workflowClient]
   );
 
+  const openNamePrompt = (prompt: UnnamedTaskPrompt) => {
+    setPromptName('');
+    setPromptError(null);
+    setNamePrompt(prompt);
+  };
+
+  const editedUnnamedTask = () =>
+    isUnnamedWorkflowName(definitionRef.current.name) && dirtyRef.current;
+
+  const discardUnnamedEdits = async () => {
+    await refreshUnnamedDraftFile();
+    setSourcePath(CANONICAL_UNNAMED_WORKFLOW_PATH);
+    sourceRevisionRef.current = null;
+  };
+
+  const continueNamePrompt = async (prompt: UnnamedTaskPrompt) => {
+    if (prompt.intent === 'leave') {
+      props?.onBack?.();
+      return;
+    }
+    if (prompt.intent === 'create') {
+      await startNewWorkflowDraft();
+      return;
+    }
+    if (prompt.intent === 'switch') {
+      const match = definitionsRef.current.find(
+        (item) => item.id === prompt.definitionId
+      );
+      if (match) {
+        hasUserEditedRef.current = true;
+        await loadWorkflowSelection(match);
+      }
+    }
+  };
+
+  const handleDiscardUnnamed = () => {
+    const prompt = namePrompt;
+    setNamePrompt(null);
+    if (!prompt || prompt.intent === 'save') return;
+    void discardUnnamedEdits().finally(() => {
+      void continueNamePrompt(prompt);
+    });
+  };
+
+  const handleRenameUnnamed = () => {
+    const nextName = promptName.trim();
+    if (!nextName || isUnnamedWorkflowName(nextName)) {
+      setPromptError(t('studio.unnamedNameRequired'));
+      return;
+    }
+    const prompt = namePrompt;
+    const named: StudioWorkflowDefinition = {
+      ...definitionRef.current,
+      name: nextName,
+    };
+    setNamePrompt(null);
+    setPromptError(null);
+    setDefinition(named);
+    setSavedDefinition(named);
+    setUndoStack([]);
+    setRedoStack([]);
+    const path = sourcePathForWorkflowName(nextName);
+    void (async () => {
+      try {
+        const revision = await writeWorkflowSourceFile(
+          sourceApi,
+          path,
+          toBackendWorkflowDefinition(named),
+          null
+        );
+        setSourcePath(path);
+        sourceRevisionRef.current = revision;
+        focusViewedWorkflow(path, nextName, selectedDefinitionId);
+        await refreshUnnamedDraftFile();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setErrorMessage(message);
+        toast.error(message);
+      }
+      if (prompt?.intent === 'save') {
+        await persistWorkflow({
+          isPublish: prompt.isPublish,
+          nextDefinition: named,
+        });
+      }
+    })();
+  };
+
+  const requestLeaveCanvas = () => {
+    if (editedUnnamedTask()) {
+      openNamePrompt({ intent: 'leave' });
+      return;
+    }
+    props?.onBack?.();
+  };
+
+  const requestPersistWorkflow = (isPublish: boolean) => {
+    if (editedUnnamedTask()) {
+      openNamePrompt({ intent: 'save', isPublish });
+      return;
+    }
+    void persistWorkflow({ isPublish });
+  };
+
   const workflowSelectOptions = useMemo<AstryxSelectOption[]>(() => {
     const base: AstryxSelectOption[] = [];
     if (selectedDefinitionId == null) {
@@ -1159,7 +1585,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           onPauseStep={(stepId) => void handlePauseStep(stepId)}
           onSubmitStepInput={handleSubmitStepInput}
           onDecideApproval={handleDecideApproval}
-          onBack={props?.onBack}
+          onBack={props?.onBack ? requestLeaveCanvas : undefined}
           editorName={definition.name}
           onEditorNameChange={(nextName) =>
             applyDefinitionChange({ ...definition, name: nextName })
@@ -1167,22 +1593,36 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           taskCatalog={definitions}
           selectedDefinitionId={selectedDefinitionId}
           onSelectTask={(nextId) => {
+            if (editedUnnamedTask()) {
+              openNamePrompt({ intent: 'switch', definitionId: nextId });
+              return;
+            }
             const match = definitions.find((item) => item.id === nextId);
             if (match) {
               hasUserEditedRef.current = true;
               void loadWorkflowSelection(match);
             }
           }}
-          onCreateNewTask={startNewWorkflowDraft}
+          onCreateNewTask={() => {
+            if (editedUnnamedTask()) {
+              openNamePrompt({ intent: 'create' });
+              return;
+            }
+            void startNewWorkflowDraft();
+          }}
           rightToolbarSlot={props?.rightToolbarSlot}
           dirty={dirty}
           saving={saving}
           publishing={publishing}
-          onSave={() => void persistWorkflow({ isPublish: false })}
-          onPublish={() => void persistWorkflow({ isPublish: true })}
+          onSave={() => requestPersistWorkflow(false)}
+          onPublish={() => requestPersistWorkflow(true)}
+          onFullTest={() => void handleFullTest()}
+          fullTesting={fullTesting}
           releaseVersion={formatReleaseVersion(activeVersion?.version)}
           canUndo={undoStack.length > 0}
           onUndo={handleUndo}
+          canRedo={redoStack.length > 0}
+          onRedo={handleRedo}
           agentOptions={agentOptions}
           bots={bots}
           spaces={spaces}
@@ -1193,6 +1633,19 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           onAgentDispatched={handleAgentDispatched}
           loadAgentSessionControls={loadAgentSessionControls}
           capturedEvents={capturedEvents}
+        />
+        <UnnamedTaskNameDialog
+          open={namePrompt !== null}
+          name={promptName}
+          error={promptError}
+          showDiscard={namePrompt?.intent !== 'save'}
+          onNameChange={(next) => {
+            setPromptName(next);
+            if (promptError) setPromptError(null);
+          }}
+          onDiscard={handleDiscardUnnamed}
+          onRename={handleRenameUnnamed}
+          onCancel={() => setNamePrompt(null)}
         />
       </div>
     </div>

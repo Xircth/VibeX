@@ -3705,19 +3705,33 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         let engines = engines_val
             .as_object()
             .ok_or_else(|| PluginError::invalid_manifest("v4 plugins require engines"))?;
-        if let Some(name) = engines
-            .keys()
-            .find(|name| !matches!(name.as_str(), "dimo" | "pluginSdk"))
-        {
-            return Err(PluginError::invalid_manifest(format!(
-                "unknown v4 engine `{name}`"
-            )));
+        let mut canonical_engines = std::collections::BTreeMap::<&str, &str>::new();
+        for (name, value) in engines {
+            let canonical = match name.as_str() {
+                // Packages published before the Dimo rename declare `engines.vibex`.
+                "vibex" => "dimo",
+                other => other,
+            };
+            if !matches!(canonical, "dimo" | "pluginSdk") {
+                return Err(PluginError::invalid_manifest(format!(
+                    "unknown v4 engine `{name}`"
+                )));
+            }
+            let Some(requirement) = value.as_str() else {
+                return Err(PluginError::invalid_manifest(format!(
+                    "engines.{name} must be a version requirement"
+                )));
+            };
+            if canonical_engines.contains_key(canonical) && name != canonical {
+                continue;
+            }
+            canonical_engines.insert(canonical, requirement);
         }
         for (name, supported) in [
             ("dimo", &[env!("CARGO_PKG_VERSION")][..]),
             ("pluginSdk", &["1.0.0", "2.0.0"][..]),
         ] {
-            let Some(requirement) = engines.get(name).and_then(Value::as_str) else {
+            let Some(requirement) = canonical_engines.get(name).copied() else {
                 if api_version == "2.0" {
                     continue;
                 }

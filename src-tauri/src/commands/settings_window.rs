@@ -1,6 +1,9 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use tauri::Manager;
+
+const SETTINGS_WINDOW_REVEAL_FALLBACK: Duration = Duration::from_millis(2500);
+const SETTINGS_WINDOW_REVEAL_POLL: Duration = Duration::from_millis(100);
 
 use crate::{
     host_client::runtime,
@@ -75,6 +78,7 @@ fn open_or_focus(
     let path = settings_window_path(path);
     if let Some(window) = app.get_webview_window(label) {
         crate::apply_app_icon(&window)?;
+        crate::window_chrome::apply_saved_window_canvas(&window);
         window.set_title(title).map_err(|e| e.to_string())?;
         navigate_settings_window(&window, &path);
         let _ = window.unminimize();
@@ -89,6 +93,7 @@ fn open_or_focus(
             .inner_size(1100.0, 800.0)
             .min_inner_size(800.0, 600.0)
             .resizable(true)
+            .visible(false)
             .center(),
     );
     if let Some(data_directory) = settings_webview_data_directory(label) {
@@ -102,7 +107,26 @@ fn open_or_focus(
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::window_chrome::apply_created_window_chrome(&window);
     destroy_settings_webview_on_close(app, &window, label);
+    schedule_settings_window_reveal_fallback(window);
     Ok(())
+}
+
+fn schedule_settings_window_reveal_fallback(window: tauri::WebviewWindow) {
+    tauri::async_runtime::spawn(async move {
+        let deadline = tokio::time::Instant::now() + SETTINGS_WINDOW_REVEAL_FALLBACK;
+        loop {
+            tokio::time::sleep(SETTINGS_WINDOW_REVEAL_POLL).await;
+            if window.is_visible().unwrap_or(false) {
+                return;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+        }
+        tracing::warn!("settings window was still hidden after open; showing as a fallback");
+        let _ = window.show();
+        let _ = window.set_focus();
+    });
 }
 
 fn destroy_settings_webview_on_close(

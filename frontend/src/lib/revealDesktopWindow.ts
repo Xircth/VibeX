@@ -1,5 +1,11 @@
 import { getAppRouteMode } from '@/appRouteMode';
+import { isSettingsSurfacePath } from '@/lib/settingsPreload';
 import { isTauriDesktopShell } from '@/utils/platform';
+
+export function shouldRevealDesktopWindowOnBoot(pathname: string): boolean {
+  if (getAppRouteMode(pathname) === 'desktop-toast') return false;
+  return !isSettingsSurfacePath(pathname);
+}
 
 export const REVEAL_RETRY_DELAYS_MS = [0, 80, 250] as const;
 

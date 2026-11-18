@@ -185,6 +185,25 @@ describe('AgentRuntimeStatus', () => {
     );
   });
 
+  it('shows a cancelled stream status without a spinner', () => {
+    render(
+      <AgentRuntimeStatus
+        placement="stream"
+        notice={{
+          ...notice,
+          request_status: {
+            ...notice.request_status!,
+            activity: { phase: 'cancelled', retry: null },
+          },
+        }}
+      />
+    );
+
+    const status = screen.getByTestId('agent-request-status');
+    expect(status).toHaveTextContent('已取消');
+    expect(status.querySelector('.conv-pixel-grid')).toBeNull();
+  });
+
   it('uses composer-status-row classes when rendered above the composer', () => {
     render(
       <AgentRuntimeStatus

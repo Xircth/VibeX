@@ -726,12 +726,26 @@ pub async fn dispatch_dsh_provider_delete(
 ) -> Result<Value, ApplicationError> {
     let args: ProviderIdArgs = parse_request(args)?;
     let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
-    let env = env_for(pool, &agent_id).await?;
+    let mut env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
     let paths = dsh_configuration::resolve_paths(&home, &env);
-    let (view, mutations) =
-        dsh_configuration::delete_provider(&paths, &args.provider_id).map_err(bad)?;
+    let (view, mutations, env_updates) =
+        dsh_configuration::delete_provider(&paths, &args.provider_id, &env).map_err(bad)?;
     apply_native_file_mutations(&mutations).await.map_err(bad)?;
+    if !env_updates.is_empty() {
+        for (key, value) in env_updates {
+            match value {
+                Some(val) if !val.trim().is_empty() => {
+                    env.insert(key, val);
+                }
+                _ => {
+                    env.remove(&key);
+                }
+            }
+        }
+        apply_built_in_auth_mode_policy(&agent_id, &mut env);
+        management::persist_agent_environment(pool, &agent_id, &env).await?;
+    }
     let _ = management::persist_observed_authentication(pool, &agent_id).await;
     invalidate("agent-management-snapshot-invalidated");
     serialize(view)

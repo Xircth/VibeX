@@ -65,6 +65,121 @@
   border-radius: 9999px;
 }
 
+.workflow-studio-top-chrome {
+  border: 1px solid hsl(var(--border) / 0.9);
+  border-radius: var(--radius-container);
+  background: #f6f6f6;
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-ink) / 0.05),
+    0 6px 18px -4px hsl(var(--shadow-ink) / 0.1);
+}
+
+.workflow-studio-top-chrome
+  .workflow-studio-task-select.astryx-select {
+  width: 28px;
+  flex: 0 0 28px;
+}
+
+.workflow-studio-top-chrome
+  .workflow-studio-task-select.astryx-select--compact
+  .astryx-select-trigger {
+  width: 28px;
+  height: 26px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workflow-studio-top-chrome
+  .workflow-studio-task-select
+  .astryx-select-trigger-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.workflow-studio-top-chrome
+  .workflow-studio-task-select.astryx-select--compact
+  .astryx-select-trigger:hover:not([aria-disabled='true']),
+.workflow-studio-top-chrome
+  .workflow-studio-task-select.astryx-select--compact
+  .astryx-select-trigger.is-open,
+.workflow-studio-top-chrome
+  .workflow-studio-task-select.astryx-select--compact
+  .astryx-select-trigger:focus-visible {
+  border: 0;
+  background: hsl(var(--foreground) / 0.06);
+  box-shadow: none;
+}
+
+.workflow-studio-task-menu {
+  min-width: 16rem !important;
+  width: max(16rem, var(--radix-select-trigger-width, 16rem)) !important;
+}
+
+.workflow-save-action-group {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #111111;
+  color: #fff;
+}
+
+.workflow-save-action-group button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.workflow-save-action-group button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.workflow-save-action-group button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.workflow-save-action-group-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 0;
+  background: rgb(255 255 255 / 0.22);
+}
+
+.workflow-save-action-group-chevron {
+  width: 28px;
+  padding: 0;
+}
+
+.workflow-save-action-group-extra {
+  display: flex;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-width 180ms ease,
+    opacity 140ms ease;
+}
+
+.workflow-save-action-group[data-open='true']
+  .workflow-save-action-group-extra {
+  max-width: 18rem;
+  opacity: 1;
+}
+
 /* Two-tier tactile card shell aligned to standard VibeX container radius */
 .workflow-studio-node {
   min-height: 112px;

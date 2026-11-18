@@ -1,4 +1,4 @@
-import { Brain, Check, Cpu, Settings2, Shield } from 'lucide-react';
+import { Brain, Cpu, Settings2, Shield } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentSessionConfigDependency,
@@ -9,7 +9,6 @@ import type {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -17,12 +16,10 @@ import { EffortSlider } from '@/components/tasks/effort-slider/EffortSlider';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import {
-  blockItemPointerMoveFocus,
-  COMPOSER_SELECT_ITEM_CLASS,
   COMPOSER_SELECT_LABEL_CLASS,
   COMPOSER_SELECT_LIST_CLASS,
-  ComposerOptionName,
 } from './ComposerSelect';
+import { ModelChoiceItems } from './ProviderModelChoices';
 import { compactSessionControlLabel } from './sessionControlLabels';
 
 /**
@@ -450,32 +447,13 @@ function SessionConfigOptionSelector({
           {optionLabel}
         </DropdownMenuLabel>
         <div className={COMPOSER_SELECT_LIST_CLASS}>
-          {displayChoices.map((choice) => {
-            const isActive = choice.value === presentedActiveValue;
-            return (
-              <DropdownMenuItem
-                key={choice.value}
-                onSelect={() => onSelect(option.key, choice.value)}
-                onPointerMove={blockItemPointerMoveFocus}
-                className={COMPOSER_SELECT_ITEM_CLASS}
-              >
-                <span className="min-w-0 flex-1">
-                  <ComposerOptionName
-                    active={isActive}
-                    title={choice.description}
-                  >
-                    {choice.name}
-                  </ComposerOptionName>
-                </span>
-                <Check
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0 text-foreground',
-                    isActive ? 'opacity-100' : 'opacity-0'
-                  )}
-                />
-              </DropdownMenuItem>
-            );
-          })}
+          <ModelChoiceItems
+            choices={displayChoices}
+            activeValue={presentedActiveValue}
+            onSelect={(value) => onSelect(option.key, value)}
+            groupProviders={isModelConfigOption(option)}
+            appearance="composer"
+          />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -494,18 +472,23 @@ export function configOptionDisplayState(
     []
 ): { displayChoices: DisplayChoice[]; presentedActiveValue: string } {
   const activeValue = pendingValue ?? jsonValueToString(option.value ?? null);
-  // The ACP-stabilized `category` ("model" / "thought_level" / "mode" / …) is
-  // authoritative when present; the key/name substring match is only a
-  // fallback for agents that omit it.
-  const normalizedKey = `${option.category ?? ''} ${option.key}`.toLowerCase();
-  const isModelOption =
-    option.category === 'model' || normalizedKey.includes('model');
   const displayChoices = buildDisplayChoices(
-    isModelOption,
+    isModelConfigOption(option),
     choices,
     activeValue
   );
   return { displayChoices, presentedActiveValue: activeValue };
+}
+
+/**
+ * The ACP-stabilized `category` ("model" / "thought_level" / "mode" / …) is
+ * authoritative when present; the key substring match is only a fallback for
+ * agents that omit it.
+ */
+export function isModelConfigOption(option: AgentSessionConfigOption): boolean {
+  if (option.category === 'model') return true;
+  const normalizedKey = `${option.category ?? ''} ${option.key}`.toLowerCase();
+  return normalizedKey.includes('model');
 }
 
 /** ACP select values are ids (strings); tolerate other JSON shapes defensively. */

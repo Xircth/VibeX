@@ -194,6 +194,10 @@ export function WorkflowStudio<
               onToolChange={setCanvasTool}
               miniMapOpen={miniMapOpen}
               onToggleMiniMap={() => setMiniMapOpen((open) => !open)}
+              canUndo={studio.canUndo}
+              onUndo={studio.onUndo}
+              canRedo={studio.canRedo}
+              onRedo={studio.onRedo}
             />
             {miniMapOpen ? <DraggableMiniMap /> : null}
           </ReactFlow>

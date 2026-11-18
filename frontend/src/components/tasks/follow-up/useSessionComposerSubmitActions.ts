@@ -52,7 +52,8 @@ export function useSessionComposerSubmitActions({
   cancelDebouncedSave: () => void;
   saveToScratch: (
     message: string,
-    executorProfileId: ExecutorProfileId | null
+    executorProfileId: ExecutorProfileId | null,
+    images?: string[]
   ) => Promise<void> | void;
   queueMessage: (
     message: string,
@@ -86,7 +87,6 @@ export function useSessionComposerSubmitActions({
       cancelDebouncedSave();
       onQueueError?.(null);
       try {
-        await saveToScratch(acceptedMessage, effectiveExecutorProfile);
         await queueMessage(
           queuedFollowUp.displayMessage,
           queuedFollowUp.executorProfile,
@@ -94,11 +94,20 @@ export function useSessionComposerSubmitActions({
           queuedFollowUp.pluginActions,
           queuedFollowUp.message
         );
-        await onAfterQueueCleanup();
       } catch (error: unknown) {
         onRestoreFailedQueueDraft?.(acceptedMessage, capturedImages);
         onQueueError?.(extractQueueSubmitErrorMessage(error));
+        return;
       }
+      // The queued text must not stay in the draft. A newly mounted composer
+      // hydrates that scratch and would show the queue inside the input.
+      try {
+        await saveToScratch('', effectiveExecutorProfile, []);
+      } catch {
+        // The queue already accepted the message. Leaving the old scratch is
+        // recovered by the hydration filter, not by putting the text back.
+      }
+      await onAfterQueueCleanup();
     },
     [
       attachedImagePaths,

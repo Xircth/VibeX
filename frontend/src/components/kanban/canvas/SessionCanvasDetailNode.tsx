@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { NodeResizer, type Node, type NodeProps } from '@xyflow/react';
-import { Scaling, X } from 'lucide-react';
+import { Minimize2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SessionMonitorCard } from '@/components/kanban/session-hub/SessionMonitorCard';
 import {
@@ -160,9 +160,9 @@ export const SessionCanvasDetailNode = memo(
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="ghost"
                       size="icon"
-                      className="nodrag nopan h-7 w-7 text-[var(--text-strong)]"
+                      className="nodrag nopan h-6 w-6 bg-transparent shadow-none hover:bg-transparent"
                       aria-label={resetSizeLabel}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -170,7 +170,7 @@ export const SessionCanvasDetailNode = memo(
                       }}
                       onDoubleClick={(event) => event.stopPropagation()}
                     >
-                      <Scaling className="h-3.5 w-3.5" strokeWidth={2.25} />
+                      <Minimize2 className="h-3.5 w-3.5" strokeWidth={2.25} />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>{resetSizeLabel}</TooltipContent>

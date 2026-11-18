@@ -13,7 +13,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTimelineSkeleton';
 import {
   ESTIMATED_CONVERSATION_ROW_HEIGHT,
-  getVirtualRowTranslateY,
+  getVirtualWindowTranslateY,
   measureScrollMargin,
   measureUnscaledBlockHeight,
   observeUnscaledElementRect,
@@ -383,26 +383,32 @@ export function ChildConversationViewer({
                         className="relative w-full"
                         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                       >
-                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                          const row = renderRows[virtualRow.index];
-                          if (!row) return null;
-                          return (
-                            <div
-                              key={virtualRow.key}
-                              ref={rowVirtualizer.measureElement}
-                              data-index={virtualRow.index}
-                              className="absolute left-0 top-0 w-full pb-3"
-                              style={{
-                                transform: getVirtualRowTranslateY(
-                                  virtualRow.start,
-                                  scrollMargin
-                                ),
-                              }}
-                            >
-                              {renderChildRow(row)}
-                            </div>
-                          );
-                        })}
+                        <div
+                          className="absolute top-0 left-0 w-full"
+                          style={{
+                            transform: getVirtualWindowTranslateY(
+                              rowVirtualizer.getVirtualItems()[0]?.start,
+                              scrollMargin
+                            ),
+                          }}
+                        >
+                          {rowVirtualizer
+                            .getVirtualItems()
+                            .map((virtualRow) => {
+                              const row = renderRows[virtualRow.index];
+                              if (!row) return null;
+                              return (
+                                <div
+                                  key={virtualRow.key}
+                                  ref={rowVirtualizer.measureElement}
+                                  data-index={virtualRow.index}
+                                  className="w-full pb-3"
+                                >
+                                  {renderChildRow(row)}
+                                </div>
+                              );
+                            })}
+                        </div>
                       </div>
                     ) : (
                       renderRows.map((row) => (

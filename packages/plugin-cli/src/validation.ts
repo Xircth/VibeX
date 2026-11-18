@@ -122,16 +122,29 @@ export async function validatePlugin(root: string): Promise<ValidationResult> {
 
   if (!isObject(manifest.engines)) {
     diagnostics.push(error("engines_invalid", "engines is required"));
-  } else if (
-    typeof manifest.engines.dimo !== "string" ||
-    typeof manifest.engines.pluginSdk !== "string"
-  ) {
-    diagnostics.push(
-      error(
-        "engines_invalid",
-        "engines.dimo and engines.pluginSdk are required",
-      ),
+  } else {
+    const hostEngine =
+      typeof manifest.engines.dimo === "string"
+        ? manifest.engines.dimo
+        : manifest.engines.vibex;
+    const unknownEngine = Object.keys(manifest.engines).find(
+      (name) => name !== "dimo" && name !== "pluginSdk" && name !== "vibex",
     );
+    if (unknownEngine) {
+      diagnostics.push(
+        error("engines_invalid", `unknown engine ${unknownEngine}`),
+      );
+    } else if (
+      typeof hostEngine !== "string" ||
+      typeof manifest.engines.pluginSdk !== "string"
+    ) {
+      diagnostics.push(
+        error(
+          "engines_invalid",
+          "engines.dimo and engines.pluginSdk are required",
+        ),
+      );
+    }
   }
 
   return {

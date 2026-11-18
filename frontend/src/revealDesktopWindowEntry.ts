@@ -1,3 +1,8 @@
-import { revealDesktopWindowWithRetry } from '@/lib/revealDesktopWindow';
+import {
+  revealDesktopWindowWithRetry,
+  shouldRevealDesktopWindowOnBoot,
+} from '@/lib/revealDesktopWindow';
 
-void revealDesktopWindowWithRetry();
+if (shouldRevealDesktopWindowOnBoot(window.location.pathname)) {
+  void revealDesktopWindowWithRetry();
+}

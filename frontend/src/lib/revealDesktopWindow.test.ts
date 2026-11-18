@@ -24,6 +24,7 @@ import {
   revealDesktopWindow,
   revealDesktopWindowAfterPaint,
   revealDesktopWindowWithRetry,
+  shouldRevealDesktopWindowOnBoot,
 } from './revealDesktopWindow';
 
 afterEach(() => {
@@ -155,6 +156,42 @@ describe('revealDesktopWindow', () => {
     const appIndex = html.indexOf('main.tsx');
     expect(entryIndex).toBeGreaterThan(-1);
     expect(appIndex).toBeGreaterThan(entryIndex);
+  });
+
+  it('paints the cached theme canvas before a desktop window can show', () => {
+    const html = fs.readFileSync(
+      path.resolve(__dirname, '../../index.html'),
+      'utf8'
+    );
+    const bootIndex = html.indexOf('dimo:resolved-theme');
+    const entryIndex = html.indexOf('revealDesktopWindowEntry.ts');
+    expect(bootIndex).toBeGreaterThan(-1);
+    expect(bootIndex).toBeLessThan(entryIndex);
+    expect(html).toContain('#1b1b1b');
+    expect(html).toContain('#ffffff');
+    expect(html).toContain("location.pathname === '/desktop-toast'");
+  });
+
+  it('does not reveal settings or plugin windows before the surface paints', () => {
+    expect(shouldRevealDesktopWindowOnBoot('/settings')).toBe(false);
+    expect(shouldRevealDesktopWindowOnBoot('/settings/appearance')).toBe(false);
+    expect(shouldRevealDesktopWindowOnBoot('/plugins')).toBe(false);
+    expect(shouldRevealDesktopWindowOnBoot('/plugins/dimo.office')).toBe(false);
+    expect(shouldRevealDesktopWindowOnBoot('/desktop-toast')).toBe(false);
+    expect(shouldRevealDesktopWindowOnBoot('/local-projects')).toBe(true);
+
+    const entry = fs.readFileSync(
+      path.resolve(__dirname, '../revealDesktopWindowEntry.ts'),
+      'utf8'
+    );
+    expect(entry).toContain('shouldRevealDesktopWindowOnBoot');
+    const app = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf8');
+    const settings = fs.readFileSync(
+      path.resolve(__dirname, '../SettingsAppRoutes.tsx'),
+      'utf8'
+    );
+    expect(app).toContain('isSettingsSurfacePath(window.location.pathname)');
+    expect(settings).toContain('revealDesktopWindowAfterPaint');
   });
 
   it('is allowed to show the desktop window', () => {

@@ -72,7 +72,10 @@ describe('SessionMonitorCard', () => {
       screen.queryByRole('button', { name: '移入执行区' })
     ).not.toBeInTheDocument();
     const reset = screen.getByRole('button', { name: '恢复默认大小' });
-    expect(reset).toHaveClass('raised-control');
+    expect(reset).not.toHaveClass('raised-control');
+    expect(reset).toHaveAttribute('data-variant', 'ghost');
+    expect(reset).toHaveAttribute('data-icon-only', '');
+    expect(reset.querySelector('.lucide-minimize-2')).not.toBeNull();
     expect(reset).not.toHaveClass('text-[var(--primary-control-foreground)]');
     expect(container.firstElementChild).toHaveClass('canvas-session-window');
     expect(container.querySelector('.nowheel')).toHaveClass(

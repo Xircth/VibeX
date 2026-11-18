@@ -6,13 +6,19 @@ import {
   type SetStateAction,
 } from 'react';
 import type { DraftFollowUpData } from 'shared/types';
-import { getDraftScratchHydrationDecision } from './sessionComposerDraft';
+import {
+  draftRepeatsQueuedMessage,
+  getDraftScratchHydrationDecision,
+  getQueuedDraftEchoSuppression,
+} from './sessionComposerDraft';
 import { getAfterSendCleanup } from './sessionComposerSubmit';
 import {
   imageAttachmentFromPath,
   revokeComposerImagePreviewUrl,
   type SessionComposerImageAttachment,
 } from './sessionComposerImages';
+
+const NO_QUEUED_MESSAGES: readonly string[] = [];
 
 export function useSessionComposerDraftHydration({
   scratchId,
@@ -27,6 +33,9 @@ export function useSessionComposerDraftHydration({
   deleteScratch,
   savedRevision,
   serverRevision,
+  queuedMessageTexts = NO_QUEUED_MESSAGES,
+  isEditingQueued = false,
+  onQueuedDraftSuppressed,
 }: {
   scratchId: string | undefined;
   isScratchLoading: boolean;
@@ -42,20 +51,40 @@ export function useSessionComposerDraftHydration({
   deleteScratch: () => Promise<void>;
   savedRevision?: number | null;
   serverRevision?: number | null;
+  queuedMessageTexts?: readonly string[];
+  isEditingQueued?: boolean;
+  onQueuedDraftSuppressed?: () => void;
 }) {
   const hydratedScratchIdRef = useRef<string | undefined>(undefined);
+  const hydratedEchoRef = useRef('');
+  const userEditedRef = useRef(false);
+  const suppressedEchoRef = useRef<string | null>(null);
+  const queuedDraftSuppressedRef = useRef(onQueuedDraftSuppressed);
+  queuedDraftSuppressedRef.current = onQueuedDraftSuppressed;
 
   useEffect(() => {
+    if (
+      hydratedScratchIdRef.current &&
+      hydratedScratchIdRef.current !== scratchId
+    ) {
+      hydratedEchoRef.current = '';
+      userEditedRef.current = false;
+      suppressedEchoRef.current = null;
+    }
     const hydration = getDraftScratchHydrationDecision({
       isScratchLoading,
       hydratedScratchId: hydratedScratchIdRef.current,
       scratchId,
       scratchData,
       localMessage,
+      queuedMessageTexts,
     });
     hydratedScratchIdRef.current = hydration.hydratedScratchId;
     if (!hydration.shouldHydrate) return;
 
+    hydratedEchoRef.current = hydration.message ?? '';
+    userEditedRef.current = false;
+    suppressedEchoRef.current = null;
     setLocalMessage(hydration.message ?? '');
     setAttachedImages((prev) => {
       prev.forEach(revokeComposerImagePreviewUrl);
@@ -67,15 +96,49 @@ export function useSessionComposerDraftHydration({
     if (Object.keys(hydration.configOverrides).length > 0) {
       setSelectedConfigValues?.(hydration.configOverrides);
     }
+    const scratchMessage =
+      typeof scratchData?.message === 'string' ? scratchData.message : '';
+    if (draftRepeatsQueuedMessage(scratchMessage, queuedMessageTexts)) {
+      queuedDraftSuppressedRef.current?.();
+    }
   }, [
     isScratchLoading,
     localMessage,
+    queuedMessageTexts,
     scratchData,
     scratchId,
     setAttachedImages,
     setLocalMessage,
     setSelectedMode,
     setSelectedConfigValues,
+  ]);
+
+  useEffect(() => {
+    const decision = getQueuedDraftEchoSuppression({
+      isEditingQueued,
+      userEdited: userEditedRef.current,
+      hydratedEcho: hydratedEchoRef.current,
+      localMessage: localMessage ?? '',
+      queuedMessageTexts,
+      alreadySuppressedEcho: suppressedEchoRef.current,
+    });
+    userEditedRef.current = decision.userEdited;
+    if (!decision.suppress) return;
+    const echo = hydratedEchoRef.current.trim();
+    suppressedEchoRef.current = echo;
+    hydratedEchoRef.current = '';
+    setLocalMessage('');
+    setAttachedImages((prev) => {
+      prev.forEach(revokeComposerImagePreviewUrl);
+      return [];
+    });
+    queuedDraftSuppressedRef.current?.();
+  }, [
+    isEditingQueued,
+    localMessage,
+    queuedMessageTexts,
+    setAttachedImages,
+    setLocalMessage,
   ]);
 
   const handleAfterSendCleanup = useCallback(async () => {

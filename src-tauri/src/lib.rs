@@ -409,6 +409,12 @@ pub fn run() {
     crash_reports::install_panic_hook();
     install_rustls_crypto_provider();
     utils::shell::bootstrap_desktop_path();
+    let boot_canvas = window_chrome::saved_boot_canvas();
+    let mut tauri_context = tauri::generate_context!();
+    window_chrome::apply_boot_canvas_to_configs(
+        &mut tauri_context.config_mut().app.windows,
+        boot_canvas,
+    );
 
     {
         let mut builder = tauri::Builder::default();
@@ -511,6 +517,11 @@ pub fn run() {
                 tracing::error!("workflow startup reconciliation failed: {}", error);
             }
         });
+        // PyInstaller onefile agents leave `_MEI*` trees when their process
+        // group is killed. Walk that temp root off the UI thread.
+        let _ = std::thread::Builder::new()
+            .name("acp-temp-sweep".into())
+            .spawn(agents::sweep_stale_agent_runtime_temps);
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(state.conversation_context());
         tauri::async_runtime::spawn(async move {
@@ -773,7 +784,7 @@ pub fn run() {
         deeplink::take_pending_model_router_import,
         plugin_dev_server::plugin_dev_connection,
     ])
-    .build(tauri::generate_context!())
+    .build(tauri_context)
     .expect("error while building tauri application")
     .run(move |_app_handle, event| {
         if let tauri::RunEvent::WindowEvent {

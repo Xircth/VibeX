@@ -19,6 +19,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CANONICAL_WORKFLOW_STARTERS } from '@/components/kanban/automation/automationAgentBridge';
+import i18n from '@/i18n';
 import { panelComponents } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { resolveMemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
@@ -1316,6 +1317,90 @@ describe('Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () 
     } finally {
       win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
     }
+  });
+
+  it('requires a real name before leaving or saving an edited unnamed task', async () => {
+    const user = userEvent.setup();
+    const onBack = vi.fn();
+    const callSpy = vi.fn(async (command: string) => {
+      if (command === 'workflow_list') return [];
+      if (command === 'workflow_source_read') {
+        throw new Error('missing');
+      }
+      if (command === 'workflow_source_write') {
+        return { revision: 'sha256:draft' };
+      }
+      if (command === 'workflow_canvas_focus') {
+        return { viewing: true };
+      }
+      if (command === 'pulse_captured_events') return [];
+      if (command === 'pulse_sources_list') return [];
+      if (command === 'workflow_validate' || command === 'workflow_publish') {
+        return {
+          id: 'ver-named',
+          definitionId: 'wf-named',
+          version: 1n,
+          normalizedJson: '{}',
+          digest: 'sha256:named',
+          sourcePath: '~/.dimo/workflows/CI 修复.dimo-workflow.json',
+          createdAt: '2026-11-18T00:00:00Z',
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+    render(
+      <BackendTransportProvider
+        transport={{ environment: 'desktop', call: callSpy }}
+      >
+        <WorkflowStudioDockPanel embedded onBack={onBack} />
+      </BackendTransportProvider>
+    );
+
+    const nameInput = (await screen.findByTestId(
+      'workflow-task-name-input'
+    )) as HTMLInputElement;
+    await waitFor(() => {
+      expect(nameInput.value).toBe('新建任务');
+    });
+    await user.clear(nameInput);
+    await user.click(screen.getByTestId('embedded-studio-back-btn'));
+
+    expect(
+      await screen.findByTestId('unnamed-task-name-dialog')
+    ).toBeInTheDocument();
+    expect(onBack).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId('unnamed-task-rename-btn'));
+    expect(screen.getByTestId('unnamed-task-name-error')).toHaveTextContent(
+      '请先输入名称后再更新！'
+    );
+
+    await user.type(screen.getByTestId('unnamed-task-name-input'), 'CI 修复');
+    await user.click(screen.getByTestId('unnamed-task-rename-btn'));
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('unnamed-task-name-dialog')
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('workflow-task-name-input')).toHaveValue(
+      'CI 修复'
+    );
+    expect(
+      callSpy.mock.calls.some(
+        ([command, args]) =>
+          command === 'workflow_canvas_focus' &&
+          (args as { path?: string; viewing?: boolean } | undefined)
+            ?.viewing === true &&
+          (args as { path?: string } | undefined)?.path ===
+            '~/.dimo/workflows/CI 修复.dimo-workflow.json'
+      )
+    ).toBe(true);
+
+    await user.click(screen.getByTestId('embedded-studio-back-btn'));
+    expect(onBack).toHaveBeenCalledOnce();
   });
 });
 

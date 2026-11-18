@@ -265,9 +265,13 @@ export type WorkflowStudioProps<
   publishing?: boolean;
   onSave?: () => void;
   onPublish?: () => void;
+  onFullTest?: () => void;
+  fullTesting?: boolean;
   releaseVersion?: string;
   canUndo?: boolean;
   onUndo?: () => void;
+  canRedo?: boolean;
+  onRedo?: () => void;
   workspaceConfig?: ReactNode;
   workspaceSummary?: string;
   onBack?: () => void;

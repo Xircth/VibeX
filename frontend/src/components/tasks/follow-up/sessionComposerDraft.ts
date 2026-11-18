@@ -292,18 +292,30 @@ export function getDefaultProfileHydrationDecision({
   };
 }
 
+/** Queue rows are not drafts. An empty composer message never counts as one. */
+export function draftRepeatsQueuedMessage(
+  message: string,
+  queuedMessageTexts: readonly string[]
+): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  return queuedMessageTexts.some((queued) => queued.trim() === trimmed);
+}
+
 export function getDraftScratchHydrationDecision({
   isScratchLoading,
   hydratedScratchId,
   scratchId,
   scratchData,
   localMessage = '',
+  queuedMessageTexts = [],
 }: {
   isScratchLoading: boolean;
   hydratedScratchId: string | undefined;
   scratchId: string | undefined;
   scratchData: DraftFollowUpData | undefined;
   localMessage?: string;
+  queuedMessageTexts?: readonly string[];
 }): {
   hydratedScratchId: string | undefined;
   shouldHydrate: boolean;
@@ -334,17 +346,58 @@ export function getDraftScratchHydrationDecision({
     };
   }
 
+  const scratchMessage =
+    typeof scratchData?.message === 'string' ? scratchData.message : '';
+  const repeatsQueue = draftRepeatsQueuedMessage(
+    scratchMessage,
+    queuedMessageTexts
+  );
   return {
     hydratedScratchId: scratchId,
     shouldHydrate: true,
-    message:
-      typeof scratchData?.message === 'string' ? scratchData.message : '',
-    imagePaths: [...(scratchData?.images ?? [])],
+    message: repeatsQueue ? '' : scratchMessage,
+    imagePaths: repeatsQueue ? [] : [...(scratchData?.images ?? [])],
     // Create-form session-control presets ride the draft into the composer's
     // pending state and go out as the first turn's overrides.
     modeOverride: scratchData?.mode_override ?? null,
     configOverrides: compactConfigOverrides(scratchData?.config_overrides),
   };
+}
+
+/**
+ * A scratch that was hydrated before the queue arrived can still echo the
+ * last queued message. Clear that echo once. A later identical keystroke is
+ * the user's own text. Editing a queue row puts the text back on purpose.
+ */
+export function getQueuedDraftEchoSuppression(input: {
+  isEditingQueued: boolean;
+  userEdited: boolean;
+  hydratedEcho: string;
+  localMessage: string;
+  queuedMessageTexts: readonly string[];
+  alreadySuppressedEcho: string | null;
+}): { suppress: boolean; userEdited: boolean } {
+  if (input.isEditingQueued) {
+    return { suppress: false, userEdited: input.userEdited };
+  }
+  if (input.userEdited) {
+    return { suppress: false, userEdited: true };
+  }
+  const echo = input.hydratedEcho.trim();
+  if (!echo || !draftRepeatsQueuedMessage(echo, input.queuedMessageTexts)) {
+    return { suppress: false, userEdited: false };
+  }
+  const current = input.localMessage.trim();
+  if (current !== echo) {
+    return {
+      suppress: false,
+      userEdited: Boolean(current) && input.alreadySuppressedEcho !== echo,
+    };
+  }
+  if (input.alreadySuppressedEcho === echo) {
+    return { suppress: false, userEdited: false };
+  }
+  return { suppress: true, userEdited: false };
 }
 
 /** ts-rs exports the BTreeMap as a partial record; drop undefined slots. */

@@ -4,6 +4,44 @@ use serde_json::{Value, json};
 
 use crate::{Args, Companion, CompanionFeatures, LineAction, pulse::PULSE_TOOL_NAMES};
 
+#[test]
+fn catalog_marks_the_workflow_open_on_the_canvas() {
+    let list = json!([{ "id": "wf-1", "name": "Named" }]);
+    let draft_focus = json!({
+        "viewing": true,
+        "path": "~/.dimo/workflows/新建任务.dimo-workflow.json",
+        "name": "新建任务",
+        "definitionId": null,
+        "marker": "dimo.canvas.viewing"
+    });
+    let annotated = crate::workflow::annotate_catalog_with_focus(list, Some(&draft_focus));
+    let items = annotated.as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["canvasViewing"], true);
+    assert_eq!(items[0]["marker"], "dimo.canvas.viewing");
+    assert_eq!(items[0]["id"], "dimo-canvas-viewing");
+    assert_eq!(
+        items[0]["sourcePath"],
+        "~/.dimo/workflows/新建任务.dimo-workflow.json"
+    );
+    assert!(items[1].get("canvasViewing").is_none());
+
+    let listed = json!([{ "id": "wf-1", "name": "Named" }]);
+    let named_focus = json!({
+        "viewing": true,
+        "definitionId": "wf-1",
+        "path": "~/.dimo/workflows/Named.dimo-workflow.json",
+        "name": "Named"
+    });
+    let marked = crate::workflow::annotate_catalog_with_focus(listed, Some(&named_focus));
+    assert_eq!(marked.as_array().unwrap().len(), 1);
+    assert_eq!(marked[0]["canvasViewing"], true);
+    assert_eq!(
+        marked[0]["sourcePath"],
+        "~/.dimo/workflows/Named.dimo-workflow.json"
+    );
+}
+
 fn temp_workspace(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "dimo-mcp-wf-test-{label}-{}-{}",

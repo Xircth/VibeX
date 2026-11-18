@@ -5,10 +5,13 @@ import {
   conversationFollowIntent,
   conversationOpenPinState,
   conversationTailFollowAction,
+  conversationTailNeedsRescue,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getDistanceFromConversationBottom,
   getVirtualRowTranslateY,
+  getVirtualWindowTranslateY,
+  remeasureMountedVirtualRows,
   isConversationExpansionToggle,
   scrollTopAfterPrepend,
   isConversationNearBottom,
@@ -194,6 +197,102 @@ describe('conversation bottom distance', () => {
     });
   });
 
+  it('holds the tail pin while the viewport has no height', () => {
+    expect(
+      conversationOpenPinState({
+        settlePassesRemaining: 4,
+        itemCount: 6,
+        nearBottom: false,
+        viewportHeight: 0,
+      })
+    ).toEqual({ pinned: true, settlePassesRemaining: 4 });
+    expect(
+      conversationTailFollowAction({
+        attached: true,
+        sessionChanged: true,
+        expansionChanged: false,
+        settlePassesRemaining: 4,
+        itemCount: 6,
+        nearBottom: false,
+        viewportHeight: 0,
+      })
+    ).toEqual({
+      action: 'pin',
+      attached: true,
+      settlePassesRemaining: 4,
+    });
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: true,
+        previousScrollTop: 400,
+        scrollTop: 200,
+        nearBottom: false,
+        attached: true,
+        viewportHeight: 0,
+      })
+    ).toBe('keep');
+  });
+
+  it('keeps follow attached when a scroll-height clamp moves scrollTop', () => {
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: true,
+        previousScrollTop: 800,
+        scrollTop: 640,
+        nearBottom: false,
+        attached: true,
+        previousScrollHeight: 1200,
+        scrollHeight: 1040,
+      })
+    ).toBe('keep');
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: true,
+        previousScrollTop: 800,
+        scrollTop: 640,
+        nearBottom: false,
+        attached: true,
+        previousScrollHeight: 1200,
+        scrollHeight: 1190,
+      })
+    ).toBe('detach');
+  });
+
+  it('rescues a followed tail whose last row is outside the window', () => {
+    expect(
+      conversationTailNeedsRescue({
+        attached: true,
+        viewportHeight: 400,
+        itemCount: 12,
+        visibleIndexes: [0, 1, 2],
+      })
+    ).toBe(true);
+    expect(
+      conversationTailNeedsRescue({
+        attached: true,
+        viewportHeight: 0,
+        itemCount: 12,
+        visibleIndexes: [],
+      })
+    ).toBe(false);
+    expect(
+      conversationTailNeedsRescue({
+        attached: false,
+        viewportHeight: 400,
+        itemCount: 12,
+        visibleIndexes: [0],
+      })
+    ).toBe(false);
+    expect(
+      conversationTailNeedsRescue({
+        attached: true,
+        viewportHeight: 400,
+        itemCount: 3,
+        visibleIndexes: [0, 1, 2],
+      })
+    ).toBe(false);
+  });
+
   it('starts a new session pinned even if the previous one was released', () => {
     expect(
       conversationTailFollowAction({
@@ -247,6 +346,34 @@ describe('conversation bottom distance', () => {
 
   it('offsets virtual rows by the measured scroll margin', () => {
     expect(getVirtualRowTranslateY(512, 96)).toBe('translateY(416px)');
+  });
+
+  it('anchors the in-flow window on the first visible row', () => {
+    expect(getVirtualWindowTranslateY(512, 96)).toBe('translateY(416px)');
+    expect(getVirtualWindowTranslateY(undefined, 96)).toBe('translateY(0px)');
+  });
+
+  it('remeasures only the mounted rows of this list', () => {
+    const list = document.createElement('div');
+    const windowEl = document.createElement('div');
+    const tall = document.createElement('div');
+    tall.setAttribute('data-index', '2');
+    Object.defineProperty(tall, 'offsetHeight', { value: 420 });
+    const hidden = document.createElement('div');
+    hidden.setAttribute('data-index', '3');
+    Object.defineProperty(hidden, 'offsetHeight', { value: 1 });
+    const nested = document.createElement('div');
+    nested.setAttribute('data-index', '0');
+    Object.defineProperty(nested, 'offsetHeight', { value: 900 });
+    tall.append(nested);
+    windowEl.append(tall, hidden);
+    list.append(windowEl);
+
+    const sizes: Array<[number, number]> = [];
+    remeasureMountedVirtualRows(list, (index, size) => {
+      sizes.push([index, size]);
+    });
+    expect(sizes).toEqual([[2, 420]]);
   });
 
   it('keeps the viewport on the same rows when older history is prepended', () => {
@@ -316,6 +443,18 @@ describe('conversation virtualizer layout coordinates', () => {
     expect(measureUnscaledBlockHeight(element)).toBe(
       ESTIMATED_CONVERSATION_ROW_HEIGHT
     );
+    Object.defineProperty(element, 'offsetHeight', { value: 1 });
+    expect(
+      measureUnscaledBlockHeight(element, undefined, {
+        measurementsCache: [
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { size: 720 },
+        ],
+      })
+    ).toBe(720);
   });
 
   it('scrolls to a nav target twice so dynamic heights can be measured', () => {

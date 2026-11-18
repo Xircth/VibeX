@@ -1,5 +1,73 @@
 use super::*;
 
+pub(in crate::manager) const ACP_STDOUT_LINE_CAP: usize = 1024 * 1024;
+const ACP_STDOUT_LINE_RESERVE: usize = 4096;
+
+fn release_oversized_line_buf(line_buf: &mut Vec<u8>) {
+    if line_buf.capacity() > ACP_STDOUT_LINE_RESERVE {
+        *line_buf = Vec::with_capacity(ACP_STDOUT_LINE_RESERVE);
+    }
+}
+
+fn take_capped_line(line_buf: &mut Vec<u8>) -> Vec<u8> {
+    let line = std::mem::take(line_buf);
+    line_buf.reserve(ACP_STDOUT_LINE_RESERVE);
+    line
+}
+
+/// Read one stdout line. A line past `cap` is discarded through its newline
+/// and the reusable buffer is shrunk, so one newline-less or multi-megabyte
+/// JSON-RPC frame cannot stay resident for the life of the reader task.
+pub(in crate::manager) async fn read_capped_acp_stdout_line<R>(
+    reader: &mut R,
+    line_buf: &mut Vec<u8>,
+    cap: usize,
+) -> std::io::Result<Option<Vec<u8>>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt;
+
+    line_buf.clear();
+    let mut discarded = false;
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            if discarded || line_buf.is_empty() {
+                line_buf.clear();
+                release_oversized_line_buf(line_buf);
+                return Ok(None);
+            }
+            return Ok(Some(take_capped_line(line_buf)));
+        }
+        if let Some(newline_at) = available.iter().position(|byte| *byte == b'\n') {
+            let take = newline_at + 1;
+            let fits = !discarded && line_buf.len().saturating_add(take) <= cap;
+            if fits {
+                line_buf.extend_from_slice(&available[..take]);
+            }
+            reader.consume(take);
+            if fits {
+                return Ok(Some(take_capped_line(line_buf)));
+            }
+            discarded = false;
+            line_buf.clear();
+            release_oversized_line_buf(line_buf);
+            continue;
+        }
+        let take = available.len();
+        let fits = !discarded && line_buf.len().saturating_add(take) <= cap;
+        if fits {
+            line_buf.extend_from_slice(&available[..take]);
+        } else {
+            discarded = true;
+            line_buf.clear();
+            release_oversized_line_buf(line_buf);
+        }
+        reader.consume(take);
+    }
+}
+
 impl AgentConnectionRunner {
     pub(in crate::manager) async fn run_acp(
         &self,
@@ -143,12 +211,14 @@ impl AgentConnectionRunner {
         for (key, value) in &zcode_launch_env {
             launch_env.insert(key.clone(), value.clone());
         }
-        crate::prepare_and_bind_agent_runtime_temp(&self.snapshot.agent_id, &mut launch_env)
+        // Declared before `child` so this guard drops after `kill_on_drop`.
+        let runtime_temp = crate::prepare_agent_runtime_temp_session(&self.snapshot.agent_id)
             .map_err(|error| {
                 AgentError::Runtime(format!(
                     "could not create a writable temporary directory for the ACP agent: {error}"
                 ))
             })?;
+        runtime_temp.bind_env(&mut launch_env);
         for (key, value) in &launch_env {
             command.env(key, value);
         }
@@ -201,7 +271,11 @@ impl AgentConnectionRunner {
 
         let (mut child, job) = group_spawn_no_window_with_job(&mut command)
             .map_err(|error| AgentError::Runtime(format!("failed to spawn ACP agent: {error}")))?;
-        *self.child_pid.lock().unwrap() = child.id();
+        let child_pid = child.id();
+        *self.child_pid.lock().unwrap() = child_pid;
+        if let Some(pid) = child_pid {
+            runtime_temp.record_owner_pid(pid);
+        }
         *self.process_job.lock().unwrap() = Some(job);
         let stdout = child
             .inner()
@@ -218,15 +292,16 @@ impl AgentConnectionRunner {
         let (mut to_acp_writer, acp_incoming_reader) = tokio::io::duplex(64 * 1024);
         let (stdout_closed_tx, stdout_closed_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
-            use tokio::io::{AsyncBufReadExt, BufReader};
+            use tokio::io::BufReader;
             let mut reader = BufReader::new(stdout);
-            let mut line_buf = Vec::with_capacity(4096);
+            let mut line_buf = Vec::with_capacity(ACP_STDOUT_LINE_RESERVE);
             loop {
-                line_buf.clear();
-                match reader.read_until(b'\n', &mut line_buf).await {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if let Ok(raw_str) = std::str::from_utf8(&line_buf) {
+                match read_capped_acp_stdout_line(&mut reader, &mut line_buf, ACP_STDOUT_LINE_CAP)
+                    .await
+                {
+                    Ok(None) => break,
+                    Ok(Some(line)) => {
+                        if let Ok(raw_str) = std::str::from_utf8(&line) {
                             let has_newline = raw_str.ends_with('\n');
                             let trimmed = raw_str.trim_end_matches(['\r', '\n']);
                             let cleaned = sanitize_incoming_jsonrpc_line(trimmed.to_string());
@@ -239,7 +314,7 @@ impl AgentConnectionRunner {
                             if has_newline && to_acp_writer.write_all(b"\n").await.is_err() {
                                 break;
                             }
-                        } else if to_acp_writer.write_all(&line_buf).await.is_err() {
+                        } else if to_acp_writer.write_all(&line).await.is_err() {
                             break;
                         }
                     }
@@ -447,5 +522,52 @@ impl AgentConnectionRunner {
         );
 
         Ok((launch_env, scrubbed_keys))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ACP_STDOUT_LINE_CAP, ACP_STDOUT_LINE_RESERVE, read_capped_acp_stdout_line};
+
+    #[tokio::test]
+    async fn capped_stdout_line_keeps_a_short_frame() {
+        let mut reader = tokio::io::BufReader::new(&b"{\"ok\":1}\n"[..]);
+        let mut line_buf = Vec::new();
+        let line = read_capped_acp_stdout_line(&mut reader, &mut line_buf, ACP_STDOUT_LINE_CAP)
+            .await
+            .unwrap();
+        assert_eq!(line.as_deref(), Some(&b"{\"ok\":1}\n"[..]));
+    }
+
+    #[tokio::test]
+    async fn capped_stdout_line_discards_an_oversize_frame_and_shrinks() {
+        let mut payload = vec![b'x'; ACP_STDOUT_LINE_RESERVE + 128];
+        payload.push(b'\n');
+        payload.extend_from_slice(b"kept\n");
+        let mut reader = tokio::io::BufReader::with_capacity(1024, payload.as_slice());
+        let mut line_buf = Vec::new();
+        let line = read_capped_acp_stdout_line(&mut reader, &mut line_buf, ACP_STDOUT_LINE_RESERVE)
+            .await
+            .unwrap();
+        assert_eq!(line.as_deref(), Some(&b"kept\n"[..]));
+        assert!(line_buf.capacity() <= ACP_STDOUT_LINE_RESERVE);
+
+        let next = read_capped_acp_stdout_line(&mut reader, &mut line_buf, ACP_STDOUT_LINE_RESERVE)
+            .await
+            .unwrap();
+        assert!(next.is_none());
+    }
+
+    #[tokio::test]
+    async fn capped_stdout_line_discards_a_newline_less_oversize_stream() {
+        let payload = vec![b'y'; ACP_STDOUT_LINE_RESERVE + 64];
+        let mut reader = tokio::io::BufReader::with_capacity(512, payload.as_slice());
+        let mut line_buf = Vec::new();
+        let line = read_capped_acp_stdout_line(&mut reader, &mut line_buf, ACP_STDOUT_LINE_RESERVE)
+            .await
+            .unwrap();
+        assert!(line.is_none());
+        assert!(line_buf.capacity() <= ACP_STDOUT_LINE_RESERVE);
+        assert!(line_buf.is_empty());
     }
 }

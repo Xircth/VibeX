@@ -372,6 +372,7 @@ function WorkflowAutomationEditor({
     nextReleaseVersion(null)
   );
   const [undoStack, setUndoStack] = useState<StudioWorkflowDefinition[]>([]);
+  const [redoStack, setRedoStack] = useState<StudioWorkflowDefinition[]>([]);
   const [debugRun, setDebugRun] = useState<WorkflowRunView | null>(null);
   const [debugWorkspace, setDebugWorkspace] = useState<Workspace | null>(null);
   const [testWorkspaceMode, setTestWorkspaceMode] =
@@ -423,6 +424,7 @@ function WorkflowAutomationEditor({
       if (serializeDefinition(current) === serializeDefinition(next))
         return current;
       setUndoStack((stack) => [...stack.slice(-39), current]);
+      setRedoStack([]);
       return next;
     });
   }, []);
@@ -431,8 +433,24 @@ function WorkflowAutomationEditor({
     setUndoStack((stack) => {
       const previous = stack.at(-1);
       if (!previous) return stack;
-      setDefinition(previous);
-      setName(previous.name);
+      setDefinition((current) => {
+        setRedoStack((redo) => [...redo.slice(-39), current]);
+        setName(previous.name);
+        return previous;
+      });
+      return stack.slice(0, -1);
+    });
+  }, []);
+
+  const redoDefinition = useCallback(() => {
+    setRedoStack((stack) => {
+      const next = stack.at(-1);
+      if (!next) return stack;
+      setDefinition((current) => {
+        setUndoStack((undo) => [...undo.slice(-39), current]);
+        setName(next.name);
+        return next;
+      });
       return stack.slice(0, -1);
     });
   }, []);
@@ -546,12 +564,14 @@ function WorkflowAutomationEditor({
           setDefinition(authored);
           setSavedDefinition(authored);
           setUndoStack([]);
+          setRedoStack([]);
           setSourceRevision(source.revision);
         } catch {
           if (!active) return;
           setDefinition(published);
           setSavedDefinition(published);
           setUndoStack([]);
+          setRedoStack([]);
           setSourceRevision(null);
         }
       })
@@ -766,7 +786,8 @@ function WorkflowAutomationEditor({
   const startDebugRun = useCallback(
     async (
       stepId: string,
-      choice?: { kind: 'existing'; id: string } | { kind: 'new' }
+      choice?: { kind: 'existing'; id: string } | { kind: 'new' },
+      scope: 'node' | 'downstream' = 'node'
     ) => {
       if (!repo || !projectId)
         throw new Error(t('automations.selectProjectRepository'));
@@ -801,7 +822,7 @@ function WorkflowAutomationEditor({
         workspaceId: targetWorkspaceId,
         input,
         parentRunId: debugRun?.id,
-        scope: 'node',
+        scope,
       });
       const runView = await refreshDebugRun(nextRun.id);
       toast.success(
@@ -920,6 +941,34 @@ function WorkflowAutomationEditor({
           onBack={() => navigate('/settings/automations')}
           canUndo={undoStack.length > 0}
           onUndo={undoDefinition}
+          canRedo={redoStack.length > 0}
+          onRedo={redoDefinition}
+          onFullTest={() => {
+            const executableIds = new Set(
+              definition.steps
+                .filter(
+                  (step) => step.kind === 'session' || step.kind === 'agent'
+                )
+                .map((step) => step.id)
+            );
+            const entry = definition.steps.find(
+              (step) =>
+                executableIds.has(step.id) &&
+                !step.dependsOn.some((dependency) =>
+                  executableIds.has(dependency)
+                )
+            );
+            if (!entry) {
+              toast.error(t('workflow:studio.fullTestNeedsStep'));
+              return;
+            }
+            void startDebugRun(entry.id, undefined, 'downstream').catch(
+              (error) =>
+                toast.error(
+                  error instanceof Error ? error.message : String(error)
+                )
+            );
+          }}
           showStopActions
           stopActionsDisabled={!debugRun}
           resetDisabled={!debugRun}

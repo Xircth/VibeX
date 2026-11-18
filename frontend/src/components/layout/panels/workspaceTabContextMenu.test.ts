@@ -137,6 +137,51 @@ describe('buildWorkspaceTabContextMenu', () => {
       'new-note',
       'new-review',
     ]);
+
+    const canvasItems = buildWorkspaceTabContextMenu(
+      {
+        ...labels,
+        basicGroup: '基础',
+        newGroup: '新建',
+        session: '会话',
+        sessionDetails: '会话详情',
+        processes: '执行进程',
+      },
+      {
+        tabKind: 'session',
+        includeLayoutActions: false,
+        openSession,
+        agents: [
+          { id: 'CLAUDE_CODE', label: 'Claude Code' },
+          { id: 'CODEX', label: 'Codex' },
+        ],
+        openSessionDetails,
+        openProcesses,
+        closeCurrent: vi.fn(),
+        closeOthers: vi.fn(),
+        canSplit: true,
+        splitDown: vi.fn(),
+        splitLeft: vi.fn(),
+        splitRight: vi.fn(),
+        openNote: vi.fn(),
+        openReview: vi.fn(),
+        openTerminal: vi.fn(),
+        shells: [{ value: 'powershell.exe', label: 'PowerShell' }],
+        sortByName: vi.fn(),
+      }
+    );
+    expect(canvasItems.map((item) => item.id)).toEqual([
+      'group-new',
+      'new-session',
+      'new-processes',
+      'new-session-details',
+      'new-terminal',
+      'new-note',
+      'new-review',
+    ]);
+    expect(
+      canvasItems.some((item) => item.id === 'close' || item.id === 'split')
+    ).toBe(false);
     const newSessionItem = items.find((item) => item.id === 'new-session');
     expect(newSessionItem?.type).toBe('submenu');
     if (newSessionItem?.type === 'submenu') {

@@ -400,11 +400,43 @@ function serializeWorkspace(
   };
 }
 
+export function canvasWorkspaceNodeCount(
+  workspace: SessionCanvasWorkspace
+): number {
+  return workspace.canvases.reduce(
+    (sum, entry) => sum + entry.document.nodes.length,
+    0
+  );
+}
+
+/**
+ * Ignore a storage replay that would replace a live board with an empty one
+ * when nothing in this session has saved a newer revision. Settings sync can
+ * write a stale `dimo:kanban-canvas` bundle without advancing the revision.
+ */
+export function shouldAdoptLoadedCanvasWorkspace(input: {
+  currentNodeCount: number;
+  loadedNodeCount: number;
+  loadedRevision: number;
+  knownRevision: number;
+}): boolean {
+  if (
+    input.loadedNodeCount === 0 &&
+    input.currentNodeCount > 0 &&
+    input.loadedRevision <= input.knownRevision
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function loadCanvasWorkspace(projectId: string): SessionCanvasWorkspace {
   if (!projectId) return createDefaultWorkspace({ ...DEFAULT_CANVAS_DOCUMENT });
-  const parsed =
-    readStoredBundle()[projectId] ?? readJson(documentKey(projectId));
-  return parseWorkspace(parsed);
+  // Per-project key is written on every save and is not part of settings sync.
+  // A stale preference bundle must not replace it.
+  const perProject = readJson(documentKey(projectId));
+  const bundled = readStoredBundle()[projectId];
+  return parseWorkspace(perProject ?? bundled);
 }
 
 export function saveCanvasWorkspace(

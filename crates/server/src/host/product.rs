@@ -250,6 +250,16 @@ struct WorkflowSourceArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkflowCanvasFocusArgs {
+    path: Option<String>,
+    name: Option<String>,
+    definition_id: Option<String>,
+    #[serde(default)]
+    viewing: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PreferencesArgs {
     #[serde(default)]
     preferences: serde_json::Map<String, Value>,
@@ -825,6 +835,10 @@ impl ServerApplicationDomains {
                     args.content.unwrap_or_default(),
                     args.expected_revision.as_deref(),
                 )?)
+            }
+            DomainCommand::WorkflowCanvasFocus => {
+                let args: WorkflowCanvasFocusArgs = parse(args)?;
+                serialize(write_workflow_canvas_focus(&args)?)
             }
             DomainCommand::AgentListLiveTerminals => {
                 let terminals = agent_terminal_registry().list_live().await;
@@ -1601,12 +1615,13 @@ fn write_workflow_source(
             "Workflow source exceeds 4 MiB",
         ));
     }
-    serde_json::from_str::<workflows::WorkflowDefinition>(&content)
-        .map_err(|error| ApplicationError::bad_request(format!("Invalid Workflow JSON: {error}")))
-        .and_then(|definition| {
-            workflows::validate_definition(&definition)
-                .map_err(|error| ApplicationError::bad_request(error.to_string()))
+    let parsed: workflows::WorkflowDefinition =
+        serde_json::from_str(&content).map_err(|error| {
+            ApplicationError::bad_request(format!("Invalid Workflow JSON: {error}"))
         })?;
+    workflows::validate_definition(&parsed)
+        .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+    let written_name = parsed.name.clone();
     let path = resolve_workflow_source_path(path)?;
     let parent = path
         .parent()
@@ -1645,9 +1660,85 @@ fn write_workflow_source(
     ));
     std::fs::write(&temporary, content.as_bytes()).map_err(internal_error)?;
     std::fs::rename(&temporary, &path).map_err(internal_error)?;
+    if let Some(dir) = shared_workflows_dir() {
+        if path.starts_with(&dir) {
+            enforce_single_unnamed_draft(&dir, &path, &written_name);
+        }
+    }
     Ok(json!({
         "revision": workflow_source_revision(content.as_bytes()),
     }))
+}
+
+const CANVAS_VIEWING_MARKER: &str = "dimo.canvas.viewing";
+
+fn shared_workflows_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| home.join(".dimo").join("workflows"))
+}
+
+fn canvas_focus_path() -> Option<std::path::PathBuf> {
+    shared_workflows_dir().map(|dir| dir.join(".canvas-focus.json"))
+}
+
+fn is_unnamed_workflow_name(name: &str) -> bool {
+    matches!(name.trim(), "" | "新建任务" | "New Task")
+}
+
+fn enforce_single_unnamed_draft(dir: &Path, written: &Path, name: &str) {
+    if !is_unnamed_workflow_name(name) {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if candidate == written {
+            continue;
+        }
+        let Some(file_name) = candidate.file_name().and_then(|item| item.to_str()) else {
+            continue;
+        };
+        if !file_name.ends_with(".dimo-workflow.json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&candidate) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let Some(other_name) = value.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if is_unnamed_workflow_name(other_name) {
+            let _ = std::fs::remove_file(candidate);
+        }
+    }
+}
+
+fn write_workflow_canvas_focus(args: &WorkflowCanvasFocusArgs) -> Result<Value, ApplicationError> {
+    let Some(path) = canvas_focus_path() else {
+        return Err(ApplicationError::internal(
+            "Unable to resolve the user home directory",
+        ));
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(internal_error)?;
+    }
+    let body = json!({
+        "viewing": args.viewing,
+        "marker": CANVAS_VIEWING_MARKER,
+        "path": args.path,
+        "name": args.name,
+        "definitionId": args.definition_id,
+    });
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&body).map_err(internal_error)?,
+    )
+    .map_err(internal_error)?;
+    Ok(body)
 }
 
 fn mime_type_for_path(path: &Path) -> &'static str {
@@ -1714,6 +1805,27 @@ mod tests {
             .expect("plan usage");
         assert_eq!(value["type"], "UNAVAILABLE");
         assert_ne!(value, Value::Null);
+    }
+
+    #[test]
+    fn unnamed_draft_directory_keeps_a_single_new_task_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "dimo-unnamed-draft-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let keep = dir.join("新建任务.dimo-workflow.json");
+        let extra = dir.join("other.dimo-workflow.json");
+        let named = dir.join("ci-fix.dimo-workflow.json");
+        std::fs::write(&keep, r#"{"name":"新建任务"}"#).unwrap();
+        std::fs::write(&extra, r#"{"name":"New Task"}"#).unwrap();
+        std::fs::write(&named, r#"{"name":"CI 修复"}"#).unwrap();
+        enforce_single_unnamed_draft(&dir, &keep, "新建任务");
+        assert!(keep.exists());
+        assert!(!extra.exists());
+        assert!(named.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -105,12 +105,47 @@ export interface WorkspaceTabMenuActions {
     onSelect: () => void;
   }>;
   sortByName: () => void;
+  /** Canvas node headers have no tab to close or dockview group to split. */
+  includeLayoutActions?: boolean;
+}
+
+function withoutLayoutActions(
+  items: readonly ProductContextMenuItem[]
+): ProductContextMenuItem[] {
+  const next = items.filter(
+    (item) => item.id !== 'close' && item.id !== 'split'
+  );
+  const pruned: ProductContextMenuItem[] = [];
+  for (const item of next) {
+    if (item.id === 'group-basic') {
+      const following = next[next.indexOf(item) + 1];
+      if (
+        !following ||
+        following.type === 'separator' ||
+        following.type === 'label'
+      ) {
+        continue;
+      }
+    }
+    if (
+      item.type === 'separator' &&
+      (pruned.length === 0 || pruned[pruned.length - 1]?.type === 'separator')
+    ) {
+      continue;
+    }
+    pruned.push(item);
+  }
+  return pruned;
 }
 
 export function buildWorkspaceTabContextMenu(
   labels: WorkspaceTabMenuLabels,
   actions: WorkspaceTabMenuActions
 ): ProductContextMenuItem[] {
+  const finish = (items: ProductContextMenuItem[]) =>
+    actions.includeLayoutActions === false
+      ? withoutLayoutActions(items)
+      : items;
   const closeSubmenu: ProductContextMenuItem = {
     type: 'submenu',
     id: 'close',
@@ -243,11 +278,11 @@ export function buildWorkspaceTabContextMenu(
           onSelect: actions.openReview,
         }
       );
-      return items;
+      return finish(items);
     }
 
     if (resolvedKind === 'terminal') {
-      return [
+      return finish([
         basicHeader,
         {
           id: 'refresh',
@@ -270,11 +305,11 @@ export function buildWorkspaceTabContextMenu(
           label: labels.note,
           onSelect: actions.openNote,
         },
-      ];
+      ]);
     }
 
     // resolvedKind === 'space'
-    return [
+    return finish([
       basicHeader,
       {
         id: 'space-details',
@@ -307,7 +342,7 @@ export function buildWorkspaceTabContextMenu(
         label: labels.review,
         onSelect: actions.openReview,
       },
-    ];
+    ]);
   }
 
   // Default tab menu
@@ -361,7 +396,7 @@ export function buildWorkspaceTabContextMenu(
     }
   }
 
-  return [
+  return finish([
     {
       id: 'refresh',
       label: labels.refresh ?? '刷新',
@@ -387,7 +422,7 @@ export function buildWorkspaceTabContextMenu(
         },
       ],
     },
-  ];
+  ]);
 }
 
 interface EditorTabApi {

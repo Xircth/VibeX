@@ -1,18 +1,19 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import type { AgentSessionConfigOption, AgentSessionMode } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ModelChoiceItems } from '@/components/tasks/follow-up/ProviderModelChoices';
 import {
   configOptionDisplayState,
+  isModelConfigOption,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   visibleSessionConfigOptions,
@@ -42,6 +43,7 @@ export function SessionControlsFields({
   onSelectConfigValue,
   disabled = false,
   dropdownSide = 'bottom',
+  className,
 }: {
   modes: AgentSessionMode[];
   /** The agent's last-known active mode id, if any. */
@@ -55,6 +57,7 @@ export function SessionControlsFields({
   onSelectConfigValue: (key: string, value: string) => void;
   disabled?: boolean;
   dropdownSide?: 'top' | 'bottom';
+  className?: string;
 }) {
   const { t } = useTranslation(['tasks', 'common']);
 
@@ -87,7 +90,7 @@ export function SessionControlsFields({
     presentableModes.find((mode) => mode.id === presentedModeId) ?? null;
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className={cn('grid gap-2 sm:grid-cols-2', className)}>
       {showModeField ? (
         <ControlField
           id="mode"
@@ -104,6 +107,7 @@ export function SessionControlsFields({
           onSelect={onSelectMode}
           disabled={disabled}
           dropdownSide={dropdownSide}
+          groupProviders={false}
         />
       ) : null}
       {hasDangerousPermissionsMode ? (
@@ -173,6 +177,7 @@ export function SessionControlsFields({
             onSelect={(value) => onSelectConfigValue(option.key, value)}
             disabled={disabled}
             dropdownSide={dropdownSide}
+            groupProviders={isModelConfigOption(option)}
           />
         );
       })}
@@ -189,6 +194,7 @@ function ControlField({
   onSelect,
   disabled,
   dropdownSide,
+  groupProviders,
 }: {
   id: string;
   label: string;
@@ -198,6 +204,7 @@ function ControlField({
   onSelect: (value: string) => void;
   disabled: boolean;
   dropdownSide: 'top' | 'bottom';
+  groupProviders: boolean;
 }) {
   // No per-field label: the button shows the current choice, the tooltip and
   // the opened menu carry the field's name.
@@ -223,30 +230,18 @@ function ControlField({
           side={dropdownSide}
           align="start"
           sideOffset={1}
-          className="min-w-[12rem] max-w-[18rem]"
+          className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height,20rem))] min-w-[12rem] max-w-[18rem]"
         >
           <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
             {label}
           </DropdownMenuLabel>
-          {choices.map((choice) => {
-            const isActive = choice.value === activeValue;
-            return (
-              <DropdownMenuItem
-                key={choice.value}
-                onSelect={() => onSelect(choice.value)}
-                className="justify-between"
-                title={choice.description ?? undefined}
-              >
-                <span className="truncate">{choice.name}</span>
-                <Check
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0',
-                    isActive ? 'opacity-100' : 'opacity-0'
-                  )}
-                />
-              </DropdownMenuItem>
-            );
-          })}
+          <ModelChoiceItems
+            choices={choices}
+            activeValue={activeValue}
+            onSelect={onSelect}
+            groupProviders={groupProviders}
+            appearance="field"
+          />
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

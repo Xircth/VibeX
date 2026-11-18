@@ -377,7 +377,7 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
         screen.queryByTestId('pulse-deck-tab-rules')
       ).not.toBeInTheDocument();
 
-      // Clicking "让 Agent 创建" opens the embedded Workflow Canvas in createNew mode + opens right-side Session sidebar without blocking modal overlay
+      // Clicking "让 Agent 创建" opens the embedded Workflow Canvas in createNew mode and asks the session sidebar to show the create-session form
       await user.click(screen.getByTestId('automation-agent-create-btn'));
       expect(
         await screen.findByTestId('automation-embedded-workflow-studio')
@@ -386,7 +386,7 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
         await screen.findByTestId('mock-embedded-workflow-studio-canvas')
       ).toBeInTheDocument();
       expect(consumePendingWorkflowStudioOpen()).toEqual({ createNew: true });
-      expect(overlayEvents.length).toBe(0);
+      expect(overlayEvents).toHaveLength(1);
       expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 

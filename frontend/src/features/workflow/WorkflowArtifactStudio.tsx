@@ -96,6 +96,7 @@ export function WorkflowArtifactStudio({
   const [sourceRevision, setSourceRevision] = useState<string | null>(null);
   const [version, setVersion] = useState<WorkflowVersionView | null>(null);
   const [undoStack, setUndoStack] = useState<StudioWorkflowDefinition[]>([]);
+  const [redoStack, setRedoStack] = useState<StudioWorkflowDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [run, setRun] = useState<WorkflowRunView | null>(null);
@@ -140,6 +141,7 @@ export function WorkflowArtifactStudio({
         setSavedDefinition(parsed);
         setSourceRevision(source.revision);
         setUndoStack([]);
+        setRedoStack([]);
       })
       .catch((error) => {
         if (!active) return;
@@ -158,6 +160,7 @@ export function WorkflowArtifactStudio({
       )
         return current;
       setUndoStack((stack) => [...stack.slice(-39), current]);
+      setRedoStack([]);
       return next;
     });
   }, []);
@@ -166,7 +169,22 @@ export function WorkflowArtifactStudio({
     setUndoStack((stack) => {
       const previous = stack.at(-1);
       if (!previous) return stack;
-      setDefinition(previous);
+      setDefinition((current) => {
+        setRedoStack((redo) => [...redo.slice(-39), current]);
+        return previous;
+      });
+      return stack.slice(0, -1);
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setRedoStack((stack) => {
+      const next = stack.at(-1);
+      if (!next) return stack;
+      setDefinition((current) => {
+        setUndoStack((undoStack) => [...undoStack.slice(-39), current]);
+        return next;
+      });
       return stack.slice(0, -1);
     });
   }, []);
@@ -282,7 +300,7 @@ export function WorkflowArtifactStudio({
   });
 
   const startNode = useCallback(
-    async (stepId: string) => {
+    async (stepId: string, scope: 'node' | 'downstream' = 'node') => {
       if (!definition) {
         throw new Error(t('studio.sourceLoading'));
       }
@@ -305,7 +323,7 @@ export function WorkflowArtifactStudio({
           workspaceId: run ? undefined : workspaceId,
           input: {},
           parentRunId: run?.id,
-          scope: 'node',
+          scope,
         }
       );
       await refreshRun(nextRun.id);
@@ -395,6 +413,28 @@ export function WorkflowArtifactStudio({
       releaseVersion={releaseVersion(version?.version)}
       canUndo={undoStack.length > 0}
       onUndo={undo}
+      canRedo={redoStack.length > 0}
+      onRedo={redo}
+      onFullTest={() => {
+        if (!definition) return;
+        const executableIds = new Set(
+          definition.steps
+            .filter((step) => step.kind === 'session' || step.kind === 'agent')
+            .map((step) => step.id)
+        );
+        const entry = definition.steps.find(
+          (step) =>
+            executableIds.has(step.id) &&
+            !step.dependsOn.some((dependency) => executableIds.has(dependency))
+        );
+        if (!entry) {
+          toast.error(t('studio.fullTestNeedsStep'));
+          return;
+        }
+        void startNode(entry.id, 'downstream').catch((error) =>
+          toast.error(error instanceof Error ? error.message : String(error))
+        );
+      }}
       workspaceSummary={
         workspaceId
           ? t('studio.currentWorkspace')

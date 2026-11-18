@@ -35,6 +35,7 @@ import {
   isBottomGroup,
   isEditorGroup,
   isLeftGroup,
+  isRightShellNavGroup,
   isSessionGroup,
   isSessionPanelId,
   LEFT_GROUP_PREFIX,
@@ -94,14 +95,10 @@ export function defaultSessionWidth(gridWidth: number): number {
 export type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;
 
 export function getLeftGroup(api: DockviewApi): DockviewGroup | undefined {
-  return (
-    api.getGroup(GROUP_IDS.LEFT) ??
-    api.groups.find(
-      (group) =>
-        isLeftGroup(group) &&
-        group.element?.getAttribute('data-shell-nav-side') !== 'right'
-    ) ??
-    api.groups.find((group) => isLeftGroup(group))
+  const canonical = api.getGroup(GROUP_IDS.LEFT);
+  if (canonical && !isRightShellNavGroup(canonical)) return canonical;
+  return api.groups.find(
+    (group) => isLeftGroup(group) && !isRightShellNavGroup(group)
   );
 }
 
@@ -348,6 +345,24 @@ export function dismissEditorColumnAfterLastTab(api: DockviewApi): void {
     dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
   });
   normalizeGroupIds(api);
+}
+
+const pendingEmptyGroupCloses = new WeakMap<DockviewApi, true>();
+
+/**
+ * Empty-group cleanup must not run inside Dockview's own removePanel or
+ * moveGroupOrPanel. Those calls already delete the emptied group, and a
+ * synchronous listener that deletes it first makes the outer call throw and
+ * drops the panel that was about to be placed.
+ */
+export function scheduleCloseEmptyTabBarGroups(api: DockviewApi): void {
+  if (pendingEmptyGroupCloses.has(api)) return;
+  pendingEmptyGroupCloses.set(api, true);
+  queueMicrotask(() => {
+    pendingEmptyGroupCloses.delete(api);
+    if (isDockviewApiDisposed(api)) return;
+    closeEmptyTabBarGroups(api);
+  });
 }
 
 export function closeEmptyTabBarGroups(api: DockviewApi): void {

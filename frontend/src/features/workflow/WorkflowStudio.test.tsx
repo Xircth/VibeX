@@ -245,8 +245,9 @@ describe('WorkflowStudio (Semantic Human-Centric Canvas & Simple Side Card)', ()
     expect(screen.getByText(/1.*Agent/i)).toBeInTheDocument();
     expect(screen.getByText('v0.4')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /撤销|undo/i }));
+    await user.click(screen.getByTestId('workflow-canvas-undo'));
     expect(onUndo).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('workflow-canvas-redo')).toBeDisabled();
   });
 
   it('floats editor controls over the canvas and opens workspace settings on the right', async () => {

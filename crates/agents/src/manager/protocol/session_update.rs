@@ -727,7 +727,7 @@ mod retry_tests {
 
     #[tokio::test]
     async fn codex_retry_notifications_reject_old_revisions_and_retired_incidents() {
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let (event_tx, mut event_rx) = manager_event_channel();
         let agent_id = AgentId::parse("codex").unwrap();
         let connection_id = AgentConnectionId::new();
         let runner = AgentConnectionRunner::new(

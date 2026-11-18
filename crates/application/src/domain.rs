@@ -337,6 +337,7 @@ domain_commands! {
     RepoOpenPrs => "list_open_prs" / "application.call",
     WorkflowSourceRead => "workflow_source_read" / "workflow.read",
     WorkflowSourceWrite => "workflow_source_write" / "workflow.write",
+    WorkflowCanvasFocus => "workflow_canvas_focus" / "workflow.write",
     AgentRefreshCapabilityCatalog => "agent_refresh_capability_catalog" / "application.call",
     AgentCapabilityCatalogFresh => "agent_capability_catalog_fresh" / "application.call",
     AgentListLiveTerminals => "agent_list_live_terminals" / "application.call",

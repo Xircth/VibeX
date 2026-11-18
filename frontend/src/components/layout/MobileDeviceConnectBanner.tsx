@@ -8,10 +8,21 @@ import {
   webServiceApi,
 } from '@/lib/api/config';
 import { isLocalDesktopHost } from '@/lib/desktopShell';
+import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
 const POLL_INTERVAL_MS = 2500;
+const CONNECTED_FEEDBACK_MS = 2400;
 export const CONNECT_REQUESTS_CHANGED_EVENT = 'dimo:connect-requests-changed';
 export const REMOTE_AUTO_CONNECT_KEY = 'dimo:remote-auto-connect';
+export const MOBILE_IDLE_REMINDER_KEY = 'dimo:mobile-idle-reminder';
+/** How long a shown or dismissed offline reminder stays quiet for that device. */
+export const MOBILE_IDLE_REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+/**
+ * Wait until the reminder has actually stayed on screen. Writing the cooldown
+ * immediately would let React StrictMode's setup/cleanup/setup cycle record it
+ * and then suppress the real mount.
+ */
+export const MOBILE_IDLE_REMINDER_ARM_MS = 1000;
 
 export function getRemoteAutoConnect(): boolean {
   if (typeof window === 'undefined') return false;
@@ -39,6 +50,46 @@ export function notifyConnectRequestsChanged(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(CONNECT_REQUESTS_CHANGED_EVENT));
   }
+}
+
+interface IdleReminderRecord {
+  devices: Record<string, number>;
+}
+
+function readIdleReminderSnoozes(): Record<string, number> {
+  const raw = readLocalStorage(MOBILE_IDLE_REMINDER_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Partial<IdleReminderRecord> | null;
+    if (!parsed || typeof parsed.devices !== 'object' || !parsed.devices) {
+      return {};
+    }
+    const devices: Record<string, number> = {};
+    for (const [deviceId, snoozeUntil] of Object.entries(parsed.devices)) {
+      if (typeof snoozeUntil === 'number' && Number.isFinite(snoozeUntil)) {
+        devices[deviceId] = snoozeUntil;
+      }
+    }
+    return devices;
+  } catch {
+    return {};
+  }
+}
+
+export function isDeviceIdleReminderSnoozed(
+  deviceId: string,
+  now = Date.now()
+): boolean {
+  const snoozeUntil = readIdleReminderSnoozes()[deviceId];
+  return typeof snoozeUntil === 'number' && snoozeUntil > now;
+}
+
+export function commitIdleReminder(deviceId: string, now = Date.now()): void {
+  if (!deviceId) return;
+  const devices = readIdleReminderSnoozes();
+  devices[deviceId] = now + MOBILE_IDLE_REMINDER_COOLDOWN_MS;
+  const record: IdleReminderRecord = { devices };
+  writeLocalStorage(MOBILE_IDLE_REMINDER_KEY, JSON.stringify(record));
 }
 
 function isMobilePairedDevice(device: HostPairedDevice): boolean {
@@ -71,19 +122,46 @@ function isActivelyConnectedRecently(
   return ts >= sessionStartMs || Date.now() - ts < 90_000;
 }
 
+function selectIdleReminderDevice(
+  devices: HostPairedDevice[],
+  sessionStartMs: number,
+  shownDeviceId: string | null
+): HostPairedDevice | null {
+  if (shownDeviceId) {
+    const shown = devices.find((device) => device.device_id === shownDeviceId);
+    if (shown && !isActivelyConnectedRecently(shown, sessionStartMs)) {
+      return shown;
+    }
+  }
+  return (
+    devices.find(
+      (device) =>
+        !isActivelyConnectedRecently(device, sessionStartMs) &&
+        !isDeviceIdleReminderSnoozed(device.device_id)
+    ) ?? null
+  );
+}
+
 export function MobileDeviceConnectBanner() {
   const [requests, setRequests] = useState<PendingDeviceConnectRequest[]>([]);
-  const [pairedMobileDevices, setPairedMobileDevices] = useState<
-    HostPairedDevice[]
-  >([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [connectedDeviceName, setConnectedDeviceName] = useState<string | null>(
     null
   );
-  const [idleReminderDismissed, setIdleReminderDismissed] = useState(false);
+  const [idleDevice, setIdleDevice] = useState<HostPairedDevice | null>(null);
   const sessionStartMsRef = useRef<number>(Date.now());
+  const shownIdleDeviceIdRef = useRef<string | null>(null);
   const clearFeedbackTimerRef = useRef<number | null>(null);
   const respondedIdsRef = useRef<Set<string>>(new Set());
+
+  const dismissIdleReminder = useCallback(() => {
+    const deviceId = shownIdleDeviceIdRef.current;
+    if (deviceId) {
+      commitIdleReminder(deviceId);
+    }
+    shownIdleDeviceIdRef.current = null;
+    setIdleDevice(null);
+  }, []);
 
   const handleRespond = useCallback(
     async (item: PendingDeviceConnectRequest, approve: boolean) => {
@@ -96,7 +174,7 @@ export function MobileDeviceConnectBanner() {
         );
         notifyConnectRequestsChanged();
         if (approve) {
-          setIdleReminderDismissed(true);
+          dismissIdleReminder();
           setConnectedDeviceName(item.device_name);
           if (clearFeedbackTimerRef.current !== null) {
             window.clearTimeout(clearFeedbackTimerRef.current);
@@ -104,7 +182,7 @@ export function MobileDeviceConnectBanner() {
           clearFeedbackTimerRef.current = window.setTimeout(() => {
             setConnectedDeviceName(null);
             clearFeedbackTimerRef.current = null;
-          }, 2400);
+          }, CONNECTED_FEEDBACK_MS);
         }
       } catch (err) {
         console.warn('Failed to respond to mobile connect request:', err);
@@ -112,7 +190,7 @@ export function MobileDeviceConnectBanner() {
         setBusyId(null);
       }
     },
-    []
+    [dismissIdleReminder]
   );
 
   const refreshRequests = useCallback(async () => {
@@ -127,7 +205,15 @@ export function MobileDeviceConnectBanner() {
       const mobileDevices = Array.isArray(devices)
         ? devices.filter(isMobilePairedDevice)
         : [];
-      setPairedMobileDevices(mobileDevices);
+      const nextIdle = selectIdleReminderDevice(
+        mobileDevices,
+        sessionStartMsRef.current,
+        shownIdleDeviceIdRef.current
+      );
+      shownIdleDeviceIdRef.current = nextIdle?.device_id ?? null;
+      setIdleDevice((current) =>
+        current?.device_id === nextIdle?.device_id ? current : nextIdle
+      );
 
       const filtered = Array.isArray(nextRequests)
         ? nextRequests.filter(
@@ -179,25 +265,20 @@ export function MobileDeviceConnectBanner() {
     };
   }, [refreshRequests]);
 
-  // First-time connection reminders belong ONLY inside the Remote Connection settings page.
-  // Only show workspace banner after at least one mobile device has been paired, or when an
-  // active 1-click connection approval request arrives.
+  useEffect(() => {
+    if (!idleDevice) return;
+    const deviceId = idleDevice.device_id;
+    const timer = window.setTimeout(() => {
+      commitIdleReminder(deviceId);
+    }, MOBILE_IDLE_REMINDER_ARM_MS);
+    return () => window.clearTimeout(timer);
+  }, [idleDevice]);
+
+  // Active connect requests always show. The offline reminder is quieter: once
+  // it has been on screen briefly, or the user dismisses it, that device stays
+  // silent until the cooldown ends.
   const active = requests[0] ?? null;
-  const hasPairedMobile = pairedMobileDevices.length > 0;
-  if (!active && !hasPairedMobile && !connectedDeviceName) {
-    return null;
-  }
-
-  const primaryPairedMobile = pairedMobileDevices[0] ?? null;
-  const isPairedMobileIdle =
-    primaryPairedMobile !== null &&
-    !isActivelyConnectedRecently(
-      primaryPairedMobile,
-      sessionStartMsRef.current
-    ) &&
-    !idleReminderDismissed;
-
-  if (!active && !connectedDeviceName && !isPairedMobileIdle) {
+  if (!active && !connectedDeviceName && !idleDevice) {
     return null;
   }
 
@@ -264,19 +345,19 @@ export function MobileDeviceConnectBanner() {
               </button>
             </div>
           </>
-        ) : primaryPairedMobile ? (
+        ) : idleDevice ? (
           <>
             <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Smartphone className="h-4 w-4" />
             </span>
             <span className="truncate text-sm font-medium text-foreground">
-              已配对手机「{primaryPairedMobile.device_name}」尚未连接
+              已配对手机「{idleDevice.device_name}」尚未连接
             </span>
             <div className="ml-1 flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
-                  setIdleReminderDismissed(true);
+                  dismissIdleReminder();
                   void settingsWindowApi.open('/settings/web-service');
                 }}
                 className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3.5 text-xs font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary/90"
@@ -285,7 +366,7 @@ export function MobileDeviceConnectBanner() {
               </button>
               <button
                 type="button"
-                onClick={() => setIdleReminderDismissed(true)}
+                onClick={dismissIdleReminder}
                 aria-label="忽略未连接提醒"
                 className="inline-flex h-8 items-center rounded-full px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
               >

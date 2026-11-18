@@ -344,7 +344,7 @@ fn kiro_available_commands_filters_tui_only_and_includes_prompts() {
 #[tokio::test]
 async fn failed_session_override_keeps_the_user_prompt_in_the_transcript() {
     let prompt_text = "remember this prompt after the model override fails";
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner(event_tx);
     let session_id = AgentSessionId::new();
     let acp_session_id = format!("override-fail-{}", uuid::Uuid::new_v4().simple());
@@ -643,6 +643,24 @@ fn sanitize_drops_notifications_with_a_null_session_id() {
 }
 
 #[test]
+fn sanitize_drops_pure_nul_terminal_output_deltas() {
+    let nuls = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","_meta":{"terminal_output_delta":{"terminal_id":"term-1","data":"\u0000\u0000\u0000"}}}}}"#;
+    assert!(sanitize_incoming_jsonrpc_line(nuls.to_string()).is_empty());
+
+    let mixed = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","_meta":{"terminal_output_delta":{"terminal_id":"term-1","data":"ok\u0000"}}}}}"#;
+    assert_eq!(sanitize_incoming_jsonrpc_line(mixed.to_string()), mixed);
+
+    let with_status = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed","_meta":{"terminal_output_delta":{"terminal_id":"term-1","data":"\u0000"}}}}}"#;
+    assert_eq!(
+        sanitize_incoming_jsonrpc_line(with_status.to_string()),
+        with_status
+    );
+
+    let empty = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","_meta":{"terminal_output_delta":{"terminal_id":"term-1","data":""}}}}}"#;
+    assert_eq!(sanitize_incoming_jsonrpc_line(empty.to_string()), empty);
+}
+
+#[test]
 fn leading_edge_throttle_suppresses_bursts_and_reports_count_after_window() {
     let window = Duration::from_secs(10);
     let throttle = LeadingEdgeThrottle::new(window);
@@ -664,7 +682,7 @@ fn disconnect_join_timeout_allows_transcript_flush_before_abort() {
 #[tokio::test]
 async fn session_load_replay_suppresses_ext_notifications_and_historical_usage() {
     let session_id = AgentSessionId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let bridge = AcpClientBridge::new(
         AgentConnectionId::new(),
         AgentId::parse("grok").unwrap(),
@@ -681,7 +699,7 @@ async fn session_load_replay_suppresses_ext_notifications_and_historical_usage()
         Arc::new(Mutex::new(Some(session_id))),
         PathBuf::from("C:/workspace"),
         HashMap::new(),
-        dummy_runner(mpsc::unbounded_channel().0),
+        dummy_runner(manager_event_channel().0),
     );
 
     let ext = agent_client_protocol::schema::v1::ExtNotification::new(
@@ -753,7 +771,7 @@ async fn session_load_replay_suppresses_ext_notifications_and_historical_usage()
 #[tokio::test]
 async fn wait_for_question_registers_pending_elicitation_before_emitting_event() {
     let session_id = AgentSessionId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner(event_tx.clone());
     let bridge = AcpClientBridge::new(
         runner.snapshot.connection_id,
@@ -1029,7 +1047,7 @@ fn withdrawn_bypass_mode_and_retired_picks_are_skipped_during_replay() {
 
 pub(super) fn dummy_runner_for_agent(
     agent_id: &str,
-    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    event_tx: ManagerEventSender,
 ) -> AgentConnectionRunner {
     AgentConnectionRunner::new(
         ManagedAgentConnectionSnapshot {
@@ -1082,7 +1100,7 @@ fn sanitize_incoming_jsonrpc_line_rewrites_air_async_task_and_prompt_suggestion_
 #[tokio::test]
 async fn session_info_goal_synthesizes_timeline_markers_and_normalizes_status() {
     let session_id = AgentSessionId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner_for_agent("codex", event_tx);
     *runner.goal_advertised_control.write().await = Some((
         Some(crate::codex_goal::NEUTRAL_GOAL_CONTROL_METHOD.to_string()),

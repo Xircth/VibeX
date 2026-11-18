@@ -1,5 +1,5 @@
 import { type CSSProperties, type MouseEvent } from 'react';
-import { AlertCircle, ArrowRight, Scaling, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, Minimize2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -130,11 +130,11 @@ export function SessionMonitorCard({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant={isCanvas ? 'secondary' : 'ghost'}
+                  variant="ghost"
                   size="icon"
                   className={
                     isCanvas
-                      ? 'nodrag nopan h-7 w-7 text-[var(--text-strong)]'
+                      ? 'nodrag nopan h-6 w-6 bg-transparent shadow-none hover:bg-transparent'
                       : 'nodrag nopan h-6 w-6 rounded-full bg-transparent text-[var(--primary-control-foreground)] hover:bg-transparent hover:text-[var(--primary-control-foreground)]'
                   }
                   aria-label={primaryLabel}
@@ -148,7 +148,7 @@ export function SessionMonitorCard({
                   onDoubleClick={(event) => event.stopPropagation()}
                 >
                   {isCanvas ? (
-                    <Scaling className="h-3.5 w-3.5" strokeWidth={2.25} />
+                    <Minimize2 className="h-3.5 w-3.5" strokeWidth={2.25} />
                   ) : (
                     <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--surface-control)] transition-opacity hover:opacity-90 motion-reduce:transition-none dark:bg-[var(--switch-checked-track)]">
                       <ArrowRight className="h-3 w-3" strokeWidth={3.25} />

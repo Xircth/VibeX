@@ -121,6 +121,61 @@ describe('assistantBlockSlices', () => {
   });
 });
 
+describe('buildTimelineVirtualEntries keys', () => {
+  const prose = '已经写好的回答，后面继续长也不会换测量 key';
+
+  function entriesFor(blocks: Array<Record<string, unknown>>) {
+    return buildTimelineVirtualEntries({
+      items: [
+        {
+          kind: 'message',
+          item: {
+            key: 'row-1',
+            phase: 'streaming',
+            turn: {
+              id: 'turn-1',
+              role: 'assistant',
+              blocks,
+            },
+          },
+          row: { row_id: 'row-1' },
+        } as never,
+      ],
+      collapseProcess: false,
+      hideThinking: false,
+      processExpanded: () => false,
+      isContextCompact: () => false,
+    });
+  }
+
+  it('keeps a prose key when a tool is inserted ahead of it', () => {
+    const before = entriesFor([{ type: 'text', text: prose }]);
+    const after = entriesFor([
+      {
+        type: 'tool_use',
+        tool_name: 'Read',
+        tool_use_id: 'call-9',
+        input_preview: '{}',
+        meta: null,
+      },
+      { type: 'text', text: prose },
+    ]);
+    const proseKey = before.find((entry) => entry.key.includes(':md:'))?.key;
+    expect(proseKey).toBeTruthy();
+    expect(after.map((entry) => entry.key)).toContain(proseKey);
+    expect(after.some((entry) => entry.key.includes('tool:call-9'))).toBe(true);
+  });
+
+  it('keeps a prose key while the streamed text grows past the prefix', () => {
+    const prefix = 'x'.repeat(64);
+    const before = entriesFor([{ type: 'text', text: prefix }]);
+    const after = entriesFor([
+      { type: 'text', text: `${prefix} and then a much longer answer` },
+    ]);
+    expect(before[0]?.key).toBe(after[0]?.key);
+  });
+});
+
 describe('virtualRowFoldEdge', () => {
   it('marks only the boundary between an expanded fold and the following prose', () => {
     const entries = buildTimelineVirtualEntries({

@@ -233,7 +233,10 @@ function MainAppContent({ children }: { children: ReactNode }) {
   useLegacyDesignBodyClass();
   useOptionMenuViewportFit();
 
-  useEffect(() => revealDesktopWindowAfterPaint(), []);
+  useEffect(() => {
+    if (isSettingsSurfacePath(window.location.pathname)) return;
+    return revealDesktopWindowAfterPaint();
+  }, []);
 
   useEffect(() => {
     if (!isTauri) return;

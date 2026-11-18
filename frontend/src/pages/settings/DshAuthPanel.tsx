@@ -71,6 +71,38 @@ function isOfficialBaseUrl(url?: string | null): boolean {
   return OFFICIAL_URLS.some((candidate) => candidate === normalized);
 }
 
+function sameBaseUrl(left?: string | null, right?: string | null): boolean {
+  const a = normalizeOfficialUrl(left).toLowerCase();
+  const b = normalizeOfficialUrl(right).toLowerCase();
+  return a.length > 0 && a === b;
+}
+
+function customProviderEnabled(
+  view: DshProvidersView | null,
+  provider: { id: string; base_url?: string | null }
+): boolean {
+  if (!view) return false;
+  if (view.default_provider === provider.id) return true;
+  const explicitDefault = view.providers.some(
+    (entry) => entry.id === view.default_provider && entry.id !== OFFICIAL_ID
+  );
+  if (explicitDefault) return false;
+  const officialUrl = view.providers.find(
+    (entry) => entry.id === OFFICIAL_ID
+  )?.base_url;
+  if (
+    !sameBaseUrl(officialUrl, provider.base_url) ||
+    isOfficialBaseUrl(officialUrl)
+  ) {
+    return false;
+  }
+  const matches = view.providers.filter(
+    (entry) =>
+      entry.id !== OFFICIAL_ID && sameBaseUrl(entry.base_url, officialUrl)
+  );
+  return matches.length === 1 && matches[0]?.id === provider.id;
+}
+
 type Draft = {
   mode: string;
   apiKey: string;
@@ -587,6 +619,7 @@ export function DshAuthPanel({
     setSaving(true);
     try {
       setView(await agentManagementApi.deleteDshProvider(providerId));
+      await onChanged?.();
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.dshProviderSaveFailed'))
@@ -1025,9 +1058,9 @@ export function DshAuthPanel({
                   {customProviders.length ? (
                     <ul className="agent-model-provider-list">
                       {customProviders.map((provider) => {
-                        const bound = view?.default_provider === provider.id;
+                        const enabled = customProviderEnabled(view, provider);
                         return (
-                          <li key={provider.id} data-bound={bound}>
+                          <li key={provider.id} data-bound={enabled}>
                             <div>
                               <strong>{provider.display_name}</strong>
                               <p>{provider.base_url ?? ''}</p>
@@ -1035,19 +1068,35 @@ export function DshAuthPanel({
                             <div className="agent-model-provider-card-actions">
                               <Button
                                 size="sm"
-                                variant={bound ? 'outline' : 'default'}
-                                className="h-7"
-                                disabled={saving || bound || locked}
-                                onClick={() => void enableCustom(provider.id)}
+                                variant={enabled ? 'outline' : 'default'}
+                                className={cn(
+                                  'agent-model-provider-enable h-7',
+                                  enabled && 'is-enabled'
+                                )}
+                                disabled={saving || locked}
+                                aria-pressed={enabled}
+                                title={
+                                  enabled
+                                    ? t('settings:agents.providerDisable')
+                                    : undefined
+                                }
+                                onClick={() =>
+                                  void (enabled
+                                    ? removeCustom(
+                                        provider.id,
+                                        provider.display_name
+                                      )
+                                    : enableCustom(provider.id))
+                                }
                               >
-                                {bound ? (
+                                {enabled ? (
                                   <Check
                                     aria-hidden="true"
                                     className="mr-1 h-3.5 w-3.5"
                                   />
                                 ) : null}
-                                {bound
-                                  ? t('settings:agents.enabled')
+                                {enabled
+                                  ? t('settings:agents.providerEnabled')
                                   : t('settings:agents.providerEnable')}
                               </Button>
                               <Button
@@ -1067,7 +1116,7 @@ export function DshAuthPanel({
                                 size="sm"
                                 variant="ghost"
                                 className="h-7"
-                                disabled={saving || bound || locked}
+                                disabled={saving || enabled || locked}
                                 onClick={() =>
                                   void removeCustom(
                                     provider.id,

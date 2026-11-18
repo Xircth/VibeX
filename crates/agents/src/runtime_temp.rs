@@ -7,19 +7,19 @@
 //! `[PYI-33104:ERROR] Could not create temporary directory!` with Windows
 //! status `-1` (`0xffffffff`).
 //!
-//! Dimo also kills ACP process groups (`kill_on_drop` / idle sweep) before
-//! the bootloader can delete `_MEI*`, so the user TEMP fills with leftovers
-//! and later creates start failing. Host-managed `%LOCALAPPDATA%\Dimo\acp-tmp\<agent>`
-//! is short, writable, and isolated from that pollution. Prepare uses a unique
-//! write probe so concurrent connections for the same agent do not contend, retries
-//! ACCESS_DENIED / sharing violations (Defender scanning leftover `_MEI*`), and
-//! falls back to host scratch when the primary tree is briefly unwritable.
+//! Dimo kills ACP process groups (`kill_on_drop`, idle sweep, job terminate)
+//! before the bootloader can delete `_MEI*`. ACP launches and the Antigravity
+//! sign-in helper therefore each get a directory under
+//! `%LOCALAPPDATA%\Dimo\acp-tmp\<agent>\run-*`, removed when that launch ends.
+//! Leftover `_MEI*` extracts and abandoned `run-*` directories are swept at
+//! startup and before the next launch. A directory still held open by a
+//! process, or a pending launch younger than two minutes, is left in place.
 
 use std::{
     collections::HashMap,
     fs, io,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use crate::AgentId;
@@ -28,6 +28,11 @@ const ACP_TMP_ROOT: &str = "Dimo";
 const ACP_TMP_LEAF: &str = "acp-tmp";
 const PREPARE_ATTEMPTS: u32 = 5;
 const PREPARE_RETRY_SLEEP: Duration = Duration::from_millis(30);
+const CLEANUP_ATTEMPTS: u32 = 8;
+const CLEANUP_RETRY_SLEEP: Duration = Duration::from_millis(50);
+const SESSION_DIR_PREFIX: &str = "run-";
+const SESSION_OWNER_FILE: &str = ".dimo-runtime-owner";
+const SESSION_PENDING_GRACE: Duration = Duration::from_secs(120);
 
 pub fn agent_runtime_temp_dir_in(base: &Path, agent_id: &AgentId) -> PathBuf {
     base.join(ACP_TMP_ROOT)
@@ -138,6 +143,319 @@ pub fn prepare_and_bind_agent_runtime_temp(
     let dir = prepare_agent_runtime_temp(agent_id)?;
     bind_agent_runtime_temp_env(env, &dir);
     Ok(dir)
+}
+
+/// One ACP or native-engine launch's temporary directory.
+///
+/// Dropping the session removes that directory, including any PyInstaller
+/// `_MEI*` tree the child extracted into it.
+#[must_use = "dropping the session removes its temporary directory"]
+pub struct AgentRuntimeTempSession {
+    dir: PathBuf,
+}
+
+impl AgentRuntimeTempSession {
+    pub fn path(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn bind_env(&self, env: &mut HashMap<String, String>) {
+        bind_agent_runtime_temp_env(env, &self.dir);
+    }
+
+    pub fn record_owner_pid(&self, pid: u32) {
+        let _ = fs::write(self.dir.join(SESSION_OWNER_FILE), pid.to_string());
+    }
+}
+
+impl Drop for AgentRuntimeTempSession {
+    fn drop(&mut self) {
+        release_runtime_temp_session(&self.dir);
+    }
+}
+
+pub fn prepare_agent_runtime_temp_session(
+    agent_id: &AgentId,
+) -> io::Result<AgentRuntimeTempSession> {
+    let parent = prepare_agent_runtime_temp(agent_id)?;
+    create_runtime_temp_session(&parent)
+}
+
+/// Remove PyInstaller extracts and abandoned per-launch directories under
+/// every host ACP temp root. Safe to call while other launches are running:
+/// open extracts and sessions owned by a live process are skipped.
+pub fn sweep_stale_agent_runtime_temps() {
+    let mut removed = 0u32;
+    for base in runtime_temp_candidate_bases() {
+        let root = base.join(ACP_TMP_ROOT).join(ACP_TMP_LEAF);
+        removed += sweep_runtime_temp_root(&root);
+    }
+    if removed > 0 {
+        tracing::info!(
+            removed,
+            "removed stale ACP PyInstaller temporary directories"
+        );
+    }
+}
+
+fn create_runtime_temp_session(parent: &Path) -> io::Result<AgentRuntimeTempSession> {
+    sweep_agent_runtime_temp(parent);
+    for _ in 0..PREPARE_ATTEMPTS {
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let dir = parent.join(format!("{SESSION_DIR_PREFIX}{}", &token[..12]));
+        match fs::create_dir(&dir) {
+            Ok(()) => {
+                if let Err(error) = fs::write(dir.join(SESSION_OWNER_FILE), b"pending") {
+                    let _ = fs::remove_dir_all(&dir);
+                    return Err(error);
+                }
+                return Ok(AgentRuntimeTempSession { dir });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate a unique ACP temporary directory",
+    ))
+}
+
+fn release_runtime_temp_session(dir: &Path) {
+    let _ = fs::write(dir.join(SESSION_OWNER_FILE), b"dead");
+    if let Err(error) = remove_tree_retrying(dir) {
+        tracing::warn!(
+            path = %dir.display(),
+            %error,
+            "ACP temporary directory remained after the launch ended"
+        );
+    }
+}
+
+fn sweep_runtime_temp_root(root: &Path) -> u32 {
+    let Ok(entries) = fs::read_dir(root) else {
+        return 0;
+    };
+    let mut removed = 0u32;
+    for entry in entries.flatten() {
+        if !is_real_directory(&entry) {
+            continue;
+        }
+        removed += sweep_agent_runtime_temp(&entry.path());
+    }
+    removed
+}
+
+fn sweep_agent_runtime_temp(dir: &Path) -> u32 {
+    sweep_agent_runtime_temp_at(dir, SystemTime::now(), SESSION_PENDING_GRACE)
+}
+
+fn sweep_agent_runtime_temp_at(dir: &Path, now: SystemTime, grace: Duration) -> u32 {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0u32;
+    for entry in entries.flatten() {
+        if !is_real_directory(&entry) {
+            continue;
+        }
+        let Some(name) = entry.file_name().into_string().ok() else {
+            continue;
+        };
+        if reclaim_stale_child(&entry.path(), &name, now, grace) {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+fn is_real_directory(entry: &fs::DirEntry) -> bool {
+    match entry.file_type() {
+        Ok(file_type) => file_type.is_dir() && !file_type.is_symlink(),
+        Err(_) => false,
+    }
+}
+
+fn reclaim_stale_child(path: &Path, name: &str, now: SystemTime, grace: Duration) -> bool {
+    if is_pyinstaller_extract(name) {
+        if directory_has_locked_file(path) {
+            return false;
+        }
+        return remove_tree_retrying(path).is_ok();
+    }
+    if !name.starts_with(SESSION_DIR_PREFIX) || name.len() == SESSION_DIR_PREFIX.len() {
+        return false;
+    }
+    match owner_state(path) {
+        OwnerState::Alive => false,
+        OwnerState::Pending => {
+            let Some(age) = dir_age(path, now) else {
+                return false;
+            };
+            if age < grace || directory_has_locked_file(path) {
+                return false;
+            }
+            remove_tree_retrying(path).is_ok()
+        }
+        OwnerState::Dead => {
+            if directory_has_locked_file(path) {
+                return false;
+            }
+            remove_tree_retrying(path).is_ok()
+        }
+    }
+}
+
+enum OwnerState {
+    Pending,
+    Alive,
+    Dead,
+}
+
+fn owner_state(dir: &Path) -> OwnerState {
+    let text = fs::read_to_string(dir.join(SESSION_OWNER_FILE)).unwrap_or_default();
+    let text = text.trim();
+    if text.is_empty() || text == "pending" {
+        return OwnerState::Pending;
+    }
+    match text.parse::<u32>() {
+        Ok(pid) if process_is_alive(pid) => OwnerState::Alive,
+        _ => OwnerState::Dead,
+    }
+}
+
+fn dir_age(dir: &Path, now: SystemTime) -> Option<Duration> {
+    let modified = fs::metadata(dir).ok()?.modified().ok()?;
+    now.duration_since(modified).ok()
+}
+
+fn is_pyinstaller_extract(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("_MEI") else {
+        return false;
+    };
+    !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn remove_tree_retrying(dir: &Path) -> io::Result<()> {
+    let mut last_error = None;
+    for attempt in 0..CLEANUP_ATTEMPTS {
+        match fs::remove_dir_all(dir) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) if is_transient_fs_error(&error) && attempt + 1 < CLEANUP_ATTEMPTS => {
+                last_error = Some(error);
+                std::thread::sleep(CLEANUP_RETRY_SLEEP);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "could not remove an ACP temporary directory",
+        )
+    }))
+}
+
+fn directory_has_locked_file(dir: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        directory_has_locked_file_windows(dir)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        false
+    }
+}
+
+#[cfg(windows)]
+fn directory_has_locked_file_windows(root: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => return true,
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return true;
+            };
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                return true;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            match fs::OpenOptions::new().read(true).share_mode(0).open(&path) {
+                Ok(file) => drop(file),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(_) => return true,
+            }
+        }
+    }
+    false
+}
+
+fn process_is_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        process_is_alive_windows(pid)
+    }
+    #[cfg(unix)]
+    {
+        process_is_alive_unix(pid)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        false
+    }
+}
+
+#[cfg(windows)]
+fn process_is_alive_windows(pid: u32) -> bool {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, STILL_ACTIVE},
+        System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code);
+        let _ = CloseHandle(handle);
+        ok != 0 && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(unix)]
+fn process_is_alive_unix(pid: u32) -> bool {
+    // `kill(-1, 0)` signals every process the caller may signal. A pid that
+    // does not fit in a positive pid_t must not reach libc.
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    if pid <= 0 {
+        return false;
+    }
+    let result = unsafe { libc::kill(pid, 0) };
+    if result == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(test)]
@@ -299,5 +617,136 @@ mod tests {
         assert!(dir.starts_with(fallback.join("Dimo").join("acp-tmp")));
         assert!(!dir.starts_with(&blocked));
         fs::create_dir(dir.join("_MEIprobe")).unwrap();
+    }
+
+    #[test]
+    fn process_liveness_matches_this_process() {
+        assert!(!process_is_alive(0));
+        assert!(process_is_alive(std::process::id()));
+        assert!(!process_is_alive(u32::MAX));
+    }
+
+    #[test]
+    fn new_session_sweeps_unlocked_extracts_then_removes_its_dir_on_drop() {
+        let tmp = Scratch::new();
+        let parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("antigravity")).unwrap();
+        let stale = parent.join("_MEI12345");
+        fs::create_dir(&stale).unwrap();
+        fs::write(stale.join("payload.bin"), b"stale").unwrap();
+        let unrelated = parent.join("_MEIprobe");
+        fs::create_dir(&unrelated).unwrap();
+        let probe = parent.join(".write-probe-keep");
+        fs::write(&probe, b"ok").unwrap();
+
+        let session = create_runtime_temp_session(&parent).unwrap();
+        assert!(!stale.exists());
+        assert!(unrelated.is_dir());
+        assert!(probe.is_file());
+
+        let mut env = HashMap::new();
+        session.bind_env(&mut env);
+        let path = session.path().to_path_buf();
+        assert!(path.starts_with(&parent));
+        assert_ne!(path, parent);
+        let name = path.file_name().unwrap().to_str().unwrap();
+        assert!(name.starts_with(SESSION_DIR_PREFIX));
+        assert_eq!(name.len(), SESSION_DIR_PREFIX.len() + 12);
+        let bound = path.to_string_lossy();
+        assert_eq!(env.get("TEMP").map(String::as_str), Some(bound.as_ref()));
+        assert_eq!(env.get("TMP").map(String::as_str), Some(bound.as_ref()));
+        assert_eq!(env.get("TMPDIR").map(String::as_str), Some(bound.as_ref()));
+        fs::create_dir(path.join("_MEI77")).unwrap();
+        drop(session);
+        assert!(!path.exists());
+        assert!(parent.is_dir());
+        assert!(unrelated.is_dir());
+    }
+
+    #[test]
+    fn sweep_keeps_live_owners_and_young_pending_dirs() {
+        let tmp = Scratch::new();
+        let parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("antigravity")).unwrap();
+        let live = parent.join("run-liveowner01");
+        fs::create_dir(&live).unwrap();
+        fs::write(
+            live.join(SESSION_OWNER_FILE),
+            std::process::id().to_string(),
+        )
+        .unwrap();
+        let pending = parent.join("run-pending0001");
+        fs::create_dir(&pending).unwrap();
+        fs::write(pending.join(SESSION_OWNER_FILE), b"pending").unwrap();
+
+        let removed =
+            sweep_agent_runtime_temp_at(&parent, SystemTime::now(), SESSION_PENDING_GRACE);
+        assert_eq!(removed, 0);
+        assert!(live.is_dir());
+        assert!(pending.is_dir());
+
+        let soon = SystemTime::now() + Duration::from_secs(10);
+        assert_eq!(
+            sweep_agent_runtime_temp_at(&parent, soon, SESSION_PENDING_GRACE),
+            0
+        );
+        assert!(pending.is_dir());
+        assert_eq!(
+            sweep_agent_runtime_temp_at(&parent, SystemTime::UNIX_EPOCH, SESSION_PENDING_GRACE),
+            0
+        );
+        assert!(pending.is_dir());
+    }
+
+    #[test]
+    fn sweep_removes_old_pending_and_dead_owners() {
+        let tmp = Scratch::new();
+        let parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("antigravity")).unwrap();
+        let pending = parent.join("run-oldpending1");
+        fs::create_dir(&pending).unwrap();
+        fs::write(pending.join(SESSION_OWNER_FILE), b"pending").unwrap();
+        let dead = parent.join("run-deadowner01");
+        fs::create_dir(&dead).unwrap();
+        fs::write(dead.join(SESSION_OWNER_FILE), u32::MAX.to_string()).unwrap();
+        let garbage = parent.join("run-notapid0001");
+        fs::create_dir(&garbage).unwrap();
+        fs::write(garbage.join(SESSION_OWNER_FILE), b"not-a-pid").unwrap();
+        let live = parent.join("run-stillalive1");
+        fs::create_dir(&live).unwrap();
+        fs::write(
+            live.join(SESSION_OWNER_FILE),
+            std::process::id().to_string(),
+        )
+        .unwrap();
+
+        let later = SystemTime::now() + Duration::from_secs(600);
+        let removed = sweep_agent_runtime_temp_at(&parent, later, SESSION_PENDING_GRACE);
+        assert_eq!(removed, 3);
+        assert!(!pending.exists());
+        assert!(!dead.exists());
+        assert!(!garbage.exists());
+        assert!(live.is_dir());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn sweep_keeps_a_locked_extract_until_the_lock_is_released() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let tmp = Scratch::new();
+        let parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("antigravity")).unwrap();
+        let mei = parent.join("_MEI999");
+        fs::create_dir(&mei).unwrap();
+        let file = mei.join("locked.bin");
+        fs::write(&file, b"held").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&file)
+            .expect("exclusive lock");
+
+        assert_eq!(sweep_agent_runtime_temp(&parent), 0);
+        assert!(mei.is_dir());
+        drop(lock);
+        assert_eq!(sweep_agent_runtime_temp(&parent), 1);
+        assert!(!mei.exists());
     }
 }

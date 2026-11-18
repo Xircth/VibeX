@@ -48,6 +48,23 @@ export function dismissCollaborationCreateOverlays(exceptSource?: unknown) {
   );
 }
 
+/**
+ * Open the kanban Agent session sidebar on the create-session form.
+ * Skips the canvas "create a card" shortcut and does not focus a session
+ * that is already in use.
+ */
+export function requestKanbanSessionCreateForm() {
+  dismissCollaborationCreateOverlays();
+  useLayoutStore.getState().setKanbanSessionVisible(true);
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<RequestCreateSessionOverlayEventDetail>(
+      REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+      { detail: { targetGroupId: null } }
+    )
+  );
+}
+
 export function requestWorkspaceCreateSessionOverlay(
   targetGroupId?: string | null
 ) {

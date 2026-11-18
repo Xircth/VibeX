@@ -37,6 +37,11 @@ describe('workspace session group layout', () => {
     expect(rail.get('overflow-y')).toBeUndefined();
     expect(rail.get('max-height')).toBeUndefined();
     expect(railLine.size).toBe(0);
+    expect(
+      declarationsFor(
+        '.workspace-session-group + .workspace-session-group'
+      ).get('margin-top')
+    ).toBe('1rem');
   });
 
   it('eases the search field width without an ambiguous Tailwind class', () => {
@@ -68,6 +73,16 @@ describe('session list title and hover chrome', () => {
     expect(title.get('white-space')).toBe('nowrap');
     expect(title.get('text-overflow')).toBe('ellipsis');
     expect(cjk.get('font-weight')).toBe('400');
+  });
+
+  it('reserves a fixed age column so status lights share one vertical line', () => {
+    const age = declarationsFor('.workspace-session-age');
+    const slot = declarationsFor('.workspace-session-status-slot');
+
+    expect(age.get('width')).toBe('2.75rem');
+    expect(age.get('text-align')).toBe('right');
+    expect(slot.get('width')).toBe('0.75rem');
+    expect(slot.get('flex')).toBe('0 0 0.75rem');
   });
 
   it('keeps the session hover card opaque with a 14px radius', () => {

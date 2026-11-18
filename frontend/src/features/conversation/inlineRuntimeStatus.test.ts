@@ -342,6 +342,41 @@ describe('deriveInlineStreamRuntimeStatus', () => {
     });
   });
 
+  it('does not paint a stream connecting spinner over a cancelled in-flight turn', () => {
+    const res = deriveInlineStreamRuntimeStatus({
+      connecting: true,
+      connection: readyConnection({ status: 'recovering', bound: false }),
+      request: requestStatus('cancelled'),
+      reconnectNotice: {
+        title: '正在连接 Agent…',
+        message: null,
+        severity: 'info',
+      },
+      hasUserMessage: true,
+      isTurnInFlight: true,
+      hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: true,
+    });
+
+    expect(res.status).toBeNull();
+    expect(res.placement).toBeNull();
+  });
+
+  it('keeps reconnect after a settled cancel on the composer', () => {
+    const res = deriveInlineStreamRuntimeStatus({
+      connecting: true,
+      connection: readyConnection({ status: 'connecting', bound: false }),
+      request: requestStatus('cancelled'),
+      hasUserMessage: true,
+      isTurnInFlight: false,
+      hasStreamingAssistantRow: false,
+    });
+
+    expect(res.placement).toBe('composer');
+    expect(res.status?.kind).toBe('connection');
+    expect(res.status?.notice.connection_status?.status).toBe('connecting');
+  });
+
   it('parses retry counts from reconnect progress titles', () => {
     expect(
       parseReconnectProgressTitle('会话加载异常，正在重连 3/10 次…')

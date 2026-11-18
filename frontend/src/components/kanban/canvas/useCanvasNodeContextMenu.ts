@@ -471,6 +471,7 @@ export function useCanvasNodeContextMenu({
       sortByName: () => {
         sortCanvasNodes?.();
       },
+      includeLayoutActions: false,
     });
   }, [
     activeWorktreeId,

@@ -5,7 +5,7 @@ use std::{
     process::ExitStatus,
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -249,22 +249,111 @@ pub struct AgentConnectionManagerEvent {
     pub event: AgentEvent,
 }
 
-/// Historical bound for the ACP → runtime event pump. The live pump is
-/// unbounded: a bounded channel plus `block_in_place` on the ACP read loop
-/// stalled every concurrent session at "生成中" when persist was slow.
+/// Hard cap for the ACP → runtime event pump. Senders use `try_send` and never
+/// block the ACP read loop: a blocking send stalled every concurrent session
+/// at "生成中" when persist was slow.
 pub const MANAGER_EVENT_BUFFER: usize = 8192;
 
-pub fn manager_event_channel() -> (
-    mpsc::UnboundedSender<AgentConnectionManagerEvent>,
-    mpsc::UnboundedReceiver<AgentConnectionManagerEvent>,
-) {
-    mpsc::unbounded_channel()
+/// High-volume deltas are dropped once this many events are already queued, so
+/// a terminal event can still enter the channel before the hard cap.
+pub const MANAGER_EVENT_SOFT_CAP: usize = 1024;
+
+#[derive(Debug, Clone)]
+pub struct ManagerEventSender {
+    tx: mpsc::Sender<AgentConnectionManagerEvent>,
+    depth: Arc<AtomicUsize>,
+    dropped: Arc<AtomicUsize>,
 }
 
-fn send_manager_event(
-    tx: &mpsc::UnboundedSender<AgentConnectionManagerEvent>,
-    event: AgentConnectionManagerEvent,
-) {
+pub struct ManagerEventReceiver {
+    rx: mpsc::Receiver<AgentConnectionManagerEvent>,
+    depth: Arc<AtomicUsize>,
+}
+
+impl ManagerEventReceiver {
+    pub async fn recv(&mut self) -> Option<AgentConnectionManagerEvent> {
+        let event = self.rx.recv().await?;
+        decrement_manager_event_depth(&self.depth);
+        Some(event)
+    }
+
+    pub fn try_recv(&mut self) -> Result<AgentConnectionManagerEvent, mpsc::error::TryRecvError> {
+        match self.rx.try_recv() {
+            Ok(event) => {
+                decrement_manager_event_depth(&self.depth);
+                Ok(event)
+            }
+            err => err,
+        }
+    }
+}
+
+fn decrement_manager_event_depth(depth: &AtomicUsize) {
+    let _ = depth.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_sub(1))
+    });
+}
+
+fn manager_event_is_sheddable(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::MessageChunk { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::Usage { .. }
+            | AgentEvent::RawAcpDiagnostic { .. }
+            | AgentEvent::RequestActivity { .. }
+            | AgentEvent::TerminalOutput { .. }
+    )
+}
+
+impl ManagerEventSender {
+    fn emit(&self, event: AgentConnectionManagerEvent) {
+        if manager_event_is_sheddable(&event.event)
+            && self.depth.load(Ordering::Relaxed) >= MANAGER_EVENT_SOFT_CAP
+        {
+            self.note_drop();
+            return;
+        }
+        match self.tx.try_send(event) {
+            Ok(()) => {
+                self.depth.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => self.note_drop(),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                tracing::debug!("ACP manager event outlet closed");
+            }
+        }
+    }
+
+    fn note_drop(&self) {
+        let dropped = self
+            .dropped
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        if dropped == 1 || dropped.is_power_of_two() {
+            tracing::debug!(
+                dropped,
+                "shedding high-volume ACP manager event so the pump cannot retain the stream"
+            );
+        }
+    }
+}
+
+pub fn manager_event_channel() -> (ManagerEventSender, ManagerEventReceiver) {
+    let (tx, rx) = mpsc::channel(MANAGER_EVENT_BUFFER);
+    let depth = Arc::new(AtomicUsize::new(0));
+    (
+        ManagerEventSender {
+            tx,
+            depth: Arc::clone(&depth),
+            dropped: Arc::new(AtomicUsize::new(0)),
+        },
+        ManagerEventReceiver { rx, depth },
+    )
+}
+
+fn send_manager_event(tx: &ManagerEventSender, event: AgentConnectionManagerEvent) {
     if let AgentEvent::RawAcpDiagnostic { raw } = &event.event
         && let Some(notice) = session_notice::notice_from_diagnostic_payload(raw)
     {
@@ -277,9 +366,7 @@ fn send_manager_event(
             "ACP session notice"
         );
     }
-    if tx.send(event).is_err() {
-        tracing::debug!("ACP manager event outlet closed");
-    }
+    tx.emit(event);
 }
 
 #[derive(Debug)]
@@ -301,7 +388,7 @@ struct ManagedAgentConnection {
 #[derive(Debug)]
 pub struct AgentConnectionManager {
     connections: Mutex<HashMap<AgentConnectionId, ManagedAgentConnection>>,
-    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    event_tx: ManagerEventSender,
     driver_enabled: bool,
     /// Installed once at startup. Lets the app splice a companion MCP server
     /// (the delegation companion) into each connection's `session/new`.
@@ -319,14 +406,11 @@ impl Default for AgentConnectionManager {
 }
 
 impl AgentConnectionManager {
-    pub fn new(event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>) -> Self {
+    pub fn new(event_tx: ManagerEventSender) -> Self {
         Self::new_with_driver(event_tx, true)
     }
 
-    pub fn new_with_driver(
-        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
-        driver_enabled: bool,
-    ) -> Self {
+    pub fn new_with_driver(event_tx: ManagerEventSender, driver_enabled: bool) -> Self {
         Self {
             connections: Mutex::new(HashMap::new()),
             event_tx,

@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn async_task_and_prompt_suggestion_ext_notifications_route_to_session_controls() {
     let session_id = AgentSessionId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner_for_agent("claude_code", event_tx.clone());
     let bridge = AcpClientBridge::new(
         AgentConnectionId::new(),
@@ -112,7 +112,7 @@ async fn async_task_and_prompt_suggestion_ext_notifications_route_to_session_con
 
 #[tokio::test]
 async fn in_memory_goal_control_orchestration_respects_claude_and_codex_rules() {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let (event_tx, _event_rx) = manager_event_channel();
     let manager = AgentConnectionManager::new_with_driver(event_tx, false);
 
     // 1. Claude clear never interrupts the in-flight turn.
@@ -183,7 +183,7 @@ async fn in_memory_goal_control_orchestration_respects_claude_and_codex_rules() 
 #[tokio::test]
 async fn antigravity_synthetic_turn_error_and_cancel_chunks_are_not_emitted_as_assistant_prose() {
     let session_id = AgentSessionId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
     let probe = Arc::new(TurnOutputProbe::default());
     // Even if the agent already emitted thoughts or tool calls earlier in the turn,
@@ -280,7 +280,7 @@ async fn run_prompt_unbinds_session_and_closes_connection_on_agent_connection_lo
 
     let session_id = AgentSessionId::new();
     let prompt_id = AgentPromptId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
     runner
         .session_map
@@ -475,7 +475,7 @@ async fn run_prompt_completes_cleanly_when_antigravity_emits_websocket_1000_ok_a
 
     let session_id = AgentSessionId::new();
     let prompt_id = AgentPromptId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
     runner
         .session_map
@@ -781,7 +781,7 @@ async fn run_prompt_settles_cleanly_on_incomplete_tool_call_error_after_output()
 
     let session_id = AgentSessionId::new();
     let prompt_id = AgentPromptId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let runner = dummy_runner_for_agent("claude_code", event_tx.clone());
     runner
         .session_map
@@ -964,7 +964,7 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
     std::fs::write(&cmd_shim, b"@echo off\r\n").unwrap();
 
     let make_runner = |program: PathBuf| {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (event_tx, _event_rx) = manager_event_channel();
         AgentConnectionRunner::new(
             ManagedAgentConnectionSnapshot {
                 connection_id: AgentConnectionId::new(),

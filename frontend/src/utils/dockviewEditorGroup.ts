@@ -17,6 +17,7 @@ import {
   isBottomGroup,
   isEditorGroup,
   isLeftGroup,
+  isRightShellNavGroup,
   isSessionGroup,
   isSessionPanelId,
   listLeftShellNavGroups,
@@ -63,14 +64,10 @@ export interface EnsureWelcomeEditorGroupOptions {
 }
 
 function getLeftGroup(api: DockviewApi) {
-  return (
-    api.getGroup(GROUP_IDS.LEFT) ??
-    api.groups.find(
-      (group) =>
-        isLeftGroup(group) &&
-        group.element?.getAttribute('data-shell-nav-side') !== 'right'
-    ) ??
-    api.groups.find((group) => isLeftGroup(group))
+  const canonical = api.getGroup(GROUP_IDS.LEFT);
+  if (canonical && !isRightShellNavGroup(canonical)) return canonical;
+  return api.groups.find(
+    (group) => isLeftGroup(group) && !isRightShellNavGroup(group)
   );
 }
 

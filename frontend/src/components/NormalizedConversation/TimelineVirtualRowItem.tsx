@@ -32,7 +32,7 @@ import {
   virtualRowFoldEdge,
   type AssistantBlockSlice,
 } from '@/components/logs/assistantVirtualSlices';
-import { getVirtualRowTranslateY } from '@/components/logs/VirtualizedList';
+
 import { cn } from '@/lib/utils';
 import { TurnStats } from './thread/TurnStats';
 import { LiveTurnStats } from './thread/LiveTurnStats';
@@ -129,8 +129,6 @@ export function InlineTimelineSideRow({
 
 export interface TimelineVirtualRowItemProps {
   virtualIndex: number;
-  virtualStart: number;
-  scrollMargin: number;
   measureElement: (node: HTMLDivElement | null) => void;
   item: ConversationTimelineItem;
   timeline: ConversationTimelineTurn[];
@@ -189,8 +187,6 @@ export interface TimelineVirtualRowItemProps {
 
 export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   virtualIndex,
-  virtualStart,
-  scrollMargin,
   measureElement,
   item,
   timeline,
@@ -316,7 +312,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
       data-message-id={row?.turn.id}
       data-block-index={slice?.kind === 'block' ? slice.itemIndex : undefined}
       className={cn(
-        'conv-turn-row absolute left-0 top-0 w-full',
+        'conv-turn-row w-full',
         foldEdge === 'tail'
           ? 'is-fold-tail'
           : suppressStatusRowPadding
@@ -326,9 +322,6 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
         isActiveNavTarget && 'conv-message-nav-target-active',
         isCurrentFindMatch && 'rounded-md bg-primary/10'
       )}
-      style={{
-        transform: getVirtualRowTranslateY(virtualStart, scrollMargin),
-      }}
     >
       {item.kind === 'side' ? (
         <InlineTimelineSideRow

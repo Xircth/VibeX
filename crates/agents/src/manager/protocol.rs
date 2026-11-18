@@ -171,7 +171,7 @@ pub(in crate::manager) struct AcpClientBridge {
         Arc<Mutex<crate::vendor_request_activity::RetryIncidentLedger>>,
     pub(in crate::manager) connection_id: AgentConnectionId,
     pub(in crate::manager) agent_id: crate::AgentId,
-    pub(in crate::manager) event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    pub(in crate::manager) event_tx: ManagerEventSender,
     pub(in crate::manager) session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     // Shared with the owning runner: session-notification pushes (mode / config
     // updates) must keep the stored controls authoritative for later
@@ -200,7 +200,7 @@ impl AcpClientBridge {
     pub(in crate::manager) fn new(
         connection_id: AgentConnectionId,
         agent_id: crate::AgentId,
-        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+        event_tx: ManagerEventSender,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
         session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,

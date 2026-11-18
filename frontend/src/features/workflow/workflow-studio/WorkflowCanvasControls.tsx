@@ -6,6 +6,8 @@ import {
   Minus,
   MousePointer2,
   Plus,
+  Redo2,
+  Undo2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -18,11 +20,19 @@ export function WorkflowCanvasControls({
   onToolChange,
   miniMapOpen,
   onToggleMiniMap,
+  canUndo = false,
+  onUndo,
+  canRedo = false,
+  onRedo,
 }: {
   tool: CanvasInteractionTool;
   onToolChange: (next: CanvasInteractionTool) => void;
   miniMapOpen: boolean;
   onToggleMiniMap: () => void;
+  canUndo?: boolean;
+  onUndo?: () => void;
+  canRedo?: boolean;
+  onRedo?: () => void;
 }) {
   const { t } = useTranslation('workflow');
   const reactFlow = useReactFlow();
@@ -35,6 +45,34 @@ export function WorkflowCanvasControls({
       data-testid="workflow-canvas-controls"
       className="nopan nodrag workflow-studio-floating-controls pointer-events-auto absolute bottom-3.5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]"
     >
+      {onUndo || onRedo ? (
+        <>
+          <button
+            type="button"
+            data-testid="workflow-canvas-undo"
+            aria-label={t('studio.stepBack')}
+            title={t('studio.stepBack')}
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="grid size-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Undo2 className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            data-testid="workflow-canvas-redo"
+            aria-label={t('studio.stepForward')}
+            title={t('studio.stepForward')}
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="grid size-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Redo2 className="size-3.5" />
+          </button>
+          <span className="mx-0.5 h-3.5 w-px bg-border/70" aria-hidden="true" />
+        </>
+      ) : null}
+
       <button
         type="button"
         data-testid="workflow-canvas-tool-select"

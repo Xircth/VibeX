@@ -122,6 +122,7 @@ export function resetSelfTriggeredSettingsStateForTests(): void {
 function applyPreferences(preferences: Record<string, JsonValue>): boolean {
   let changed = false;
   for (const [storageKey, preferenceKey] of Object.entries(STORAGE_KEYS)) {
+    if (!isPortablePreferenceKey(preferenceKey)) continue;
     if (!(preferenceKey in preferences)) continue;
     const normalized = normalizePreferenceValue(
       preferenceKey,

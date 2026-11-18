@@ -3,9 +3,11 @@ import { registerCanvasWorkspaceController } from '@/components/kanban/canvas/ca
 import {
   CREATE_AGENT_SESSION_EVENT,
   DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
+  DISMISS_CREATE_SESSION_OVERLAY_EVENT,
   REQUEST_CREATE_SESSION_OVERLAY_EVENT,
   requestCreateAgentSessionInExecutionArea,
   requestCreateSessionInExecutionArea,
+  requestKanbanSessionCreateForm,
   requestWorkspaceCreateSessionOverlay,
   resolveCreateSessionSurface,
 } from './requestCreateSession';
@@ -182,6 +184,50 @@ describe('requestCreateSessionInExecutionArea', () => {
         DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
         dismissCollabListener
       );
+    }
+  });
+
+  it('opens the kanban session sidebar on the create form without focusing a canvas session', () => {
+    layout.activeTab = 'kanban';
+    const createSession = vi.fn();
+    const overlayListener = vi.fn();
+    const dismissCreateListener = vi.fn();
+    const unregister = registerCanvasWorkspaceController({
+      createSession,
+      openOrFocusPanel: vi.fn(),
+      openOrFocusSession: vi.fn(),
+      dropSessionAt: vi.fn(),
+      dropPanelAt: vi.fn(),
+      closeNode: vi.fn(),
+      closeOtherNodes: vi.fn(),
+      closeAllNodes: vi.fn(),
+      duplicateNode: vi.fn(),
+    });
+    window.addEventListener(
+      REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+      overlayListener
+    );
+    window.addEventListener(
+      DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+      dismissCreateListener
+    );
+    try {
+      requestKanbanSessionCreateForm();
+      expect(layout.setKanbanSessionVisible).toHaveBeenCalledWith(true);
+      expect(layout.setRightPanelVisible).not.toHaveBeenCalled();
+      expect(createSession).not.toHaveBeenCalled();
+      expect(dismissCreateListener).not.toHaveBeenCalled();
+      expect(overlayListener).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener(
+        REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+        overlayListener
+      );
+      window.removeEventListener(
+        DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+        dismissCreateListener
+      );
+      unregister();
     }
   });
 });

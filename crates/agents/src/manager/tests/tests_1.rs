@@ -1,8 +1,6 @@
 use super::*;
 
-pub(super) fn dummy_runner(
-    event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
-) -> AgentConnectionRunner {
+pub(super) fn dummy_runner(event_tx: ManagerEventSender) -> AgentConnectionRunner {
     AgentConnectionRunner::new(
         ManagedAgentConnectionSnapshot {
             connection_id: AgentConnectionId::new(),
@@ -71,7 +69,7 @@ fn grok_catalog_refresh_keeps_this_session_current_model() {
 #[tokio::test]
 async fn acp_tool_call_notifications_preserve_reported_status_and_output() {
     let session_id = AgentSessionId::new();
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (event_tx, mut event_rx) = manager_event_channel();
     let bridge = AcpClientBridge::new(
         AgentConnectionId::new(),
         AgentId::parse("antigravity").unwrap(),
@@ -91,7 +89,7 @@ async fn acp_tool_call_notifications_preserve_reported_status_and_output() {
         Arc::new(Mutex::new(None)),
         PathBuf::from("C:/workspace"),
         HashMap::new(),
-        dummy_runner(mpsc::unbounded_channel().0),
+        dummy_runner(manager_event_channel().0),
     );
     for status in ["in_progress", "completed", "failed"] {
         let notification: SessionNotification = serde_json::from_value(serde_json::json!({
@@ -806,6 +804,58 @@ async fn manager_event_channel_does_not_drop_a_burst_of_terminal_events() {
     ));
 }
 
+#[tokio::test]
+async fn manager_event_channel_sheds_high_volume_deltas_and_keeps_prompt_finished() {
+    let (event_tx, mut event_rx) = manager_event_channel();
+    let connection_id = AgentConnectionId::new();
+    let prompt_id = AgentPromptId::new();
+    for index in 0..(MANAGER_EVENT_SOFT_CAP + 500) {
+        send_manager_event(
+            &event_tx,
+            AgentConnectionManagerEvent {
+                connection_id,
+                session_id: None,
+                prompt_id: Some(prompt_id),
+                event: AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text {
+                        text: format!("delta-{index}"),
+                    },
+                },
+            },
+        );
+    }
+    send_manager_event(
+        &event_tx,
+        AgentConnectionManagerEvent {
+            connection_id,
+            session_id: None,
+            prompt_id: Some(prompt_id),
+            event: AgentEvent::PromptFinished {
+                finished: AgentPromptFinished {
+                    prompt_id,
+                    stop_reason: Some("end_turn".into()),
+                    usage: None,
+                },
+            },
+        },
+    );
+
+    let mut chunks = 0usize;
+    let mut finished = false;
+    while let Ok(event) = event_rx.try_recv() {
+        match event.event {
+            AgentEvent::MessageChunk { .. } => chunks += 1,
+            AgentEvent::PromptFinished { finished: prompt } if prompt.prompt_id == prompt_id => {
+                finished = true;
+                break;
+            }
+            other => panic!("unexpected manager event: {other:?}"),
+        }
+    }
+    assert!(finished, "PromptFinished must survive a delta flood");
+    assert_eq!(chunks, MANAGER_EVENT_SOFT_CAP);
+}
+
 #[test]
 fn maps_acp_session_config_options_to_agent_payload() {
     let options = vec![
@@ -1105,19 +1155,18 @@ async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
         manager::runner::native_events::NativeTurnState,
     };
 
-    let collect_emitted_text =
-        |rx: &mut mpsc::UnboundedReceiver<AgentConnectionManagerEvent>| -> Vec<String> {
-            let mut chunks = Vec::new();
-            while let Ok(ev) = rx.try_recv() {
-                if let AgentEvent::MessageChunk {
-                    content: AgentContentBlock::Text { text },
-                } = ev.event
-                {
-                    chunks.push(text);
-                }
+    let collect_emitted_text = |rx: &mut ManagerEventReceiver| -> Vec<String> {
+        let mut chunks = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            if let AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text { text },
+            } = ev.event
+            {
+                chunks.push(text);
             }
-            chunks
-        };
+        }
+        chunks
+    };
 
     let driver: Arc<dyn NativeEngineDriver> = Arc::new(ClaudeNativeDriver::new());
     let handle = EngineHandle::for_engine(
@@ -1133,7 +1182,7 @@ async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
 
     // 1. Matching message_id suppresses AssistantMessage replay.
     {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = manager_event_channel();
         let runner = dummy_runner(tx);
         let mut char_acc = 0usize;
         let mut state = NativeTurnState::default();
@@ -1176,7 +1225,7 @@ async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
 
     // 2. Mismatched message_ids (proxy rewrite) still suppress exact replay and emit only unstreamed suffix.
     {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = manager_event_channel();
         let runner = dummy_runner(tx);
         let mut char_acc = 0usize;
         let mut state = NativeTurnState::default();
@@ -1222,7 +1271,7 @@ async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
 
     // 3. Tool call / result boundary resets buffer so post-tool text emits once cleanly.
     {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = manager_event_channel();
         let runner = dummy_runner(tx);
         let mut char_acc = 0usize;
         let mut state = NativeTurnState::default();

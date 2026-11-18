@@ -93,6 +93,7 @@ import {
 } from '@/utils/dockviewGroupPolicy';
 import '@/styles/dockview-ayu.css';
 import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
+import { useCanvasToTabsHandoff } from '@/components/layout/useCanvasToTabsHandoff';
 import { useDockviewPanelActionsBinding } from '@/hooks/useDockviewPanelActionsBinding';
 import { OptionalCollaborationSpaceProvider } from '@/features/collaboration/space/SpaceContext';
 import { useWorkspaceStageInsets } from '@/components/layout/useWorkspaceStageInsets';
@@ -768,6 +769,7 @@ export function IDELayout({
   }, [arrangement, applyArrangement, readLiveDockviewApi]);
 
   const workspaceStageStyle = useWorkspaceStageStyle();
+  useCanvasToTabsHandoff(projectId);
   const collaborationEnabled = Boolean(config?.multi_agent_enabled);
   const isWorkspaceCanvasMode =
     hasProject &&

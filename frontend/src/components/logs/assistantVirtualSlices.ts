@@ -8,6 +8,57 @@ import {
   isCollapsibleProcessItem,
 } from '@/components/NormalizedConversation/messageTurnCollapse';
 
+const STREAMING_TEXT_PREFIX = 64;
+
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** Identity that stays put while a streaming block grows or shifts index. */
+export function blockVirtualKey(item: TurnRenderItem): string {
+  switch (item.kind) {
+    case 'tool': {
+      const id = item.use?.tool_use_id ?? item.result?.tool_use_id;
+      if (id) return `tool:${id}`;
+      const name = item.use?.tool_name ?? item.result?.tool_name ?? 'tool';
+      return `tool-name:${name}`;
+    }
+    case 'markdown':
+      return `md:${fnv1a(item.text.slice(0, STREAMING_TEXT_PREFIX))}`;
+    case 'thinking':
+      return `think:${fnv1a(item.text.slice(0, STREAMING_TEXT_PREFIX))}`;
+    case 'image':
+      return `img:${item.uri ?? fnv1a(item.data.slice(0, STREAMING_TEXT_PREFIX))}`;
+    case 'image_generation':
+      return `igen:${fnv1a(item.revisedPrompt ?? '')}`;
+    case 'plan':
+      return 'plan';
+    case 'resource':
+      return `res:${item.uri}`;
+    case 'protocol':
+      return `proto:${item.label}`;
+    default: {
+      const _exhaustive: never = item;
+      return `block:${String(_exhaustive)}`;
+    }
+  }
+}
+
+export function uniqueBlockVirtualKeys(items: TurnRenderItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = blockVirtualKey(item);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}#${count}`;
+  });
+}
+
 export type AssistantBlockSlice =
   | { kind: 'process-fold'; count: number; startIndex: number }
   | { kind: 'block'; itemIndex: number; inExpandedFold?: boolean }
@@ -122,13 +173,14 @@ export function buildTimelineVirtualEntries(input: {
       });
       return;
     }
+    const blockKeys = uniqueBlockVirtualKeys(blocks);
     slices.forEach((slice, sliceIndex) => {
       const suffix =
         slice.kind === 'process-fold'
-          ? `fold:${slice.startIndex}`
+          ? `fold:${blockKeys[slice.startIndex] ?? slice.startIndex}`
           : slice.kind === 'status'
             ? 'status'
-            : `b:${slice.itemIndex}`;
+            : (blockKeys[slice.itemIndex] ?? `b:${slice.itemIndex}`);
       entries.push({
         key: `turn:${row.key}:${suffix}`,
         timelineIndex,

@@ -1,8 +1,9 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DshProvidersView } from 'shared/types';
 
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 import { toast } from '@/components/ui/toast';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
@@ -10,6 +11,10 @@ import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
 import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { DshAuthPanel } from './DshAuthPanel';
+
+vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
+  ConfirmDialog: { show: vi.fn() },
+}));
 
 vi.mock('@/components/ui/toast', () => ({
   toast: {
@@ -75,6 +80,7 @@ const view: DshProvidersView = {
 describe('DshAuthPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('canceled');
     pluginControl.contributionCatalog.mockResolvedValue({
       generation: 0,
       items: [],
@@ -391,5 +397,87 @@ describe('DshAuthPanel', () => {
     );
     await user.click(screen.getByRole('button', { name: '拉取模型' }));
     expect(toast.warning).toHaveBeenCalledWith('未检测到模型');
+  });
+
+  it('shows a projected custom provider as enabled and removes only that provider', async () => {
+    const user = userEvent.setup();
+    const official = {
+      ...view.providers[0],
+      base_url: 'https://second.example.com/v1',
+    };
+    const first = {
+      id: 'custom-1',
+      display_name: 'First Gateway',
+      kind: 'custom' as const,
+      notes: null,
+      api: 'openai-completions',
+      base_url: 'https://first.example.com/v1',
+      api_key_env: 'DSH_CUSTOM_1_KEY',
+      api_key: null,
+      credential_present: false,
+      models: [{ id: 'm1', name: 'M1' }],
+    };
+    const second = {
+      id: 'custom-2',
+      display_name: 'Second Gateway',
+      kind: 'custom' as const,
+      notes: null,
+      api: 'openai-completions',
+      base_url: 'https://second.example.com/v1',
+      api_key_env: 'DSH_CUSTOM_2_KEY',
+      api_key: null,
+      credential_present: true,
+      models: [{ id: 'm2', name: 'M2' }],
+    };
+    const multiView: DshProvidersView = {
+      ...view,
+      default_provider: 'deepseek-official',
+      providers: [official, first, second],
+    };
+    vi.mocked(agentManagementApi.dshProviders).mockResolvedValue(multiView);
+    vi.mocked(agentManagementApi.authMode).mockResolvedValue({
+      agent_id: 'deepseek_harness',
+      mode: 'custom',
+      modes: ['deepseek', 'custom'],
+      options: [],
+      credential_env: 'DEEPSEEK_API_KEY',
+      credential_present: true,
+    });
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
+    vi.mocked(agentManagementApi.deleteDshProvider).mockResolvedValue({
+      ...multiView,
+      default_provider: 'deepseek-official',
+      providers: [{ ...official, base_url: null }, first],
+    });
+
+    render(<DshAuthPanel />);
+
+    const enabled = await screen.findByRole('button', { name: '已启用' });
+    expect(enabled).toBeEnabled();
+    expect(enabled).toHaveAttribute('aria-pressed', 'true');
+    const enableOther = screen.getByRole('button', { name: '启用' });
+    expect(enableOther).toBeEnabled();
+
+    await user.click(enabled);
+    await waitFor(() => {
+      expect(agentManagementApi.deleteDshProvider).toHaveBeenCalledWith(
+        'custom-2'
+      );
+      expect(screen.getByRole('button', { name: '启用' })).toBeEnabled();
+    });
+    expect(agentManagementApi.saveDshProvider).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('button', { name: '已启用' })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '启用' }));
+    await waitFor(() => {
+      expect(agentManagementApi.saveDshProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'custom-1',
+          set_default: true,
+        })
+      );
+    });
   });
 });

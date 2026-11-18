@@ -58,6 +58,12 @@ vi.mock('@xyflow/react', () => ({
       maxZoom: number;
     }) => unknown
   ) => selector({ transform: [0, 0, 1], minZoom: 0.1, maxZoom: 2 }),
+  useStoreApi: () => ({
+    getState: () => ({
+      nodes: [] as Array<{ id: string; position: { x: number; y: number } }>,
+      setNodes: vi.fn(),
+    }),
+  }),
   NodeResizer: () => null,
 }));
 
@@ -233,6 +239,38 @@ describe('SessionCanvasView', () => {
       );
     });
     expect(fitView).not.toHaveBeenCalled();
+  });
+
+  it('keeps a created session when the catalog flickers without it', () => {
+    let api: SessionCanvasApi | null = null;
+    const view = (sessions: KanbanProjectSessionRecord[]) => (
+      <SessionCanvasView
+        projectId="p1"
+        sessions={sessions}
+        sessionsReady
+        listWidth={280}
+        list={<div>list</div>}
+        onApiReady={(next) => {
+          api = next;
+        }}
+      />
+    );
+    const { rerender } = renderCanvas(
+      view([session('live', new Date().toISOString())])
+    );
+
+    act(() => {
+      api?.addSession('created');
+    });
+
+    rerender(view([session('live', new Date().toISOString())]));
+
+    const saved = JSON.parse(
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
+    ) as { nodes: Array<{ sessionId: string }> };
+    expect(saved.nodes.some((node) => node.sessionId === 'created')).toBe(
+      true
+    );
   });
 
   it('marks a session viewed when focusing it from the session list', async () => {

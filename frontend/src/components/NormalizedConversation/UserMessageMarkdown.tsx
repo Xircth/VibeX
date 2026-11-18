@@ -148,10 +148,197 @@ function escapeUnsupportedBlockPrefix(value: string): string {
   if (/^\s{0,3}>/u.test(value)) {
     return value.replace(/^(\s{0,3})>/u, '$1\\>');
   }
-  if (/^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/u.test(value)) {
+  if (isThematicBreak(value)) {
     return value.replace(/^(\s{0,3})([-*_])/u, '$1\\$2');
   }
   return value;
+}
+
+const ORDERED_MARKER = String.raw`\d+(?:[.)]|\uFF0E|\uFF09|\u3001)`;
+const LIST_MARKER = String.raw`(?:[-+*]|${ORDERED_MARKER})`;
+const LIST_ITEM_LINE = new RegExp(
+  `^[ \\t]{0,3}${LIST_MARKER}[ \\t\\u00A0\\u3000]+\\S`,
+  'u'
+);
+
+function isThematicBreak(value: string): boolean {
+  return /^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/u.test(value);
+}
+
+function isUserListItemLine(line: string): boolean {
+  return !isThematicBreak(line) && LIST_ITEM_LINE.test(line);
+}
+
+function canonicalizeOrderedMarker(marker: string): string {
+  return marker.replace(/[\uFF0E\u3001]$/u, '.').replace(/\uFF09$/u, ')');
+}
+
+/** Turn composer spaces and CJK markers into a marker the markdown parser accepts. */
+function normalizeUserListLine(line: string): string {
+  const match = line.match(
+    new RegExp(
+      `^([ \\t]{0,3})(${LIST_MARKER})([ \\t\\u00A0\\u3000]*)(.*)$`,
+      'u'
+    )
+  );
+  if (!match || isThematicBreak(line)) return line;
+
+  const indent = match[1] ?? '';
+  const rawMarker = match[2] ?? '';
+  const gap = match[3] ?? '';
+  const rest = match[4] ?? '';
+  const ordered = /^\d/u.test(rawMarker);
+  const marker = ordered ? canonicalizeOrderedMarker(rawMarker) : rawMarker;
+
+  if (gap.length === 0) {
+    if (!ordered || rest.length === 0 || /^[\d.)]/u.test(rest)) return line;
+    return `${indent}${marker} ${rest}`;
+  }
+  if (gap === ' ' && marker === rawMarker) return line;
+  return `${indent}${marker} ${rest}`;
+}
+
+function loosenOrderedMarkers(line: string): string {
+  const markerBody = new RegExp(
+    `(${ORDERED_MARKER})(?=[^\\d\\s.)\\uFF0E])`,
+    'gu'
+  );
+  const candidates = [...line.matchAll(markerBody)];
+  if (candidates.length === 0) return line;
+
+  const rewrite = (_full: string, prefix: string, marker: string) =>
+    `${prefix}${canonicalizeOrderedMarker(marker)} `;
+
+  const lineStart = new RegExp(
+    `^([ \\t]{0,3})(${ORDERED_MARKER})(?=[^\\d\\s.)\\uFF0E])`,
+    'u'
+  );
+  let next = line.replace(lineStart, rewrite);
+  if (candidates.length < 2) return next;
+
+  return next.replace(
+    new RegExp(
+      `(?<=[^\\dA-Za-z\\s])(${ORDERED_MARKER})(?=[^\\d\\s.)\\uFF0E])`,
+      'gu'
+    ),
+    (_full, marker: string) => `${canonicalizeOrderedMarker(marker)} `
+  );
+}
+
+function splitGluedOrderedItems(line: string): string[] {
+  if (isThematicBreak(line)) return [line];
+  const found = [
+    ...line.matchAll(new RegExp(`${ORDERED_MARKER}[ \\t]+[^\\d\\s]`, 'gu')),
+  ];
+  if (found.length < 2) return [line];
+
+  const breaks: number[] = [];
+  for (const match of found) {
+    const index = match.index ?? 0;
+    if (index === 0) continue;
+    const previous = line[index - 1] ?? '';
+    if (previous && !/[\dA-Za-z\s]/u.test(previous)) breaks.push(index);
+  }
+  if (breaks.length === 0) return [line];
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const index of breaks) {
+    parts.push(line.slice(cursor, index).replace(/[ \t]+$/u, ''));
+    cursor = index;
+  }
+  parts.push(line.slice(cursor));
+  return parts;
+}
+
+function peelTrailingListItem(line: string, nextIsList: boolean): string[] {
+  if (!nextIsList || isUserListItemLine(line) || isThematicBreak(line)) {
+    return [line];
+  }
+  const match = line.match(
+    new RegExp(
+      `^(.*[^\\dA-Za-z\\s])[ \\t]*(${LIST_MARKER}[ \\t]+[^\\d\\s].*)$`,
+      'u'
+    )
+  );
+  if (!match?.[1] || !match[2]) return [line];
+  return [match[1].replace(/[ \t]+$/u, ''), match[2]];
+}
+
+function inListContext(lines: readonly string[]): boolean {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index] ?? '';
+    if (line.trim() === '') return false;
+    if (isUserListItemLine(line)) return true;
+  }
+  return false;
+}
+
+/**
+ * A single newline is not enough for every list the composer produces.
+ * CommonMark keeps a `2.` / `3.` line inside the previous paragraph, and a
+ * non-breaking space after the marker never counts as the required gap, so
+ * the newline collapses into the sentence. A blank line before the list makes
+ * the following items render as a list.
+ */
+function promoteUserMessageLists(value: string): string {
+  const sourceLines = value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u2028\u2029]/g, '\n')
+    .split('\n');
+  const normalized: string[] = [];
+  let inCodeFence = false;
+
+  for (const sourceLine of sourceLines) {
+    if (/^[ \t]{0,3}```/u.test(sourceLine)) {
+      inCodeFence = !inCodeFence;
+      normalized.push(sourceLine);
+      continue;
+    }
+    if (inCodeFence) {
+      normalized.push(sourceLine);
+      continue;
+    }
+    normalized.push(
+      ...splitGluedOrderedItems(loosenOrderedMarkers(sourceLine)).map(
+        normalizeUserListLine
+      )
+    );
+  }
+
+  const promoted: string[] = [];
+  inCodeFence = false;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const line = normalized[index] ?? '';
+    if (/^[ \t]{0,3}```/u.test(line)) {
+      inCodeFence = !inCodeFence;
+      promoted.push(line);
+      continue;
+    }
+    if (inCodeFence) {
+      promoted.push(line);
+      continue;
+    }
+
+    const next = normalized[index + 1];
+    const pieces = peelTrailingListItem(
+      line,
+      next != null && isUserListItemLine(next)
+    );
+    for (const piece of pieces) {
+      if (
+        isUserListItemLine(piece) &&
+        promoted.length > 0 &&
+        (promoted[promoted.length - 1] ?? '').trim() !== '' &&
+        !inListContext(promoted)
+      ) {
+        promoted.push('');
+      }
+      promoted.push(piece);
+    }
+  }
+
+  return promoted.join('\n');
 }
 
 function prepareUserMessageMarkdown(
@@ -181,7 +368,7 @@ function prepareUserMessageMarkdown(
     ? protectMemberMentions(sourceWithTokenPlaceholders, knownNicknames)
     : { text: sourceWithTokenPlaceholders, mentions: [] };
 
-  const value = protectedMentions.text
+  const value = promoteUserMessageLists(protectedMentions.text)
     .split('\n')
     .map((line) => {
       if (/^\s*```/u.test(line)) {

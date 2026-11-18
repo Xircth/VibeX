@@ -54,34 +54,37 @@ export function useSessionComposerQueue({
     null
   );
   const queryKey = getQueueStatusQueryKey(sessionId);
-  const { data: queueStatus = EMPTY_QUEUE_STATUS, refetch } =
-    useQuery<QueueStatus>({
-      queryKey,
-      queryFn: async () => {
-        if (!sessionId) return EMPTY_QUEUE_STATUS;
-        const inputs = await conversationApi.listInputs(sessionId);
-        const messages = waitingQueueMessages(inputs);
-        return messages.length === 0
-          ? EMPTY_QUEUE_STATUS
-          : { status: 'queued', messages };
-      },
-      enabled: Boolean(sessionId),
-      // Process transitions are a cheap signal that a claim/dispatch may have
-      // changed. Durable events remain the authority; this only refreshes the view.
-      // A second window can enqueue while this one is idle. Event publication is
-      // the fast path; bounded polling guarantees eventual convergence if a host
-      // event is missed during suspension or reconnect.
-      refetchIntervalInBackground: false,
-      refetchInterval: (query) => {
-        const hasScheduled = query.state.data?.messages.some(
-          (m) => m.status === 'scheduled'
-        );
-        if (hasScheduled) return 2_000;
-        const hasQueued = (query.state.data?.messages.length ?? 0) > 0;
-        if (isAttemptRunning || hasQueued) return 5_000;
-        return 60_000;
-      },
-    });
+  const {
+    data: queueStatus = EMPTY_QUEUE_STATUS,
+    refetch,
+    isPending,
+  } = useQuery<QueueStatus>({
+    queryKey,
+    queryFn: async () => {
+      if (!sessionId) return EMPTY_QUEUE_STATUS;
+      const inputs = await conversationApi.listInputs(sessionId);
+      const messages = waitingQueueMessages(inputs);
+      return messages.length === 0
+        ? EMPTY_QUEUE_STATUS
+        : { status: 'queued', messages };
+    },
+    enabled: Boolean(sessionId),
+    // Process transitions are a cheap signal that a claim/dispatch may have
+    // changed. Durable events remain the authority; this only refreshes the view.
+    // A second window can enqueue while this one is idle. Event publication is
+    // the fast path; bounded polling guarantees eventual convergence if a host
+    // event is missed during suspension or reconnect.
+    refetchIntervalInBackground: false,
+    refetchInterval: (query) => {
+      const hasScheduled = query.state.data?.messages.some(
+        (m) => m.status === 'scheduled'
+      );
+      if (hasScheduled) return 2_000;
+      const hasQueued = (query.state.data?.messages.length ?? 0) > 0;
+      if (isAttemptRunning || hasQueued) return 5_000;
+      return 60_000;
+    },
+  });
 
   const refreshQueueStatus = useCallback(async () => {
     if (!sessionId) return { data: EMPTY_QUEUE_STATUS } as const;
@@ -434,6 +437,7 @@ export function useSessionComposerQueue({
       cancelMutation.isPending ||
       reorderMutation.isPending ||
       delayMutation.isPending,
+    isQueueStatusPending: Boolean(sessionId) && isPending,
     isQueued,
     isDelayedQueued,
     queueIndicatorState,

@@ -24,6 +24,7 @@ import {
   displayedCanvasNodes,
   preferLiveKanbanSessions,
   pruneMissingSessions,
+  retainUnconfirmedCanvasSessions,
   reuseSetIfEqual,
   reuseStringListIfEqual,
   resetNodeSize,
@@ -523,6 +524,45 @@ describe('pruneMissingSessions', () => {
         (item) => item.sessionId
       )
     ).toEqual(['live']);
+  });
+
+  it('keeps a stored session the catalog has not observed', () => {
+    const stored = [node('created', 0, 0), node('live', 40, 0)];
+    const displayed = displayedCanvasNodes(stored, new Set(['live']), true);
+    expect(
+      retainUnconfirmedCanvasSessions(
+        displayed,
+        stored,
+        new Set(['live']),
+        new Set()
+      ).map((item) => item.sessionId)
+    ).toEqual(['created', 'live']);
+  });
+
+  it('drops a session after the catalog has observed it and then lost it', () => {
+    const stored = [node('gone', 0, 0), node('live', 40, 0)];
+    const displayed = displayedCanvasNodes(stored, new Set(['live']), true);
+    expect(
+      retainUnconfirmedCanvasSessions(
+        displayed,
+        stored,
+        new Set(['gone', 'live']),
+        new Set()
+      ).map((item) => item.sessionId)
+    ).toEqual(['live']);
+  });
+
+  it('keeps a held session even after the catalog has observed it', () => {
+    const stored = [node('created', 0, 0), node('live', 40, 0)];
+    const displayed = displayedCanvasNodes(stored, new Set(['live']), true);
+    expect(
+      retainUnconfirmedCanvasSessions(
+        displayed,
+        stored,
+        new Set(['created', 'live']),
+        new Set(['created'])
+      ).map((item) => item.sessionId)
+    ).toEqual(['created', 'live']);
   });
 
   it('keeps a just-created card before the live session list includes it', () => {

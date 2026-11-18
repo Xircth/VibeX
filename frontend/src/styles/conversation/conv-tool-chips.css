@@ -102,10 +102,6 @@
   outline-offset: 1px;
 }
 
-.conv-tool-chip-row.is-error {
-  color: var(--conv-tool-error);
-}
-
 /* 16x16 icon slot that swaps semantic icon -> rotating chevron on hover/open */
 .conv-tool-chip-icon-slot {
   position: relative;
@@ -116,10 +112,6 @@
   align-items: center;
   justify-content: center;
   color: var(--conv-text-tertiary);
-}
-
-.conv-tool-chip-row.is-error .conv-tool-chip-icon-slot {
-  color: var(--conv-tool-error);
 }
 
 .conv-tool-chip-kind-icon,
@@ -212,9 +204,20 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: var(--radius-inner);
-  background: hsl(var(--destructive) / 0.12);
-  color: var(--conv-tool-error);
+  /* Failure stays readable, but the hue is mixed into the muted text and
+     control surface so a stack of failed calls does not read as an alarm. */
+  background: color-mix(
+    in srgb,
+    var(--conv-tool-error) 8%,
+    var(--conv-surface-control)
+  );
+  color: color-mix(
+    in srgb,
+    var(--conv-tool-error) 32%,
+    var(--conv-text-secondary)
+  );
   font-size: 11px;
+  font-weight: 400;
   line-height: 1.4;
 }
 

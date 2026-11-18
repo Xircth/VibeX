@@ -69,7 +69,7 @@ export function AgentRuntimeStatus({
     return () => window.clearInterval(timer);
   }, [placement, isError, terminal, request, connection]);
 
-  if (placement === 'stream' && !isError) {
+  if (placement === 'stream' && !isError && !terminal) {
     const parsedReconnect = parseReconnectProgressTitle(titleOverride);
     const attempt = retry?.attempt ?? parsedReconnect?.attempt ?? null;
     const maxAttempts =
@@ -124,16 +124,19 @@ export function AgentRuntimeStatus({
       : connection?.status;
   const title =
     titleOverride?.trim() ||
-    (connection
-      ? t(`runtime.connection.${connectionKey}`)
-      : t(`runtime.request.${phase ?? 'waiting_agent'}`));
+    (terminal && phase
+      ? t(`runtime.request.${phase}`)
+      : connection
+        ? t(`runtime.connection.${connectionKey}`)
+        : t(`runtime.request.${phase ?? 'waiting_agent'}`));
   const advisory =
     request && phase && since ? waitingAdvisory(phase, since, now) : null;
   const message = connection?.message ?? retry?.reason ?? notice.message;
   const waitingConnection = Boolean(
     connection && !connection.bound && !connectionFailed
   );
-  const isActive = Boolean(request && !terminal) || waitingConnection;
+  const isActive =
+    !terminal && (Boolean(request) || waitingConnection);
 
   const content = (
     <div

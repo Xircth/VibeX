@@ -3382,7 +3382,11 @@
     "backupDataLabel": "应用数据",
     "importBackup": "导入备份",
     "backupReadFailed": "无法读取备份文件",
-    "confirmRestoreDetail": "{{count}} 个文件，{{size}}，创建于 {{date}}。同名数据将被覆盖。"
+    "confirmRestoreDetail": "{{count}} 个文件，{{size}}，创建于 {{date}}。同名数据将被覆盖。",
+    "developerMode": "开发者模式",
+    "developerModeDescription": "打开后可用 F12 或 Ctrl+Shift+I 检查界面。macOS 使用 Option+Command+I。",
+    "openDeveloperTools": "打开开发者工具",
+    "developerModeSaveFailed": "开发者模式保存失败"
   },
   "browser": {
     "links": {

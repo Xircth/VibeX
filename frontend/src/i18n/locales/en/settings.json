@@ -3382,7 +3382,11 @@
     "backupDataLabel": "App data",
     "importBackup": "Import backup",
     "backupReadFailed": "Could not read the backup file",
-    "confirmRestoreDetail": "{{count}} files, {{size}}, created {{date}}. Existing data with the same name will be overwritten."
+    "confirmRestoreDetail": "{{count}} files, {{size}}, created {{date}}. Existing data with the same name will be overwritten.",
+    "developerMode": "Developer mode",
+    "developerModeDescription": "When on, inspect the interface with F12 or Ctrl+Shift+I. On macOS, use Option+Command+I.",
+    "openDeveloperTools": "Open developer tools",
+    "developerModeSaveFailed": "Could not save developer mode"
   },
   "browser": {
     "links": {

@@ -653,6 +653,9 @@ export const DESKTOP_SHELL_COMMANDS = [
   'take_pending_model_router_import',
   'take_tauri_inspector_capture',
   'update_web_service_config',
+  'get_developer_mode',
+  'set_developer_mode',
+  'open_developer_tools',
 ] as const;
 
 export const HOST_CAPABILITY_SCOPES = [

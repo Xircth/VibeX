@@ -12,8 +12,12 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('release tauri build enables devtools feature for desktop parity', () => {
+test('release tauri build leaves the devtools feature off', () => {
   const source = readRepoFile('src-tauri/Cargo.toml');
 
-  assert.match(source, /tauri\s*=\s*\{\s*version\s*=\s*"2"\s*,\s*features\s*=\s*\[[^\]]*"devtools"/);
+  assert.doesNotMatch(
+    source,
+    /tauri\s*=\s*\{[^}]*"devtools"/,
+    'developer mode is a settings.json switch, not the compile-time tauri/devtools feature'
+  );
 });

@@ -15,6 +15,6 @@ fn release_manifest_does_not_enable_tauri_devtools() {
         !features
             .iter()
             .any(|feature| feature.as_str() == Some("devtools")),
-        "the tauri/devtools feature exposes Inspect Element in release builds"
+        "release builds keep tauri/devtools off; Settings developer mode opens the inspector at runtime"
     );
 }

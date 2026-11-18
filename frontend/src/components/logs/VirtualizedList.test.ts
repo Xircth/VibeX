@@ -11,6 +11,8 @@ import {
   getDistanceFromConversationBottom,
   getVirtualRowTranslateY,
   getVirtualWindowTranslateY,
+  scrollTopToRevealVirtualWindow,
+  virtualListHeightPx,
   remeasureMountedVirtualRows,
   isConversationExpansionToggle,
   scrollTopAfterPrepend,
@@ -351,6 +353,86 @@ describe('conversation bottom distance', () => {
   it('anchors the in-flow window on the first visible row', () => {
     expect(getVirtualWindowTranslateY(512, 96)).toBe('translateY(416px)');
     expect(getVirtualWindowTranslateY(undefined, 96)).toBe('translateY(0px)');
+  });
+
+  it('grows the list box to the painted window when estimates are short', () => {
+    expect(
+      virtualListHeightPx({
+        totalSize: 1000,
+        windowStart: 2000,
+        scrollMargin: 40,
+        windowHeight: 800,
+      })
+    ).toBe(2760);
+    expect(
+      virtualListHeightPx({
+        totalSize: 5000,
+        windowStart: 100,
+        scrollMargin: 40,
+        windowHeight: 200,
+      })
+    ).toBe(5000);
+  });
+
+  it('reveals a translated window that the viewport missed', () => {
+    expect(
+      scrollTopToRevealVirtualWindow({
+        scrollTop: 0,
+        viewportHeight: 400,
+        scrollHeight: 2400,
+        windowStart: 2000,
+        scrollMargin: 40,
+        windowHeight: 800,
+        followTail: true,
+      })
+    ).toBe(2000);
+    expect(
+      scrollTopToRevealVirtualWindow({
+        scrollTop: 0,
+        viewportHeight: 400,
+        scrollHeight: 3200,
+        windowStart: 2000,
+        scrollMargin: 40,
+        windowHeight: 800,
+        followTail: false,
+      })
+    ).toBe(2000);
+    expect(
+      scrollTopToRevealVirtualWindow({
+        scrollTop: 0,
+        viewportHeight: 600,
+        scrollHeight: 5000,
+        windowStart: 48,
+        scrollMargin: 40,
+        windowHeight: 400,
+        followTail: false,
+      })
+    ).toBeNull();
+    expect(
+      scrollTopToRevealVirtualWindow({
+        scrollTop: 1600,
+        viewportHeight: 400,
+        scrollHeight: 2000,
+        windowStart: 1100,
+        scrollMargin: 0,
+        windowHeight: 900,
+        followTail: true,
+      })
+    ).toBeNull();
+  });
+
+  it('pulls a followed tail down when the live turn hangs below the fold', () => {
+    expect(
+      scrollTopToRevealVirtualWindow({
+        scrollTop: 1000,
+        viewportHeight: 400,
+        scrollHeight: 2000,
+        windowStart: 1100,
+        scrollMargin: 0,
+        windowHeight: 900,
+        followTail: true,
+      })
+    ).toBe(1600);
   });
 
   it('remeasures only the mounted rows of this list', () => {

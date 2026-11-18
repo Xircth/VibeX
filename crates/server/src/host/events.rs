@@ -45,6 +45,7 @@ pub struct HostEventChannel {
 pub const COLLABORATION_SPACE_CHANGED_EVENT: &str = "dimo://collaboration-space-changed";
 /// Three-state delivery receipts of a space message changed.
 pub const COLLABORATION_RECEIPTS_CHANGED_EVENT: &str = "dimo://collaboration-receipts-changed";
+pub const LOCAL_APP_DATA_CLEARED_EVENT: &str = "dimo://local-app-data-cleared";
 
 /// Catalog of Host push channels. Prefix match is longest-first.
 pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
@@ -140,6 +141,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     },
     HostEventChannel {
         prefix: "dimo://settings-file-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: LOCAL_APP_DATA_CLEARED_EVENT,
         durability: EventDurability::Invalidation,
         required_scope: "application.call",
     },

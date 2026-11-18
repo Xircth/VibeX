@@ -981,21 +981,6 @@ impl ServerAuth for SqliteServerAuth {
         let now = self.now();
         let expires_at = now.saturating_add(180);
         let host_name = utils::net::local_hostname();
-        let incoming_pk = parsed_pubkey.as_ref().map(|(_, pk)| pk.as_str());
-
-        if client_kind == "mobile" {
-            let mut conn = self.pool.acquire().await?;
-            if request.replace_existing_mobile {
-                revoke_all_active_mobile_devices(&mut conn, now).await?;
-            } else if let Some((existing_device_id, existing_device_name)) =
-                find_conflicting_mobile_device(&mut conn, device_name, incoming_pk).await?
-            {
-                return Err(AuthStoreError::MobileDeviceConflict {
-                    existing_device_id,
-                    existing_device_name,
-                });
-            }
-        }
 
         let existing_pending = if let Some((_, ref canonical_pk)) = parsed_pubkey {
             sqlx::query(
@@ -1167,7 +1152,7 @@ impl ServerAuth for SqliteServerAuth {
         }
         let now = self.now();
         let rows = sqlx::query(
-            "SELECT id, device_name, client_kind, ip_address, sas_code, created_at_unix, expires_at_unix
+            "SELECT id, device_name, client_kind, ip_address, public_key_ed25519, sas_code, created_at_unix, expires_at_unix
              FROM server_device_connect_requests
              WHERE status = 'pending' AND expires_at_unix > ?
              ORDER BY created_at_unix DESC",
@@ -1190,6 +1175,11 @@ impl ServerAuth for SqliteServerAuth {
                 client_kind: row.try_get("client_kind")?,
                 ip_address: row
                     .try_get::<Option<String>, _>("ip_address")
+                    .ok()
+                    .flatten()
+                    .filter(|v| !v.trim().is_empty()),
+                public_key_ed25519: row
+                    .try_get::<Option<String>, _>("public_key_ed25519")
                     .ok()
                     .flatten()
                     .filter(|v| !v.trim().is_empty()),

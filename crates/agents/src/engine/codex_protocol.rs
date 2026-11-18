@@ -192,8 +192,133 @@ pub(crate) fn build_codex_turn_policy(
     }
 }
 
+const MCP_TOOL_APPROVAL_KIND: &str = "mcp_tool_call";
+
+/// Codex marks its own MCP tool-call gate with an empty form and
+/// `_meta.codex_approval_kind = "mcp_tool_call"`. Forms that collect fields, URL
+/// elicitations, and anything flagged `codex_requires_user_input` stay unhandled:
+/// answering those with an empty accept would drop the data the server asked for.
+fn is_answerable_mcp_tool_approval(params: &Value) -> bool {
+    if params.get("mode").and_then(Value::as_str) != Some("form") {
+        return false;
+    }
+    let meta = params.get("_meta");
+    if meta
+        .and_then(|value| value.get("codex_approval_kind"))
+        .and_then(Value::as_str)
+        != Some(MCP_TOOL_APPROVAL_KIND)
+    {
+        return false;
+    }
+    if meta
+        .and_then(|value| value.get("codex_requires_user_input"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return false;
+    }
+    params
+        .get("requestedSchema")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(Value::as_object)
+        .is_none_or(|properties| properties.is_empty())
+}
+
+fn mcp_persist_choices(meta: Option<&Value>) -> (bool, bool) {
+    let Some(persist) = meta.and_then(|value| value.get("persist")) else {
+        return (false, false);
+    };
+    match persist {
+        Value::String(choice) => (choice == "session", choice == "always"),
+        Value::Array(choices) => (
+            choices
+                .iter()
+                .any(|choice| choice.as_str() == Some("session")),
+            choices
+                .iter()
+                .any(|choice| choice.as_str() == Some("always")),
+        ),
+        _ => (false, false),
+    }
+}
+
+fn mcp_tool_approval_permission_options(meta: Option<&Value>) -> Vec<AgentPermissionOption> {
+    let (session, always) = mcp_persist_choices(meta);
+    let mut options = vec![AgentPermissionOption {
+        id: "accept".to_string(),
+        label: "Allow once".to_string(),
+        kind: AgentPermissionOptionKind::AllowOnce,
+        description: None,
+    }];
+    if session {
+        // AllowOnce, not AllowAlways: Codex "for this session" remembers this MCP
+        // tool only. AllowAlways would turn on host-wide auto-approve.
+        options.push(AgentPermissionOption {
+            id: "acceptForSession".to_string(),
+            label: "Allow for session".to_string(),
+            kind: AgentPermissionOptionKind::AllowOnce,
+            description: None,
+        });
+    }
+    if always {
+        options.push(AgentPermissionOption {
+            id: "acceptAlways".to_string(),
+            label: "Allow and don't ask again".to_string(),
+            kind: AgentPermissionOptionKind::AllowOnce,
+            description: None,
+        });
+    }
+    options.push(AgentPermissionOption {
+        id: "decline".to_string(),
+        label: "Decline".to_string(),
+        kind: AgentPermissionOptionKind::RejectOnce,
+        description: None,
+    });
+    options
+}
+
+fn mcp_tool_approval_title(params: &Value) -> String {
+    let server = str_any(params, &["serverName"]).unwrap_or_else(|| "mcp".to_string());
+    let tool = params
+        .get("_meta")
+        .and_then(|meta| str_any(meta, &["tool_name"]))
+        .unwrap_or_else(|| "tool".to_string());
+    format!("{server}/{tool}")
+}
+
+/// Codex app-server expects `{ action, content?, _meta? }` for
+/// `mcpServer/elicitation/request`. A `{ decision }` payload fails to
+/// deserialize and is recorded as Decline ("user rejected MCP tool call").
+fn mcp_tool_approval_elicitation_result(decision: &EnginePermissionDecision) -> (Value, String) {
+    let (action, persist) = if decision.interrupt {
+        ("cancel", None)
+    } else {
+        match decision.option_id.as_deref() {
+            Some("acceptForSession" | "allow_always") => ("accept", Some("session")),
+            Some("acceptAlways") => ("accept", Some("always")),
+            Some("accept" | "allow" | "allow_once") => ("accept", None),
+            Some("cancel") => ("cancel", None),
+            Some("decline" | "deny" | "reject" | "reject_once" | "reject_always") => {
+                ("decline", None)
+            }
+            _ if decision.approved => ("accept", None),
+            _ => ("decline", None),
+        }
+    };
+    let mut result = serde_json::Map::new();
+    result.insert("action".to_string(), json!(action));
+    if action == "accept" {
+        result.insert("content".to_string(), json!({}));
+    }
+    if let Some(persist) = persist {
+        result.insert("_meta".to_string(), json!({ "persist": persist }));
+    }
+    (Value::Object(result), action.to_string())
+}
+
 /// Parses a server-initiated Codex JSON-RPC request (`id` AND `method` both present).
-/// Emits `PermissionRequested` for command/file approvals and `QuestionRequested` for
+/// Emits `PermissionRequested` for command/file approvals and empty-form MCP tool
+/// approvals (`mcpServer/elicitation/request`), and `QuestionRequested` for
 /// `item/tool/requestUserInput`.
 pub fn parse_codex_server_request(
     method: &str,
@@ -260,6 +385,27 @@ pub fn parse_codex_server_request(
             };
             Some((request_id, record, event))
         }
+        "mcpServer/elicitation/request" if is_answerable_mcp_tool_approval(params) => {
+            let permission_id = format!("codex-mcp-elicitation-{}", rpc_id_display(raw_rpc_id));
+            let meta = params.get("_meta");
+            let record = PendingCodexServerRequest {
+                raw_rpc_id: raw_rpc_id.clone(),
+                method: method.to_string(),
+                thread_id,
+                prompt_id: prompt_id.clone(),
+                params: params.clone(),
+            };
+            let event = EngineEvent::PermissionRequested {
+                permission_id: permission_id.clone(),
+                prompt_id,
+                session_id,
+                tool_name: mcp_tool_approval_title(params),
+                input: params.clone(),
+                decision_reason: str_any(params, &["message"]),
+                options: mcp_tool_approval_permission_options(meta),
+            };
+            Some((permission_id, record, event))
+        }
         _ => None,
     }
 }
@@ -298,6 +444,10 @@ pub fn build_codex_server_request_result(
     pending: &PendingCodexServerRequest,
     decision: &EnginePermissionDecision,
 ) -> (Value, String) {
+    if pending.method == "mcpServer/elicitation/request" {
+        return mcp_tool_approval_elicitation_result(decision);
+    }
+
     if pending.method == "item/tool/requestUserInput" {
         if !decision.approved || decision.interrupt {
             return (json!({ "answers": {} }), "decline".to_string());
@@ -1131,4 +1281,159 @@ pub(super) fn codex_accepts_model_id(model_id: &str, env: &HashMap<String, Strin
         && !lower.starts_with("claude-")
         && !lower.starts_with("gemini-")
         && !matches!(lower.as_str(), "opus" | "sonnet" | "haiku" | "fable")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approval_params(persist: Value) -> Value {
+        json!({
+            "threadId": "thr",
+            "turnId": "turn",
+            "serverName": "dimo",
+            "mode": "form",
+            "message": "Allow the dimo MCP server to run tool \"list_spaces\"?",
+            "_meta": {
+                "codex_approval_kind": "mcp_tool_call",
+                "tool_name": "list_spaces",
+                "persist": persist
+            },
+            "requestedSchema": { "type": "object", "properties": {} }
+        })
+    }
+
+    fn decision(
+        option_id: Option<&str>,
+        approved: bool,
+        interrupt: bool,
+    ) -> EnginePermissionDecision {
+        EnginePermissionDecision {
+            permission_id: "perm".to_string(),
+            approved,
+            option_id: option_id.map(str::to_string),
+            updated_input: None,
+            message: None,
+            interrupt,
+        }
+    }
+
+    fn pending(method: &str) -> PendingCodexServerRequest {
+        PendingCodexServerRequest {
+            raw_rpc_id: json!("rpc-1"),
+            method: method.to_string(),
+            thread_id: "thr".to_string(),
+            prompt_id: Some("turn".to_string()),
+            params: json!({}),
+        }
+    }
+
+    #[test]
+    fn mcp_tool_approval_elicitation_becomes_a_permission_card() {
+        let params = approval_params(json!(["session", "always"]));
+        let (permission_id, _record, event) =
+            parse_codex_server_request("mcpServer/elicitation/request", &json!("srv-1"), &params)
+                .expect("approval elicitation");
+        assert_eq!(permission_id, "codex-mcp-elicitation-srv-1");
+        match event {
+            EngineEvent::PermissionRequested {
+                tool_name,
+                decision_reason,
+                options,
+                ..
+            } => {
+                assert_eq!(tool_name, "dimo/list_spaces");
+                assert_eq!(
+                    decision_reason.as_deref(),
+                    Some("Allow the dimo MCP server to run tool \"list_spaces\"?")
+                );
+                let ids: Vec<_> = options.iter().map(|option| option.id.as_str()).collect();
+                assert_eq!(
+                    ids,
+                    ["accept", "acceptForSession", "acceptAlways", "decline"]
+                );
+            }
+            other => panic!("expected PermissionRequested, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn filled_form_and_url_elicitations_stay_unhandled() {
+        let mut form = approval_params(json!("session"));
+        form["requestedSchema"]["properties"] = json!({
+            "confirmed": { "type": "boolean" }
+        });
+        assert!(
+            parse_codex_server_request("mcpServer/elicitation/request", &json!(1), &form).is_none()
+        );
+
+        let url = json!({
+            "threadId": "thr",
+            "serverName": "dimo",
+            "mode": "url",
+            "message": "Sign in",
+            "url": "https://example.test",
+            "elicitationId": "e1",
+            "_meta": { "codex_approval_kind": "mcp_tool_call" }
+        });
+        assert!(
+            parse_codex_server_request("mcpServer/elicitation/request", &json!(2), &url).is_none()
+        );
+
+        let mut needs_input = approval_params(json!("session"));
+        needs_input["_meta"]["codex_requires_user_input"] = json!(true);
+        assert!(
+            parse_codex_server_request("mcpServer/elicitation/request", &json!(3), &needs_input)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn mcp_tool_approval_reply_uses_action_not_decision() {
+        let pending = pending("mcpServer/elicitation/request");
+        let (accept, behavior) =
+            build_codex_server_request_result(&pending, &decision(Some("accept"), true, false));
+        assert_eq!(behavior, "accept");
+        assert_eq!(accept, json!({ "action": "accept", "content": {} }));
+
+        let (session, _) = build_codex_server_request_result(
+            &pending,
+            &decision(Some("acceptForSession"), true, false),
+        );
+        assert_eq!(
+            session,
+            json!({
+                "action": "accept",
+                "content": {},
+                "_meta": { "persist": "session" }
+            })
+        );
+
+        let (always, _) = build_codex_server_request_result(
+            &pending,
+            &decision(Some("acceptAlways"), true, false),
+        );
+        assert_eq!(always["_meta"]["persist"], "always");
+        assert!(always.get("decision").is_none());
+
+        let (decline, behavior) =
+            build_codex_server_request_result(&pending, &decision(Some("decline"), false, false));
+        assert_eq!(behavior, "decline");
+        assert_eq!(decline, json!({ "action": "decline" }));
+
+        let (cancel, behavior) =
+            build_codex_server_request_result(&pending, &decision(None, false, true));
+        assert_eq!(behavior, "cancel");
+        assert_eq!(cancel, json!({ "action": "cancel" }));
+    }
+
+    #[test]
+    fn command_approval_reply_keeps_decision_field() {
+        let (result, behavior) = build_codex_server_request_result(
+            &pending("item/commandExecution/requestApproval"),
+            &decision(Some("accept"), true, false),
+        );
+        assert_eq!(behavior, "accept");
+        assert_eq!(result, json!({ "decision": "accept" }));
+    }
 }

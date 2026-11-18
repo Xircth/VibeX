@@ -1284,35 +1284,62 @@ impl ServerApplicationDomains {
                     index as u32 + 1,
                     total,
                     selection,
-                    None,
+                    selection.title.clone(),
                     agents::LocalHistoryImportPhase::Loading,
                     &result,
                 );
                 apply_history_progress(progress);
                 match import_one_history_selection(&pool, selection).await {
-                    Ok(conversation_id) => {
+                    Ok(HistorySelectionOutcome::Created(conversation_id)) => {
                         result.imported += 1;
                         result.conversation_ids.push(conversation_id);
+                        // New rows only. An existing Dimo conversation that already
+                        // owns this external id is left untouched below.
+                        crate::host::events::current_host_events().emit(
+                            "workspace-sessions-changed",
+                            serde_json::json!({
+                                "workspace_id": selection.workspace_id,
+                                "conversation_id": conversation_id,
+                            }),
+                        );
+                        apply_history_progress(
+                            agents::LocalHistoryImportProgress::for_selection(
+                                index as u32 + 1,
+                                total,
+                                selection,
+                                selection.title.clone(),
+                                agents::LocalHistoryImportPhase::Imported,
+                                &result,
+                            )
+                            .with_conversation(conversation_id, selection.workspace_id),
+                        );
+                    }
+                    Ok(HistorySelectionOutcome::AlreadyPresent) => {
+                        result.skipped += 1;
                         apply_history_progress(agents::LocalHistoryImportProgress::for_selection(
                             index as u32 + 1,
                             total,
                             selection,
-                            None,
-                            agents::LocalHistoryImportPhase::Imported,
+                            selection.title.clone(),
+                            agents::LocalHistoryImportPhase::Skipped,
                             &result,
                         ));
                     }
                     Err(error) => {
                         result.failed += 1;
-                        result.errors.push(error.to_string());
-                        apply_history_progress(agents::LocalHistoryImportProgress::for_selection(
-                            index as u32 + 1,
-                            total,
-                            selection,
-                            None,
-                            agents::LocalHistoryImportPhase::Failed,
-                            &result,
-                        ));
+                        let message = error.to_string();
+                        result.errors.push(message.clone());
+                        apply_history_progress(
+                            agents::LocalHistoryImportProgress::for_selection(
+                                index as u32 + 1,
+                                total,
+                                selection,
+                                selection.title.clone(),
+                                agents::LocalHistoryImportPhase::Failed,
+                                &result,
+                            )
+                            .with_error(message),
+                        );
                     }
                 }
             }
@@ -2486,19 +2513,27 @@ fn apply_history_progress(progress: agents::LocalHistoryImportProgress) {
     crate::host::events::current_host_events().emit("local-history-import-progress", snapshot);
 }
 
+enum HistorySelectionOutcome {
+    Created(Uuid),
+    /// The external session is already bound to a live Dimo conversation.
+    /// Leave that conversation's messages and workspace as they are.
+    AlreadyPresent,
+}
+
 async fn import_one_history_selection(
     pool: &sqlx::SqlitePool,
     selection: &agents::LocalHistoryImportSelection,
-) -> Result<Uuid, ApplicationError> {
-    if let Some(existing) = DbConversationSummary::find_by_external_id(
+) -> Result<HistorySelectionOutcome, ApplicationError> {
+    if DbConversationSummary::find_by_external_id(
         pool,
         &selection.external_session_id,
         &selection.agent_id,
     )
     .await
     .map_err(internal_error)?
+    .is_some()
     {
-        return Ok(existing.id);
+        return Ok(HistorySelectionOutcome::AlreadyPresent);
     }
     let kind = AgentKind::from_lenient(selection.agent_id.as_str()).ok_or_else(|| {
         ApplicationError::bad_request(format!(
@@ -2552,7 +2587,7 @@ async fn import_one_history_selection(
     .await
     .map_err(internal_error)?;
     append_imported_history_events(pool, session.id, &imported).await?;
-    Ok(session.id)
+    Ok(HistorySelectionOutcome::Created(session.id))
 }
 
 fn parse_payload<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, ApplicationError> {

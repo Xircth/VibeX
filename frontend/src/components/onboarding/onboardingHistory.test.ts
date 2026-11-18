@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { LocalHistoryScanPage } from 'shared/types';
 import {
   prepareOnboardingHistoryImport,
   groupOnboardingHistory,
@@ -9,10 +8,10 @@ import {
 const api = vi.hoisted(() => ({
   getAll: vi.fn(),
   create: vi.fn(),
-  scanLocalHistory: vi.fn(),
+  ensureProjectWorkspace: vi.fn(),
 }));
 vi.mock('@/lib/api/projects', () => ({ projectsApi: api }));
-vi.mock('@/features/agents/api', () => ({ agentsApi: api }));
+vi.mock('@/lib/api/sessions', () => ({ sessionsApi: api }));
 
 describe('onboarding project and history import', () => {
   it('aggregates a project when only one Agent resolves its registered identity', () => {
@@ -89,6 +88,7 @@ describe('onboarding project and history import', () => {
       root_path: 'C:/Work/App',
       name: 'App',
     });
+    api.ensureProjectWorkspace.mockResolvedValue({ id: 'workspace-a' });
     const folder = (agent: string, path: string) => ({
       path,
       name: 'App',
@@ -107,41 +107,32 @@ describe('onboarding project and history import', () => {
         },
       ],
     });
-    const scans: LocalHistoryScanPage[] = ['codex', 'claude_code'].map(
-      (id, i) => ({
-        folders: [folder(id, i ? 'c:\\work\\app' : 'C:/Work/App')],
-        destinations: [],
-        total_sessions: 1,
-        importable_count: 1,
-      })
+    const folders = ['codex', 'claude_code'].map((id, i) =>
+      folder(id, i ? 'c:\\work\\app' : 'C:/Work/App')
     );
-    api.scanLocalHistory.mockImplementation(async (id: string) => ({
-      ...scans[0],
-      folders: [
-        {
-          ...folder(id, 'C:/Work/App'),
-          project_id: 'project-a',
-          workspace_id: 'workspace-a',
-        },
-      ],
-    }));
     const result = await prepareOnboardingHistoryImport(
-      scans.flatMap((page) => page.folders),
+      folders,
       new Set(['codex:same-id', 'claude_code:same-id']),
       {}
     );
     expect(api.create).toHaveBeenCalledTimes(1);
+    expect(api.ensureProjectWorkspace).toHaveBeenCalledTimes(1);
+    expect(api.ensureProjectWorkspace).toHaveBeenCalledWith({
+      project_id: 'project-a',
+    });
     expect(result.projectIds).toEqual(['project-a']);
     expect(result.selections).toEqual([
       {
         agent_id: 'codex',
         external_session_id: 'same-id',
         workspace_id: 'workspace-a',
+        title: null,
       },
       {
         agent_id: 'claude_code',
         external_session_id: 'same-id',
         workspace_id: 'workspace-a',
+        title: null,
       },
     ]);
     api.create.mockClear();
@@ -149,7 +140,7 @@ describe('onboarding project and history import', () => {
       { id: 'project-a', root_path: 'C:/Work/App', hidden: false },
     ]);
     const existing = await prepareOnboardingHistoryImport(
-      scans[0].folders,
+      [folders[0]],
       new Set(['codex:same-id']),
       { 'c:/work/app': '' }
     );

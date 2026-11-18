@@ -1613,4 +1613,184 @@ describe('HostBrowserPanel', () => {
       )
     );
   });
+
+  it('closes an in-flight created tab when unmounted before tab.create resolves', async () => {
+    let resolveCreate: (value: unknown) => void = () => {};
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return new Promise((resolve) => {
+            resolveCreate = resolve;
+          });
+        }
+        return Promise.resolve({ ok: true });
+      }
+    );
+
+    const { unmount } = render(
+      <HostBrowserPanel
+        pluginId="dimo.browser"
+        panelVisible
+        surfaceHost="canvas"
+        requestedUrl="https://example.com/"
+      />
+    );
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+
+    unmount();
+    resolveCreate({
+      tabId: 'tab-orphan',
+      url: 'https://example.com/',
+      title: 'Example',
+      grant: { level: 'none' },
+    });
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
+        pluginId: 'dimo.browser',
+        handler: 'browser.dispatch',
+        input: {
+          operation: 'tab.close',
+          input: { tabId: 'tab-orphan' },
+        },
+      })
+    );
+  });
+
+  it('always closes canvas browser tabs on unmount and recovers from stale nativeTabId', async () => {
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        const op = args?.input?.operation;
+        if (op === 'tab.list') {
+          return Promise.resolve({ tabs: [] });
+        }
+        if (op === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-fresh',
+            url: 'https://example.com/tickets',
+            title: 'Tickets',
+            grant: { level: 'none' },
+          });
+        }
+        return Promise.resolve({ ok: true });
+      }
+    );
+
+    const panelId = 'plugin:dimo.browser/browser:canvas-1';
+    useLayoutStore.setState({
+      serializedLayout: {
+        panels: { [panelId]: { id: panelId } },
+      } as never,
+    });
+
+    const { unmount } = render(
+      <HostBrowserPanel
+        pluginId="dimo.browser"
+        panelVisible
+        surfaceHost="canvas"
+        requestedUrl="https://example.com/tickets"
+        nativeTabId="stale-dead-tab"
+        panelApi={{ id: panelId, updateParameters: () => {} }}
+      />
+    );
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'tab.create',
+            input: expect.objectContaining({
+              url: 'https://example.com/tickets',
+            }),
+          }),
+        })
+      )
+    );
+
+    backendCall.mockClear();
+    unmount();
+
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
+        pluginId: 'dimo.browser',
+        handler: 'browser.dispatch',
+        input: {
+          operation: 'tab.close',
+          input: { tabId: 'tab-fresh' },
+        },
+      })
+    );
+  });
+
+  it('clips bounds to canvas stage and detects overlapping higher-zIndex canvas nodes', async () => {
+    const { canvasLayerCoversBrowser, clipBrowserSurfaceRect } = await import(
+      './browserSurfaceBounds'
+    );
+    const stage = document.createElement('div');
+    stage.setAttribute('data-canvas-surface', 'true');
+    stage.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        top: 60,
+        right: 900,
+        bottom: 660,
+        width: 800,
+        height: 600,
+      }) as DOMRect;
+
+    const flow = document.createElement('div');
+    flow.className = 'react-flow';
+    flow.getBoundingClientRect = stage.getBoundingClientRect;
+    stage.appendChild(flow);
+
+    const browserNode = document.createElement('div');
+    browserNode.className = 'react-flow__node';
+    browserNode.style.zIndex = '1';
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () =>
+      ({
+        left: 50,
+        top: 20,
+        right: 500,
+        bottom: 400,
+        width: 450,
+        height: 380,
+      }) as DOMRect;
+    browserNode.appendChild(host);
+    flow.appendChild(browserNode);
+
+    const clipped = clipBrowserSurfaceRect(host, host.getBoundingClientRect());
+    expect(clipped).toEqual({
+      left: 100,
+      top: 60,
+      right: 500,
+      bottom: 400,
+    });
+    expect(canvasLayerCoversBrowser(host)).toBe(false);
+
+    const topNode = document.createElement('div');
+    topNode.className = 'react-flow__node';
+    topNode.style.zIndex = '1000';
+    topNode.getBoundingClientRect = () =>
+      ({
+        left: 300,
+        top: 200,
+        right: 700,
+        bottom: 500,
+        width: 400,
+        height: 300,
+      }) as DOMRect;
+    flow.appendChild(topNode);
+
+    expect(canvasLayerCoversBrowser(host)).toBe(true);
+  });
 });

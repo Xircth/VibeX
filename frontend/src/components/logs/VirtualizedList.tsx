@@ -121,6 +121,71 @@ export function getVirtualWindowTranslateY(
   return getVirtualRowTranslateY(firstStart ?? scrollMargin, scrollMargin);
 }
 
+/** Hard stop for one tail-rescue burst. A growing window may start another. */
+export const CONVERSATION_TAIL_RESCUE_PASSES = 8;
+
+/**
+ * Layout height of the virtual list.
+ *
+ * Rows sit in one translated window. A transform does not grow scrollHeight,
+ * so the list box has to reach the painted window or the live turn is clipped
+ * and cannot be scrolled into view.
+ *
+ * `windowStart` is the virtualizer start of the first visible row. It includes
+ * `scrollMargin`, which cancels the list's offset inside the scroll container.
+ */
+export function virtualListHeightPx(input: {
+  totalSize: number;
+  windowStart: number | undefined;
+  scrollMargin: number;
+  windowHeight: number;
+}): number {
+  const anchor = input.windowStart ?? input.scrollMargin;
+  const shift = Math.max(0, anchor - input.scrollMargin);
+  return Math.max(0, input.totalSize, shift + Math.max(0, input.windowHeight));
+}
+
+/**
+ * Scroll correction when the painted window misses the viewport.
+ *
+ * A cached virtualizer offset can translate the window below a scrollTop of 0,
+ * which leaves only the in-flow earlier-messages button. Following the tail
+ * also pulls the viewport down when a short estimate leaves the live turn
+ * below the fold. A reader who has left the tail is only moved on a complete
+ * miss, so scrolling up to the earlier-messages button stays put.
+ *
+ * Returns null when the viewport already shows the window, so the correction
+ * does not loop.
+ */
+export function scrollTopToRevealVirtualWindow(input: {
+  scrollTop: number;
+  viewportHeight: number;
+  scrollHeight: number;
+  windowStart: number | undefined;
+  scrollMargin: number;
+  windowHeight: number;
+  followTail: boolean;
+}): number | null {
+  if (input.viewportHeight <= 0 || input.windowHeight <= 1) return null;
+  const visualTop = Math.max(0, input.windowStart ?? input.scrollMargin);
+  const visualBottom = visualTop + input.windowHeight;
+  const viewTop = input.scrollTop;
+  const viewBottom = input.scrollTop + input.viewportHeight;
+  const intersects = visualBottom > viewTop + 1 && visualTop < viewBottom - 1;
+  const maxScroll = Math.max(0, input.scrollHeight - input.viewportHeight);
+  let next: number | null = null;
+  if (!intersects) {
+    next = input.followTail ? maxScroll : Math.min(visualTop, maxScroll);
+  } else if (input.followTail && visualBottom > viewBottom + 1) {
+    next = Math.min(
+      Math.max(0, visualBottom - input.viewportHeight),
+      maxScroll
+    );
+  }
+  if (next == null || Math.abs(next - input.scrollTop) <= 1) return null;
+  return next;
+}
+
 /**
  * Write real layout heights for rows that are mounted.
  *

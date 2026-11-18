@@ -881,9 +881,12 @@ export function IDELayout({
   );
   useWorkspaceShortcuts();
 
+  const showZeroProjectStage =
+    !hasProject && !ActiveSdkTabComponent && !activePluginTab;
+
   const { setChromeOccluded } = useWorkspaceOverlay();
   useLayoutEffect(() => {
-    if (chromeHidesNativeSurface(effectiveActiveTab)) {
+    if (showZeroProjectStage || chromeHidesNativeSurface(effectiveActiveTab)) {
       setChromeOccluded(true);
       return;
     }
@@ -915,6 +918,7 @@ export function IDELayout({
     readLiveDockviewApi,
     rightPanelContent,
     setChromeOccluded,
+    showZeroProjectStage,
   ]);
   useLayoutEffect(() => {
     return () => setChromeOccluded(false);
@@ -955,9 +959,6 @@ export function IDELayout({
     },
     [canvasStageInsets]
   );
-
-  const showZeroProjectStage =
-    !hasProject && !ActiveSdkTabComponent && !activePluginTab;
 
   const layoutBody = (
     <div className="flex min-h-0 flex-1">

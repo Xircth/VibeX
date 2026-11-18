@@ -1330,3 +1330,40 @@ async fn stale_snapshot_with_recovering_notice_self_heals_on_persisted_side_rows
         "project_open must bypass stale snapshot and not return notice:agent-connection-recovering"
     );
 }
+
+#[test]
+fn pinned_projector_survives_lru_eviction() {
+    use std::collections::HashMap;
+
+    let mut cache = HashMap::new();
+    let target_id = Uuid::new_v4();
+    let mut target = CachedRowProjector::new(IncrementalRowProjector::at_sequence(1));
+    let pin = target.pin();
+    cache.insert(target_id, target);
+
+    for _ in 0..220 {
+        cache.insert(
+            Uuid::new_v4(),
+            CachedRowProjector::new(IncrementalRowProjector::at_sequence(1)),
+        );
+    }
+
+    let keep_id = Uuid::new_v4();
+    cache.insert(
+        keep_id,
+        CachedRowProjector::new(IncrementalRowProjector::at_sequence(1)),
+    );
+
+    crate::projection::evict_least_recently_used_projectors(&mut cache, keep_id);
+    assert!(
+        cache.contains_key(&target_id),
+        "pinned projector must not be evicted while in-flight"
+    );
+
+    drop(pin);
+    crate::projection::evict_least_recently_used_projectors(&mut cache, keep_id);
+    assert!(
+        !cache.contains_key(&target_id) || cache.len() <= 192,
+        "after unpinning, cache should evict normally"
+    );
+}

@@ -12,6 +12,7 @@ import type {
   LocalHistoryScanPage,
 } from 'shared/types';
 import i18n from '@/i18n';
+import { QUIET_HISTORY_IMPORT_KEY } from '@/features/history-import/quietHistoryImport';
 import { OnboardingHistoryImport } from './OnboardingHistoryImport';
 
 const api = vi.hoisted(() => ({
@@ -321,7 +322,7 @@ describe('onboarding history import', () => {
     expect(screen.queryByText('History unreadable')).not.toBeInTheDocument();
     expect(api.scanLocalHistory).toHaveBeenCalledTimes(2);
   });
-  it('keeps partial import failures on the review step for retry or skip', async () => {
+  it('continues after a partial import instead of leaving the step stuck', async () => {
     api.scanLocalHistory.mockResolvedValue(history);
     const finish = setup();
     fireEvent.click(
@@ -334,7 +335,7 @@ describe('onboarding history import', () => {
     await act(async () =>
       api.listener?.({
         ...idle,
-        status: 'completed',
+        status: 'failed',
         result: {
           imported: 0,
           skipped: 0,
@@ -345,12 +346,73 @@ describe('onboarding history import', () => {
       })
     );
     expect(await screen.findByText('Unreadable session')).toBeInTheDocument();
-    expect(finish).not.toHaveBeenCalled();
+    expect(finish).toHaveBeenCalledWith(['imported']);
+  });
+  it('shows import progress and continues in the background without stopping the job', async () => {
+    api.scanLocalHistory.mockResolvedValue(history);
+    const finish = setup();
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('scanSelectedAgents') })
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('importAndContinue') })
+    );
     expect(
-      screen.getByRole('button', { name: t('importAndContinue') })
+      await screen.findByRole('button', { name: t('importInBackground') })
     ).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: t('skipImport') }));
-    expect(finish).toHaveBeenCalledWith([]);
+    expect(screen.getByRole('status')).toHaveTextContent(t('importWorking'));
+    fireEvent.click(
+      screen.getByRole('button', { name: t('importInBackground') })
+    );
+    expect(finish).toHaveBeenCalledWith(['imported']);
+    expect(api.startLocalHistoryImport).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      api.listener?.({
+        ...idle,
+        status: 'running',
+        progress: {
+          current: 1,
+          total: 2,
+          agent_id: 'codex',
+          external_session_id: 'external-1',
+          title: 'Build something',
+          phase: 'importing',
+          imported: 0,
+          skipped: 0,
+          failed: 0,
+        },
+      })
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      t('importProgress', { current: 1, total: 2 })
+    );
+    expect(finish).toHaveBeenCalledTimes(1);
+  });
+  it('clears a quiet import arm when the host job never starts', async () => {
+    sessionStorage.removeItem(QUIET_HISTORY_IMPORT_KEY);
+    let rejectPrepare!: (cause: Error) => void;
+    api.prepare.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectPrepare = reject;
+      })
+    );
+    api.scanLocalHistory.mockResolvedValue(history);
+    const finish = setup();
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('scanSelectedAgents') })
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('importAndContinue') })
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('importInBackground') })
+    );
+    expect(sessionStorage.getItem(QUIET_HISTORY_IMPORT_KEY)).toBeTruthy();
+    await act(async () => rejectPrepare(new Error('No destination')));
+    expect(await screen.findByText('No destination')).toBeInTheDocument();
+    expect(finish).not.toHaveBeenCalled();
+    expect(api.startLocalHistoryImport).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(QUIET_HISTORY_IMPORT_KEY)).toBeNull();
   });
   it('cancels a pending scan without reopening the review step', async () => {
     let resolveScan!: (value: LocalHistoryScanPage) => void;

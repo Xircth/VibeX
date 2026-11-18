@@ -73,6 +73,7 @@ pub struct ServerApplicationDomains {
     pub(crate) rate_limit_recovery: Arc<agents::rate_limit_recovery::UsageLimitRecovery>,
     pub(crate) side_chats:
         Arc<Mutex<std::collections::HashMap<String, crate::host::side_chat::SideChatRun>>>,
+    pub(crate) allow_loopback_outbox: bool,
 }
 
 pub(crate) struct PromptEnhancementRun {
@@ -179,7 +180,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
             DomainCommand::PluginSurfaceInvoke => self.plugin_surface_invoke(args).await,
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
-            DomainCommand::PluginHostCall => self.plugin_host_call(args).await,
+            DomainCommand::PluginHostCall => self.plugin_host_call(principal, args).await,
             DomainCommand::PluginInvokeContribution => self.plugin_invoke_contribution(args).await,
             DomainCommand::PluginCommandInvoke => self.plugin_command_invoke(principal, args).await,
             DomainCommand::ProjectList => self.project_list().await,
@@ -251,7 +252,9 @@ impl ServerApplicationDomains {
             DomainCommand::ConversationExportHtml => {
                 self.conversation_export_text(args, true).await
             }
-            DomainCommand::ConversationExport => self.conversation_export_bundle(args).await,
+            DomainCommand::ConversationExport => {
+                self.conversation_export_bundle(principal, args).await
+            }
             DomainCommand::ConversationClose => self.conversation_close_host(args).await,
             DomainCommand::ConversationCheckpointPreview => {
                 self.conversation_checkpoint_preview(args).await

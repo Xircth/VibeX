@@ -4,6 +4,7 @@ import { frontendPreferencesApi } from '@/lib/api/config';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 
 export const SETTINGS_CHANGED_EVENT = 'dimo://settings-file-changed';
+export const LOCAL_APP_DATA_CLEARED_EVENT = 'dimo://local-app-data-cleared';
 
 const STORAGE_KEYS = {
   'dimo:ui-zoom': 'ui_zoom',
@@ -90,8 +91,27 @@ function collectLocalPreferences(): Record<string, JsonValue> {
 }
 
 const SELF_TRIGGERED_SETTINGS_SUPPRESSION_MS = 1_000;
+const LOCAL_RESET_SUPPRESSION_MS = 5_000;
 let inFlightPreferenceWrites = 0;
 let lastLocalPreferenceWriteAt = 0;
+let localResetEpochAt = 0;
+
+function isWithinLocalResetWindow(now = Date.now()): boolean {
+  return localResetEpochAt > 0 && now - localResetEpochAt < LOCAL_RESET_SUPPRESSION_MS;
+}
+
+export function clearLocalFrontendStorage(): void {
+  localResetEpochAt = Date.now();
+  inFlightPreferenceWrites = 0;
+  lastLocalPreferenceWriteAt = Date.now();
+  try {
+    localStorage.clear();
+  } catch {
+    for (const storageKey of Object.keys(STORAGE_KEYS)) {
+      localStorage.removeItem(storageKey);
+    }
+  }
+}
 
 export function isSelfTriggeredSettingsChange(now = Date.now()): boolean {
   return (
@@ -117,6 +137,7 @@ export async function withSelfTriggeredSettingsWrite<T>(
 export function resetSelfTriggeredSettingsStateForTests(): void {
   inFlightPreferenceWrites = 0;
   lastLocalPreferenceWriteAt = 0;
+  localResetEpochAt = 0;
 }
 
 function applyPreferences(preferences: Record<string, JsonValue>): boolean {
@@ -146,14 +167,19 @@ export async function syncFrontendPreferences(
   api: Pick<
     typeof frontendPreferencesApi,
     'get' | 'update'
-  > = frontendPreferencesApi
+  > = frontendPreferencesApi,
+  options?: { allowLocalMigration?: boolean }
 ): Promise<boolean> {
   if (configuredBackendTransport.environment === 'web') return false;
   const remote = await api.get();
-  const local = collectLocalPreferences();
-  const updates: Record<string, JsonValue> = Object.fromEntries(
-    Object.entries(local).filter(([key]) => !(key in remote))
-  );
+  const allowLocalMigration =
+    (options?.allowLocalMigration ?? true) && !isWithinLocalResetWindow();
+  const local = allowLocalMigration ? collectLocalPreferences() : {};
+  const updates: Record<string, JsonValue> = allowLocalMigration
+    ? Object.fromEntries(
+        Object.entries(local).filter(([key]) => !(key in remote))
+      )
+    : {};
   if (remote.kanban_board_style === 'fixed') {
     updates.kanban_board_style = 'canvas';
   }
@@ -260,6 +286,7 @@ export async function writeDesktopSharedPreferenceSection(
   sectionKey: string,
   value: JsonValue
 ): Promise<boolean> {
+  if (isWithinLocalResetWindow()) return false;
   const { isTauriDesktopShell } = await import('@/utils/platform');
   if (!isTauriDesktopShell()) return false;
   inFlightPreferenceWrites += 1;
@@ -283,6 +310,7 @@ export function persistFrontendPreference(
   value: JsonValue
 ): void {
   if (configuredBackendTransport.environment === 'web') return;
+  if (isWithinLocalResetWindow()) return;
   const preferenceKey = STORAGE_KEYS[storageKey];
   inFlightPreferenceWrites += 1;
   lastLocalPreferenceWriteAt = Date.now();

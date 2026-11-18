@@ -54,6 +54,9 @@ async fn run(launch: ServerLaunch) -> ExitCode {
     for outcome in &data_dir_adoptions {
         server::log_data_dir_adoption(outcome);
     }
+    let _ = std::thread::Builder::new()
+        .name("acp-temp-sweep".into())
+        .spawn(agents::sweep_stale_agent_runtime_temps);
 
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 

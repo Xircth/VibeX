@@ -236,4 +236,69 @@ describe('MobileDeviceConnectBanner', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/尚未连接/)).not.toBeInTheDocument();
   });
+
+  it('never auto-approves non-mobile requests or mismatched Ed25519 keys even when device_name matches', async () => {
+    localStorage.setItem('dimo:remote-auto-connect', 'true');
+    const pairedWithPubkey = {
+      ...offlinePhone,
+      public_key_ed25519: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    };
+    listDevicesMock.mockResolvedValue([pairedWithPubkey]);
+    listConnectRequestsMock.mockResolvedValue([
+      {
+        request_id: 'req-desktop',
+        device_name: 'SGT-AL10',
+        client_kind: 'desktop',
+        public_key_ed25519: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        sas_code: '1111',
+        created_at: '2026-11-18T05:00:00Z',
+        expires_at: '2026-11-18T05:03:00Z',
+      },
+      {
+        request_id: 'req-wrong-key',
+        device_name: 'SGT-AL10',
+        client_kind: 'mobile',
+        public_key_ed25519: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=',
+        sas_code: '2222',
+        created_at: '2026-11-18T05:00:00Z',
+        expires_at: '2026-11-18T05:03:00Z',
+      },
+    ]);
+
+    render(<MobileDeviceConnectBanner />);
+    expect(
+      await screen.findByText(/发现可用移动设备「SGT-AL10」/)
+    ).toBeInTheDocument();
+    expect(respondConnectRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('auto-approves only mobile requests whose Ed25519 public key matches an already-paired mobile device', async () => {
+    localStorage.setItem('dimo:remote-auto-connect', 'true');
+    const pairedWithPubkey = {
+      ...offlinePhone,
+      public_key_ed25519: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    };
+    listDevicesMock.mockResolvedValue([pairedWithPubkey]);
+    listConnectRequestsMock.mockResolvedValue([
+      {
+        request_id: 'req-valid-mobile',
+        device_name: 'Renamed Phone',
+        client_kind: 'mobile',
+        public_key_ed25519: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        sas_code: '9999',
+        created_at: '2026-11-18T05:00:00Z',
+        expires_at: '2026-11-18T05:03:00Z',
+      },
+    ]);
+    respondConnectRequestMock.mockResolvedValue(undefined);
+
+    render(<MobileDeviceConnectBanner />);
+
+    await waitFor(() => {
+      expect(respondConnectRequestMock).toHaveBeenCalledWith(
+        'req-valid-mobile',
+        true
+      );
+    });
+  });
 });

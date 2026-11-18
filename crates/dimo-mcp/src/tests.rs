@@ -255,6 +255,29 @@ fn list_space_member_schema_exposes_space_lead() {
 }
 
 #[test]
+fn read_only_collaboration_tools_advertise_read_only_hint() {
+    let value = respond_text(classify(
+        "collaboration,space",
+        r#"{"jsonrpc":"2.0","id":35,"method":"tools/list"}"#,
+    ));
+    let tools = value["result"]["tools"].as_array().unwrap();
+    for name in ["list_spaces", "read_space_messages", "memory_search"] {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(tool["annotations"]["readOnlyHint"], true, "{name}");
+        assert_eq!(tool["annotations"]["destructiveHint"], false, "{name}");
+        assert_eq!(tool["annotations"]["openWorldHint"], false, "{name}");
+    }
+    let manage = tools
+        .iter()
+        .find(|tool| tool["name"] == "manage_group")
+        .expect("manage_group");
+    assert!(manage.get("annotations").is_none());
+}
+
+#[test]
 fn tool_schema_explains_agent_mentions() {
     let value = respond_text(classify(
         "delegation",

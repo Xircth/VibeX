@@ -14,6 +14,16 @@
     "goToStepWithStatus": "转到第 {{stepNumber}} 步：{{label}}，{{status}}",
     "stepCompleted": "已完成"
   },
+  "historyImport": {
+    "title": "历史导入",
+    "open": "查看历史导入进度",
+    "preparing": "正在准备",
+    "running": "{{current}} / {{total}}",
+    "done": "已完成",
+    "failed": "未全部完成",
+    "current": "当前：{{title}}",
+    "counts": "已导入 {{imported}}，跳过 {{skipped}}，失败 {{failed}}"
+  },
   "automationFailureTitle": "自动化运行失败",
   "pulseObserveTitle": "Pulse 观察候选（{{count}}）",
   "openProject": "打开 {{name}}",

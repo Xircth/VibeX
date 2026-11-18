@@ -8,12 +8,15 @@
 //! status `-1` (`0xffffffff`).
 //!
 //! Dimo kills ACP process groups (`kill_on_drop`, idle sweep, job terminate)
-//! before the bootloader can delete `_MEI*`. ACP launches and the Antigravity
-//! sign-in helper therefore each get a directory under
-//! `%LOCALAPPDATA%\Dimo\acp-tmp\<agent>\run-*`, removed when that launch ends.
-//! Leftover `_MEI*` extracts and abandoned `run-*` directories are swept at
-//! startup and before the next launch. A directory still held open by a
-//! process, or a pending launch younger than two minutes, is left in place.
+//! before the bootloader can delete `_MEI*`. ACP and native-engine launches and
+//! the Antigravity sign-in helper therefore each get a directory under
+//! `%LOCALAPPDATA%\com.dimo.app\acp-tmp\<agent>\run-*`, removed when that
+//! launch ends and isolated from the application install directory.
+//! Leftover `_MEI*` extracts (including hexadecimal Windows PyInstaller suffixes),
+//! abandoned `run-*` directories, stale `.tmp*` scratch entries, and legacy
+//! `Dimo\acp-tmp` / `VibeX\acp-tmp` roots are swept at startup, periodically,
+//! and before the next launch. A directory still held open by a process, or a
+//! pending launch younger than two minutes, is left in place.
 
 use std::{
     collections::HashMap,
@@ -24,12 +27,15 @@ use std::{
 
 use crate::AgentId;
 
-const ACP_TMP_ROOT: &str = "Dimo";
+const ACP_TMP_ROOT: &str = "com.dimo.app";
+const LEGACY_ACP_TMP_ROOTS: [&str; 2] = ["Dimo", "VibeX"];
 const ACP_TMP_LEAF: &str = "acp-tmp";
 const PREPARE_ATTEMPTS: u32 = 5;
 const PREPARE_RETRY_SLEEP: Duration = Duration::from_millis(30);
-const CLEANUP_ATTEMPTS: u32 = 8;
-const CLEANUP_RETRY_SLEEP: Duration = Duration::from_millis(50);
+const CLEANUP_ATTEMPTS: u32 = 10;
+const CLEANUP_RETRY_SLEEP: Duration = Duration::from_millis(60);
+#[cfg(not(test))]
+const DEFERRED_CLEANUP_DELAY: Duration = Duration::from_secs(2);
 const SESSION_DIR_PREFIX: &str = "run-";
 const SESSION_OWNER_FILE: &str = ".dimo-runtime-owner";
 const SESSION_PENDING_GRACE: Duration = Duration::from_secs(120);
@@ -125,8 +131,11 @@ fn try_prepare_writable_dir(dir: &Path) -> io::Result<PathBuf> {
 fn is_transient_fs_error(error: &io::Error) -> bool {
     matches!(
         error.kind(),
-        io::ErrorKind::PermissionDenied | io::ErrorKind::Interrupted | io::ErrorKind::TimedOut
-    ) || matches!(error.raw_os_error(), Some(5 | 32))
+        io::ErrorKind::PermissionDenied
+            | io::ErrorKind::DirectoryNotEmpty
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::TimedOut
+    ) || matches!(error.raw_os_error(), Some(5 | 32 | 145))
 }
 
 pub fn bind_agent_runtime_temp_env(env: &mut HashMap<String, String>, dir: &Path) {
@@ -134,15 +143,6 @@ pub fn bind_agent_runtime_temp_env(env: &mut HashMap<String, String>, dir: &Path
     env.insert("TEMP".to_string(), value.clone());
     env.insert("TMP".to_string(), value.clone());
     env.insert("TMPDIR".to_string(), value);
-}
-
-pub fn prepare_and_bind_agent_runtime_temp(
-    agent_id: &AgentId,
-    env: &mut HashMap<String, String>,
-) -> io::Result<PathBuf> {
-    let dir = prepare_agent_runtime_temp(agent_id)?;
-    bind_agent_runtime_temp_env(env, &dir);
-    Ok(dir)
 }
 
 /// One ACP or native-engine launch's temporary directory.
@@ -182,20 +182,34 @@ pub fn prepare_agent_runtime_temp_session(
 }
 
 /// Remove PyInstaller extracts and abandoned per-launch directories under
-/// every host ACP temp root. Safe to call while other launches are running:
-/// open extracts and sessions owned by a live process are skipped.
+/// every host ACP temp root (including legacy `Dimo\acp-tmp` and
+/// `VibeX\acp-tmp`). Safe to call while other launches are running: open
+/// extracts and sessions owned by a live process are skipped.
 pub fn sweep_stale_agent_runtime_temps() {
     let mut removed = 0u32;
     for base in runtime_temp_candidate_bases() {
-        let root = base.join(ACP_TMP_ROOT).join(ACP_TMP_LEAF);
-        removed += sweep_runtime_temp_root(&root);
+        removed += sweep_runtime_temp_bases_in(&base);
     }
     if removed > 0 {
         tracing::info!(
             removed,
-            "removed stale ACP PyInstaller temporary directories"
+            "removed stale ACP temporary directories"
         );
     }
+}
+
+fn sweep_runtime_temp_bases_in(base: &Path) -> u32 {
+    let active_root = base.join(ACP_TMP_ROOT).join(ACP_TMP_LEAF);
+    let mut removed = sweep_runtime_temp_root(&active_root, false);
+    for legacy in LEGACY_ACP_TMP_ROOTS {
+        let legacy_parent = base.join(legacy);
+        let legacy_root = legacy_parent.join(ACP_TMP_LEAF);
+        removed += sweep_runtime_temp_root(&legacy_root, true);
+        if legacy == "VibeX" {
+            let _ = fs::remove_dir(&legacy_parent);
+        }
+    }
+    removed
 }
 
 fn create_runtime_temp_session(parent: &Path) -> io::Result<AgentRuntimeTempSession> {
@@ -224,6 +238,26 @@ fn create_runtime_temp_session(parent: &Path) -> io::Result<AgentRuntimeTempSess
 fn release_runtime_temp_session(dir: &Path) {
     let _ = fs::write(dir.join(SESSION_OWNER_FILE), b"dead");
     if let Err(error) = remove_tree_retrying(dir) {
+        #[cfg(not(test))]
+        {
+            let deferred = dir.to_path_buf();
+            if std::thread::Builder::new()
+                .name("acp-temp-release".into())
+                .spawn(move || {
+                    std::thread::sleep(DEFERRED_CLEANUP_DELAY);
+                    if let Err(final_error) = remove_tree_retrying(&deferred) {
+                        tracing::warn!(
+                            path = %deferred.display(),
+                            error = %final_error,
+                            "ACP temporary directory remained after the launch ended"
+                        );
+                    }
+                })
+                .is_ok()
+            {
+                return;
+            }
+        }
         tracing::warn!(
             path = %dir.display(),
             %error,
@@ -232,7 +266,7 @@ fn release_runtime_temp_session(dir: &Path) {
     }
 }
 
-fn sweep_runtime_temp_root(root: &Path) -> u32 {
+fn sweep_runtime_temp_root(root: &Path, prune_empty: bool) -> u32 {
     let Ok(entries) = fs::read_dir(root) else {
         return 0;
     };
@@ -241,7 +275,14 @@ fn sweep_runtime_temp_root(root: &Path) -> u32 {
         if !is_real_directory(&entry) {
             continue;
         }
-        removed += sweep_agent_runtime_temp(&entry.path());
+        let agent_dir = entry.path();
+        removed += sweep_agent_runtime_temp(&agent_dir);
+        if prune_empty {
+            let _ = fs::remove_dir(&agent_dir);
+        }
+    }
+    if prune_empty {
+        let _ = fs::remove_dir(root);
     }
     removed
 }
@@ -256,13 +297,16 @@ fn sweep_agent_runtime_temp_at(dir: &Path, now: SystemTime, grace: Duration) -> 
     };
     let mut removed = 0u32;
     for entry in entries.flatten() {
-        if !is_real_directory(&entry) {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
             continue;
         }
         let Some(name) = entry.file_name().into_string().ok() else {
             continue;
         };
-        if reclaim_stale_child(&entry.path(), &name, now, grace) {
+        if reclaim_stale_child(&entry.path(), &name, file_type.is_dir(), now, grace) {
             removed += 1;
         }
     }
@@ -276,34 +320,58 @@ fn is_real_directory(entry: &fs::DirEntry) -> bool {
     }
 }
 
-fn reclaim_stale_child(path: &Path, name: &str, now: SystemTime, grace: Duration) -> bool {
-    if is_pyinstaller_extract(name) {
+fn reclaim_stale_child(
+    path: &Path,
+    name: &str,
+    is_dir: bool,
+    now: SystemTime,
+    grace: Duration,
+) -> bool {
+    if is_dir && is_pyinstaller_extract(name) {
         if directory_has_locked_file(path) {
             return false;
         }
         return remove_tree_retrying(path).is_ok();
     }
-    if !name.starts_with(SESSION_DIR_PREFIX) || name.len() == SESSION_DIR_PREFIX.len() {
-        return false;
-    }
-    match owner_state(path) {
-        OwnerState::Alive => false,
-        OwnerState::Pending => {
-            let Some(age) = dir_age(path, now) else {
-                return false;
-            };
-            if age < grace || directory_has_locked_file(path) {
-                return false;
+    if is_dir && name.starts_with(SESSION_DIR_PREFIX) && name.len() > SESSION_DIR_PREFIX.len() {
+        return match owner_state(path) {
+            OwnerState::Alive => false,
+            OwnerState::Pending => {
+                let Some(age) = dir_age(path, now) else {
+                    return false;
+                };
+                if age < grace || directory_has_locked_file(path) {
+                    return false;
+                }
+                remove_tree_retrying(path).is_ok()
             }
-            remove_tree_retrying(path).is_ok()
+            OwnerState::Dead => {
+                if directory_has_locked_file(path) {
+                    return false;
+                }
+                remove_tree_retrying(path).is_ok()
+            }
+        };
+    }
+    if name.starts_with(".tmp") || name.starts_with(".write-probe-") {
+        let Some(age) = dir_age(path, now) else {
+            return false;
+        };
+        if age < grace {
+            return false;
         }
-        OwnerState::Dead => {
+        if is_dir {
             if directory_has_locked_file(path) {
                 return false;
             }
-            remove_tree_retrying(path).is_ok()
+            return remove_tree_retrying(path).is_ok();
         }
+        if file_is_locked(path) {
+            return false;
+        }
+        return fs::remove_file(path).is_ok();
     }
+    false
 }
 
 enum OwnerState {
@@ -324,8 +392,8 @@ fn owner_state(dir: &Path) -> OwnerState {
     }
 }
 
-fn dir_age(dir: &Path, now: SystemTime) -> Option<Duration> {
-    let modified = fs::metadata(dir).ok()?.modified().ok()?;
+fn dir_age(path: &Path, now: SystemTime) -> Option<Duration> {
+    let modified = fs::metadata(path).ok()?.modified().ok()?;
     now.duration_since(modified).ok()
 }
 
@@ -333,7 +401,7 @@ fn is_pyinstaller_extract(name: &str) -> bool {
     let Some(rest) = name.strip_prefix("_MEI") else {
         return false;
     };
-    !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit())
+    !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn remove_tree_retrying(dir: &Path) -> io::Result<()> {
@@ -355,6 +423,26 @@ fn remove_tree_retrying(dir: &Path) -> io::Result<()> {
             "could not remove an ACP temporary directory",
         )
     }))
+}
+
+fn file_is_locked(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        match fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+            Ok(file) => {
+                drop(file);
+                false
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(_) => true,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 fn directory_has_locked_file(dir: &Path) -> bool {
@@ -511,7 +599,10 @@ mod tests {
 
         assert_eq!(
             agy_dir,
-            tmp.0.join("Dimo").join("acp-tmp").join("antigravity")
+            tmp.0
+                .join("com.dimo.app")
+                .join("acp-tmp")
+                .join("antigravity")
         );
         assert_ne!(agy_dir, grok_dir);
         assert!(agy_dir.is_dir());
@@ -614,7 +705,7 @@ mod tests {
         )
         .expect("must fall back to a writable ACP temp base");
 
-        assert!(dir.starts_with(fallback.join("Dimo").join("acp-tmp")));
+        assert!(dir.starts_with(fallback.join("com.dimo.app").join("acp-tmp")));
         assert!(!dir.starts_with(&blocked));
         fs::create_dir(dir.join("_MEIprobe")).unwrap();
     }
@@ -627,19 +718,23 @@ mod tests {
     }
 
     #[test]
-    fn new_session_sweeps_unlocked_extracts_then_removes_its_dir_on_drop() {
+    fn new_session_sweeps_unlocked_extracts_including_hex_suffixes_then_removes_its_dir_on_drop() {
         let tmp = Scratch::new();
         let parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("antigravity")).unwrap();
-        let stale = parent.join("_MEI12345");
-        fs::create_dir(&stale).unwrap();
-        fs::write(stale.join("payload.bin"), b"stale").unwrap();
+        let stale_dec = parent.join("_MEI12345");
+        fs::create_dir(&stale_dec).unwrap();
+        fs::write(stale_dec.join("payload.bin"), b"stale").unwrap();
+        let stale_hex = parent.join("_MEI0000041c2");
+        fs::create_dir(&stale_hex).unwrap();
+        fs::write(stale_hex.join("python314.dll"), b"hex").unwrap();
         let unrelated = parent.join("_MEIprobe");
         fs::create_dir(&unrelated).unwrap();
         let probe = parent.join(".write-probe-keep");
         fs::write(&probe, b"ok").unwrap();
 
         let session = create_runtime_temp_session(&parent).unwrap();
-        assert!(!stale.exists());
+        assert!(!stale_dec.exists());
+        assert!(!stale_hex.exists());
         assert!(unrelated.is_dir());
         assert!(probe.is_file());
 
@@ -660,6 +755,49 @@ mod tests {
         assert!(!path.exists());
         assert!(parent.is_dir());
         assert!(unrelated.is_dir());
+    }
+
+    #[test]
+    fn sweep_reclaims_legacy_dimo_and_vibex_roots_and_stale_dot_tmp_entries() {
+        let tmp = Scratch::new();
+        let legacy_dimo_agent = tmp.0.join("Dimo").join("acp-tmp").join("antigravity");
+        fs::create_dir_all(legacy_dimo_agent.join("_MEI00004ef82")).unwrap();
+        fs::write(
+            legacy_dimo_agent.join("_MEI00004ef82").join("payload.dll"),
+            b"x",
+        )
+        .unwrap();
+        let dimo_exe_placeholder = tmp.0.join("Dimo").join("dimo.exe");
+        fs::write(&dimo_exe_placeholder, b"MZ").unwrap();
+
+        let legacy_vibex_agent = tmp.0.join("VibeX").join("acp-tmp").join("antigravity");
+        fs::create_dir_all(legacy_vibex_agent.join("_MEI00001a2c2")).unwrap();
+
+        let active_parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("claude_code")).unwrap();
+        let stale_tmp_dir = active_parent.join(".tmp0kqXIT");
+        fs::create_dir(&stale_tmp_dir).unwrap();
+        let stale_probe = active_parent.join(".write-probe-old");
+        fs::write(&stale_probe, b"ok").unwrap();
+
+        let removed = sweep_runtime_temp_bases_in(&tmp.0);
+        assert_eq!(removed, 2);
+        assert!(!tmp.0.join("Dimo").join("acp-tmp").exists());
+        assert!(
+            dimo_exe_placeholder.is_file(),
+            "pruning Dimo/acp-tmp must leave sibling install binaries untouched"
+        );
+        assert!(!tmp.0.join("VibeX").exists());
+
+        // Young `.tmp*` / `.write-probe-*` entries stay until past grace, then get swept.
+        assert!(stale_tmp_dir.is_dir());
+        assert!(stale_probe.is_file());
+        let later = SystemTime::now() + Duration::from_secs(600);
+        assert_eq!(
+            sweep_agent_runtime_temp_at(&active_parent, later, SESSION_PENDING_GRACE),
+            2
+        );
+        assert!(!stale_tmp_dir.exists());
+        assert!(!stale_probe.exists());
     }
 
     #[test]
@@ -733,7 +871,7 @@ mod tests {
 
         let tmp = Scratch::new();
         let parent = prepare_agent_runtime_temp_in(&tmp.0, &agent("antigravity")).unwrap();
-        let mei = parent.join("_MEI999");
+        let mei = parent.join("_MEI000041c2");
         fs::create_dir(&mei).unwrap();
         let file = mei.join("locked.bin");
         fs::write(&file, b"held").unwrap();

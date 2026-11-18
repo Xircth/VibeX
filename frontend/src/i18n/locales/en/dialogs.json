@@ -348,6 +348,9 @@
     "noSourceDirectory": "Original project directory unavailable",
     "importContinuity": "History is preserved. Continuing the original Agent context depends on its session support.",
     "importProgress": "Importing {{current}} / {{total}}…",
+    "importPreparing": "Preparing import destinations…",
+    "importWorking": "Importing sessions…",
+    "importInBackground": "Continue in background",
     "importResult": "Imported {{imported}}, skipped {{skipped}}, failed {{failed}}",
     "globalDescription": "Start without choosing a project directory",
     "projectAction": {

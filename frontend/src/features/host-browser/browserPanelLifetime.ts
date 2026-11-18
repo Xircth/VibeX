@@ -3,13 +3,18 @@ export type LiveBrowserSurface = {
   url: string;
 };
 
+export type BrowserSurfaceHost = 'dockview' | 'canvas';
+
 const liveSurfaces = new Map<string, LiveBrowserSurface>();
 
 export function browserPanelSurfaceKey(
   projectKey: string,
-  panelId: string
+  panelId: string,
+  surfaceHost: BrowserSurfaceHost = 'dockview'
 ): string {
-  return `${projectKey}::${panelId}`;
+  return surfaceHost === 'canvas'
+    ? `canvas::${projectKey}::${panelId}`
+    : `${projectKey}::${panelId}`;
 }
 
 export function rememberBrowserSurface(
@@ -28,6 +33,10 @@ export function recallBrowserSurface(
 
 export function forgetBrowserSurface(key: string): void {
   liveSurfaces.delete(key);
+}
+
+export function clearAllBrowserSurfaces(): void {
+  liveSurfaces.clear();
 }
 
 export function serializedLayoutHasPanel(
@@ -65,12 +74,16 @@ export function projectLayoutStillHasBrowserPanel(
   projectKey: string,
   panelId: string
 ): boolean {
-  const saved = state.projectLayouts?.[projectKey]?.serializedLayout;
-  if (serializedLayoutHasPanel(saved, panelId)) return true;
+  if (!projectKey || !panelId) return false;
   if (state.currentProjectKey === projectKey) {
-    return serializedLayoutHasPanel(state.serializedLayout, panelId);
+    if (state.serializedLayout != null) {
+      return serializedLayoutHasPanel(state.serializedLayout, panelId);
+    }
+    const savedCurrent = state.projectLayouts?.[projectKey]?.serializedLayout;
+    return serializedLayoutHasPanel(savedCurrent, panelId);
   }
-  return false;
+  const saved = state.projectLayouts?.[projectKey]?.serializedLayout;
+  return serializedLayoutHasPanel(saved, panelId);
 }
 
 const HIDDEN_BOUNDS = {

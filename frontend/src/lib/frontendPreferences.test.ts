@@ -107,4 +107,31 @@ describe('syncFrontendPreferences', () => {
     expect(events).not.toContain('dimo:kanban-canvas');
     expect(api.update).not.toHaveBeenCalled();
   });
+
+  it('does not re-upload local preferences into cleared settings.json when allowLocalMigration is false', async () => {
+    localStorage.setItem(
+      'dimo:kanban-canvas',
+      JSON.stringify({ 'project-1': { nodes: [{ id: 'stuck-browser' }] } })
+    );
+    localStorage.setItem('dimo:workspace-stage-style', 'canvas');
+    api.get.mockResolvedValue({});
+
+    await syncFrontendPreferences(api, { allowLocalMigration: false });
+
+    expect(api.update).not.toHaveBeenCalled();
+  });
+
+  it('clears localStorage and suppresses stale writes during clearLocalFrontendStorage window', async () => {
+    const { clearLocalFrontendStorage, persistFrontendPreference } =
+      await import('./frontendPreferences');
+    localStorage.setItem('dimo:kanban-canvas', '{"project-1":{}}');
+    localStorage.setItem('dimo-layout-storage', '{"state":{}}');
+
+    clearLocalFrontendStorage();
+    persistFrontendPreference('dimo:kanban-canvas', { resurrected: true });
+
+    expect(localStorage.getItem('dimo:kanban-canvas')).toBeNull();
+    expect(localStorage.getItem('dimo-layout-storage')).toBeNull();
+    expect(api.update).not.toHaveBeenCalled();
+  });
 });

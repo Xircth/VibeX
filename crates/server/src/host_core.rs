@@ -197,6 +197,51 @@ pub fn host_application_core(
     agent_management_runtime: Arc<AgentManagementRuntimeState>,
     delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 ) -> ApplicationCore<SqliteConversationRepository> {
+    host_application_core_with_outbox_policy(
+        pool,
+        conversations,
+        plugin_control_plane,
+        companion_memory,
+        preview_host,
+        capability_broker,
+        host_call,
+        app_surfaces,
+        preview_proxy,
+        automation,
+        automation_ownership,
+        deployment,
+        runtime_root,
+        worker_runtime,
+        events,
+        terminal_bridges,
+        agent_management_runtime,
+        delegation_broker,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn host_application_core_with_outbox_policy(
+    pool: SqlitePool,
+    conversations: ConversationContext,
+    plugin_control_plane: Arc<PluginControlPlane>,
+    companion_memory: Option<std::sync::Arc<delegation::InMemoryCompanionFeatures>>,
+    preview_host: Arc<dyn plugins::PluginPreviewHost>,
+    capability_broker: Arc<plugins::HostCapabilityBroker>,
+    host_call: Arc<plugins::PluginHostCall>,
+    app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
+    preview_proxy: crate::PreviewProxyRegistry,
+    automation: HeadlessAutomationRuntime,
+    automation_ownership: AutomationOwnership,
+    deployment: Arc<local_deployment::LocalDeployment>,
+    runtime_root: std::path::PathBuf,
+    worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    events: Arc<HostEventBus>,
+    terminal_bridges: Arc<TerminalBridgeRegistry>,
+    agent_management_runtime: Arc<AgentManagementRuntimeState>,
+    delegation_broker: Option<Arc<delegation::DelegationBroker>>,
+    allow_loopback_outbox: bool,
+) -> ApplicationCore<SqliteConversationRepository> {
     let events_for_recovery = events.clone();
     let conversations_for_recovery = conversations.clone();
     let pool_for_recovery = pool.clone();
@@ -255,6 +300,7 @@ pub fn host_application_core(
         prompt_enhancement: Arc::new(tokio::sync::Mutex::new(None)),
         rate_limit_recovery,
         side_chats: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        allow_loopback_outbox,
     });
     crate::pulse_connectors::register_pulse_domain_host(&domains);
     domains.spawn_plugin_updates();

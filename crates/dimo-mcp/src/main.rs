@@ -320,6 +320,42 @@ fn parse_args() -> Result<Args, String> {
     })
 }
 
+/// Tools whose MCP annotations must say read-only. Codex treats a missing
+/// `readOnlyHint` as destructive and open-world, then gates the call behind an
+/// elicitation. These tools only inspect state.
+const READ_ONLY_MCP_TOOLS: &[&str] = &[
+    "get_delegation_status",
+    "check_user_feedback",
+    "get_session_info",
+    "thread_read_history",
+    "list_conversations",
+    "list_spaces",
+    "read_space_messages",
+    "memory_search",
+];
+
+fn annotate_read_only_tool(mut tool: Value) -> Value {
+    let read_only = tool
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| READ_ONLY_MCP_TOOLS.contains(&name));
+    if !read_only {
+        return tool;
+    }
+    if let Some(object) = tool.as_object_mut() {
+        object.insert(
+            "annotations".to_string(),
+            json!({
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            }),
+        );
+    }
+    tool
+}
+
 /// Tool schemas this companion advertises, filtered by enabled features.
 fn enabled_tools(features: &CompanionFeatures) -> Vec<Value> {
     let mut all: Vec<Value> =
@@ -333,6 +369,7 @@ fn enabled_tools(features: &CompanionFeatures) -> Vec<Value> {
                 .map(|name| features.allows_tool(name))
                 .unwrap_or(false)
         })
+        .map(annotate_read_only_tool)
         .collect()
 }
 

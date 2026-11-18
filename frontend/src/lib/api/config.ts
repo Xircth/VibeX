@@ -464,6 +464,7 @@ export interface PendingDeviceConnectRequest {
   device_name: string;
   client_kind: 'mobile' | 'desktop' | 'web' | string;
   ip_address?: string | null;
+  public_key_ed25519?: string | null;
   sas_code: string;
   created_at: string;
   expires_at: string;

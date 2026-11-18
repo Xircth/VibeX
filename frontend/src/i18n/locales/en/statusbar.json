@@ -14,6 +14,16 @@
     "goToStepWithStatus": "Go to step {{stepNumber}}: {{label}}, {{status}}",
     "stepCompleted": "completed"
   },
+  "historyImport": {
+    "title": "History import",
+    "open": "Show history import status",
+    "preparing": "Preparing",
+    "running": "{{current}} / {{total}}",
+    "done": "Finished",
+    "failed": "Finished with failures",
+    "current": "Current: {{title}}",
+    "counts": "Imported {{imported}}, skipped {{skipped}}, failed {{failed}}"
+  },
   "automationFailureTitle": "Automation run failed",
   "pulseObserveTitle": "Pulse Observe candidates ({{count}})",
   "openProject": "Open {{name}}",

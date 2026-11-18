@@ -802,10 +802,14 @@ impl ServerApplicationDomains {
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
         let headers = lowercase_headers(&raw_headers);
-        let event_body = args
-            .get("body")
-            .cloned()
-            .ok_or_else(|| ApplicationError::bad_request("missing event body"))?;
+        let event_body: Value = serde_json::from_slice(&raw_bytes).map_err(|err| {
+            ApplicationError::bad_request(format!("invalid signed JSON body: {err}"))
+        })?;
+        if !event_body.is_object() {
+            return Err(ApplicationError::bad_request(
+                "signed event body must be a JSON object",
+            ));
+        }
 
         let source_id = headers
             .get("x-pulse-source-id")
@@ -878,15 +882,27 @@ impl ServerApplicationDomains {
         }
 
         let mut normalized_body = event_body;
-        if let Some(obj) = normalized_body.as_object_mut()
-            && !obj.contains_key("sourceInstanceId")
-            && !obj.contains_key("source_instance_id")
-            && !obj.contains_key("source")
-        {
+        if let Some(obj) = normalized_body.as_object_mut() {
+            obj.remove("source_instance_id");
             obj.insert(
                 "sourceInstanceId".to_string(),
                 Value::String(source_id.clone()),
             );
+            if let Some(source_obj) = obj.get_mut("source").and_then(Value::as_object_mut) {
+                source_obj.remove("instance_id");
+                source_obj.insert("instanceId".to_string(), Value::String(source_id.clone()));
+            }
+            let has_delivery_id = obj
+                .get("deliveryId")
+                .or_else(|| obj.get("delivery_id"))
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.trim().is_empty());
+            if !has_delivery_id && !std_headers.webhook_id.trim().is_empty() {
+                obj.insert(
+                    "deliveryId".to_string(),
+                    Value::String(std_headers.webhook_id.trim().to_string()),
+                );
+            }
         }
         Ok((source_id, normalized_body))
     }
@@ -1094,12 +1110,25 @@ fn build_emitted_envelope(
         && payload.get("source").is_some()
     {
         let mut envelope = decode_args::<EventEnvelope>(payload)?;
-        if is_untrusted_webhook_principal(principal) {
-            envelope.source.trust_level = EventTrustLevel::UntrustedExternal;
-        } else if !matches!(principal, Principal::LocalDesktop)
-            && envelope.source.trust_level == EventTrustLevel::TrustedHuman
-        {
-            envelope.source.trust_level = EventTrustLevel::TrustedInternal;
+        if !matches!(principal, Principal::LocalDesktop) {
+            let fresh_event_id = uuid::Uuid::new_v4().to_string();
+            envelope.event_id = fresh_event_id.clone();
+            envelope.trace = EventTrace {
+                root_event_id: fresh_event_id,
+                parent_run_id: None,
+                hop_count: 0,
+            };
+            if let Principal::Remote { subject, .. } = principal {
+                envelope.actor.id = subject.clone();
+                if let Some(verified_source_id) = subject.strip_prefix("pulse-sdk:") {
+                    envelope.source.instance_id = verified_source_id.to_string();
+                }
+            }
+            if is_untrusted_webhook_principal(principal) {
+                envelope.source.trust_level = EventTrustLevel::UntrustedExternal;
+            } else if envelope.source.trust_level == EventTrustLevel::TrustedHuman {
+                envelope.source.trust_level = EventTrustLevel::TrustedInternal;
+            }
         }
         return Ok(envelope);
     }
@@ -1115,12 +1144,18 @@ fn build_emitted_envelope(
         .or_else(|| payload.get("thread_key"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    let instance_id = payload
-        .get("sourceInstanceId")
-        .or_else(|| payload.get("source_instance_id"))
-        .and_then(Value::as_str)
-        .unwrap_or("sdk:default")
-        .to_string();
+    let instance_id = if let Principal::Remote { subject, .. } = principal
+        && let Some(verified_source_id) = subject.strip_prefix("pulse-sdk:")
+    {
+        verified_source_id.to_string()
+    } else {
+        payload
+            .get("sourceInstanceId")
+            .or_else(|| payload.get("source_instance_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("sdk:default")
+            .to_string()
+    };
     let actor_id = match principal {
         Principal::LocalDesktop => "user:local-desktop".to_string(),
         Principal::Remote { subject, .. } => subject.clone(),

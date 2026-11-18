@@ -175,4 +175,37 @@ describe('computeAnchoredTimelineStartIndex', () => {
       })
     ).toBe(36);
   });
+
+  it('keeps an in-flight turn that sits above the short tail while following', async () => {
+    const { computeAnchoredTimelineStartIndex } = await import(
+      './timelinePaging'
+    );
+    expect(
+      computeAnchoredTimelineStartIndex({
+        totalItems: 40,
+        visibleTailCount: 24,
+        followTail: true,
+        anchoredStartIndex: null,
+        requiredIndex: 10,
+      })
+    ).toBe(10);
+    expect(
+      computeAnchoredTimelineStartIndex({
+        totalItems: 40,
+        visibleTailCount: 24,
+        followTail: true,
+        anchoredStartIndex: null,
+        requiredIndex: 30,
+      })
+    ).toBe(16);
+    expect(
+      computeAnchoredTimelineStartIndex({
+        totalItems: 40,
+        visibleTailCount: 24,
+        followTail: false,
+        anchoredStartIndex: 16,
+        requiredIndex: 10,
+      })
+    ).toBe(16);
+  });
 });

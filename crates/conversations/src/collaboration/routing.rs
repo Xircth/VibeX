@@ -347,6 +347,26 @@ pub fn clean_space_display_text(content: &str, member_nicknames: &[String]) -> S
     }
 }
 
+/// `not_found` copy for an @ mention that matches nobody in the space.
+///
+/// The nickname is included so the client can name the missing member. Quotes
+/// and control characters are stripped so the message stays one token.
+fn nickname_not_found_message(nickname: &str) -> String {
+    let mut safe = String::new();
+    for ch in nickname.chars().take(80) {
+        if ch == '\'' || ch == '\n' || ch == '\r' || ch.is_control() {
+            continue;
+        }
+        safe.push(ch);
+    }
+    let safe = safe.trim();
+    if safe.is_empty() {
+        "nickname was not found in this collaboration space".to_string()
+    } else {
+        format!("nickname '{safe}' was not found in this collaboration space")
+    }
+}
+
 /// Resolve recipients, then map every agent seat through its member identity
 /// (`resolve_session`) so delivery always lands in the member's conversation
 /// for this space's thread.
@@ -518,7 +538,7 @@ pub(crate) async fn resolve_seat_targets(
         if peers.is_empty() {
             return Err(CollaborationError::new(
                 "not_found",
-                "nickname was not found in this collaboration space",
+                nickname_not_found_message(nickname),
             ));
         }
         for peer in peers {
@@ -1303,6 +1323,22 @@ pub(crate) async fn reserve_wake(
 mod tests {
     use super::*;
     use crate::collaboration::test_support::*;
+
+    #[test]
+    fn unresolved_nickname_error_names_the_mention() {
+        assert_eq!(
+            nickname_not_found_message("小A"),
+            "nickname '小A' was not found in this collaboration space"
+        );
+        assert_eq!(
+            nickname_not_found_message("a'b\nc"),
+            "nickname 'abc' was not found in this collaboration space"
+        );
+        assert_eq!(
+            nickname_not_found_message("  "),
+            "nickname was not found in this collaboration space"
+        );
+    }
 
     #[tokio::test]
     async fn wake_preview_counts_members_for_a_draft_without_mentions() {

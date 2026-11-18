@@ -323,29 +323,36 @@ pub fn trim_partial_ansi_tail(s: &str) -> &str {
 }
 
 pub fn cap_preview_bytes(value: String) -> String {
-    if value.len() <= MAX_TIMELINE_PREVIEW_BYTES {
+    cap_preview_to(value, MAX_TIMELINE_PREVIEW_BYTES)
+}
+
+fn cap_preview_to(value: String, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
         let trimmed = trim_partial_ansi_tail(&value);
         if trimmed.len() == value.len() {
             return value;
         }
         return trimmed.to_string();
     }
-    let tail = trim_partial_ansi_tail(truncate_tail_at_char_boundary(
-        &value,
-        MAX_TIMELINE_PREVIEW_BYTES,
-    ));
+    let tail = trim_partial_ansi_tail(truncate_tail_at_char_boundary(&value, max_bytes));
     format!("…\n{tail}")
 }
 
 pub fn cap_json_value(value: serde_json::Value) -> serde_json::Value {
+    cap_json_to(value, MAX_TIMELINE_PREVIEW_BYTES)
+}
+
+fn cap_json_to(value: serde_json::Value, max_bytes: usize) -> serde_json::Value {
     match value {
-        serde_json::Value::String(text) => serde_json::Value::String(cap_preview_bytes(text)),
+        serde_json::Value::String(text) => {
+            serde_json::Value::String(cap_preview_to(text, max_bytes))
+        }
         other => {
             let serialized = other.to_string();
-            if serialized.len() <= MAX_TIMELINE_PREVIEW_BYTES {
+            if serialized.len() <= max_bytes {
                 other
             } else {
-                serde_json::Value::String(cap_preview_bytes(serialized))
+                serde_json::Value::String(cap_preview_to(serialized, max_bytes))
             }
         }
     }
@@ -399,6 +406,119 @@ fn cap_tool_preview_fields(block: &mut ContentBlock) {
         _ => {}
     }
     crate::timeline_images::spill_content_block(block);
+}
+
+/// Serialized size the open window aims for after shrinking one row.
+/// Tool previews and thinking yield first so a short reply still fits beside
+/// its user row inside the 1 MiB page.
+const WINDOW_ROW_TARGET_BYTES: usize = 256 * 1024;
+const WINDOW_TOOL_PREVIEW_TIGHT_BYTES: usize = 1024;
+const WINDOW_THINKING_TIGHT_BYTES: usize = 2 * 1024;
+const WINDOW_THINKING_MIN_BYTES: usize = 256;
+
+/// Cap tool previews, then drop them, then shorten thinking, until the row is
+/// near [`WINDOW_ROW_TARGET_BYTES`]. Text blocks are never truncated: the open
+/// window would otherwise keep a later notice and hide the reply.
+pub fn shrink_timeline_row_for_window(row: &mut TimelineRow) -> usize {
+    cap_timeline_row_preview_fields(row);
+    let mut size = timeline_row_serialized_len(row);
+    if size <= WINDOW_ROW_TARGET_BYTES {
+        return size;
+    }
+    tighten_message_tool_previews(row, WINDOW_TOOL_PREVIEW_TIGHT_BYTES);
+    size = timeline_row_serialized_len(row);
+    if size <= WINDOW_ROW_TARGET_BYTES {
+        return size;
+    }
+    clear_message_tool_payloads(row);
+    size = timeline_row_serialized_len(row);
+    if size <= WINDOW_ROW_TARGET_BYTES {
+        return size;
+    }
+    truncate_thinking_blocks(row, WINDOW_THINKING_TIGHT_BYTES);
+    size = timeline_row_serialized_len(row);
+    if size <= WINDOW_ROW_TARGET_BYTES {
+        return size;
+    }
+    truncate_thinking_blocks(row, WINDOW_THINKING_MIN_BYTES);
+    timeline_row_serialized_len(row)
+}
+
+fn timeline_row_serialized_len(row: &TimelineRow) -> usize {
+    serde_json::to_string(row)
+        .map(|value| value.len())
+        .unwrap_or(0)
+}
+
+fn message_blocks(row: &mut TimelineRow) -> Option<&mut Vec<ContentBlock>> {
+    match &mut row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. } => Some(&mut turn.blocks),
+        _ => None,
+    }
+}
+
+fn tighten_message_tool_previews(row: &mut TimelineRow, max_bytes: usize) {
+    let Some(blocks) = message_blocks(row) else {
+        return;
+    };
+    for block in blocks {
+        match block {
+            ContentBlock::ToolUse {
+                input_preview,
+                meta,
+                ..
+            } => {
+                if let Some(preview) = input_preview {
+                    *preview = cap_preview_to(std::mem::take(preview), max_bytes);
+                }
+                if let Some(value) = meta.take() {
+                    *meta = Some(cap_json_to(value, max_bytes));
+                }
+            }
+            ContentBlock::ToolResult {
+                output_preview: Some(preview),
+                ..
+            } => {
+                *preview = cap_preview_to(std::mem::take(preview), max_bytes);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn clear_message_tool_payloads(row: &mut TimelineRow) {
+    let Some(blocks) = message_blocks(row) else {
+        return;
+    };
+    for block in blocks {
+        match block {
+            ContentBlock::ToolUse {
+                input_preview,
+                meta,
+                images,
+                ..
+            } => {
+                *input_preview = None;
+                *meta = None;
+                images.clear();
+            }
+            ContentBlock::ToolResult { output_preview, .. } => {
+                *output_preview = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn truncate_thinking_blocks(row: &mut TimelineRow, max_bytes: usize) {
+    let Some(blocks) = message_blocks(row) else {
+        return;
+    };
+    for block in blocks {
+        if let ContentBlock::Thinking { text } = block {
+            *text = cap_preview_to(std::mem::take(text), max_bytes);
+        }
+    }
 }
 
 /// Validates and formats `internal_prompt_contributions` into an `<dimo-plugin-context>`

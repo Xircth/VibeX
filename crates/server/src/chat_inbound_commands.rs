@@ -1190,6 +1190,52 @@ mod tests {
     }
 
     #[test]
+    fn group_chat_with_authorized_senders_rejects_unauthorized_member() {
+        let telegram_cfg = json!({
+            "chat_id": "-100123",
+            "authorized_senders": ["42"]
+        });
+        assert!(is_sender_authorized("telegram", &telegram_cfg, "42", "-100123"));
+        assert!(!is_sender_authorized("telegram", &telegram_cfg, "99", "-100123"));
+
+        let qq_cfg = json!({
+            "target_id": "group-42",
+            "authorized_senders": ["admin-1"]
+        });
+        assert!(is_sender_authorized("qq", &qq_cfg, "admin-1", "group-42"));
+        assert!(!is_sender_authorized("qq", &qq_cfg, "intruder-2", "group-42"));
+    }
+
+    #[test]
+    fn weixin_ilink_without_allowlist_fails_closed() {
+        assert!(!is_sender_authorized(
+            "weixin",
+            &json!({ "mode": "ilink" }),
+            "stranger@im.wechat",
+            "stranger@im.wechat"
+        ));
+        assert!(is_sender_authorized(
+            "weixin",
+            &json!({ "mode": "ilink", "authorized_senders": ["owner@im.wechat"] }),
+            "owner@im.wechat",
+            "owner@im.wechat"
+        ));
+    }
+
+    #[test]
+    fn telegram_topic_scoped_sender_matches_base_allowlist_and_rejects_empty_sender() {
+        let cfg = json!({ "chat_id": "-100123", "authorized_senders": ["42"] });
+        assert!(is_sender_authorized("telegram", &cfg, "42:topic:777", "-100123"));
+        assert!(!is_sender_authorized("telegram", &cfg, ":topic:777", "-100123"));
+        assert!(!is_sender_authorized(
+            "telegram",
+            &json!({ "chat_id": "-100123" }),
+            "",
+            "-100123"
+        ));
+    }
+
+    #[test]
     fn callback_payloads_stay_within_telegram_limit() {
         assert!("cb:f:8".to_string().len() < 64);
         assert!("cb:a:8".to_string().len() < 64);

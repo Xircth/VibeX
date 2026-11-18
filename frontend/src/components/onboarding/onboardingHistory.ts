@@ -2,9 +2,9 @@ import type {
   LocalHistoryImportSelection,
   LocalHistoryScanFolder,
 } from 'shared/types';
-import { agentsApi } from '@/features/agents/api';
 import { localHistorySessionKey } from '@/features/history-import/importLocalSessions';
 import { projectsApi } from '@/lib/api/projects';
+import { sessionsApi } from '@/lib/api/sessions';
 
 export function onboardingHistoryPath(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -113,41 +113,33 @@ export async function prepareOnboardingHistoryImport(
     }
     if (projectId) projectIds.add(projectId);
   }
-  const agentIds = [
-    ...new Set(
-      chosen.flatMap((folder) =>
-        folder.sessions
-          .filter((session) => selected.has(localHistorySessionKey(session)))
-          .map((session) => session.agent_id)
-      )
-    ),
-  ];
-  const scans = await Promise.all(
-    agentIds.map((id) => agentsApi.scanLocalHistory(id))
-  );
-  const allDestinations = scans.flatMap((scan) => scan.destinations);
-  const updatedFolders = scans.flatMap((scan) => scan.folders);
+  // Resolve a root workspace per project. A second full transcript scan here
+  // blocked the wizard for minutes and never showed progress.
+  const workspaceByProject = new Map<string, string>();
+  const resolveWorkspace = async (projectId: string) => {
+    const cached = workspaceByProject.get(projectId);
+    if (cached) return cached;
+    const workspace = await sessionsApi.ensureProjectWorkspace({
+      project_id: projectId,
+    });
+    workspaceByProject.set(projectId, workspace.id);
+    return workspace.id;
+  };
   const selections = new Map<string, LocalHistoryImportSelection>();
   for (const folder of chosen) {
     const key = onboardingHistoryPath(folder.path);
     const override = destinationOverrides[key] || undefined;
     const projectId = override ?? folder.project_id ?? byPath.get(key);
-    const workspaceId = override
-      ? allDestinations.find(
-          (destination) => destination.project_id === override
-        )?.workspace_id
-      : (updatedFolders.find(
-          (candidate) =>
-            onboardingHistoryPath(candidate.path) === key &&
-            candidate.workspace_id
-        )?.workspace_id ??
-        allDestinations.find(
-          (destination) => destination.project_id === projectId
-        )?.workspace_id);
-    if (!workspaceId)
+    if (!projectId) {
       throw new Error(
         `No import destination for ${folder.path || folder.name}`
       );
+    }
+    const scannedWorkspace =
+      !override && folder.project_id === projectId
+        ? folder.workspace_id
+        : null;
+    const workspaceId = scannedWorkspace || (await resolveWorkspace(projectId));
     for (const session of folder.sessions) {
       const sessionKey = localHistorySessionKey(session);
       if (session.status !== 'new' || !selected.has(sessionKey)) continue;
@@ -155,6 +147,7 @@ export async function prepareOnboardingHistoryImport(
         agent_id: session.agent_id,
         external_session_id: session.external_session_id,
         workspace_id: workspaceId,
+        title: session.title,
       });
     }
   }

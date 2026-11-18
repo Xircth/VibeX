@@ -183,6 +183,7 @@ export interface TimelineVirtualRowItemProps {
   suppressStreamingStatus?: boolean;
   suppressStatusRowPadding?: boolean;
   hideAssistantStats?: boolean;
+  hideThinking?: boolean;
 }
 
 export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
@@ -224,6 +225,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   suppressStreamingStatus = false,
   suppressStatusRowPadding = false,
   hideAssistantStats = false,
+  hideThinking,
 }: TimelineVirtualRowItemProps) {
   const row = item.kind === 'message' ? item.item : null;
   const turnId = row ? dimoTurnIdFromTimelineRowId(row.turn.id) : null;
@@ -352,6 +354,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
           suppressStreamingStatus={suppressStreamingStatus}
           slice={slice}
           isLastSlice={isLastSlice}
+          hideThinking={hideThinking}
         />
       ) : null}
       {row?.turn.role === 'assistant' &&

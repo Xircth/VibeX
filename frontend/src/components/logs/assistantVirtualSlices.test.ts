@@ -10,6 +10,10 @@ function markdown(text: string): TurnRenderItem {
   return { kind: 'markdown', text };
 }
 
+function thinking(text: string): TurnRenderItem {
+  return { kind: 'thinking', text };
+}
+
 function tool(name: string): TurnRenderItem {
   return {
     kind: 'tool',
@@ -56,6 +60,29 @@ describe('assistantBlockSlices', () => {
       { kind: 'block', itemIndex: 1, inExpandedFold: true },
       { kind: 'block', itemIndex: 2 },
       { kind: 'block', itemIndex: 3 },
+    ]);
+  });
+
+  it('keeps the latest settled prose beside one fold of tools and thinking', () => {
+    const reply = '无限画布上按住 Ctrl 再滚动，回复仍然在。';
+    const items = [
+      tool('rg'),
+      thinking('looking'),
+      markdown('先看缩放。'),
+      tool('test'),
+      thinking('checking'),
+      markdown(reply),
+    ];
+    expect(
+      assistantBlockSlices({
+        items,
+        isStreaming: false,
+        collapseProcess: true,
+        processExpanded: () => false,
+      })
+    ).toEqual([
+      { kind: 'process-fold', count: 5, startIndex: 0 },
+      { kind: 'block', itemIndex: 5 },
     ]);
   });
 

@@ -35,14 +35,6 @@ const DEFAULT_GITHUB_API_BASE: &str = "https://api.github.com";
 const DEFAULT_POLL_INTERVAL_SECS: i64 = 30;
 const MIN_POLL_INTERVAL_SECS: i64 = 15;
 
-static PULSE_CONNECTOR_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        .user_agent("VibeX-Pulse/1.0")
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-});
-
 static GITHUB_LAST_POLL_EPOCH: LazyLock<StdMutex<HashMap<String, i64>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
@@ -378,6 +370,7 @@ impl ServerApplicationDomains {
             source.signing_secret.as_deref(),
             &repo,
             1,
+            self.allow_loopback_outbox,
         )
         .await
         {
@@ -931,6 +924,7 @@ impl ServerApplicationDomains {
                 source.signing_secret.as_deref(),
                 &repo,
                 10,
+                self.allow_loopback_outbox,
             )
             .await
             {
@@ -1097,6 +1091,7 @@ async fn fetch_github_workflow_runs(
     signing_secret: Option<&str>,
     repo: &str,
     per_page: u32,
+    allow_loopback: bool,
 ) -> Result<Vec<Value>, String> {
     let raw_repo = config_json
         .get("repo")
@@ -1122,7 +1117,14 @@ async fn fetch_github_workflow_runs(
     let endpoint = format!("repos/{repo}/actions/runs?per_page={per_page}");
     let url = format!("{api_base}/{endpoint}");
 
-    let mut req = PULSE_CONNECTOR_HTTP_CLIENT
+    let client = crate::pulse_outbox::build_safe_outbound_client(
+        &url,
+        allow_loopback,
+        Duration::from_secs(8),
+        Some("VibeX-Pulse/1.0"),
+    )
+    .await?;
+    let mut req = client
         .get(&url)
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");

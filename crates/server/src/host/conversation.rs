@@ -460,6 +460,7 @@ impl ServerApplicationDomains {
 
     pub(crate) async fn conversation_export_bundle(
         &self,
+        principal: &application::Principal,
         args: Value,
     ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
@@ -470,6 +471,16 @@ impl ServerApplicationDomains {
             destination_path: Option<String>,
         }
         let args: ExportArgs = parse(args)?;
+        if args
+            .destination_path
+            .as_deref()
+            .is_some_and(|path| !path.trim().is_empty())
+            && !matches!(principal, application::Principal::LocalDesktop)
+        {
+            return Err(ApplicationError::forbidden(
+                "writing export bundles to a host path is restricted to the local desktop host",
+            ));
+        }
         let id = parse_uuid(&args.conversation_id)?;
         serialize(
             export_conversation_bundle(

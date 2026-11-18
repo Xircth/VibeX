@@ -444,7 +444,7 @@ impl ServerApplicationDomains {
             DomainCommand::FileMove => self.move_item(args).await,
             DomainCommand::FileCreateDirectory => {
                 let args: PathArgs = parse(args)?;
-                let path = sanitize_absolute(&args.path)?;
+                let path = self.sandbox_target_path(&args.path, false).await?;
                 tokio::fs::create_dir_all(path)
                     .await
                     .map_err(internal_error)?;
@@ -1450,15 +1450,7 @@ impl ServerApplicationDomains {
 
     async fn save_file(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: SaveFileArgs = parse(args)?;
-        let path = sanitize_absolute(&args.path)?;
-        if let Some(parent) = path.parent()
-            && !parent.exists()
-        {
-            return Err(ApplicationError::not_found(format!(
-                "Parent directory does not exist: {}",
-                parent.display()
-            )));
-        }
+        let path = self.sandbox_target_path(&args.path, true).await?;
         tokio::fs::write(path, args.content)
             .await
             .map_err(internal_error)?;
@@ -1489,6 +1481,7 @@ impl ServerApplicationDomains {
     async fn move_item(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: MoveArgs = parse(args)?;
         let source = self.sandbox_existing_path(&args.path).await?;
+        let _ = self.sandbox_target_path(&args.new_path, true).await?;
         let dest = sanitize_absolute(&args.new_path)?;
         file_move::move_item_at_paths(&source, &dest).await?;
         serialize(dest.to_string_lossy().into_owned())
@@ -2016,7 +2009,45 @@ impl ServerApplicationDomains {
         ))
     }
 
-    async fn sandbox_roots(&self) -> Result<Vec<PathBuf>, ApplicationError> {
+    pub(crate) async fn sandbox_target_path(
+        &self,
+        path: &str,
+        require_existing_parent: bool,
+    ) -> Result<PathBuf, ApplicationError> {
+        let sanitized = sanitize_absolute(path)?;
+        if require_existing_parent {
+            let parent = sanitized.parent().ok_or_else(|| {
+                ApplicationError::bad_request("Target path must include a parent directory")
+            })?;
+            match tokio::fs::symlink_metadata(parent).await {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(ApplicationError::not_found(format!(
+                        "Parent directory does not exist: {}",
+                        parent.display()
+                    )));
+                }
+                Err(error) => return Err(internal_error(error)),
+            }
+        }
+        let resolved = resolve_canonical_sandbox_candidate(&sanitized).await?;
+        if conversations::collaboration::is_team_space_collection_file(&resolved) {
+            return Ok(utils::path::normalize_windows_extended_path_prefix(
+                resolved,
+            ));
+        }
+        let roots = self.sandbox_roots().await?;
+        if roots.iter().any(|root| resolved.starts_with(root)) {
+            return Ok(utils::path::normalize_windows_extended_path_prefix(
+                resolved,
+            ));
+        }
+        Err(ApplicationError::forbidden(
+            "path is outside every registered repository or workspace",
+        ))
+    }
+
+    pub(crate) async fn sandbox_roots(&self) -> Result<Vec<PathBuf>, ApplicationError> {
         let mut roots = HashSet::new();
         for path in sqlx::query_scalar::<_, String>("SELECT path FROM repos")
             .fetch_all(&self.pool)
@@ -2042,6 +2073,36 @@ impl ServerApplicationDomains {
         }
         Ok(roots.into_iter().collect())
     }
+}
+
+pub(crate) async fn resolve_canonical_sandbox_candidate(
+    sanitized: &Path,
+) -> Result<PathBuf, ApplicationError> {
+    let mut missing_segments = Vec::new();
+    let mut cursor = sanitized;
+    loop {
+        match tokio::fs::symlink_metadata(cursor).await {
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = cursor.file_name() else {
+                    break;
+                };
+                missing_segments.push(name.to_os_string());
+                let Some(parent) = cursor.parent() else {
+                    break;
+                };
+                cursor = parent;
+            }
+            Err(error) => return Err(internal_error(error)),
+        }
+    }
+    let mut resolved = tokio::fs::canonicalize(cursor).await.map_err(|_| {
+        ApplicationError::forbidden("path target or ancestor could not be resolved safely")
+    })?;
+    for segment in missing_segments.iter().rev() {
+        resolved.push(segment);
+    }
+    Ok(resolved)
 }
 
 const NEW_SESSION_WORKSPACE_TITLE: &str = "New Session Workspace";

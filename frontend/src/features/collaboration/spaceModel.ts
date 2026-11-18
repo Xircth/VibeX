@@ -232,6 +232,42 @@ export const COPY = {
   get nicknameMissing() {
     return i18n.t('panels:collabCopy.nicknameMissing');
   },
+  get objectMissing() {
+    return i18n.t('panels:collabCopy.objectMissing');
+  },
+  get spaceMissing() {
+    return i18n.t('panels:collabCopy.spaceMissing');
+  },
+  get memberMissing() {
+    return i18n.t('panels:collabCopy.memberMissing');
+  },
+  get threadMissing() {
+    return i18n.t('panels:collabCopy.threadMissing');
+  },
+  get messageMissing() {
+    return i18n.t('panels:collabCopy.messageMissing');
+  },
+  get collectionMissing() {
+    return i18n.t('panels:collabCopy.collectionMissing');
+  },
+  get turnMissing() {
+    return i18n.t('panels:collabCopy.turnMissing');
+  },
+  get roleMissing() {
+    return i18n.t('panels:collabCopy.roleMissing');
+  },
+  get teamMissing() {
+    return i18n.t('panels:collabCopy.teamMissing');
+  },
+  get conversationMissing() {
+    return i18n.t('panels:collabCopy.conversationMissing');
+  },
+  get cardMissing() {
+    return i18n.t('panels:collabCopy.cardMissing');
+  },
+  get memoryMissing() {
+    return i18n.t('panels:collabCopy.memoryMissing');
+  },
   get nicknameTaken() {
     return i18n.t('panels:collabCopy.nicknameTaken');
   },
@@ -1259,6 +1295,65 @@ export function strayMentions(
   return scanSpaceMentions(text, members).stray;
 }
 
+export function nicknameMissingNamed(nickname: string): string {
+  return i18n.t('panels:collabCopy.nicknameMissingNamed', { nickname });
+}
+
+/** Names the unmatched @ tokens (up to three) and says how to fix the send. */
+export function strayMentionError(names: readonly string[]): string {
+  const shown = names
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0)
+    .slice(0, 3)
+    .map((name) => (name.startsWith('@') ? name : `@${name}`));
+  if (shown.length === 0) return COPY.nicknameMissing;
+  return i18n.t('panels:collabCopy.strayMentionsMissing', {
+    names: shown.join(', '),
+  });
+}
+
+function notFoundSurfaceCopy(message: string): string {
+  const trimmed = message.trim();
+  const lower = trimmed.toLowerCase();
+  const named = /nickname '([^']+)'/i.exec(trimmed)?.[1]?.trim();
+  if (named) return nicknameMissingNamed(named);
+  if (
+    lower.includes('nickname was not found') ||
+    lower.includes('nickname not found')
+  ) {
+    return COPY.nicknameMissing;
+  }
+  if (!trimmed || lower === 'not_found') return COPY.objectMissing;
+  if (
+    lower.includes('direct thread') ||
+    lower.includes('thread was not found')
+  ) {
+    return COPY.threadMissing;
+  }
+  if (lower.includes('space was not found')) return COPY.spaceMissing;
+  if (
+    lower.includes('member was not found') ||
+    lower.includes('member has no') ||
+    lower.includes('member identity')
+  ) {
+    return COPY.memberMissing;
+  }
+  if (lower.includes('message was not found')) return COPY.messageMissing;
+  if (lower.includes('collection')) return COPY.collectionMissing;
+  if (lower.includes('turn was not found')) return COPY.turnMissing;
+  if (lower.includes('card was not found')) return COPY.cardMissing;
+  if (lower.includes('role was not found')) return COPY.roleMissing;
+  if (lower.includes('team was not found')) return COPY.teamMissing;
+  if (
+    lower.includes('conversation was not found') ||
+    lower.includes('conversation is not')
+  ) {
+    return COPY.conversationMissing;
+  }
+  if (lower.includes('memory topic')) return COPY.memoryMissing;
+  return COPY.objectMissing;
+}
+
 export function userSendIsBroadcast(
   text: string | null | undefined,
   members: SpaceMember[] | null | undefined
@@ -1328,7 +1423,6 @@ export function collectionDirFromHostPayload(
 export function sendErrorCopy(code: string): string {
   if (code === 'not_a_member') return COPY.notAMember;
   if (code === 'nickname_taken') return COPY.nicknameTaken;
-  if (code === 'not_found') return COPY.nicknameMissing;
   return '';
 }
 
@@ -1346,18 +1440,7 @@ export function surfaceErrorCopy(cause: unknown): string {
         : record?.message != null
           ? String(record.message)
           : '';
-  if (code === 'not_found') {
-    const trimmed = message.trim();
-    if (
-      !trimmed ||
-      trimmed === 'not_found' ||
-      trimmed.toLowerCase().includes('nickname') ||
-      trimmed.includes('昵称')
-    ) {
-      return COPY.nicknameMissing;
-    }
-    return trimmed;
-  }
+  if (code === 'not_found') return notFoundSurfaceCopy(message);
   const known = sendErrorCopy(code) || sendErrorCopy(message);
   if (known) return known;
   if (

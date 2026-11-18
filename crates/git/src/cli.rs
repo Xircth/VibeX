@@ -241,12 +241,14 @@ impl GitCli {
         create_branch: bool,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let branch = crate::validation::validate_branch_name(branch)?;
 
         let mut args: Vec<OsString> = vec!["worktree".into(), "add".into()];
         if create_branch {
             args.push("-b".into());
             args.push(OsString::from(branch));
         }
+        args.push("--".into());
         args.push(worktree_path.as_os_str().into());
         args.push(OsString::from(branch));
         if let Err(error) = self.git(repo_path, args) {
@@ -277,6 +279,8 @@ impl GitCli {
         start_point: &str,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let branch = crate::validation::validate_branch_name(branch)?;
+        let start_point = crate::validation::validate_ref_or_sha(start_point, "start point")?;
         let oid = self.resolve_commit(repo_path, start_point)?;
 
         let add_with_branch = self.git(
@@ -286,6 +290,7 @@ impl GitCli {
                 OsString::from("add"),
                 OsString::from("-b"),
                 OsString::from(branch),
+                OsString::from("--"),
                 worktree_path.as_os_str().into(),
                 OsString::from(&oid),
             ],
@@ -642,10 +647,13 @@ impl GitCli {
         remote_url: &str,
         refspec: &str,
     ) -> Result<(), GitCliError> {
+        let remote_url = crate::validation::validate_remote_url(remote_url)?;
+        let refspec = crate::validation::validate_ref_or_sha(refspec, "refspec")?;
         let envs = vec![(OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0"))];
 
         let args = [
             OsString::from("fetch"),
+            OsString::from("--"),
             OsString::from(remote_url),
             OsString::from(refspec),
         ];
@@ -665,6 +673,8 @@ impl GitCli {
         branch: &str,
         force: bool,
     ) -> Result<(), GitCliError> {
+        let remote_url = crate::validation::validate_remote_url(remote_url)?;
+        let branch = crate::validation::validate_branch_name(branch)?;
         let refspec = if force {
             format!("+refs/heads/{branch}:refs/heads/{branch}")
         } else {
@@ -674,6 +684,7 @@ impl GitCli {
 
         let args = [
             OsString::from("push"),
+            OsString::from("--"),
             OsString::from(remote_url),
             OsString::from(refspec),
         ];
@@ -692,11 +703,14 @@ impl GitCli {
         remote_url: &str,
         branch_name: &str,
     ) -> Result<bool, GitCliError> {
+        let remote_url = crate::validation::validate_remote_url(remote_url)?;
+        let branch_name = crate::validation::validate_branch_name(branch_name)?;
         let envs = vec![(OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0"))];
 
         let args = [
             OsString::from("ls-remote"),
             OsString::from("--heads"),
+            OsString::from("--"),
             OsString::from(remote_url),
             OsString::from(format!("refs/heads/{branch_name}")),
         ];
@@ -711,7 +725,8 @@ impl GitCli {
     /// Delete a local branch from the repository (force delete).
     pub fn delete_branch(&self, repo_path: &Path, branch_name: &str) -> Result<(), GitCliError> {
         self.ensure_available()?;
-        self.git(repo_path, ["branch", "-D", branch_name])?;
+        let branch_name = crate::validation::validate_branch_name(branch_name)?;
+        self.git(repo_path, ["branch", "-D", "--", branch_name])?;
         Ok(())
     }
 
@@ -720,8 +735,42 @@ impl GitCli {
         repo_path: &Path,
         remote_name: &str,
     ) -> Result<String, GitCliError> {
-        let output = self.git(repo_path, ["remote", "get-url", remote_name])?;
+        let remote_name = crate::validation::validate_remote_name(remote_name)?;
+        let output = self.git(repo_path, ["remote", "get-url", "--", remote_name])?;
         Ok(output.trim().to_string())
+    }
+
+    pub fn add_remote(
+        &self,
+        repo_path: &Path,
+        remote_name: &str,
+        remote_url: &str,
+    ) -> Result<(), GitCliError> {
+        let remote_name = crate::validation::validate_remote_name(remote_name)?;
+        let remote_url = crate::validation::validate_remote_url(remote_url)?;
+        self.git(repo_path, ["remote", "add", "--", remote_name, remote_url])?;
+        Ok(())
+    }
+
+    pub fn remove_remote(&self, repo_path: &Path, remote_name: &str) -> Result<(), GitCliError> {
+        let remote_name = crate::validation::validate_remote_name(remote_name)?;
+        self.git(repo_path, ["remote", "remove", "--", remote_name])?;
+        Ok(())
+    }
+
+    pub fn set_remote_url(
+        &self,
+        repo_path: &Path,
+        remote_name: &str,
+        remote_url: &str,
+    ) -> Result<(), GitCliError> {
+        let remote_name = crate::validation::validate_remote_name(remote_name)?;
+        let remote_url = crate::validation::validate_remote_url(remote_url)?;
+        self.git(
+            repo_path,
+            ["remote", "set-url", "--", remote_name, remote_url],
+        )?;
+        Ok(())
     }
 
     /// List all remotes with their URLs using `git remote -v`.
@@ -1276,6 +1325,7 @@ impl GitCli {
         branch_name: &str,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let branch_name = crate::validation::validate_branch_name(branch_name)?;
         self.git(worktree_path, ["checkout", branch_name])?;
         Ok(())
     }
@@ -1288,8 +1338,10 @@ impl GitCli {
         from_ref: Option<&str>,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let branch_name = crate::validation::validate_branch_name(branch_name)?;
         match from_ref {
             Some(base) => {
+                let base = crate::validation::validate_ref_or_sha(base, "base ref")?;
                 self.git(worktree_path, ["checkout", "-b", branch_name, base])?;
             }
             None => {
@@ -1305,14 +1357,16 @@ impl GitCli {
         worktree_path: &Path,
         sha: &str,
     ) -> Result<(String, String, String, String, i64), GitCliError> {
+        let sha = crate::validation::validate_ref_or_sha(sha, "commit")?;
         // Format: summary\0body\0author\0email\0timestamp
         let out = self.git(
             worktree_path,
             [
                 "show",
-                sha,
                 "--no-patch",
                 "--format=%s%x00%b%x00%aN%x00%aE%x00%ct",
+                sha,
+                "--",
             ],
         )?;
         let trimmed = out.trim();
@@ -1338,14 +1392,15 @@ impl GitCli {
         worktree_path: &Path,
         sha: &str,
     ) -> Result<Vec<(String, String, u32, u32)>, GitCliError> {
+        let sha = crate::validation::validate_ref_or_sha(sha, "commit")?;
         // --diff-filter to get status, --numstat for additions/deletions
         let name_status = self.git(
             worktree_path,
-            ["diff-tree", "--no-commit-id", "-r", "--name-status", sha],
+            ["diff-tree", "--no-commit-id", "-r", "--name-status", sha, "--"],
         )?;
         let numstat = self.git(
             worktree_path,
-            ["diff-tree", "--no-commit-id", "-r", "--numstat", sha],
+            ["diff-tree", "--no-commit-id", "-r", "--numstat", sha, "--"],
         )?;
 
         let mut stat_map: std::collections::HashMap<String, (u32, u32)> =
@@ -1380,6 +1435,7 @@ impl GitCli {
     /// Cherry-pick a commit.
     pub fn cherry_pick(&self, worktree_path: &Path, sha: &str) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let sha = crate::validation::validate_ref_or_sha(sha, "commit")?;
         self.git(worktree_path, ["cherry-pick", sha])?;
         Ok(())
     }
@@ -1387,6 +1443,7 @@ impl GitCli {
     /// Revert a commit (creates a new commit undoing the changes).
     pub fn revert_commit(&self, worktree_path: &Path, sha: &str) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let sha = crate::validation::validate_ref_or_sha(sha, "commit")?;
         self.git(worktree_path, ["revert", "--no-edit", sha])?;
         Ok(())
     }
@@ -1394,6 +1451,8 @@ impl GitCli {
     /// Reset current branch to a specific commit.
     pub fn reset_to(&self, worktree_path: &Path, sha: &str, mode: &str) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let sha = crate::validation::validate_ref_or_sha(sha, "commit")?;
+        let mode = crate::validation::validate_reset_mode(mode)?;
         let mode_flag = format!("--{mode}");
         self.git(worktree_path, ["reset", &mode_flag, sha])?;
         Ok(())
@@ -1407,7 +1466,9 @@ impl GitCli {
         sha: &str,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
-        self.git(worktree_path, ["branch", branch_name, sha])?;
+        let branch_name = crate::validation::validate_branch_name(branch_name)?;
+        let sha = crate::validation::validate_ref_or_sha(sha, "commit")?;
+        self.git(worktree_path, ["branch", "--", branch_name, sha])?;
         Ok(())
     }
 
@@ -1419,6 +1480,7 @@ impl GitCli {
         token: Option<&str>,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        let clone_url = crate::validation::validate_remote_url(clone_url)?;
         let url = authenticated_https_url(clone_url, token);
         let parent = target_path
             .parent()
@@ -1908,6 +1970,53 @@ mod tests {
                 .join(&long_name)
                 .is_file()
         );
+    }
+
+    #[test]
+    fn cli_helpers_reject_flag_injection_and_unsafe_transports() {
+        let repo = init_temp_repo();
+        let git = GitCli::new();
+
+        assert!(
+            git.add_remote(repo.path(), "--upload-pack=evil", "https://example.com/r.git")
+                .is_err()
+        );
+        assert!(
+            git.add_remote(repo.path(), "origin", "ext::sh -c evil")
+                .is_err()
+        );
+        assert!(
+            git.add_remote(repo.path(), "origin", "--upload-pack=evil")
+                .is_err()
+        );
+        assert!(
+            git.checkout_branch(repo.path(), "--orphan=evil")
+                .is_err()
+        );
+        assert!(
+            git.delete_branch(repo.path(), "--force").is_err()
+        );
+        assert!(
+            git.reset_to(repo.path(), "HEAD", "hard --merge").is_err()
+        );
+        assert!(
+            git.cherry_pick(repo.path(), "--strategy=evil").is_err()
+        );
+
+        git.add_remote(repo.path(), "origin", "https://example.com/repo.git")
+            .expect("valid remote should be added");
+        assert_eq!(
+            git.get_remote_url(repo.path(), "origin").unwrap(),
+            "https://example.com/repo.git"
+        );
+        git.set_remote_url(repo.path(), "origin", "https://example.com/next.git")
+            .expect("valid remote url update");
+        assert_eq!(
+            git.get_remote_url(repo.path(), "origin").unwrap(),
+            "https://example.com/next.git"
+        );
+        git.remove_remote(repo.path(), "origin")
+            .expect("valid remote removal");
     }
 }
 

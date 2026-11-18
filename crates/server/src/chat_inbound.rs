@@ -369,30 +369,43 @@ fn value_to_id(value: &Value) -> Option<String> {
     }
 }
 
-fn authorized_identities(kind: &str, config: &Value) -> HashSet<String> {
-    let mut identities = HashSet::new();
+fn explicit_authorized_senders(config: &Value) -> HashSet<String> {
+    let mut senders = HashSet::new();
     if let Some(list) = config.get("authorized_senders").and_then(Value::as_array) {
         for item in list {
             if let Some(id) = value_to_id(item) {
-                identities.insert(id);
+                senders.insert(id);
             }
         }
     }
-    let destination_key = if kind == "qq" { "target_id" } else { "chat_id" };
-    if let Some(id) = config.get(destination_key).and_then(value_to_id) {
-        identities.insert(id);
-    }
-    identities
+    senders
 }
 
 fn is_sender_authorized(kind: &str, config: &Value, sender_id: &str, chat_id: &str) -> bool {
-    let identities = authorized_identities(kind, config);
-    if identities.is_empty() {
-        // iLink trust is the QR-bound bot token; an empty list would make a
-        // just-scanned bot unable to receive its first command.
-        return kind == "weixin" && config_str(config, "mode") == "ilink";
+    let trimmed_sender = sender_id.trim();
+    let sender_base = trimmed_sender
+        .split_once(":topic:")
+        .map(|(base, _)| base.trim())
+        .unwrap_or(trimmed_sender);
+    if sender_base.is_empty() {
+        return false;
     }
-    identities.contains(sender_id) || identities.contains(chat_id)
+
+    let explicit_senders = explicit_authorized_senders(config);
+    if !explicit_senders.is_empty() {
+        return explicit_senders.contains(trimmed_sender)
+            || explicit_senders.contains(sender_base);
+    }
+
+    let trimmed_chat = chat_id.trim();
+    if trimmed_chat.is_empty() {
+        return false;
+    }
+    let destination_key = if kind == "qq" { "target_id" } else { "chat_id" };
+    config
+        .get(destination_key)
+        .and_then(value_to_id)
+        .is_some_and(|bound_destination| bound_destination == trimmed_chat)
 }
 
 pub async fn post_event_webhooks(event: &str, body: &str) {
@@ -404,12 +417,23 @@ pub async fn post_event_webhooks(event: &str, body: &str) {
         .into_iter()
         .filter(|hook| hook.enabled && !hook.url.trim().is_empty())
     {
+        let Ok(client) = crate::pulse_outbox::build_safe_outbound_client(
+            &hook.url,
+            false,
+            Duration::from_secs(5),
+            None,
+        )
+        .await
+        else {
+            tracing::warn!(url = %hook.url, "blocked unsafe event webhook URL");
+            continue;
+        };
         let payload = json!({
             "event": event,
             "body": body,
             "source": "vibex",
         });
-        let _ = http_client().post(hook.url).json(&payload).send().await;
+        let _ = client.post(&hook.url).json(&payload).send().await;
     }
 }
 

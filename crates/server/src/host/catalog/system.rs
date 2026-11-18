@@ -744,6 +744,10 @@ pub(super) async fn clear_local_app_data(
             ));
         }
     }
+    domains.capability_broker.reset_browser_host().await;
+    let host_data_dir = utils::assets::host_data_dir();
+    let _ = remove_path_if_exists(&host_data_dir.join("browser-profiles"));
+    let _ = remove_path_if_exists(&host_data_dir.join("browser-userdata"));
     let _ = remove_path_if_exists(&utils::assets::profiles_path());
     let _ = remove_path_if_exists(&utils::cache_dir());
     ExecutorConfigs::reload();
@@ -751,6 +755,10 @@ pub(super) async fn clear_local_app_data(
         .await
         .map_err(internal_error)?;
     let default_config = Config::default();
+    domains.events.emit(
+        crate::host::events::LOCAL_APP_DATA_CLEARED_EVENT,
+        serde_json::json!({ "cleared": true }),
+    );
     let _ = remove_path_if_exists(&utils::assets::settings_path());
     save_config_to_file(&default_config, &utils::assets::settings_path())
         .await

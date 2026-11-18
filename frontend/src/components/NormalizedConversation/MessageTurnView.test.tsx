@@ -9,6 +9,7 @@ import {
 } from '@testing-library/react';
 import type { ContentBlock, MessageTurn } from 'shared/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildTimelineVirtualEntries } from '@/components/logs/assistantVirtualSlices';
 import { MessageTurnView } from './MessageTurnView';
 import { STREAMING_ACTIVITY_VERBS } from './assistantStreamingActivity';
 
@@ -1914,5 +1915,173 @@ describe('MessageTurnView', () => {
       />
     );
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  const settledReply = '无限画布上按住 Ctrl 再滚动，回复仍然在。';
+
+  function settledAssistantTurn(): MessageTurn {
+    return {
+      id: '655f4f3e-082e-4ffb-bec2-ef716d25719f:assistant',
+      role: 'assistant',
+      timestamp: '2026-11-18T12:28:51.008Z',
+      blocks: [
+        toolUseBlock(0, 'bash', { command: 'rg' }),
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool-0',
+          output_preview: 'ok',
+          is_error: false,
+        },
+        { type: 'thinking', text: 'looking at the canvas zoom path' },
+        { type: 'text', text: '先看缩放。' },
+        toolUseBlock(1, 'bash', { command: 'test' }),
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool-1',
+          output_preview: 'ok',
+          is_error: false,
+        },
+        { type: 'thinking', text: 'checking the import lock' },
+        { type: 'text', text: settledReply },
+      ],
+    };
+  }
+
+  function settledSlices(hideThinking: boolean) {
+    return buildTimelineVirtualEntries({
+      items: [
+        {
+          kind: 'message',
+          item: {
+            key: 'row-open',
+            phase: 'settled',
+            turn: settledAssistantTurn(),
+          },
+          row: { row_id: 'row-open' },
+        } as never,
+      ],
+      collapseProcess: true,
+      hideThinking,
+      processExpanded: () => false,
+      isContextCompact: () => false,
+    });
+  }
+
+  function renderSlice(
+    turn: MessageTurn,
+    slice:
+      | { kind: 'process-fold'; count: number; startIndex: number }
+      | {
+          kind: 'block';
+          itemIndex: number;
+        },
+    options?: { isLastSlice?: boolean; hideThinking?: boolean }
+  ) {
+    return render(
+      <MessageTurnView
+        turn={turn}
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess
+        slice={slice}
+        isLastSlice={options?.isLastSlice ?? true}
+        hideThinking={options?.hideThinking}
+      />
+    );
+  }
+
+  it('renders the settled reply on the last prose slice', () => {
+    const turn = settledAssistantTurn();
+    const entries = settledSlices(false);
+    expect(entries.map((entry) => entry.slice)).toEqual([
+      { kind: 'process-fold', count: 5, startIndex: 0 },
+      { kind: 'block', itemIndex: 5 },
+    ]);
+    renderSlice(turn, { kind: 'block', itemIndex: 5 }, { hideThinking: false });
+    expect(screen.getByText(settledReply)).toBeInTheDocument();
+    expect(screen.queryByText('先看缩放。')).not.toBeInTheDocument();
+  });
+
+  it('still renders the reply when the slice index was built with thinking visible', () => {
+    hideThinkingMock.value = true;
+    const turn = settledAssistantTurn();
+    const entries = settledSlices(false);
+    const last = entries[entries.length - 1]?.slice;
+    expect(last).toEqual({ kind: 'block', itemIndex: 5 });
+    renderSlice(turn, { kind: 'block', itemIndex: 5 });
+    expect(screen.getByText(settledReply)).toBeInTheDocument();
+    expect(screen.queryByText('先看缩放。')).not.toBeInTheDocument();
+  });
+
+  it('renders the reply under a process fold that is the last slice', () => {
+    const turn = settledAssistantTurn();
+    renderSlice(turn, { kind: 'process-fold', count: 5, startIndex: 0 });
+    expect(screen.getByText(settledReply)).toBeInTheDocument();
+  });
+
+  it('does not repeat the reply on an earlier process fold', () => {
+    const turn = settledAssistantTurn();
+    renderSlice(
+      turn,
+      { kind: 'process-fold', count: 5, startIndex: 0 },
+      { isLastSlice: false, hideThinking: false }
+    );
+    expect(screen.queryByText(settledReply)).not.toBeInTheDocument();
+  });
+
+  it('renders the reply when the last slice index misses', () => {
+    const turn = settledAssistantTurn();
+    renderSlice(
+      turn,
+      { kind: 'block', itemIndex: 99 },
+      { hideThinking: false }
+    );
+    expect(screen.getByText(settledReply)).toBeInTheDocument();
+  });
+
+  it('leaves a missed non-final slice empty', () => {
+    const turn = settledAssistantTurn();
+    const { container } = renderSlice(
+      turn,
+      { kind: 'block', itemIndex: 99 },
+      { isLastSlice: false, hideThinking: false }
+    );
+    expect(screen.queryByText(settledReply)).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('does not repeat the reply on a later tool slice', () => {
+    const turn: MessageTurn = {
+      id: 'tool-after-prose:assistant',
+      role: 'assistant',
+      timestamp: '2026-11-18T12:28:51.008Z',
+      blocks: [
+        { type: 'text', text: settledReply },
+        toolUseBlock(0, 'bash', { command: 'later' }),
+      ],
+    };
+    const entries = buildTimelineVirtualEntries({
+      items: [
+        {
+          kind: 'message',
+          item: {
+            key: 'row-tool',
+            phase: 'settled',
+            turn,
+          },
+          row: { row_id: 'row-tool' },
+        } as never,
+      ],
+      collapseProcess: true,
+      hideThinking: false,
+      processExpanded: () => false,
+      isContextCompact: () => false,
+    });
+    const last = entries[entries.length - 1]?.slice;
+    expect(last).toEqual({ kind: 'block', itemIndex: 1 });
+    renderSlice(turn, { kind: 'block', itemIndex: 1 }, { hideThinking: false });
+    expect(screen.queryByText(settledReply)).not.toBeInTheDocument();
+    expect(markdownMock).not.toHaveBeenCalled();
   });
 });

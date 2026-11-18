@@ -1165,6 +1165,84 @@ impl AgentConnectionManager {
         self.sweep_idle_with_extended(idle_timeout, None).await
     }
 
+    /// Collect `(connection_id, session_id)` pairs whose Anthropic Prompt Cache
+    /// is ready for `/compact` warm-preservation while the connection is idle.
+    pub async fn collect_idle_compaction_targets(&self) -> Vec<(AgentConnectionId, AgentSessionId)> {
+        let candidates = {
+            let connections = self.connections.lock().await;
+            connections
+                .iter()
+                .map(|(id, connection)| {
+                    (
+                        *id,
+                        Arc::clone(&connection.status),
+                        Arc::clone(&connection.active_prompt),
+                        Arc::clone(&connection.pending_permissions),
+                        Arc::clone(&connection.pending_elicitations),
+                        Arc::clone(&connection.session_map),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let now = Utc::now();
+        let mut targets = Vec::new();
+        for (
+            id,
+            status,
+            active_prompt,
+            pending_permissions,
+            pending_elicitations,
+            session_map,
+        ) in candidates
+        {
+            if *status.lock().await != AgentConnectionStatus::Ready {
+                continue;
+            }
+            if active_prompt.lock().await.is_some() {
+                continue;
+            }
+            if !pending_permissions.lock().await.is_empty() {
+                continue;
+            }
+            if !pending_elicitations.lock().await.is_empty() {
+                continue;
+            }
+            let bound_sessions: Vec<AgentSessionId> =
+                session_map.read().await.keys().copied().collect();
+            for session_id in bound_sessions {
+                if let Some(snap) = self.idle_compaction.session_snapshot(session_id.0)
+                    && let Some(expires_at) = snap.cache_expires_at
+                    && matches!(
+                        self.idle_compaction.evaluate_at(
+                            session_id.0,
+                            snap.estimated_tokens,
+                            expires_at,
+                            now,
+                        ),
+                        crate::idle_compaction::CompactionDecision::Compact
+                    )
+                {
+                    targets.push((id, session_id));
+                    break;
+                }
+            }
+        }
+        targets
+    }
+
+    pub async fn touch_connection_activity(&self, connection_id: AgentConnectionId) {
+        let last_activity = {
+            let connections = self.connections.lock().await;
+            connections
+                .get(&connection_id)
+                .map(|connection| Arc::clone(&connection.last_activity))
+        };
+        if let Some(last_activity) = last_activity {
+            *last_activity.lock().await = Instant::now();
+        }
+    }
+
     /// Same as [`Self::sweep_idle`], but sessions in `extended` use the longer
     /// timeout until the next sweep sees them drop out of that set.
     pub async fn sweep_idle_with_extended(
@@ -1187,7 +1265,6 @@ impl AgentConnectionManager {
                     (
                         *id,
                         connection.snapshot.clone(),
-                        connection.cmd_tx.clone(),
                         Arc::clone(&connection.status),
                         Arc::clone(&connection.active_prompt),
                         Arc::clone(&connection.pending_permissions),
@@ -1200,11 +1277,9 @@ impl AgentConnectionManager {
         };
 
         let mut stale = Vec::new();
-        let now = Utc::now();
         for (
             id,
             snapshot,
-            cmd_tx,
             status,
             active_prompt,
             pending_permissions,
@@ -1226,47 +1301,8 @@ impl AgentConnectionManager {
                 continue;
             }
 
-            // Evaluate official Claude Prompt Cache warm-preservation before
-            // deciding whether to evict an idle connection.
             let bound_sessions: Vec<AgentSessionId> =
                 session_map.read().await.keys().copied().collect();
-            let mut compacted_session = None;
-            for session_id in &bound_sessions {
-                if let Some(snap) = self.idle_compaction.session_snapshot(session_id.0)
-                    && let Some(expires_at) = snap.cache_expires_at
-                    && matches!(
-                        self.idle_compaction.evaluate_at(
-                            session_id.0,
-                            snap.estimated_tokens,
-                            expires_at,
-                            now,
-                        ),
-                        crate::idle_compaction::CompactionDecision::Compact
-                    )
-                {
-                    compacted_session = Some(*session_id);
-                    break;
-                }
-            }
-            if let Some(session_id) = compacted_session {
-                let prompt_id = AgentPromptId::new();
-                if cmd_tx
-                    .try_send(AgentConnectionCommand::Prompt {
-                        session_id,
-                        prompt_id,
-                        blocks: vec![AgentContentBlock::Text {
-                            text: "/compact".to_string(),
-                        }],
-                        display_blocks: None,
-                        mode_override: None,
-                        config_overrides: Vec::new(),
-                    })
-                    .is_ok()
-                {
-                    *last_activity.lock().await = Instant::now();
-                    continue;
-                }
-            }
 
             let timeout = match &extended {
                 Some((ids, extended_timeout)) if !ids.is_empty() => {

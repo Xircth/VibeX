@@ -276,6 +276,7 @@ describe('ImportLocalSessionsDialog', () => {
           agent_id: 'codex',
           external_session_id: 'codex-1',
           workspace_id: 'workspace-1',
+          title: 'Continue the importer',
         },
       ])
     );
@@ -430,6 +431,7 @@ describe('ImportLocalSessionsDialog', () => {
           agent_id: 'codex',
           external_session_id: 'codex-1',
           workspace_id: 'workspace-1',
+          title: 'Continue the importer',
         },
       ])
     );

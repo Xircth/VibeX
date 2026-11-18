@@ -348,6 +348,9 @@
     "noSourceDirectory": "原项目目录不可用",
     "importContinuity": "会话历史会被保留，能否继续原 Agent 上下文取决于其会话支持能力。",
     "importProgress": "正在导入 {{current}} / {{total}}…",
+    "importPreparing": "正在准备导入目标…",
+    "importWorking": "正在导入会话…",
+    "importInBackground": "后台静息导入",
     "importResult": "已导入 {{imported}}，跳过 {{skipped}}，失败 {{failed}}",
     "globalDescription": "无需指定项目目录即可开始",
     "projectAction": {

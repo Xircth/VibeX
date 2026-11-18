@@ -218,6 +218,8 @@ pub struct PendingDeviceConnectRequest {
     pub client_kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key_ed25519: Option<String>,
     pub sas_code: String,
     pub created_at: String,
     pub expires_at: String,

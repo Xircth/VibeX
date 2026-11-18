@@ -1,7 +1,10 @@
 //! Transactional `pulse_outbox` delivery worker (`EmitEvent`, `WebhookPost`, `ReplyChannel`,
 //! and user-interaction channel mirrors) with exponential retry backoff and hop-count guards.
 
-use std::{sync::LazyLock, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    time::Duration,
+};
 
 use api_types::pulse::{
     EventActor, EventEnvelope, EventSourceKind, EventSourceMeta, EventTrace, EventTrustLevel,
@@ -10,6 +13,7 @@ use chrono::Utc;
 use conversations::collaboration;
 use db::models::pulse::{PulseOutboxRecord, ensure_pulse_schema};
 use serde_json::{Value, json};
+use url::Url;
 use uuid::Uuid;
 
 use crate::{
@@ -23,12 +27,150 @@ const MAX_OUTBOX_DERIVED_HOP_COUNT: u32 = 4;
 /// Maximum delivery attempts before an outbox row is permanently marked failed.
 const MAX_OUTBOX_DELIVERY_ATTEMPTS: u32 = 8;
 
-static PULSE_OUTBOX_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
+fn is_forbidden_ipv4(ip: Ipv4Addr, allow_loopback: bool) -> bool {
+    let octets = ip.octets();
+    if ip.is_loopback() || octets[0] == 127 {
+        return !allow_loopback;
+    }
+    octets[0] == 0
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        // CGNAT 100.64.0.0/10
+        || (octets[0] == 100 && (octets[1] & 0xc0) == 64)
+        // IETF protocol assignments 192.0.0.0/24
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        // Benchmarking 198.18.0.0/15
+        || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+        // Reserved 240.0.0.0/4
+        || octets[0] >= 240
+}
+
+pub(crate) fn is_forbidden_ip(ip: IpAddr, allow_loopback: bool) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_forbidden_ipv4(v4, allow_loopback),
+        IpAddr::V6(v6) => {
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return is_forbidden_ipv4(mapped, allow_loopback);
+            }
+            if v6.is_loopback() {
+                return !allow_loopback;
+            }
+            let seg = v6.segments();
+            // Deprecated IPv4-compatible `::/96` embeds raw IPv4 in low 32 bits
+            if seg[0] == 0
+                && seg[1] == 0
+                && seg[2] == 0
+                && seg[3] == 0
+                && seg[4] == 0
+                && seg[5] == 0
+            {
+                if let Some(compat) = v6.to_ipv4() {
+                    return is_forbidden_ipv4(compat, allow_loopback);
+                }
+                return true;
+            }
+            v6.is_unspecified()
+                || v6.is_multicast()
+                // ULA fc00::/7
+                || (seg[0] & 0xfe00) == 0xfc00
+                // Link-local fe80::/10
+                || (seg[0] & 0xffc0) == 0xfe80
+                // Deprecated site-local fec0::/10
+                || (seg[0] & 0xffc0) == 0xfec0
+                // Documentation 2001:db8::/32
+                || (seg[0] == 0x2001 && seg[1] == 0x0db8)
+        }
+    }
+}
+
+fn validate_outbound_url_syntax(
+    raw_url: &str,
+    allow_loopback: bool,
+) -> Result<(Url, String, u16), String> {
+    let parsed = Url::parse(raw_url.trim())
+        .map_err(|err| format!("invalid outbound URL `{raw_url}`: {err}"))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(format!(
+                "outbound URL `{raw_url}` uses unsupported scheme `{other}`"
+            ));
+        }
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(format!(
+            "outbound URL `{raw_url}` must not embed credentials"
+        ));
+    }
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| format!("outbound URL `{raw_url}` has no valid port"))?;
+    let host_str = parsed
+        .host_str()
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .ok_or_else(|| format!("outbound URL `{raw_url}` has no valid host"))?;
+    let clean_host = host_str.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = clean_host.parse::<IpAddr>()
+        && is_forbidden_ip(ip, allow_loopback)
+    {
+        return Err(format!(
+            "outbound URL `{raw_url}` targets forbidden internal IP `{ip}`"
+        ));
+    }
+    if !allow_loopback {
+        let lower = clean_host.to_ascii_lowercase();
+        if lower == "localhost" || lower.ends_with(".localhost") || lower.ends_with(".local") {
+            return Err(format!(
+                "outbound URL `{raw_url}` targets forbidden local host `{clean_host}`"
+            ));
+        }
+    }
+    Ok((parsed, clean_host.to_string(), port))
+}
+
+pub(crate) async fn build_safe_outbound_client(
+    raw_url: &str,
+    allow_loopback: bool,
+    timeout: Duration,
+    user_agent: Option<&str>,
+) -> Result<reqwest::Client, String> {
+    let (_url, host, port) = validate_outbound_url_syntax(raw_url, allow_loopback)?;
+    let addrs: Vec<SocketAddr> = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else {
+        tokio::net::lookup_host((host.as_str(), port))
+            .await
+            .map_err(|err| format!("DNS resolution failed for outbound host `{host}`: {err}"))?
+            .collect()
+    };
+    if addrs.is_empty() {
+        return Err(format!(
+            "DNS resolution returned no addresses for outbound host `{host}`"
+        ));
+    }
+    for addr in &addrs {
+        if is_forbidden_ip(addr.ip(), allow_loopback) {
+            return Err(format!(
+                "outbound host `{host}` resolved to forbidden internal IP `{}`",
+                addr.ip()
+            ));
+        }
+    }
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(&host, &addrs);
+    if let Some(ua) = user_agent {
+        builder = builder.user_agent(ua);
+    }
+    builder
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-});
+        .map_err(|err| format!("failed to build safe outbound HTTP client: {err}"))
+}
 
 impl ServerApplicationDomains {
     /// Claims and delivers all due `pulse_outbox` rows (`status IN ('pending', 'failed')`).
@@ -236,6 +378,13 @@ impl ServerApplicationDomains {
                 "feishu_webhook destination `{destination}` must be an http(s) URL"
             ));
         }
+        let client = build_safe_outbound_client(
+            &destination,
+            self.allow_loopback_outbox,
+            Duration::from_secs(5),
+            None,
+        )
+        .await?;
         let headers = extract_outbox_headers(&record.payload);
         let rendered_text = record
             .payload
@@ -252,7 +401,7 @@ impl ServerApplicationDomains {
             }),
         };
 
-        let mut req = PULSE_OUTBOX_HTTP_CLIENT
+        let mut req = client
             .post(&destination)
             .header(reqwest::header::CONTENT_TYPE, "application/json");
         for (k, v) in &headers {
@@ -314,12 +463,12 @@ impl ServerApplicationDomains {
 
         let repo_hint_prelim = extract_github_repo_hint(destination);
         let api_base = self
-            .resolve_outbox_github_api_base(&record.payload, repo_hint_prelim.as_deref())
+            .resolve_outbox_github_api_base(repo_hint_prelim.as_deref())
             .await;
         let (api_url, gh_endpoint, repo_hint) =
             parse_github_comment_destination_with_base(destination, &api_base)?;
         let token = self
-            .resolve_outbox_github_token(&record.payload, &headers, repo_hint.as_deref())
+            .resolve_outbox_github_token(&headers, repo_hint.as_deref(), &api_url)
             .await;
 
         let targets_github_cloud = api_url.starts_with("https://api.github.com/");
@@ -333,7 +482,14 @@ impl ServerApplicationDomains {
             return Ok(());
         }
 
-        let mut req = PULSE_OUTBOX_HTTP_CLIENT
+        let client = build_safe_outbound_client(
+            &api_url,
+            self.allow_loopback_outbox,
+            Duration::from_secs(5),
+            None,
+        )
+        .await?;
+        let mut req = client
             .post(&api_url)
             .header(reqwest::header::USER_AGENT, "VibeX-Pulse")
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -378,22 +534,7 @@ impl ServerApplicationDomains {
         }
     }
 
-    async fn resolve_outbox_github_api_base(
-        &self,
-        payload: &Value,
-        repo_hint: Option<&str>,
-    ) -> String {
-        if let Some(base) = payload
-            .get("githubApiBase")
-            .or_else(|| payload.get("apiBaseUrl"))
-            .or_else(|| payload.pointer("/payload/githubApiBase"))
-            .or_else(|| payload.pointer("/payload/apiBaseUrl"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return base.trim_end_matches('/').to_string();
-        }
+    async fn resolve_outbox_github_api_base(&self, repo_hint: Option<&str>) -> String {
         if let Ok(sources) = self.pulse_engine.store().list_sources().await {
             for src in sources {
                 if src.kind != EventSourceKind::Github {
@@ -426,25 +567,18 @@ impl ServerApplicationDomains {
 
     async fn resolve_outbox_github_token(
         &self,
-        payload: &Value,
         headers: &[(String, String)],
         repo_hint: Option<&str>,
+        target_url: &str,
     ) -> Option<String> {
-        if let Some(tok) = payload
-            .get("githubToken")
-            .or_else(|| payload.get("token"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return Some(tok.to_string());
-        }
         if headers
             .iter()
             .any(|(k, _)| k.eq_ignore_ascii_case("authorization"))
         {
             return None;
         }
+        let target_parsed = Url::parse(target_url).ok()?;
+        let target_origin = target_parsed.origin();
         if let Ok(sources) = self.pulse_engine.store().list_sources().await {
             for src in sources {
                 if src.kind != EventSourceKind::Github {
@@ -454,6 +588,20 @@ impl ServerApplicationDomains {
                     && let Some(src_repo) = src.config_json.get("repo").and_then(Value::as_str)
                     && !src_repo.trim().eq_ignore_ascii_case(hint)
                 {
+                    continue;
+                }
+                let source_base = src
+                    .config_json
+                    .get("githubApiBase")
+                    .or_else(|| src.config_json.get("apiBaseUrl"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("https://api.github.com");
+                let Ok(source_url) = Url::parse(source_base) else {
+                    continue;
+                };
+                if source_url.origin() != target_origin {
                     continue;
                 }
                 if let Some(tok) = src
@@ -467,6 +615,12 @@ impl ServerApplicationDomains {
                     return Some(tok.to_string());
                 }
             }
+        }
+        let is_official_github_api = target_parsed.scheme() == "https"
+            && target_parsed.host_str() == Some("api.github.com")
+            && target_parsed.port_or_known_default() == Some(443);
+        if !is_official_github_api {
+            return None;
         }
         std::env::var("GITHUB_TOKEN")
             .ok()
@@ -500,7 +654,7 @@ impl ServerApplicationDomains {
                     .unwrap_or(&record.payload)
                     .clone()
             };
-            post_json_webhook(&destination, &body, &headers).await
+            post_json_webhook(&destination, &body, &headers, self.allow_loopback_outbox).await
         } else {
             Err(format!(
                 "webhook_post destination `{destination}` must be an http(s) URL"
@@ -580,7 +734,7 @@ impl ServerApplicationDomains {
                     .unwrap_or(&record.payload)
                     .clone()
             };
-            post_json_webhook(&destination, &body, &headers).await
+            post_json_webhook(&destination, &body, &headers, self.allow_loopback_outbox).await
         } else if matches!(
             record.target_kind.as_str(),
             "user_interaction_mirror" | "im_reaction_ack"
@@ -769,6 +923,15 @@ fn parse_github_comment_destination_with_base(
         .unwrap_or(destination.trim())
         .trim();
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let dest_url = Url::parse(trimmed)
+            .map_err(|err| format!("invalid github_comment URL `{trimmed}`: {err}"))?;
+        let base_url = Url::parse(api_base.trim())
+            .map_err(|err| format!("invalid GitHub apiBaseUrl `{api_base}`: {err}"))?;
+        if dest_url.origin() != base_url.origin() {
+            return Err(format!(
+                "github_comment URL `{trimmed}` origin does not match configured GitHub API origin `{api_base}`"
+            ));
+        }
         let gh_endpoint = trimmed
             .split("/repos/")
             .nth(1)
@@ -843,8 +1006,11 @@ async fn post_json_webhook(
     url: &str,
     body: &Value,
     headers: &[(String, String)],
+    allow_loopback: bool,
 ) -> Result<(), String> {
-    let mut req = PULSE_OUTBOX_HTTP_CLIENT
+    let client =
+        build_safe_outbound_client(url, allow_loopback, Duration::from_secs(5), None).await?;
+    let mut req = client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/json");
     for (k, v) in headers {
@@ -868,11 +1034,13 @@ async fn post_json_webhook(
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
     use serde_json::json;
 
     use super::{
-        extract_reply_channel_destination, looks_like_github_comment_target,
-        parse_github_comment_destination_with_base,
+        extract_reply_channel_destination, is_forbidden_ip, looks_like_github_comment_target,
+        parse_github_comment_destination_with_base, validate_outbound_url_syntax,
     };
 
     #[test]
@@ -940,5 +1108,62 @@ mod tests {
             Some("repos/acme/dimo/commits/abc1234/comments")
         );
         assert_eq!(commit_repo.as_deref(), Some("acme/dimo"));
+    }
+
+    #[test]
+    fn ssrf_validator_blocks_private_metadata_and_cross_origin_targets() {
+        assert!(is_forbidden_ip(
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            false
+        ));
+        assert!(!is_forbidden_ip(
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            true
+        ));
+        assert!(is_forbidden_ip(
+            IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)),
+            true
+        ));
+        assert!(is_forbidden_ip(
+            IpAddr::V4(Ipv4Addr::new(100, 64, 0, 1)),
+            true
+        ));
+        assert!(is_forbidden_ip(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)),
+            true
+        ));
+        assert!(is_forbidden_ip(
+            IpAddr::V6("::ffff:169.254.169.254".parse::<Ipv6Addr>().unwrap()),
+            true
+        ));
+        assert!(is_forbidden_ip(
+            IpAddr::V6("fe80::1".parse::<Ipv6Addr>().unwrap()),
+            false
+        ));
+        assert!(is_forbidden_ip(
+            IpAddr::V6("fc00::1".parse::<Ipv6Addr>().unwrap()),
+            false
+        ));
+        assert!(!is_forbidden_ip(
+            IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            false
+        ));
+
+        assert!(validate_outbound_url_syntax("http://169.254.169.254/latest", false).is_err());
+        assert!(validate_outbound_url_syntax("http://[::ffff:127.0.0.1]/admin", false).is_err());
+        assert!(validate_outbound_url_syntax("http://user:pass@example.com/hook", false).is_err());
+        assert!(validate_outbound_url_syntax("file:///etc/passwd", false).is_err());
+        assert!(
+            validate_outbound_url_syntax("https://hooks.feishu.cn/open-apis/bot/v2/hook/1", false)
+                .is_ok()
+        );
+
+        assert!(
+            parse_github_comment_destination_with_base(
+                "https://attacker.example/repos/acme/dimo/issues/1/comments",
+                "https://api.github.com",
+            )
+            .is_err()
+        );
     }
 }

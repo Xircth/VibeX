@@ -328,6 +328,10 @@ impl HostCapabilityBroker {
         self
     }
 
+    pub async fn reset_browser_host(&self) {
+        self.browser.reset_local_data().await;
+    }
+
     pub fn with_conversation_host(
         mut self,
         conversations: Arc<dyn crate::PluginConversationHost>,
@@ -1359,6 +1363,17 @@ impl HostCapabilityBroker {
         operation: &str,
         input: Value,
     ) -> Result<Value, crate::WorkerHostError> {
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let requested_key = format!("exec.{operation}");
+        if !grants
+            .iter()
+            .any(|grant| capability_matches(&grant.capability, &requested_key, "exec"))
+        {
+            return Err(broker_error(
+                "exec_permission_denied",
+                format!("Capability `{requested_key}` is not granted for plugin `{plugin_id}`"),
+            ));
+        }
         match operation {
             "run" => {
                 let program = input
@@ -3313,9 +3328,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exec_without_grant_is_denied() {
+        let broker = sqlite_broker().await;
+        for op in ["run", "spawn", "status", "kill"] {
+            let err = broker
+                .call(
+                    "dimo.ungranted-exec",
+                    1,
+                    "exec",
+                    op,
+                    json!({ "program": "echo", "processId": "p1" }),
+                )
+                .await
+                .expect_err("ungranted exec must be denied");
+            assert_eq!(err.code(), "exec_permission_denied");
+        }
+    }
+
+    #[tokio::test]
     async fn exec_spawn_reaps_exited_processes_and_enforces_concurrency_limit() {
         let broker = sqlite_broker().await;
         let plugin = "dimo.exec-limit";
+        broker
+            .grant_capability(plugin, crate::HostCapabilityGrant::new("exec", json!({})))
+            .await;
+        broker
+            .grant_capability(
+                "dimo.other-exec",
+                crate::HostCapabilityGrant::new("exec", json!({})),
+            )
+            .await;
         let (program, short_args, long_args): (&str, Vec<&str>, Vec<&str>) = if cfg!(windows) {
             (
                 "cmd",
@@ -3399,6 +3441,12 @@ mod tests {
     #[tokio::test]
     async fn exec_run_and_notify_toast_execute_through_host_broker() {
         let broker = sqlite_broker().await;
+        broker
+            .grant_capability(
+                "dimo.git",
+                crate::HostCapabilityGrant::new("exec", json!({})),
+            )
+            .await;
 
         let toast = broker
             .call(

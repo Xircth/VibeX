@@ -221,6 +221,7 @@ export function ImportLocalSessionsDialog({
             agent_id: session.agent_id,
             external_session_id: session.external_session_id,
             workspace_id: workspaceId,
+            title: session.title,
           });
         }
       }

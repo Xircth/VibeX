@@ -316,7 +316,10 @@ pub(super) async fn workspace_metadata(
     serialize(metadata)
 }
 
-pub(super) async fn write_pasted(args: Value) -> Result<Value, ApplicationError> {
+pub(super) async fn write_pasted(
+    domains: &ServerApplicationDomains,
+    args: Value,
+) -> Result<Value, ApplicationError> {
     let args: PastedArgs = parse(args)?;
     let ext = args.extension.trim().to_ascii_lowercase();
     if !PASTED_IMAGE_EXTENSIONS.contains(&ext.as_str()) {
@@ -348,7 +351,7 @@ pub(super) async fn write_pasted(args: Value) -> Result<Value, ApplicationError>
             "Pasted image exceeds the 15 MB limit",
         ));
     }
-    let directory = PathBuf::from(&args.directory);
+    let directory = domains.sandbox_target_path(&args.directory, false).await?;
     let assets = directory.join("assets");
     tokio::fs::create_dir_all(&assets)
         .await

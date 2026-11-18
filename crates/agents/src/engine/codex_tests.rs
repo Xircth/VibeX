@@ -500,3 +500,84 @@ fn codex_token_usage_subtracts_cached_input_and_separates_total_spend_from_last_
         other => panic!("expected UsageUpdated, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn mcp_tool_approval_elicitation_is_answered_with_action() {
+    let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let (client_read, client_write) = tokio::io::split(client_io);
+    let (server_read, mut server_write) = tokio::io::split(server_io);
+    let app = CodexAppServer::connect_over_io(Uuid::new_v4(), client_read, client_write, None);
+    let mut events = app.subscribe_events();
+
+    let observed = tokio::spawn(async move {
+        let mut lines = BufReader::new(server_read).lines();
+        let line = lines.next_line().await.unwrap().expect("client reply");
+        serde_json::from_str::<Value>(&line).unwrap()
+    });
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": "elic-1",
+        "method": "mcpServer/elicitation/request",
+        "params": {
+            "threadId": "thr-elic",
+            "turnId": "turn-elic",
+            "serverName": "dimo",
+            "mode": "form",
+            "message": "Allow the dimo MCP server to run tool \"manage_group\"?",
+            "_meta": {
+                "codex_approval_kind": "mcp_tool_call",
+                "tool_name": "manage_group",
+                "persist": "session"
+            },
+            "requestedSchema": { "type": "object", "properties": {} }
+        }
+    });
+    server_write
+        .write_all(format!("{request}\n").as_bytes())
+        .await
+        .unwrap();
+    server_write.flush().await.unwrap();
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+        .await
+        .expect("elicitation event")
+        .expect("event channel");
+    let EngineEvent::PermissionRequested {
+        permission_id,
+        tool_name,
+        options,
+        ..
+    } = event
+    else {
+        panic!("expected PermissionRequested, got {event:?}");
+    };
+    assert_eq!(tool_name, "dimo/manage_group");
+    assert!(options.iter().any(|option| option.id == "acceptForSession"));
+
+    app.respond_server_request(&EnginePermissionDecision {
+        permission_id,
+        approved: true,
+        option_id: Some("acceptForSession".to_string()),
+        updated_input: None,
+        message: None,
+        interrupt: false,
+    })
+    .await
+    .unwrap();
+
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(2), observed)
+        .await
+        .expect("client reply")
+        .expect("reader");
+    assert_eq!(reply["id"], "elic-1");
+    assert!(reply.get("error").is_none());
+    assert_eq!(
+        reply["result"],
+        json!({
+            "action": "accept",
+            "content": {},
+            "_meta": { "persist": "session" }
+        })
+    );
+}

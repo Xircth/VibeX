@@ -360,6 +360,7 @@ struct RuntimeState {
     prompt_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
     prompt_display_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
     prompt_options: HashMap<AgentPromptId, PromptDispatchOptions>,
+    background_compactions: HashSet<AgentPromptId>,
     recent_events: VecDeque<AgentEventEnvelope>,
 }
 
@@ -459,11 +460,22 @@ impl AgentRuntime {
             manager_event_rx,
         );
         if driver_enabled && let Some(idle_timeout) = crate::idle_sweep::idle_timeout_from_env() {
+            let compact_state = Arc::clone(&state);
+            let compact_manager = Arc::clone(&connection_manager);
+            let compact_trigger: crate::idle_sweep::IdleCompactionTrigger =
+                Arc::new(move || {
+                    let state = Arc::clone(&compact_state);
+                    let manager = Arc::clone(&compact_manager);
+                    Box::pin(async move {
+                        Self::dispatch_idle_compactions(&state, &manager).await;
+                    })
+                });
             tokio::spawn(crate::idle_sweep::idle_sweep_task(
                 Arc::clone(&connection_manager),
                 idle_timeout,
                 Duration::from_secs(crate::idle_sweep::SWEEP_INTERVAL_SECS),
                 idle_extension,
+                Some(compact_trigger),
             ));
             Self::spawn_keepalive_touch(
                 keepalive_sessions,
@@ -492,6 +504,97 @@ impl AgentRuntime {
                 touch_session_ids(&state, &manager, ids).await;
             }
         });
+    }
+
+    async fn dispatch_idle_compactions(
+        state: &Arc<RwLock<RuntimeState>>,
+        connection_manager: &Arc<AgentConnectionManager>,
+    ) {
+        let targets = connection_manager.collect_idle_compaction_targets().await;
+        for (connection_id, session_id) in targets {
+            let prompt_id = {
+                let mut state = state.write().await;
+                let Some(session) = state.sessions.get_mut(&session_id) else {
+                    continue;
+                };
+                if session.snapshot.connection_id != connection_id
+                    || session.queue.active().is_some()
+                    || !session.queue.queued().is_empty()
+                {
+                    continue;
+                }
+                let now = Utc::now();
+                let prompt_id = AgentPromptId::new();
+                if !matches!(session.queue.submit(prompt_id), QueueTransition::Started { .. }) {
+                    continue;
+                }
+                session.snapshot.active_prompt_id = session.queue.active();
+                session.snapshot.queued_prompt_ids = session.queue.queued();
+                session.snapshot.status = AgentSessionStatus::Running;
+                session.snapshot.updated_at = now;
+                let prompt = AgentPromptSnapshot {
+                    id: prompt_id,
+                    session_id,
+                    status: AgentPromptStatus::Running,
+                    text_preview: "/compact".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                };
+                state.prompts.insert(prompt_id, prompt);
+                state.background_compactions.insert(prompt_id);
+                prompt_id
+            };
+
+            connection_manager.touch_connection_activity(connection_id).await;
+            if let Err(error) = connection_manager
+                .send_prompt_with_display_blocks(
+                    connection_id,
+                    session_id,
+                    prompt_id,
+                    vec![AgentContentBlock::Text {
+                        text: "/compact".to_string(),
+                    }],
+                    None,
+                    None,
+                    Vec::new(),
+                )
+                .await
+            {
+                let next_prompt = {
+                    let mut state = state.write().await;
+                    state.background_compactions.remove(&prompt_id);
+                    fail_prompt_locked(&mut state, session_id, prompt_id, error.to_string());
+                    state
+                        .sessions
+                        .get(&session_id)
+                        .and_then(|session| session.queue.active())
+                        .filter(|next_id| *next_id != prompt_id)
+                        .and_then(|next_id| {
+                            let blocks = state.prompt_blocks.get(&next_id).cloned()?;
+                            let display_blocks = state.prompt_display_blocks.get(&next_id).cloned();
+                            let options = state
+                                .prompt_options
+                                .get(&next_id)
+                                .cloned()
+                                .unwrap_or_default();
+                            Some((next_id, blocks, display_blocks, options))
+                        })
+                };
+                if let Some((next_id, blocks, display_blocks, options)) = next_prompt {
+                    let _ = connection_manager
+                        .send_prompt_with_display_blocks(
+                            connection_id,
+                            session_id,
+                            next_id,
+                            blocks,
+                            display_blocks,
+                            options.mode_override,
+                            options.config_overrides,
+                        )
+                        .await;
+                }
+            }
+        }
     }
 
     fn spawn_manager_event_pump(
@@ -525,6 +628,8 @@ impl AgentRuntime {
                     {
                         continue;
                     }
+                    let is_background_compaction = active_before
+                        .is_some_and(|id| state.background_compactions.contains(&id));
                     let activity = crate::request_status::activity_for_event(&manager_event.event);
                     if matches!(manager_event.event, AgentEvent::RequestActivity { .. })
                         && manager_event.prompt_id != active_before
@@ -568,75 +673,94 @@ impl AgentRuntime {
                         &manager_event,
                         active_before,
                     );
-                    // Persist/broadcast after releasing the runtime lock. Holding
-                    // `state.write()` while the persist sink blocked deadlocked
-                    // every concurrent session's ACP read loop at "生成中".
-                    let explicit_activity =
-                        matches!(manager_event.event, AgentEvent::RequestActivity { .. });
-                    let envelope = Self::queue_envelope_locked(
-                        &mut state,
-                        manager_event.connection_id,
-                        manager_event.session_id,
-                        manager_event.event,
-                    );
-                    let activity_envelope = if let (Some(prompt_id), Some(activity)) =
-                        (active_before, activity)
-                    {
-                        let now = Utc::now();
-                        let previous = state.request_activity.get(&prompt_id);
-                        let cancelling = previous.is_some_and(|(held, _)| {
-                            held.phase == crate::request_status::RequestPhase::Cancelling
-                        });
-                        let changed = previous.is_none_or(|(held, at)| {
-                            held != &activity || now.signed_duration_since(*at).num_seconds() >= 5
-                        });
-                        if changed
-                            && (!cancelling
-                                || activity.phase
-                                    == crate::request_status::RequestPhase::Cancelling)
-                        {
-                            state
-                                .request_activity
-                                .insert(prompt_id, (activity.clone(), now));
-                            (!explicit_activity).then(|| {
-                                Self::queue_envelope_locked(
-                                    &mut state,
-                                    manager_event.connection_id,
-                                    manager_event.session_id,
-                                    AgentEvent::RequestActivity {
-                                        prompt_id,
-                                        activity,
-                                    },
+                    if is_background_compaction {
+                        if let Some(prompt_id) = active_before
+                            && state.prompts.get(&prompt_id).is_some_and(|p| {
+                                matches!(
+                                    p.status,
+                                    AgentPromptStatus::Completed { .. }
+                                        | AgentPromptStatus::Failed { .. }
                                 )
                             })
+                        {
+                            state.request_activity.remove(&prompt_id);
+                            state.background_compactions.remove(&prompt_id);
+                        }
+                        (next_prompt, None, None, connection_envelopes)
+                    } else {
+                        // Persist/broadcast after releasing the runtime lock. Holding
+                        // `state.write()` while the persist sink blocked deadlocked
+                        // every concurrent session's ACP read loop at "生成中".
+                        let explicit_activity =
+                            matches!(manager_event.event, AgentEvent::RequestActivity { .. });
+                        let envelope = Self::queue_envelope_locked(
+                            &mut state,
+                            manager_event.connection_id,
+                            manager_event.session_id,
+                            manager_event.event,
+                        );
+                        let activity_envelope = if let (Some(prompt_id), Some(activity)) =
+                            (active_before, activity)
+                        {
+                            let now = Utc::now();
+                            let previous = state.request_activity.get(&prompt_id);
+                            let cancelling = previous.is_some_and(|(held, _)| {
+                                held.phase == crate::request_status::RequestPhase::Cancelling
+                            });
+                            let changed = previous.is_none_or(|(held, at)| {
+                                held != &activity
+                                    || now.signed_duration_since(*at).num_seconds() >= 5
+                            });
+                            if changed
+                                && (!cancelling
+                                    || activity.phase
+                                        == crate::request_status::RequestPhase::Cancelling)
+                            {
+                                state
+                                    .request_activity
+                                    .insert(prompt_id, (activity.clone(), now));
+                                (!explicit_activity).then(|| {
+                                    Self::queue_envelope_locked(
+                                        &mut state,
+                                        manager_event.connection_id,
+                                        manager_event.session_id,
+                                        AgentEvent::RequestActivity {
+                                            prompt_id,
+                                            activity,
+                                        },
+                                    )
+                                })
+                            } else {
+                                None
+                            }
                         } else {
                             None
+                        };
+                        if let Some(prompt_id) = active_before
+                            && state.prompts.get(&prompt_id).is_some_and(|p| {
+                                matches!(
+                                    p.status,
+                                    AgentPromptStatus::Completed { .. }
+                                        | AgentPromptStatus::Failed { .. }
+                                )
+                            })
+                        {
+                            state.request_activity.remove(&prompt_id);
                         }
-                    } else {
-                        None
-                    };
-                    if let Some(prompt_id) = active_before
-                        && state.prompts.get(&prompt_id).is_some_and(|p| {
-                            matches!(
-                                p.status,
-                                AgentPromptStatus::Completed { .. }
-                                    | AgentPromptStatus::Failed { .. }
-                            )
-                        })
-                    {
-                        state.request_activity.remove(&prompt_id);
+                        (
+                            next_prompt,
+                            Some(envelope),
+                            activity_envelope,
+                            connection_envelopes,
+                        )
                     }
-                    (
-                        next_prompt,
-                        envelope,
-                        activity_envelope,
-                        connection_envelopes,
-                    )
                 };
                 for envelope in connection_envelopes {
                     Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
                 }
-                Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
+                if let Some(envelope) = envelope {
+                    Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
+                }
                 if let Some(envelope) = activity_envelope {
                     Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
                 }
@@ -2927,6 +3051,7 @@ fn fail_prompt_locked(
     state.prompt_display_blocks.remove(&prompt_id);
     state.prompt_options.remove(&prompt_id);
     state.request_activity.remove(&prompt_id);
+    state.background_compactions.remove(&prompt_id);
 }
 
 fn fail_connection_sessions_locked(
@@ -2971,6 +3096,7 @@ fn fail_connection_sessions_locked(
                 state.prompt_display_blocks.remove(&prompt_id);
                 state.prompt_options.remove(&prompt_id);
                 state.request_activity.remove(&prompt_id);
+                state.background_compactions.remove(&prompt_id);
             }
         }
     }

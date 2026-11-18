@@ -221,19 +221,25 @@ export function MobileDeviceConnectBanner() {
           )
         : [];
 
-      // If auto-connect is enabled and an already-paired mobile device is requesting connection, auto-approve
+      // If auto-connect is enabled and an already-paired mobile device with a matching Ed25519 public key is requesting connection, auto-approve.
+      // Never auto-approve based on device_name alone or for non-mobile client_kind (which grants Workstation scopes).
       if (
         mobileDevices.length > 0 &&
         getRemoteAutoConnect() &&
         filtered.length > 0
       ) {
-        const matched = filtered.find((req) =>
-          mobileDevices.some(
-            (dev) =>
-              dev.device_name.trim().toLowerCase() ===
-              req.device_name.trim().toLowerCase()
-          )
-        );
+        const matched = filtered.find((req) => {
+          if (req.client_kind?.trim().toLowerCase() !== 'mobile') {
+            return false;
+          }
+          const reqPubkey = req.public_key_ed25519?.trim();
+          if (!reqPubkey) {
+            return false;
+          }
+          return mobileDevices.some(
+            (dev) => dev.public_key_ed25519?.trim() === reqPubkey
+          );
+        });
         if (matched && !respondedIdsRef.current.has(matched.request_id)) {
           respondedIdsRef.current.add(matched.request_id);
           void handleRespond(matched, true);

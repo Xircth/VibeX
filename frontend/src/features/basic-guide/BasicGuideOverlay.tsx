@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +17,7 @@ import {
 import { BasicGuideSpotlight } from './BasicGuideSpotlight';
 import { useOptionalBasicGuide } from './BasicGuideContext';
 import { GuideCopy } from './GuideCopy';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
 
 import { useLayoutStore } from '@/stores/useLayoutStore';
@@ -62,7 +64,16 @@ export function BasicGuideOverlay() {
   const { t } = useTranslation(['basicGuide', 'common']);
   const location = useLocation();
   const activeTab = useLayoutStore((state) => state.activeTab);
-  if (!ctx || !isGuideVisible(ctx.state)) return null;
+  const { setHtmlOverlayOpen } = useWorkspaceOverlay();
+  const guideVisible = Boolean(ctx && isGuideVisible(ctx.state));
+
+  useLayoutEffect(() => {
+    if (!guideVisible) return undefined;
+    setHtmlOverlayOpen(true);
+    return () => setHtmlOverlayOpen(false);
+  }, [guideVisible, setHtmlOverlayOpen]);
+
+  if (!ctx || !guideVisible) return null;
 
   const { state, exitOpen } = ctx;
   const showingEnd = state.endCopy !== 'none';

@@ -41,7 +41,12 @@ import { formatStorageBytes } from '@/lib/dbHealthApi';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 import { getInvokeErrorMessage } from '@/lib/errors';
-import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
+import {
+  SETTINGS_CHANGED_EVENT,
+  clearLocalFrontendStorage,
+} from '@/lib/frontendPreferences';
+import { cancelPendingCanvasPersist } from '@/components/kanban/canvas/canvasStorage';
+import { clearAllBrowserSurfaces } from '@/features/host-browser/browserPanelLifetime';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 
 import { SettingsSection } from './SettingsUi';
@@ -390,7 +395,11 @@ export function SystemSettings() {
     const toastId = toast.loading(t('system.clearingLocalData'));
 
     try {
+      cancelPendingCanvasPersist();
       const result = await configApi.clearLocalData();
+      cancelPendingCanvasPersist();
+      clearAllBrowserSurfaces();
+      clearLocalFrontendStorage();
       useWindowProjectsStore.getState().resetProjectWindowState();
       toast.success(t('system.localDataCleared'), { id: toastId });
       if (

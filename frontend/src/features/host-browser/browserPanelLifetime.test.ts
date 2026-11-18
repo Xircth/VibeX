@@ -65,20 +65,52 @@ describe('projectLayoutStillHasBrowserPanel', () => {
       )
     ).toBe(false);
   });
+  it('drops a closed panel on the active project even when projectLayouts holds an older snapshot', () => {
+    expect(
+      projectLayoutStillHasBrowserPanel(
+        {
+          currentProjectKey: 'project-a',
+          serializedLayout: { panels: {} },
+          projectLayouts: {
+            'project-a': { serializedLayout: layoutWithPanel },
+          },
+        },
+        'project-a',
+        panelId
+      )
+    ).toBe(false);
+  });
 });
 
 describe('live browser surfaces', () => {
-  it('remembers a native tab for a panel key', () => {
-    const key = browserPanelSurfaceKey('project-a', panelId);
-    rememberBrowserSurface(key, {
-      tabId: 'tab-1',
+  it('remembers a native tab for a panel key and isolates canvas vs dockview surfaces', async () => {
+    const { clearAllBrowserSurfaces } = await import('./browserPanelLifetime');
+    const dockKey = browserPanelSurfaceKey('project-a', panelId, 'dockview');
+    const canvasKey = browserPanelSurfaceKey('project-a', panelId, 'canvas');
+    expect(dockKey).not.toBe(canvasKey);
+
+    rememberBrowserSurface(dockKey, {
+      tabId: 'tab-dock',
       url: 'https://github.com/',
     });
-    expect(recallBrowserSurface(key)).toEqual({
-      tabId: 'tab-1',
+    rememberBrowserSurface(canvasKey, {
+      tabId: 'tab-canvas',
+      url: 'https://example.com/',
+    });
+    expect(recallBrowserSurface(dockKey)).toEqual({
+      tabId: 'tab-dock',
       url: 'https://github.com/',
     });
-    forgetBrowserSurface(key);
-    expect(recallBrowserSurface(key)).toBeUndefined();
+    expect(recallBrowserSurface(canvasKey)).toEqual({
+      tabId: 'tab-canvas',
+      url: 'https://example.com/',
+    });
+
+    forgetBrowserSurface(dockKey);
+    expect(recallBrowserSurface(dockKey)).toBeUndefined();
+    expect(recallBrowserSurface(canvasKey)?.tabId).toBe('tab-canvas');
+
+    clearAllBrowserSurfaces();
+    expect(recallBrowserSurface(canvasKey)).toBeUndefined();
   });
 });

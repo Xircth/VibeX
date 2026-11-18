@@ -139,7 +139,11 @@ function parseNode(value: unknown): SessionCanvasNode | null {
     record.panelParams &&
     typeof record.panelParams === 'object' &&
     !Array.isArray(record.panelParams)
-      ? { ...(record.panelParams as Record<string, unknown>) }
+      ? (() => {
+          const cloned = { ...(record.panelParams as Record<string, unknown>) };
+          delete cloned.nativeTabId;
+          return cloned;
+        })()
       : undefined;
   const id =
     typeof record.id === 'string' && record.id.length > 0
@@ -261,6 +265,14 @@ export function flushCanvasDocumentPersist(): void {
   if (next) {
     persistFrontendPreference(CANVAS_BUNDLE_KEY, { ...next } as JsonValue);
   }
+}
+
+export function cancelPendingCanvasPersist(): void {
+  if (persistTimer != null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  pendingBundle = null;
 }
 
 function parseDocument(value: unknown): SessionCanvasDocument {

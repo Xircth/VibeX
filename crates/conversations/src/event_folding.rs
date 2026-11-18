@@ -1,9 +1,12 @@
-//! Lossless Event Folding for settled historical turns (`[D10-Backend]` Phase 3).
+//! Event folding for settled historical turns (`[D10-Backend]` Phase 3).
 //!
 //! Never deletes turns by age. Within settled turns strictly outside [`RECENT_TURN_BUFFER`],
 //! contiguous `AssistantTextDelta`, `AssistantReasoningDelta`, and intermediate `ToolCallUpsert`
-//! runs are compacted into canonical `ConversationEvent` rows preserving untruncated payloads,
-//! monotonic sequences (`last_allocated_sequence`), and cold `ConversationProjector` rebuilds.
+//! runs are compacted into canonical `ConversationEvent` rows. Assistant text keeps the
+//! payload that was stored. Bulky tool, terminal, and diagnostic documents are already
+//! capped at write time; folding preserves that capped text and does not re-expand it.
+//! Sequences stay monotonic (`last_allocated_sequence`) so a cold `ConversationProjector`
+//! rebuild still replays.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -12,7 +15,12 @@ use std::{
 };
 
 use agents::conversation::{ConversationEvent, ConversationToolCallPatch};
-use db::{WritePool, models::conversation_event::ConversationEventRecord};
+use db::{
+    WritePool,
+    models::conversation_event::{
+        ConversationEventRecord, MAX_STORED_EVENT_JSON_BYTES, cap_stored_event_payloads,
+    },
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::Notify;
@@ -42,7 +50,8 @@ pub enum FoldedEventType {
 pub struct FoldedEvent {
     #[serde(alias = "folded_type")]
     pub folded_type: FoldedEventType,
-    /// Full, untruncated text or JSON payload (not subject to the 32 KiB timeline preview cap).
+    /// Stored text or JSON payload. This is not the 16 KiB timeline preview.
+    /// Bulky tool and terminal rows may already have been capped when they were written.
     #[serde(alias = "full_content")]
     pub full_content: String,
     /// Total number of raw constituent events represented by this folded row.
@@ -202,7 +211,19 @@ impl EventFolder {
     }
 }
 
-/// Spawn the low-priority periodic event-folding worker (`initial_delay = 5m`, `interval = 6h`).
+const COMPACTION_BATCH: i64 = 25;
+const COMPACTION_BATCHES_PER_WAKE: u32 = 40;
+const COMPACTION_START_DELAY: Duration = Duration::from_secs(15);
+const COMPACTION_PAUSE: Duration = Duration::from_millis(200);
+const COMPACTION_CONTINUE_DELAY: Duration = Duration::from_secs(30);
+
+/// Spawn the low-priority worker that first caps oversized event payloads,
+/// then folds settled history (`interval = 6h`).
+///
+/// Compaction starts after a short delay instead of the old five-minute wait,
+/// and it runs in small write batches so a multi-gigabyte log is not rewritten
+/// in one transaction. Folding waits until a wake finds nothing left to cap,
+/// because a fold reads every event in the conversation.
 ///
 /// Trigger `shutdown.notify_waiters()` (or drop the runtime) to stop the loop cleanly.
 pub fn spawn_periodic_event_folding_worker(
@@ -211,11 +232,48 @@ pub fn spawn_periodic_event_folding_worker(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::select! {
-            _ = tokio::time::sleep(DEFAULT_FOLD_INITIAL_DELAY) => {}
+            _ = tokio::time::sleep(COMPACTION_START_DELAY) => {}
             _ = shutdown.notified() => return,
         }
 
         loop {
+            let mut pending = false;
+            for _ in 0..COMPACTION_BATCHES_PER_WAKE {
+                match ConversationEventRecord::compact_oversized_payloads(
+                    write_pool.as_pool(),
+                    COMPACTION_BATCH,
+                )
+                .await
+                {
+                    Ok(0) => {
+                        pending = false;
+                        break;
+                    }
+                    Ok(_) => {
+                        pending = true;
+                        tokio::select! {
+                            _ = tokio::time::sleep(COMPACTION_PAUSE) => {}
+                            _ = shutdown.notified() => return,
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            error = %err,
+                            "conversation event payload compaction failed"
+                        );
+                        pending = true;
+                        break;
+                    }
+                }
+            }
+            if pending {
+                tokio::select! {
+                    _ = tokio::time::sleep(COMPACTION_CONTINUE_DELAY) => {}
+                    _ = shutdown.notified() => break,
+                }
+                continue;
+            }
+
             if let Err(err) = EventFolder::fold_all_settled(&write_pool).await {
                 tracing::warn!(error = %err, "periodic event folding sweep failed");
             }
@@ -228,11 +286,48 @@ pub fn spawn_periodic_event_folding_worker(
     })
 }
 
+async fn conversation_has_oversized_bulky_events(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let cap = MAX_STORED_EVENT_JSON_BYTES as i64;
+    let exists = sqlx::query_scalar::<_, i64>(
+        r#"SELECT EXISTS(
+               SELECT 1 FROM conversation_events
+               WHERE conversation_id = ?
+                 AND event_kind IN ('tool_call_upsert', 'terminal_updated', 'raw_diagnostic_recorded')
+                 AND (
+                     length(CAST(normalized_json AS BLOB)) > ?
+                     OR IFNULL(length(CAST(raw_json AS BLOB)), 0) > ?
+                 )
+           )"#,
+    )
+    .bind(conversation_id)
+    .bind(cap)
+    .bind(cap)
+    .fetch_one(pool)
+    .await?;
+    Ok(exists != 0)
+}
+
 async fn fold_conversation_on_pool(
     pool: &SqlitePool,
     conversation_id: Uuid,
     recent_turn_buffer: usize,
 ) -> Result<FoldReport, sqlx::Error> {
+    if conversation_has_oversized_bulky_events(pool, conversation_id).await? {
+        tracing::info!(
+            %conversation_id,
+            "skipping event fold until oversized payloads are compacted"
+        );
+        return Ok(FoldReport {
+            conversations_scanned: 1,
+            events_before: 0,
+            events_after: 0,
+            bytes_reclaimed: 0,
+            fold_operations: 0,
+        });
+    }
     let records: Vec<ConversationEventRecord> = sqlx::query_as(
         r#"SELECT id, conversation_id, turn_id, binding_id, connection_id, prompt_id,
                   sequence, source, event_kind, event_version, normalized_json, raw_json,
@@ -716,6 +811,9 @@ fn plan_tool_call_run_fold(
     let Ok(normalized_json) = serde_json::to_string(&event) else {
         return;
     };
+    let normalized_json = cap_stored_event_payloads("tool_call_upsert", &normalized_json, None)
+        .0
+        .into_owned();
     let total_count: usize = fold_slice
         .iter()
         .map(|&i| record_constituent_count(&records[i]))

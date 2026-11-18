@@ -74,6 +74,9 @@ pub trait NativeTabs: Send + Sync {
     async fn remove_profile(&self, _profile_id: &str) -> Result<(), BrowserHostError> {
         Ok(())
     }
+    async fn reset_all(&self) -> Result<(), BrowserHostError> {
+        Ok(())
+    }
     fn downloads_dir(&self) -> Option<String> {
         None
     }
@@ -370,6 +373,25 @@ impl BrowserService {
         if occupant.as_deref() == Some(plugin_id) {
             occupant.take();
         }
+    }
+
+    pub async fn reset_local_data(&self) {
+        let tab_ids: Vec<String> = {
+            let mut tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
+            let ids = tabs.keys().cloned().collect();
+            tabs.clear();
+            ids
+        };
+        self.evals.reset();
+        for tab_id in tab_ids {
+            let _ = self.native.close(&tab_id).await;
+        }
+        let _ = self.native.reset_all().await;
+        self.occupant.lock().unwrap_or_else(|p| p.into_inner()).take();
+        self.policy.set_user_rules(Vec::new());
+        *self.settings.lock().unwrap_or_else(|p| p.into_inner()) = BrowserSettings::default();
+        self.userdata.clear_all();
+        self.load_notify.notify_waiters();
     }
 
     /// Register a native surface the engine already created for a page-initiated
@@ -2997,5 +3019,101 @@ mod tests {
 
         let evals = native.evals.lock().expect("evals");
         assert!(evals.iter().any(|e| e.contains("__dimoPreferState")));
+    }
+
+    #[tokio::test]
+    async fn reset_local_data_closes_live_tabs_and_resets_native_runtime() {
+        #[derive(Default)]
+        struct ResetTrackingNative {
+            closed: Mutex<Vec<String>>,
+            reset_calls: Mutex<usize>,
+        }
+
+        #[async_trait]
+        impl NativeTabs for ResetTrackingNative {
+            async fn open(
+                &self,
+                _tab_id: &str,
+                _url: &str,
+                _bounds: &BrowserBounds,
+                _profile_id: &str,
+            ) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn navigate(&self, _tab_id: &str, _url: &str) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn close(&self, tab_id: &str) -> Result<(), BrowserHostError> {
+                self.closed.lock().unwrap().push(tab_id.to_owned());
+                Ok(())
+            }
+            async fn reset_all(&self) -> Result<(), BrowserHostError> {
+                *self.reset_calls.lock().unwrap() += 1;
+                Ok(())
+            }
+            async fn set_bounds(
+                &self,
+                _tab_id: &str,
+                _bounds: &BrowserBounds,
+            ) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn eval(
+                &self,
+                _tab_id: &str,
+                _expression: &str,
+            ) -> Result<String, BrowserHostError> {
+                Ok("{}".into())
+            }
+            async fn current_url(&self, _tab_id: &str) -> Result<String, BrowserHostError> {
+                Ok("https://example.test/".into())
+            }
+            async fn go_back(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn go_forward(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn reload(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn set_zoom(&self, _tab_id: &str, _factor: f64) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn open_devtools(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn set_device(
+                &self,
+                _tab_id: &str,
+                _device: &str,
+            ) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+            async fn inject(&self, _tab_id: &str, _script: &str) -> Result<(), BrowserHostError> {
+                Ok(())
+            }
+        }
+
+        let native = Arc::new(ResetTrackingNative::default());
+        let service = BrowserService::new(native.clone(), true);
+        let tab = dispatch(
+            &service,
+            "dimo.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/" }),
+        )
+        .await
+        .expect("open");
+        let tab_id = tab["tabId"].as_str().unwrap().to_owned();
+
+        service.reset_local_data().await;
+
+        assert_eq!(*native.closed.lock().unwrap(), vec![tab_id]);
+        assert_eq!(*native.reset_calls.lock().unwrap(), 1);
+        let listed = dispatch(&service, "dimo.browser", "tab.list", json!({}))
+            .await
+            .expect("list after reset");
+        assert_eq!(listed["tabs"], json!([]));
     }
 }

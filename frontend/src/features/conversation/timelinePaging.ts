@@ -92,9 +92,23 @@ export function computeAnchoredTimelineStartIndex(input: {
   visibleTailCount: number;
   followTail: boolean;
   anchoredStartIndex: number | null;
+  /**
+   * Timeline index that must stay in the window while following the tail.
+   * A streaming turn can sit above the short tail when later side rows fill
+   * the last slots. Ignored once the reader has left the tail.
+   */
+  requiredIndex?: number | null;
 }): number {
   const unanchored = Math.max(0, input.totalItems - input.visibleTailCount);
   if (input.followTail || input.anchoredStartIndex === null) {
+    if (
+      input.followTail &&
+      input.requiredIndex != null &&
+      input.requiredIndex >= 0 &&
+      input.requiredIndex < input.totalItems
+    ) {
+      return Math.min(unanchored, input.requiredIndex);
+    }
     return unanchored;
   }
   return Math.min(unanchored, Math.max(0, input.anchoredStartIndex));

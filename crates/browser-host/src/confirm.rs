@@ -202,6 +202,12 @@ impl EvalConsent {
                 .insert(pending.tab_id, now + EVAL_DECLINE_COOLDOWN);
         }
     }
+
+    pub fn reset(&self) {
+        let mut inner = self.lock();
+        inner.pending.take();
+        inner.cooling.clear();
+    }
 }
 
 #[cfg(test)]

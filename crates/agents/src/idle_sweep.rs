@@ -89,23 +89,35 @@ pub fn touch_interval_from_idle_timeout(idle_timeout: Duration) -> Duration {
     if half < thirty { half } else { thirty }
 }
 
+pub type IdleCompactionTrigger =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
 pub async fn idle_sweep_task(
     manager: std::sync::Arc<AgentConnectionManager>,
     idle_timeout: Duration,
     interval: Duration,
     extension: IdleExtension,
+    compaction: Option<IdleCompactionTrigger>,
 ) {
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await;
+    let mut ticks = 0u64;
     loop {
         ticker.tick().await;
+        ticks = ticks.wrapping_add(1);
+        if let Some(ref compact) = compaction {
+            compact().await;
+        }
         let extended_ids = extension.session_ids().await;
         let extended = hot_group_idle_timeout_from_env().map(|timeout| (extended_ids, timeout));
         let n = manager
             .sweep_idle_with_extended(idle_timeout, extended)
             .await;
         crate::session_bind_metrics::record_idle_sweep_disconnects(n);
+        if n > 0 || ticks.is_multiple_of(10) {
+            let _ = tokio::task::spawn_blocking(crate::sweep_stale_agent_runtime_temps).await;
+        }
     }
 }
 

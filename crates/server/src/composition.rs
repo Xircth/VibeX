@@ -49,6 +49,7 @@ pub struct ServerBootstrapConfig {
     pub data_dir: PathBuf,
     pub server: ServerConfig,
     pub token: Option<ServerToken>,
+    pub allow_loopback_outbox_for_tests: bool,
 }
 
 impl ServerBootstrapConfig {
@@ -57,11 +58,18 @@ impl ServerBootstrapConfig {
             data_dir: data_dir.as_ref().to_path_buf(),
             server: ServerConfig::default(),
             token: None,
+            allow_loopback_outbox_for_tests: false,
         }
     }
 
     pub fn with_token(mut self, token: ServerToken) -> Self {
         self.token = Some(token);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_allow_loopback_outbox_for_tests(mut self, allow: bool) -> Self {
+        self.allow_loopback_outbox_for_tests = allow;
         self
     }
 }
@@ -471,28 +479,33 @@ impl HeadlessServer {
                 });
             });
         }
-        let host = crate::HostRuntime::build(crate::HostRuntimeParts {
-            pool: pool.clone(),
-            conversations: conversation_context.clone(),
-            plugin_control_plane,
-            companion_memory: Some(companion_memory),
-            preview_host,
-            capability_broker,
-            host_call,
-            app_surfaces,
-            preview_proxy: preview_proxy.clone(),
-            automation: automation_runtime.clone(),
-            automation_ownership: crate::AutomationOwnership::fixed(automation_owner.is_some()),
-            deployment: deployment.clone(),
-            runtime_root: config.data_dir.join("plugins/runtimes"),
-            worker_runtime,
-            adapter: application::AdapterCapabilities::server_http(),
-            events: Some(events),
-            terminal_bridges: None,
-            agent_management_runtime: None,
-            conversation_host: Some(conversation_host),
-            delegation_broker: Some(delegation_broker),
-        });
+        let host = crate::HostRuntime::build_with_outbox_policy(
+            crate::HostRuntimeParts {
+                pool: pool.clone(),
+                conversations: conversation_context.clone(),
+                plugin_control_plane,
+                companion_memory: Some(companion_memory),
+                preview_host,
+                capability_broker,
+                host_call,
+                app_surfaces,
+                preview_proxy: preview_proxy.clone(),
+                automation: automation_runtime.clone(),
+                automation_ownership: crate::AutomationOwnership::fixed(
+                    automation_owner.is_some(),
+                ),
+                deployment: deployment.clone(),
+                runtime_root: config.data_dir.join("plugins/runtimes"),
+                worker_runtime,
+                adapter: application::AdapterCapabilities::server_http(),
+                events: Some(events),
+                terminal_bridges: None,
+                agent_management_runtime: None,
+                conversation_host: Some(conversation_host),
+                delegation_broker: Some(delegation_broker),
+            },
+            config.allow_loopback_outbox_for_tests,
+        );
         product_mcp_commands
             .attach_commands(host.commands.clone())
             .await;

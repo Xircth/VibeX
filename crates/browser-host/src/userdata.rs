@@ -458,6 +458,25 @@ impl UserDataManager {
         Ok(())
     }
 
+    pub fn clear_all(&self) {
+        let _guard = self.io_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(root) = &self.data_dir
+            && root.exists()
+        {
+            if let Ok(entries) = fs::read_dir(root) {
+                for entry in entries.flatten() {
+                    if entry.file_type().is_ok_and(|ft| ft.is_dir())
+                        && let Some(name) = entry.file_name().to_str()
+                    {
+                        let _ = self.clear_credentials_locked(name);
+                    }
+                }
+            }
+            let _ = fs::remove_dir_all(root);
+        }
+        self.memory.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
+
     fn profile_dir(&self, profile_id: &str) -> Option<PathBuf> {
         let safe = sanitize_profile_id(profile_id);
         if safe == "ephemeral" {

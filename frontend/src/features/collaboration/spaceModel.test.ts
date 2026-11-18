@@ -26,7 +26,9 @@ import {
   receiptStatusCopy,
   resolveMessageConversationId,
   resolveMessageDeliveryStatus,
+  nicknameMissingNamed,
   sendErrorCopy,
+  strayMentionError,
   sortConversationsForSpaceMemberPicker,
   sortMembersLeadFirst,
   strayMentions,
@@ -227,7 +229,10 @@ describe('collaboration space model', () => {
       })
     ).toBe(false);
     expect(sendErrorCopy('not_a_member')).toBe('不在这个空间');
-    expect(sendErrorCopy('not_found')).toBe('昵称不存在');
+    expect(sendErrorCopy('not_found')).toBe('');
+    expect(strayMentionError(['不存在', '另一个'])).toBe(
+      '找不到 @不存在, @另一个。请改用这个空间里已有成员的昵称，或先把对方加进来。'
+    );
     expect(COPY.emptyAgents).toBe('还没有已启用的 Agent');
     expect(COPY.controlsUnavailable).toBe('暂不可用');
     expect(
@@ -258,8 +263,36 @@ describe('collaboration space model', () => {
       surfaceErrorCopy({ code: 'capability_unimplemented', message: 'missing' })
     ).toBe(COPY.controlsUnavailable);
     expect(
-      surfaceErrorCopy({ code: 'not_found', message: 'missing nickname' })
+      surfaceErrorCopy({
+        code: 'not_found',
+        message: 'nickname was not found in this collaboration space',
+      })
     ).toBe(COPY.nicknameMissing);
+    expect(
+      surfaceErrorCopy({
+        code: 'not_found',
+        message: "nickname '小A' was not found in this collaboration space",
+      })
+    ).toBe(nicknameMissingNamed('小A'));
+    expect(
+      surfaceErrorCopy({ code: 'not_found', message: 'space was not found' })
+    ).toBe(COPY.spaceMissing);
+    expect(
+      surfaceErrorCopy({ code: 'not_found', message: 'member was not found' })
+    ).toBe(COPY.memberMissing);
+    expect(
+      surfaceErrorCopy({
+        code: 'not_found',
+        message: 'collection item was not found',
+      })
+    ).toBe(COPY.collectionMissing);
+    expect(
+      surfaceErrorCopy({ code: 'not_found', message: 'missing nickname' })
+    ).toBe(COPY.objectMissing);
+    expect(surfaceErrorCopy({ code: 'not_found', message: '' })).toBe(
+      COPY.objectMissing
+    );
+    expect(COPY.memberMissing).not.toBe(COPY.nicknameMissing);
     expect(
       surfaceErrorCopy({ code: 'bad_request', message: 'nickname_taken' })
     ).toBe(COPY.nicknameTaken);

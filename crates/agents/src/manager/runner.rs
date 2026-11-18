@@ -608,6 +608,21 @@ impl AgentConnectionRunner {
         prompt_id: AgentPromptId,
         error: AgentError,
     ) {
+        self.reject_prompt(session_id, prompt_id, error);
+        if let Ok(mut guard) = self.active_turn_probe.lock() {
+            *guard = None;
+        }
+        *self.active_prompt.lock().await = None;
+    }
+
+    /// Reject an incoming prompt (e.g. while another turn is already in flight)
+    /// without clearing the currently active turn's `active_prompt` or probe.
+    pub(in crate::manager) fn reject_prompt(
+        &self,
+        session_id: AgentSessionId,
+        prompt_id: AgentPromptId,
+        error: AgentError,
+    ) {
         self.emit(
             Some(session_id),
             Some(prompt_id),
@@ -615,10 +630,6 @@ impl AgentConnectionRunner {
                 error: turn_error_event_from_connection_failure(&error),
             },
         );
-        if let Ok(mut guard) = self.active_turn_probe.lock() {
-            *guard = None;
-        }
-        *self.active_prompt.lock().await = None;
     }
 
     pub(in crate::manager) async fn cleanup_discarded_session(&self, session_id: AgentSessionId) {

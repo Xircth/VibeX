@@ -80,6 +80,9 @@ pub struct LocalHistoryImportSelection {
     pub agent_id: AgentId,
     pub external_session_id: String,
     pub workspace_id: Uuid,
+    /// Shown in import progress. Missing on older clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -120,6 +123,8 @@ pub struct LocalHistoryImportProgress {
     pub conversation_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl LocalHistoryImportProgress {
@@ -143,12 +148,18 @@ impl LocalHistoryImportProgress {
             failed: result.failed,
             conversation_id: None,
             workspace_id: None,
+            error: None,
         }
     }
 
     pub fn with_conversation(mut self, conversation_id: Uuid, workspace_id: Uuid) -> Self {
         self.conversation_id = Some(conversation_id);
         self.workspace_id = Some(workspace_id);
+        self
+    }
+
+    pub fn with_error(mut self, error: impl Into<String>) -> Self {
+        self.error = Some(error.into());
         self
     }
 }
@@ -223,7 +234,7 @@ impl LocalHistoryImportJobSnapshot {
                 external_session_id: progress.external_session_id.clone(),
                 title: progress.title.clone(),
                 conversation_id: progress.conversation_id,
-                error: None,
+                error: progress.error.clone(),
             });
             if self.log.len() > MAX_IMPORT_LOG_ENTRIES {
                 let overflow = self.log.len() - MAX_IMPORT_LOG_ENTRIES;
@@ -772,6 +783,7 @@ mod tests {
             agent_id: agent_id.clone(),
             external_session_id: "codex-1".into(),
             workspace_id: Uuid::from_u128(1),
+            title: None,
         };
         let mut result = LocalHistoryImportResult {
             imported: 0,

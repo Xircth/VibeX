@@ -220,7 +220,7 @@ pub(crate) async fn dispatch(
         DomainCommand::UploadImage => images::upload(domains, args).await,
         DomainCommand::UploadImageForTask => images::upload_for_task(domains, args).await,
         DomainCommand::UploadImageForWorkspace => images::upload_for_workspace(domains, args).await,
-        DomainCommand::WritePastedImageAsset => images::write_pasted(args).await,
+        DomainCommand::WritePastedImageAsset => images::write_pasted(domains, args).await,
         DomainCommand::DeleteImage => images::delete(domains, args).await,
         DomainCommand::GetTaskImages => images::task_images(domains, args).await,
         DomainCommand::GetTaskImageMetadata => images::task_metadata(domains, args).await,

@@ -99,7 +99,8 @@ impl AgentConnectionRunner {
         }
 
         self.populate_native_capabilities(&*driver).await;
-        let (launch_env, scrubbed_env_keys) = self.build_native_engine_launch_env(&*driver)?;
+        let (launch_env, scrubbed_env_keys, _runtime_temp) =
+            self.build_native_engine_launch_env(&*driver)?;
         let auth = driver.resolve_auth(&launch_env);
         let provider_instance_id = launch_env
             .get("DIMO_PROVIDER_INSTANCE_ID")
@@ -812,7 +813,7 @@ impl AgentConnectionRunner {
                 prompt_id,
                 ..
             } => {
-                self.fail_active_turn(session_id, prompt_id, busy()).await;
+                self.reject_prompt(session_id, prompt_id, busy());
             }
             _ => {}
         }

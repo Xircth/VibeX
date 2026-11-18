@@ -97,6 +97,7 @@ import {
   rememberCachedFavicon,
 } from './faviconCache';
 import {
+  type BrowserSurfaceHost,
   browserPanelSurfaceKey,
   forgetBrowserSurface,
   hiddenBrowserBounds,
@@ -105,7 +106,11 @@ import {
   rememberBrowserSurface,
 } from './browserPanelLifetime';
 import { useLayoutStore } from '@/stores/useLayoutStore';
-import { snapBrowserSurfaceRect } from './browserSurfaceBounds';
+import {
+  canvasLayerCoversBrowser,
+  clipBrowserSurfaceRect,
+  snapBrowserSurfaceRect,
+} from './browserSurfaceBounds';
 
 const ICON_BTN =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
@@ -144,9 +149,12 @@ function measureSurface(
     };
   }
   const rect = host.getBoundingClientRect();
+  const clipped = clipBrowserSurfaceRect(host, rect);
   const scale = window.devicePixelRatio || 1;
-  const snapped = snapBrowserSurfaceRect(rect, scale);
-  const laidOut = snapped.width >= 2 && snapped.height >= 2;
+  const snapped = snapBrowserSurfaceRect(clipped, scale);
+  const unclippedEnough =
+    clipped.right - clipped.left >= 2 && clipped.bottom - clipped.top >= 2;
+  const laidOut = unclippedEnough && snapped.width >= 2 && snapped.height >= 2;
   return {
     ...snapped,
     scale,
@@ -365,12 +373,14 @@ function pickFingerprint(payload: BrowserHostEvent['payload']): string | null {
 export function HostBrowserPanel({
   pluginId,
   panelVisible,
+  surfaceHost = 'dockview',
   requestedUrl,
   nativeTabId,
   panelApi,
 }: {
   pluginId: string;
   panelVisible: boolean;
+  surfaceHost?: BrowserSurfaceHost;
   requestedUrl?: string | null;
   nativeTabId?: string | null;
   panelApi?: {
@@ -398,6 +408,15 @@ export function HostBrowserPanel({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLButtonElement | null>(null);
   const tabIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const openSeqRef = useRef(0);
+  const surfaceHostRef = useRef<BrowserSurfaceHost>(surfaceHost);
+  surfaceHostRef.current = surfaceHost;
+  const latestOverlayOcclusionRef = useRef<{
+    hide: boolean;
+    rects: Array<{ x: number; y: number; width: number; height: number }>;
+  }>({ hide: false, rects: [] });
+  const pendingOverlayAckRef = useRef(false);
   const openedRequestedUrl = useRef(false);
   const projectKey = useLayoutStore((state) => state.currentProjectKey);
   const projectKeyRef = useRef(projectKey);
@@ -719,14 +738,20 @@ export function HostBrowserPanel({
         panelApi?.updateParameters({
           ...(icon ? { faviconUrl: icon } : {}),
           requestedUrl: payload.url,
-          nativeTabId: tabId,
+          ...(surfaceHostRef.current === 'dockview'
+            ? { nativeTabId: tabId }
+            : {}),
         });
         if (hostTitle) {
           panelApi?.setTitle?.(hostTitle);
         }
         if (tabId && panelId) {
           rememberBrowserSurface(
-            browserPanelSurfaceKey(projectKeyRef.current, panelId),
+            browserPanelSurfaceKey(
+              projectKeyRef.current,
+              panelId,
+              surfaceHostRef.current
+            ),
             { tabId, url: payload.url }
           );
         }
@@ -834,6 +859,8 @@ export function HostBrowserPanel({
   const openTab = useCallback(
     async (url: string) => {
       if (stopForSiteRule(url)) return;
+      const openSeq = ++openSeqRef.current;
+      const previousTabId = tabIdRef.current;
       setError(null);
       pendingUrlRef.current = url;
       setLoading(true);
@@ -847,6 +874,7 @@ export function HostBrowserPanel({
       if (icon) panelApi?.updateParameters({ faviconUrl: icon });
       try {
         const bounds = await waitForSurfaceBounds();
+        if (!mountedRef.current || openSeqRef.current !== openSeq) return;
         const currentSettings = browserSettingsRef.current;
         let initialGrant = currentSettings.defaultGrant;
         try {
@@ -864,16 +892,35 @@ export function HostBrowserPanel({
             : {}),
           ...(bounds ? { bounds } : {}),
         })) as BrowserTab;
+        if (!mountedRef.current || openSeqRef.current !== openSeq) {
+          if (created?.tabId) {
+            void dispatchRef
+              .current('tab.close', { tabId: created.tabId })
+              .catch(() => undefined);
+          }
+          return;
+        }
+        if (previousTabId && previousTabId !== created.tabId) {
+          void dispatchRef
+            .current('tab.close', { tabId: previousTabId })
+            .catch(() => undefined);
+        }
         tabIdRef.current = created.tabId;
         setCanGoBack(false);
         setTab(created);
         panelApi?.updateParameters({
           requestedUrl: url,
-          nativeTabId: created.tabId,
+          ...(surfaceHostRef.current === 'dockview'
+            ? { nativeTabId: created.tabId }
+            : {}),
         });
         if (panelId) {
           rememberBrowserSurface(
-            browserPanelSurfaceKey(projectKeyRef.current, panelId),
+            browserPanelSurfaceKey(
+              projectKeyRef.current,
+              panelId,
+              surfaceHostRef.current
+            ),
             { tabId: created.tabId, url }
           );
         }
@@ -893,8 +940,10 @@ export function HostBrowserPanel({
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => resolve());
         });
+        if (!mountedRef.current || openSeqRef.current !== openSeq) return;
         await syncBounds();
       } catch (cause) {
+        if (!mountedRef.current || openSeqRef.current !== openSeq) return;
         setLoading(false);
         if (explainSiteRuleError(url, cause)) return;
         setError(getInvokeErrorMessage(cause));
@@ -911,6 +960,8 @@ export function HostBrowserPanel({
       waitForSurfaceBounds,
     ]
   );
+
+  const reconcileOcclusionRef = useRef<() => void>(() => {});
 
   useLayoutEffect(() => {
     let scheduled = false;
@@ -961,6 +1012,41 @@ export function HostBrowserPanel({
     if (parent) observer.observe(parent);
     const groupEl = panelApi?.group?.element;
     if (groupEl) observer.observe(groupEl);
+    const canvasRoot =
+      host?.closest('[data-canvas-surface]') ??
+      root?.closest('[data-canvas-surface]') ??
+      host?.closest('.react-flow') ??
+      root?.closest('.react-flow');
+    if (canvasRoot instanceof HTMLElement) {
+      observer.observe(canvasRoot);
+    }
+    let canvasMutationObserver: MutationObserver | null = null;
+    if (canvasRoot && typeof MutationObserver !== 'undefined') {
+      canvasMutationObserver = new MutationObserver((records) => {
+        if (
+          root &&
+          records.length > 0 &&
+          records.every((record) => root.contains(record.target))
+        ) {
+          return;
+        }
+        reconcileOcclusionRef.current();
+        schedule();
+      });
+      canvasMutationObserver.observe(canvasRoot, {
+        attributes: true,
+        attributeFilter: [
+          'style',
+          'class',
+          'hidden',
+          'aria-hidden',
+          'data-dock-position',
+          'data-viewport-position',
+        ],
+        childList: true,
+        subtree: true,
+      });
+    }
     window.addEventListener('resize', schedule);
     window.visualViewport?.addEventListener('resize', schedule);
     const disposePanel = panelApi?.onDidDimensionsChange?.(schedule);
@@ -972,12 +1058,15 @@ export function HostBrowserPanel({
     });
     const poll = window.setInterval(() => {
       if (document.hidden || !visibleRef.current) return;
+      reconcileOcclusionRef.current();
       schedule();
     }, 500);
+    reconcileOcclusionRef.current();
     schedule();
     return () => {
       scheduled = false;
       observer.disconnect();
+      canvasMutationObserver?.disconnect();
       window.removeEventListener('resize', schedule);
       window.visualViewport?.removeEventListener('resize', schedule);
       disposePanel?.dispose();
@@ -1035,66 +1124,81 @@ export function HostBrowserPanel({
 
   useLayoutEffect(() => overlay.registerNativeSurfaceHost(), [overlay]);
 
-  useLayoutEffect(() => {
-    return overlay.subscribeNativeSurfaceOcclusion((occlusion) => {
-      const hide = overlayCoversBrowser(hostRef.current, occlusion);
-      if (
-        occludedRef.current === hide &&
-        hideTargetRef.current == null &&
-        (hide || !frozenRef.current)
-      ) {
+  const reconcileOcclusion = useCallback(() => {
+    const ackIfPending = () => {
+      if (pendingOverlayAckRef.current) {
+        pendingOverlayAckRef.current = false;
         overlay.ackOverlayReady();
-        return;
       }
-      if (hideTargetRef.current === hide) {
-        overlay.ackOverlayReady();
-        return;
-      }
-      hideSeqRef.current += 1;
-      const seq = hideSeqRef.current;
-      hideTargetRef.current = hide;
-      if (!hide) {
-        occludedRef.current = true;
-        void (async () => {
-          await syncBounds();
-          if (hideSeqRef.current !== seq) return;
-          await waitForStableSurfaceBounds();
-          if (hideSeqRef.current !== seq) return;
-          occludedRef.current = false;
-          await syncBounds();
-          if (hideSeqRef.current !== seq) return;
-          await nextPaint();
-          if (hideSeqRef.current !== seq) return;
-          updateFrozen(null);
-          hideTargetRef.current = null;
-          overlay.ackOverlayReady();
-        })();
-        return;
-      }
+    };
+    const hide =
+      overlayCoversBrowser(hostRef.current, latestOverlayOcclusionRef.current) ||
+      canvasLayerCoversBrowser(hostRef.current);
+    if (
+      occludedRef.current === hide &&
+      hideTargetRef.current == null &&
+      (hide || !frozenRef.current)
+    ) {
+      ackIfPending();
+      return;
+    }
+    if (hideTargetRef.current === hide) {
+      ackIfPending();
+      return;
+    }
+    hideSeqRef.current += 1;
+    const seq = hideSeqRef.current;
+    hideTargetRef.current = hide;
+    if (!hide) {
+      occludedRef.current = true;
       void (async () => {
-        let src = lastFreezeRef.current;
-        if (freezeInFlightRef.current) {
-          src = (await freezeInFlightRef.current) ?? src;
-        } else if (!src) {
-          src = await captureFreezeRef.current();
-        }
-        if (hideSeqRef.current !== seq) return;
-        if (src) {
-          lastFreezeRef.current = src;
-          await decodeOffscreen(src);
-          if (hideSeqRef.current !== seq) return;
-          updateFrozen(src);
-          await nextPaint();
-          if (hideSeqRef.current !== seq) return;
-        }
-        occludedRef.current = true;
         await syncBounds();
         if (hideSeqRef.current !== seq) return;
+        await waitForStableSurfaceBounds();
+        if (hideSeqRef.current !== seq) return;
+        occludedRef.current = false;
+        await syncBounds();
+        if (hideSeqRef.current !== seq) return;
+        await nextPaint();
+        if (hideSeqRef.current !== seq) return;
+        updateFrozen(null);
         hideTargetRef.current = null;
-        overlay.ackOverlayReady();
+        ackIfPending();
       })();
-    });
+      return;
+    }
+    void (async () => {
+      let src = lastFreezeRef.current;
+      if (freezeInFlightRef.current) {
+        src = (await freezeInFlightRef.current) ?? src;
+      } else if (!src) {
+        src = await captureFreezeRef.current();
+      }
+      if (hideSeqRef.current !== seq) return;
+      if (src) {
+        lastFreezeRef.current = src;
+        await decodeOffscreen(src);
+        if (hideSeqRef.current !== seq) return;
+        updateFrozen(src);
+        await nextPaint();
+        if (hideSeqRef.current !== seq) return;
+      }
+      occludedRef.current = true;
+      await syncBounds();
+      if (hideSeqRef.current !== seq) return;
+      hideTargetRef.current = null;
+      ackIfPending();
+    })();
   }, [overlay, syncBounds, updateFrozen, waitForStableSurfaceBounds]);
+  reconcileOcclusionRef.current = reconcileOcclusion;
+
+  useLayoutEffect(() => {
+    return overlay.subscribeNativeSurfaceOcclusion((occlusion) => {
+      latestOverlayOcclusionRef.current = occlusion;
+      pendingOverlayAckRef.current = true;
+      reconcileOcclusion();
+    });
+  }, [overlay, reconcileOcclusion]);
 
   useEffect(() => {
     const prefetch = () => {
@@ -1187,11 +1291,16 @@ export function HostBrowserPanel({
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      openSeqRef.current += 1;
       const tabId = tabIdRef.current;
       if (!tabId) return;
+      const hostKind = surfaceHostRef.current;
       const layoutState = useLayoutStore.getState();
       const keep =
+        hostKind === 'dockview' &&
         Boolean(panelId) &&
         projectLayoutStillHasBrowserPanel(
           layoutState,
@@ -1215,7 +1324,7 @@ export function HostBrowserPanel({
             return;
           }
           forgetBrowserSurface(
-            browserPanelSurfaceKey(projectKeyRef.current, panelId)
+            browserPanelSurfaceKey(projectKeyRef.current, panelId, hostKind)
           );
           void dispatch('tab.close', { tabId });
         }, 50);
@@ -1223,7 +1332,7 @@ export function HostBrowserPanel({
       }
       if (panelId) {
         forgetBrowserSurface(
-          browserPanelSurfaceKey(projectKeyRef.current, panelId)
+          browserPanelSurfaceKey(projectKeyRef.current, panelId, hostKind)
         );
       }
       void dispatch('tab.close', { tabId });
@@ -1232,7 +1341,9 @@ export function HostBrowserPanel({
 
   useEffect(() => {
     if (openedRequestedUrl.current || tabIdRef.current) return;
-    const key = panelId ? browserPanelSurfaceKey(projectKey, panelId) : '';
+    const key = panelId
+      ? browserPanelSurfaceKey(projectKey, panelId, surfaceHost)
+      : '';
     const remembered = key ? recallBrowserSurface(key) : undefined;
     const existingId = nativeTabId || remembered?.tabId || null;
     const existingUrl =
@@ -1254,15 +1365,25 @@ export function HostBrowserPanel({
         try {
           const listed = (await dispatch('tab.list')) as {
             tabs?: BrowserTab[];
-          };
-          const found = listed.tabs?.find((item) => item.tabId === existingId);
-          if (found) {
+          } | null;
+          if (!mountedRef.current) return;
+          if (Array.isArray(listed?.tabs)) {
+            const found = listed.tabs.find((item) => item.tabId === existingId);
+            if (!found) {
+              if (key) forgetBrowserSurface(key);
+              tabIdRef.current = null;
+              if (existingUrl) void openTab(existingUrl);
+              return;
+            }
             setTab(found);
             if (found.url) setAddress(found.url);
           }
           const bounds = await waitForSurfaceBounds();
+          if (!mountedRef.current || tabIdRef.current !== existingId) return;
           await dispatch('surface.set', { tabId: existingId, bounds });
         } catch {
+          if (!mountedRef.current) return;
+          if (key) forgetBrowserSurface(key);
           tabIdRef.current = null;
           if (existingUrl) void openTab(existingUrl);
         }
@@ -1279,6 +1400,7 @@ export function HostBrowserPanel({
     panelId,
     projectKey,
     requestedUrl,
+    surfaceHost,
     waitForSurfaceBounds,
   ]);
 
@@ -1425,7 +1547,9 @@ export function HostBrowserPanel({
             panelApi?.setTitle?.(hostTitle);
           panelApi?.updateParameters({
             requestedUrl: pageUrl,
-            nativeTabId: tabId,
+            ...(surfaceHostRef.current === 'dockview'
+              ? { nativeTabId: tabId }
+              : {}),
             ...(chrome.favicon ? { faviconUrl: chrome.favicon } : {}),
           });
         }

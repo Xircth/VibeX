@@ -622,6 +622,18 @@ function CollapsedProcessGroup({
   );
 }
 
+function lastAssistantMarkdownItem(
+  blocks: MessageTurn['blocks']
+): Extract<TurnRenderItem, { kind: 'markdown' }> | null {
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index];
+    if (block?.type === 'text' && block.text.trim().length > 0) {
+      return { kind: 'markdown', text: block.text };
+    }
+  }
+  return null;
+}
+
 export const MessageTurnView = memo(function MessageTurnView({
   turn,
   phase = 'persisted',
@@ -640,6 +652,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   questions = [],
   slice = null,
   isLastSlice = true,
+  hideThinking: hideThinkingProp,
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
@@ -655,6 +668,8 @@ export const MessageTurnView = memo(function MessageTurnView({
     | { kind: 'status' }
     | null;
   isLastSlice?: boolean;
+  /** Slice indexes from the timeline. When omitted, this view reads settings. */
+  hideThinking?: boolean;
   showInterruptedNotice?: boolean;
   contextCompact?: ContextCompactPresentation | null;
   hasTurnError?: boolean;
@@ -665,7 +680,7 @@ export const MessageTurnView = memo(function MessageTurnView({
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
   const { config } = useOptionalUserSystem() ?? {};
-  const hideThinking = resolveHideModelThinking(config);
+  const hideThinking = hideThinkingProp ?? resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
   // Prefer the resolved absolute root (caller may supply the repo path when the
   // workspace has no container_ref) so clickable file paths open a real file.
@@ -898,6 +913,16 @@ const AssistantTurnView = memo(function AssistantTurnView({
     [attempt, collapseProcess, context, isStreaming, task, turn.timestamp]
   );
 
+  // File changes and token stats render after this slice. A missed index or a
+  // fold that is the whole turn must still show the reply. A resolved tool
+  // slice does not repeat prose that an earlier slice already owns.
+  const trailingMarkdown = isLastSlice
+    ? lastAssistantMarkdownItem(turn.blocks)
+    : null;
+  const trailingProse = trailingMarkdown
+    ? renderTurnItem(trailingMarkdown, `${turn.id}-trailing-prose`)
+    : null;
+
   const foldDurationMs = (segmentItems: TurnRenderItem[]) =>
     collapsedMessagesDurationMs({
       items: segmentItems,
@@ -972,6 +997,9 @@ const AssistantTurnView = memo(function AssistantTurnView({
         >
           {() => null}
         </CollapsedProcessGroup>
+        {trailingProse ? (
+          <div className="conv-assistant-body">{trailingProse}</div>
+        ) : null}
       </div>
     );
   }
@@ -998,7 +1026,17 @@ const AssistantTurnView = memo(function AssistantTurnView({
   }
   if (slice?.kind === 'block') {
     const item = items[slice.itemIndex];
-    if (!item) return null;
+    if (!item) {
+      if (!trailingProse) return null;
+      return (
+        <div
+          className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+          data-message-id={turn.id}
+        >
+          <div className="conv-assistant-body">{trailingProse}</div>
+        </div>
+      );
+    }
     return (
       <div
         className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"

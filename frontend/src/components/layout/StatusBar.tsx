@@ -9,6 +9,7 @@ import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBad
 import { BackgroundTaskCountBadge } from '@/components/layout/BackgroundTaskCountBadge';
 import { UpdateAvailableBadge } from '@/components/layout/UpdateAvailableBadge';
 import { AgentStatusMenu } from '@/components/layout/AgentStatusMenu';
+import { HistoryImportStatusButton } from '@/components/layout/HistoryImportStatusButton';
 import { useActiveSubscriptionPlans } from '@/components/kanban/useActiveSubscriptionPlans';
 import {
   openAgentSettings,
@@ -47,6 +48,7 @@ export function StatusBar() {
         <span className="hidden text-[10px] uppercase tracking-wide opacity-60 sm:inline">
           {APP_NAME}
         </span>
+        <HistoryImportStatusButton />
         <AgentStatusMenu
           agents={agentManagementState.agents}
           defaultAgentId={config?.executor_profile.executor ?? null}

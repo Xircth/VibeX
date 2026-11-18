@@ -577,7 +577,9 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
     run_git(&repo_dir, &["commit", "-m", "initial commit"]);
 
     let server = HeadlessServer::bootstrap(
-        ServerBootstrapConfig::new(data_dir.path()).with_token(ServerToken::new(TEST_TOKEN)),
+        ServerBootstrapConfig::new(data_dir.path())
+            .with_token(ServerToken::new(TEST_TOKEN))
+            .with_allow_loopback_outbox_for_tests(true),
     )
     .await
     .expect("bootstrap HeadlessServer");

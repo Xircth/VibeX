@@ -33,6 +33,7 @@ import { bindConversationSummaryMarquee } from '@/components/logs/conversationSu
 import { buildTimelineVirtualEntries } from '@/components/logs/assistantVirtualSlices';
 import {
   CONVERSATION_OPEN_SETTLE_PASSES,
+  CONVERSATION_TAIL_RESCUE_PASSES,
   ESTIMATED_CONVERSATION_ROW_HEIGHT,
   cancelVirtualizerFollowScroll,
   conversationFollowIntent,
@@ -47,7 +48,9 @@ import {
   observeUnscaledElementRect,
   scheduleMeasuredScrollToIndex,
   scrollTopAfterPrepend,
+  scrollTopToRevealVirtualWindow,
   startAlignedVirtualOffset,
+  virtualListHeightPx,
   type VirtualizedListRef,
 } from '@/components/logs/VirtualizedList';
 import {
@@ -103,6 +106,7 @@ export function useTimelineScrollController({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const virtualListRef = useRef<HTMLDivElement | null>(null);
+  const virtualWindowRef = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const isAtBottomRef = useRef(true);
@@ -112,7 +116,10 @@ export function useTimelineScrollController({
   const lastScrollTopRef = useRef(0);
   const lastScrollHeightRef = useRef(0);
   const tailRescuePassesRef = useRef(0);
+  const tailRescueBudgetRef = useRef(0);
   const tailRescueItemCountRef = useRef(0);
+  const tailRescueWindowHeightRef = useRef(0);
+  const revealScrollRef = useRef<number | null>(null);
   const programmaticScrollDepthRef = useRef(0);
   const smoothFollowRef = useRef(false);
   const seenExpansionRef = useRef<number | null>(null);
@@ -154,11 +161,22 @@ export function useTimelineScrollController({
     anchoredTimelineStartRef.current.sessionId === sessionId
       ? anchoredTimelineStartRef.current.index
       : null;
+  const inFlightTimelineIndex = useMemo(() => {
+    for (let index = timelineItems.length - 1; index >= 0; index -= 1) {
+      const item = timelineItems[index];
+      if (item?.kind !== 'message') continue;
+      if (item.item.phase === 'streaming' || item.item.phase === 'optimistic') {
+        return index;
+      }
+    }
+    return null;
+  }, [timelineItems]);
   const visibleTimelineStartIndex = computeAnchoredTimelineStartIndex({
     totalItems: timelineItems.length,
     visibleTailCount: effectiveVisibleTailCount,
     followTail: effectiveFollowTail,
     anchoredStartIndex: priorAnchoredStartIndex,
+    requiredIndex: effectiveFollowTail ? inFlightTimelineIndex : null,
   });
   anchoredTimelineStartRef.current = {
     sessionId,
@@ -228,6 +246,7 @@ export function useTimelineScrollController({
     }
   }, []);
 
+  const [paintedWindowHeight, setPaintedWindowHeight] = useState(0);
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: virtualEntries.length,
     getScrollElement: () => containerRef.current,
@@ -245,6 +264,12 @@ export function useTimelineScrollController({
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+  const listHeight = virtualListHeightPx({
+    totalSize,
+    windowStart: virtualRows[0]?.start,
+    scrollMargin,
+    windowHeight: paintedWindowHeight,
+  });
 
   const jumpToVirtualIndex = useCallback(
     (index: number, align: 'start' | 'center' | 'end' | 'auto' = 'start') => {
@@ -482,12 +507,6 @@ export function useTimelineScrollController({
         if (behavior === 'smooth') {
           container.scrollTo({ top: container.scrollHeight, behavior });
         } else {
-          if (virtualEntries.length > 0) {
-            rowVirtualizer.scrollToIndex(virtualEntries.length - 1, {
-              align: 'end',
-              behavior: 'auto',
-            });
-          }
           container.scrollTop = container.scrollHeight;
         }
       });
@@ -506,7 +525,7 @@ export function useTimelineScrollController({
         });
       }
     },
-    [rowVirtualizer, runProgrammaticScroll, virtualEntries.length]
+    [rowVirtualizer, runProgrammaticScroll]
   );
 
   const scrollToBottom = useCallback(
@@ -869,6 +888,7 @@ export function useTimelineScrollController({
     processExpandableRevision,
     rowVirtualizer,
     runProgrammaticScroll,
+    paintedWindowHeight,
     sessionId,
     totalSize,
     virtualEntries.length,
@@ -881,8 +901,56 @@ export function useTimelineScrollController({
   }, [rowVirtualizer, virtualEntries]);
 
   useLayoutEffect(() => {
+    const height = virtualWindowRef.current?.offsetHeight ?? 0;
+    setPaintedWindowHeight((current) =>
+      Math.abs(current - height) > 1 ? height : current
+    );
+  }, [virtualEntries, virtualRows]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || virtualRows.length === 0) return;
+    const next = scrollTopToRevealVirtualWindow({
+      scrollTop: container.scrollTop,
+      viewportHeight: container.clientHeight,
+      scrollHeight: container.scrollHeight,
+      windowStart: virtualRows[0]?.start,
+      scrollMargin,
+      windowHeight: paintedWindowHeight,
+      followTail: followTailRef.current,
+    });
+    if (next == null) {
+      revealScrollRef.current = null;
+      return;
+    }
+    if (
+      revealScrollRef.current != null &&
+      Math.abs(revealScrollRef.current - next) <= 1
+    ) {
+      return;
+    }
+    revealScrollRef.current = next;
+    runProgrammaticScroll(() => {
+      container.scrollTop = next;
+    });
+    lastScrollTopRef.current = container.scrollTop;
+    lastScrollHeightRef.current = container.scrollHeight;
+  }, [
+    paintedWindowHeight,
+    runProgrammaticScroll,
+    scrollMargin,
+    totalSize,
+    virtualRows,
+  ]);
+
+  useLayoutEffect(() => {
     if (tailRescueItemCountRef.current !== virtualEntries.length) {
       tailRescueItemCountRef.current = virtualEntries.length;
+      tailRescuePassesRef.current = 0;
+      tailRescueBudgetRef.current = 0;
+    }
+    if (paintedWindowHeight > tailRescueWindowHeightRef.current + 1) {
+      tailRescueWindowHeightRef.current = paintedWindowHeight;
       tailRescuePassesRef.current = 0;
     }
     const container = containerRef.current;
@@ -892,14 +960,27 @@ export function useTimelineScrollController({
       itemCount: virtualEntries.length,
       visibleIndexes: virtualRows.map((row) => row.index),
     });
-    if (!needsRescue || tailRescuePassesRef.current >= 4) return;
+    if (
+      !needsRescue ||
+      tailRescuePassesRef.current >= CONVERSATION_TAIL_RESCUE_PASSES ||
+      tailRescueBudgetRef.current >= CONVERSATION_TAIL_RESCUE_PASSES * 3
+    ) {
+      return;
+    }
     tailRescuePassesRef.current += 1;
+    tailRescueBudgetRef.current += 1;
     const list = virtualListRef.current;
     if (list) {
       remeasureMountedVirtualRows(list, rowVirtualizer.resizeItem);
     }
     pinToBottom('auto');
-  }, [pinToBottom, rowVirtualizer, virtualEntries.length, virtualRows]);
+  }, [
+    paintedWindowHeight,
+    pinToBottom,
+    rowVirtualizer,
+    virtualEntries.length,
+    virtualRows,
+  ]);
 
   useImperativeHandle(
     ref,
@@ -967,11 +1048,13 @@ export function useTimelineScrollController({
   return {
     containerRef,
     virtualListRef,
+    virtualWindowRef,
     scrollMargin,
     rowVirtualizer,
     virtualEntries,
     virtualRows,
     totalSize,
+    listHeight,
     visibleTimelineStartIndex,
     visibleTimelineItems,
     hasEarlierTimeline,

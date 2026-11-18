@@ -1158,6 +1158,83 @@ async fn pulse_security_hardening_hmac_sdk_emit_and_full_rest_parity_impl() {
         hmac_emitted["source"]["trustLevel"], "trusted_human",
         "non-LocalDesktop callers must never forge TrustedHuman trustLevel: {hmac_emitted}"
     );
+    assert_eq!(hmac_emitted["source"]["instanceId"], "sdk-hmac-client");
+    assert_eq!(hmac_emitted["actor"]["id"], "pulse-sdk:sdk-hmac-client");
+    assert_ne!(hmac_emitted["eventId"], "evt-forged-trust-1");
+
+    // Cross-source spoofing & delivery replay protection when body omits deliveryId
+    let spoofed_replay_body = serde_json::to_vec(&json!({
+        "source": {
+            "kind": "sdk_custom",
+            "instanceId": "spoofed-other-source",
+            "trustLevel": "trusted_human"
+        },
+        "eventType": "sdk.hmac.replay_check",
+        "payload": { "n": 1 }
+    }))
+    .unwrap();
+    let sig_replay = sign_standard_webhook(
+        &sdk_secret,
+        "msg_sdk_hmac_replay_1",
+        ts,
+        &spoofed_replay_body,
+    )
+    .expect("sign replay body");
+    let (status, replay_1) = send_json(
+        router.clone(),
+        Method::POST,
+        "/api/pulse/events/emit",
+        None,
+        &[
+            ("x-pulse-source-id", "sdk-hmac-client"),
+            ("webhook-id", "msg_sdk_hmac_replay_1"),
+            ("webhook-timestamp", &ts_str),
+            ("webhook-signature", &sig_replay),
+        ],
+        spoofed_replay_body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay_1["source"]["instanceId"], "sdk-hmac-client");
+    assert_eq!(replay_1["deliveryId"], "msg_sdk_hmac_replay_1");
+
+    let (status, _) = send_json(
+        router.clone(),
+        Method::POST,
+        "/api/pulse/events/emit",
+        None,
+        &[
+            ("x-pulse-source-id", "sdk-hmac-client"),
+            ("webhook-id", "msg_sdk_hmac_replay_1"),
+            ("webhook-timestamp", &ts_str),
+            ("webhook-signature", &sig_replay),
+        ],
+        spoofed_replay_body,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (deck_st, deck_after_replay) = send_json(
+        router.clone(),
+        Method::GET,
+        "/api/pulse/deck",
+        Some(TEST_TOKEN),
+        &[],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(deck_st, StatusCode::OK);
+    let replay_matches = deck_after_replay["recentEvents"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|e| e["deliveryId"] == "msg_sdk_hmac_replay_1")
+                .count()
+        })
+        .unwrap_or(0);
+    assert_eq!(
+        replay_matches, 1,
+        "replayed HMAC delivery without body deliveryId must be deduplicated by webhook-id"
+    );
 
     // 3. `draftOnly: true` & full `/api/pulse/*` REST parity.
     let (status, draft_rule) = send_json(
@@ -1423,7 +1500,9 @@ async fn pulse_http_source_test_secret_preservation_poller_and_callbacks_impl() 
     ).expect("write settings.json");
 
     let server = HeadlessServer::bootstrap(
-        ServerBootstrapConfig::new(temp.path()).with_token(ServerToken::new(TEST_TOKEN)),
+        ServerBootstrapConfig::new(temp.path())
+            .with_token(ServerToken::new(TEST_TOKEN))
+            .with_allow_loopback_outbox_for_tests(true),
     )
     .await
     .expect("bootstrap HeadlessServer");

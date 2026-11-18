@@ -20,10 +20,15 @@ import {
   type UserSystemInfo,
 } from '../lib/api';
 import {
+  LOCAL_APP_DATA_CLEARED_EVENT,
   SETTINGS_CHANGED_EVENT,
+  clearLocalFrontendStorage,
   isSelfTriggeredSettingsChange,
   syncFrontendPreferences,
 } from '@/lib/frontendPreferences';
+import { cancelPendingCanvasPersist } from '@/components/kanban/canvas/canvasStorage';
+import { clearAllBrowserSurfaces } from '@/features/host-browser/browserPanelLifetime';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { initUiZoom } from '@/lib/uiZoom';
 import { initAccentColor } from '@/lib/uiAccent';
 import { initMonoFont } from '@/lib/uiFont';
@@ -84,6 +89,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
 
   useEffect(() => {
     let unlisten: () => void = () => undefined;
+    let unlistenCleared: () => void = () => undefined;
     let unlistenSessions: () => void = () => undefined;
     let disposed = false;
     let hasInitializedPreferences = false;
@@ -91,7 +97,9 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
       try {
         const isFirstSync = !hasInitializedPreferences;
         hasInitializedPreferences = true;
-        const changed = await syncFrontendPreferences();
+        const changed = await syncFrontendPreferences(undefined, {
+          allowLocalMigration: isFirstSync,
+        });
         if (!isFirstSync && !changed) return;
         initUiZoom();
         initColorThemes();
@@ -115,6 +123,17 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
       void queryClient.invalidateQueries({ queryKey: ['user-system'] });
       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
     };
+    const handleLocalAppDataCleared = () => {
+      cancelPendingCanvasPersist();
+      clearAllBrowserSurfaces();
+      clearLocalFrontendStorage();
+      useWindowProjectsStore.getState().resetProjectWindowState();
+      queryClient.clear();
+      if (!window.location.pathname.startsWith('/settings')) {
+        window.history.replaceState(null, '', '/');
+        window.location.reload();
+      }
+    };
 
     void sync();
     window.addEventListener('focus', sync);
@@ -124,6 +143,13 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
         else unlisten = stopListening;
       }
     );
+    void backendListen(
+      LOCAL_APP_DATA_CLEARED_EVENT,
+      handleLocalAppDataCleared
+    ).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlistenCleared = stopListening;
+    });
     void backendListen<WorkspaceSessionsChangedPayload>(
       WORKSPACE_SESSIONS_CHANGED_EVENT,
       (payload) => {
@@ -136,6 +162,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
     return () => {
       disposed = true;
       unlisten();
+      unlistenCleared();
       unlistenSessions();
       window.removeEventListener('focus', sync);
     };

@@ -990,7 +990,7 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
 
     // 1. Standalone `claude.cmd` without sibling `.exe` must NOT populate `CLAUDE_CODE_EXECUTABLE`
     //    (Node's `child_process.spawn` rejects `.cmd` without `shell: true` with `spawn EINVAL`).
-    let (env_from_cmd, _) = make_runner(cmd_shim.clone())
+    let (env_from_cmd, _, _temp_from_cmd) = make_runner(cmd_shim.clone())
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
         .expect("launch env");
     assert_ne!(
@@ -1004,7 +1004,7 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
     // 2. When a sibling `claude.exe` exists next to `claude.cmd`, prefer the `.exe` directly.
     let sibling_exe = npm_dir.join("claude.exe");
     std::fs::write(&sibling_exe, b"MZ").unwrap();
-    let (env_with_sibling, _) = make_runner(cmd_shim)
+    let (env_with_sibling, _, _temp_with_sibling) = make_runner(cmd_shim)
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
         .expect("launch env");
     if std::env::var_os("CLAUDE_CODE_EXECUTABLE").is_none()
@@ -1027,7 +1027,7 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
         "claude"
     });
     std::fs::write(&standalone_bin, b"MZ").unwrap();
-    let (env_from_bin, _) = make_runner(standalone_bin.clone())
+    let (env_from_bin, _, _temp_from_bin) = make_runner(standalone_bin.clone())
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
         .expect("launch env");
     if std::env::var_os("CLAUDE_CODE_EXECUTABLE").is_none()

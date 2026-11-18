@@ -2016,6 +2016,9 @@ describe('CollaborationSpacePage', () => {
     });
     await waitFor(() => {
       expect(screen.queryByText('昵称不存在')).toBeNull();
+      expect(screen.queryByText(/找不到这个昵称/)).toBeNull();
+      expect(screen.queryByText(/请改用这个空间里已有成员的昵称/)).toBeNull();
+      expect(screen.queryByText(/请改用空间里已有成员的昵称/)).toBeNull();
     });
     expect(
       collaborationCall.mock.calls.filter(

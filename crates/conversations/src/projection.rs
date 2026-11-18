@@ -33,6 +33,44 @@ use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
+/// Events applied per statement while folding a conversation open.
+///
+/// One unbounded `events_since` of multi-kilobyte JSON rows holds the database
+/// long enough to freeze the webview. Pages yield between reads. The caller
+/// still applies every event after the snapshot cursor.
+const PROJECTION_EVENT_PAGE: i64 = 250;
+
+async fn apply_projection_event_pages(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    mut cursor: i64,
+    fold: &mut ProjectionFold,
+) -> Result<(), sqlx::Error> {
+    loop {
+        let page = ConversationEventRecord::events_since_for_projection(
+            pool,
+            conversation_id,
+            cursor,
+            PROJECTION_EVENT_PAGE,
+        )
+        .await?;
+        if page.is_empty() {
+            break;
+        }
+        let last = page.last().map(|record| record.sequence).unwrap_or(cursor);
+        let short = (page.len() as i64) < PROJECTION_EVENT_PAGE;
+        for record in &page {
+            fold.apply(record)?;
+        }
+        if short || last <= cursor {
+            break;
+        }
+        cursor = last;
+        tokio::task::yield_now().await;
+    }
+    Ok(())
+}
+
 pub(crate) use self::{
     applier::apply_checkpoint_metadata_update_on_conn as applier_checkpoint_update,
     cache::fetch_hydrated_turns_for_projector,
@@ -341,16 +379,7 @@ impl ConversationProjector {
     ) -> Result<ProjectionFold, sqlx::Error> {
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
         fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
-        let tail = ConversationEventRecord::events_since(
-            pool,
-            conversation_id,
-            fold.last_sequence,
-            i64::MAX,
-        )
-        .await?;
-        for record in &tail {
-            fold.apply(record)?;
-        }
+        apply_projection_event_pages(pool, conversation_id, fold.last_sequence, &mut fold).await?;
         let prompt = Session::find_by_id(pool, conversation_id)
             .await?
             .and_then(|session| session.initial_prompt);
@@ -385,16 +414,7 @@ impl ConversationProjector {
         }
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
         fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
-        let tail = ConversationEventRecord::events_since(
-            pool,
-            conversation_id,
-            fold.last_sequence,
-            i64::MAX,
-        )
-        .await?;
-        for record in &tail {
-            fold.apply(record)?;
-        }
+        apply_projection_event_pages(pool, conversation_id, fold.last_sequence, &mut fold).await?;
         Ok((fold.changed_rows_since(after_sequence), fold.last_sequence))
     }
 
@@ -493,16 +513,37 @@ impl ConversationProjector {
             .execute(&mut *conn)
             .await?;
 
-        let events =
-            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
         let mut fold = ProjectionFold {
             complete_antigravity_reads: antigravity_conversation(&mut *conn, conversation_id)
                 .await?,
             ..ProjectionFold::default()
         };
-        for record in &events {
-            ConversationStateApplier::apply_record(&mut *conn, record).await?;
-            fold.apply(record)?;
+        let mut cursor = 0i64;
+        loop {
+            let events = ConversationEventRecord::events_since_for_projection(
+                &mut *conn,
+                conversation_id,
+                cursor,
+                PROJECTION_EVENT_PAGE,
+            )
+            .await?;
+            if events.is_empty() {
+                break;
+            }
+            let last = events
+                .last()
+                .map(|record| record.sequence)
+                .unwrap_or(cursor);
+            let short = (events.len() as i64) < PROJECTION_EVENT_PAGE;
+            for record in &events {
+                ConversationStateApplier::apply_record(&mut *conn, record).await?;
+                fold.apply(record)?;
+            }
+            if short || last <= cursor {
+                break;
+            }
+            cursor = last;
+            tokio::task::yield_now().await;
         }
         if !fold.turns.is_empty() {
             let prompt = sqlx::query_scalar::<_, Option<String>>(

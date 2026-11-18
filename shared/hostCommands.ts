@@ -1275,6 +1275,7 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'slash-commands-stream', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'log-stream', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'dimo://settings-file-changed', durability: 'invalidation', scope: 'application.call' },
+  { prefix: 'dimo://local-app-data-cleared', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'dimo://collaboration-space-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'dimo://collaboration-receipts-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'theme-changed', durability: 'invalidation', scope: 'application.call' },

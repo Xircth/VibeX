@@ -474,7 +474,11 @@ impl AgentConnectionRunner {
     pub(in crate::manager) fn build_native_engine_launch_env(
         &self,
         driver: &dyn crate::engine::NativeEngineDriver,
-    ) -> AgentResult<(HashMap<String, String>, Vec<String>)> {
+    ) -> AgentResult<(
+        HashMap<String, String>,
+        Vec<String>,
+        crate::AgentRuntimeTempSession,
+    )> {
         if !self.snapshot.working_dir.is_dir() {
             return Err(AgentError::Runtime(format!(
                 "workspace working directory is missing: {}",
@@ -490,12 +494,14 @@ impl AgentConnectionRunner {
             }
         }
 
-        crate::prepare_and_bind_agent_runtime_temp(&self.snapshot.agent_id, &mut launch_env)
+        let runtime_temp = crate::prepare_agent_runtime_temp_session(&self.snapshot.agent_id)
             .map_err(|error| {
                 AgentError::Runtime(format!(
                     "could not create a writable temporary directory for the native engine: {error}"
                 ))
             })?;
+        runtime_temp.bind_env(&mut launch_env);
+        runtime_temp.record_owner_pid(std::process::id());
 
         let mut scrubbed_keys = Vec::new();
         for key in
@@ -521,7 +527,7 @@ impl AgentConnectionRunner {
             &mut scrubbed_keys,
         );
 
-        Ok((launch_env, scrubbed_keys))
+        Ok((launch_env, scrubbed_keys, runtime_temp))
     }
 }
 

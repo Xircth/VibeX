@@ -12,6 +12,7 @@ import {
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { isWorkspaceSurfaceActive } from '@/lib/workspaceSurface';
+import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
 export default function PluginDockviewPanel(props: IDockviewPanelProps) {
@@ -26,6 +27,9 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
     sessionId?: string;
   }>();
   const activeTab = useLayoutStore((state) => state.activeTab);
+  const workspaceStageStyle = useWorkspaceStageStyle();
+  const surfaceHost =
+    props.containerApi?.id === 'canvas-container' ? 'canvas' : 'dockview';
   const [dockVisible, setDockVisible] = useState(props.api.isVisible);
   useEffect(() => {
     setDockVisible(props.api.isVisible);
@@ -60,8 +64,14 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
       metadata: sdkMatch.icon ? { icon: sdkMatch.icon } : {},
     };
   }, [contributionId, panels, pluginId, sdkPanels]);
+  const stageMatchesHost =
+    surfaceHost === 'canvas'
+      ? workspaceStageStyle === 'canvas'
+      : workspaceStageStyle !== 'canvas';
   const panelVisible =
-    dockVisible && isWorkspaceSurfaceActive(workspaceId, sessionId, activeTab);
+    dockVisible &&
+    stageMatchesHost &&
+    isWorkspaceSurfaceActive(workspaceId, sessionId, activeTab);
 
   if (
     pluginId &&
@@ -71,6 +81,7 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
       <HostBrowserPanel
         pluginId={pluginId}
         panelVisible={panelVisible}
+        surfaceHost={surfaceHost}
         requestedUrl={params.requestedUrl}
         nativeTabId={
           typeof params.nativeTabId === 'string' ? params.nativeTabId : null

@@ -2272,7 +2272,11 @@ export type LocalHistoryDestination = { project_id: string, project_name: string
 
 export type LocalHistoryImportResult = { imported: number, skipped: number, failed: number, conversation_ids: Array<string>, errors: Array<string>, };
 
-export type LocalHistoryImportSelection = { agent_id: AgentId, external_session_id: string, workspace_id: string, };
+export type LocalHistoryImportSelection = { agent_id: AgentId, external_session_id: string, workspace_id: string,
+/**
+ * Shown in import progress. Missing on older clients.
+ */
+title?: string | null, };
 
 export type LocalHistoryScanFolder = { path: string, name: string, project_id: string | null, project_name: string | null, workspace_id: string | null, sessions: Array<LocalHistoryScanSession>, };
 
@@ -2294,7 +2298,7 @@ export type ConversationLiveFeedbackNote = { id: string, text: string, createdAt
 
 export type LocalHistoryImportPhase = "loading" | "importing" | "imported" | "skipped" | "failed";
 
-export type LocalHistoryImportProgress = { current: number, total: number, agent_id: AgentId, external_session_id: string, title: string | null, phase: LocalHistoryImportPhase, imported: number, skipped: number, failed: number, conversation_id?: string | null, workspace_id?: string | null, };
+export type LocalHistoryImportProgress = { current: number, total: number, agent_id: AgentId, external_session_id: string, title: string | null, phase: LocalHistoryImportPhase, imported: number, skipped: number, failed: number, conversation_id?: string | null, workspace_id?: string | null, error?: string | null, };
 
 export type PiPluginSummaryView = { home: string, plugins: Array<PiPluginView>, };
 

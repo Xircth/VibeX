@@ -79,6 +79,101 @@ fn cap_timeline_preview_fields_keeps_small_tool_output() {
     }
 }
 
+fn window_message_row(blocks: Vec<ContentBlock>) -> TimelineRow {
+    TimelineRow {
+        row_id: "655f4f3e-082e-4ffb-bec2-ef716d25719f:assistant".into(),
+        revision: 1,
+        row: ConversationTimelineRow::MessageTurn {
+            turn: MessageTurn {
+                id: "655f4f3e-082e-4ffb-bec2-ef716d25719f:assistant".into(),
+                role: TurnRole::Assistant,
+                blocks,
+                timestamp: Utc::now(),
+                usage: None,
+                duration_ms: None,
+                model: None,
+                completed_at: None,
+                agent_message_id: None,
+            },
+            phase: "settled".into(),
+            fork_point_status: None,
+        },
+    }
+}
+
+#[test]
+fn shrink_timeline_row_for_window_keeps_assistant_text_and_shrinks_tool_preview() {
+    let reply = "无限画布上按住 Ctrl 再滚动，回复仍然在。";
+    let huge = "x".repeat(2_000_000);
+    let mut row = window_message_row(vec![
+        ContentBlock::ToolResult {
+            tool_use_id: Some("tool-1".into()),
+            output_preview: Some(huge),
+            is_error: false,
+            agent_stats: None,
+        },
+        ContentBlock::Text {
+            text: reply.to_string(),
+        },
+    ]);
+    let size = shrink_timeline_row_for_window(&mut row);
+    assert!(size <= 256 * 1024, "shrunk row is {size} bytes");
+    match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. } => {
+            match &turn.blocks[0] {
+                ContentBlock::ToolResult { output_preview, .. } => {
+                    let preview = output_preview.as_deref().unwrap_or("");
+                    assert!(preview.len() < 20_000, "preview is {} bytes", preview.len());
+                    assert!(preview.starts_with("…\n"));
+                }
+                other => panic!("unexpected block: {other:?}"),
+            }
+            match &turn.blocks[1] {
+                ContentBlock::Text { text } => assert_eq!(text, reply),
+                other => panic!("unexpected block: {other:?}"),
+            }
+        }
+        other => panic!("unexpected row: {other:?}"),
+    }
+}
+
+#[test]
+fn shrink_timeline_row_for_window_truncates_thinking_not_text() {
+    let reply = "最终回复保持完整。";
+    let thinking = format!("{}TAIL", "思考".repeat(200_000));
+    let mut row = window_message_row(vec![
+        ContentBlock::Thinking {
+            text: thinking.clone(),
+        },
+        ContentBlock::Text {
+            text: reply.to_string(),
+        },
+    ]);
+    let size = shrink_timeline_row_for_window(&mut row);
+    assert!(size <= 256 * 1024, "shrunk row is {size} bytes");
+    match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. } => {
+            match &turn.blocks[0] {
+                ContentBlock::Thinking { text } => {
+                    assert!(text.len() < thinking.len());
+                    assert!(text.ends_with("TAIL"));
+                    assert!(
+                        text.len() <= 2 * 1024 + 4,
+                        "thinking is {} bytes",
+                        text.len()
+                    );
+                }
+                other => panic!("unexpected block: {other:?}"),
+            }
+            match &turn.blocks[1] {
+                ContentBlock::Text { text } => assert_eq!(text, reply),
+                other => panic!("unexpected block: {other:?}"),
+            }
+        }
+        other => panic!("unexpected row: {other:?}"),
+    }
+}
+
 #[test]
 fn capability_snapshot_defaults_are_degraded() {
     let snapshot = AcpCapabilitySnapshot::default();

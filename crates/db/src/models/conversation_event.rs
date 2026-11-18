@@ -1,8 +1,17 @@
+use std::borrow::Cow;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{Executor, FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
 use ts_rs::TS;
 use uuid::Uuid;
+
+/// Largest JSON document stored for a bulky tool, terminal, or diagnostic event.
+pub const MAX_STORED_EVENT_JSON_BYTES: usize = 64 * 1024;
+/// Longest single string kept inside one of those documents. The tail is kept.
+pub const MAX_STORED_STRING_BYTES: usize = 16 * 1024;
+const STORED_TRUNCATION_MARKER: &str = "…[truncated]\n";
 
 /// The event-schema version the host writes on every new event. Bump only when a
 /// stored event's shape changes in a way older readers can't understand; the
@@ -222,6 +231,72 @@ impl ConversationEventRecord {
         .await
     }
 
+    /// Same keyset page as [`Self::events_since`], without `raw_json`.
+    ///
+    /// Projection and live row-op reads only deserialize `normalized_json`.
+    /// Selecting the raw column pulls its overflow pages even when the caller
+    /// ignores them, which is what stalls the UI on a multi-gigabyte log.
+    pub async fn events_since_for_projection<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        after_sequence: i64,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT id,
+                      conversation_id,
+                      turn_id,
+                      binding_id,
+                      connection_id,
+                      prompt_id,
+                      sequence,
+                      source,
+                      event_kind,
+                      event_version,
+                      normalized_json,
+                      NULL AS raw_json,
+                      idempotency_key,
+                      created_at
+               FROM conversation_events
+               WHERE conversation_id = ? AND sequence > ?
+               ORDER BY sequence ASC
+               LIMIT ?"#,
+        )
+        .bind(conversation_id)
+        .bind(after_sequence)
+        .bind(limit)
+        .fetch_all(executor)
+        .await
+    }
+
+    /// Rewrite one batch of oversized tool, terminal, and diagnostic payloads.
+    ///
+    /// Returns the bytes removed. `0` means nothing in this batch was still over
+    /// the cap. The caller owns pacing; this method commits one short write
+    /// transaction and does not `VACUUM` the file.
+    pub async fn compact_oversized_payloads(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> Result<u64, sqlx::Error> {
+        let limit = limit.max(1);
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+        let result = compact_oversized_payloads_on_connection(&mut conn, limit).await;
+        match result {
+            Ok(reclaimed) => {
+                sqlx::query("COMMIT").execute(&mut *conn).await?;
+                Ok(reclaimed)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
+            }
+        }
+    }
+
     /// Fetch all raw events for a single turn in causal sequence order using
     /// `idx_conversation_events_turn_seq (conversation_id, turn_id, sequence)`.
     ///
@@ -336,6 +411,273 @@ impl ConversationEventRecord {
     }
 }
 
+fn bulky_event_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "tool_call_upsert" | "terminal_updated" | "raw_diagnostic_recorded"
+    )
+}
+
+/// Cap bulky tool, terminal, and diagnostic documents before they are stored.
+///
+/// Other kinds, including user turns that carry images, are left intact. A
+/// small document is returned borrowed. When a bulky document is capped, the
+/// duplicate `raw_json` copy is dropped.
+pub fn cap_stored_event_payloads<'a>(
+    event_kind: &str,
+    normalized_json: &'a str,
+    raw_json: Option<&'a str>,
+) -> (Cow<'a, str>, Option<Cow<'a, str>>) {
+    let raw_over_cap = raw_json.is_some_and(|raw| raw.len() > MAX_STORED_EVENT_JSON_BYTES);
+    if !bulky_event_kind(event_kind) {
+        let raw = if raw_over_cap {
+            None
+        } else {
+            raw_json.map(Cow::Borrowed)
+        };
+        return (Cow::Borrowed(normalized_json), raw);
+    }
+    if normalized_json.len() <= MAX_STORED_STRING_BYTES && !raw_over_cap {
+        return (Cow::Borrowed(normalized_json), raw_json.map(Cow::Borrowed));
+    }
+
+    let (capped, truncated) = cap_json_document(event_kind, normalized_json);
+    let normalized = if truncated {
+        Cow::Owned(capped)
+    } else {
+        Cow::Borrowed(normalized_json)
+    };
+    let raw = if truncated || raw_over_cap {
+        None
+    } else {
+        raw_json.map(Cow::Borrowed)
+    };
+    (normalized, raw)
+}
+
+fn cap_json_document(kind: &str, normalized_json: &str) -> (String, bool) {
+    let Ok(mut value) = serde_json::from_str::<Value>(normalized_json) else {
+        return (fallback_event_json(kind, None, normalized_json), true);
+    };
+    let mut truncated = cap_strings(&mut value, MAX_STORED_STRING_BYTES);
+    if truncated {
+        mark_terminal_truncated(kind, &mut value);
+    }
+    if !truncated && normalized_json.len() <= MAX_STORED_EVENT_JSON_BYTES {
+        return (String::new(), false);
+    }
+
+    let mut text = serde_json::to_string(&value).unwrap_or_default();
+    if text.len() > MAX_STORED_EVENT_JSON_BYTES {
+        truncated = true;
+        for max_string in [1024usize, 256, 64] {
+            cap_strings(&mut value, max_string);
+            mark_terminal_truncated(kind, &mut value);
+            text = serde_json::to_string(&value).unwrap_or_default();
+            if text.len() <= MAX_STORED_EVENT_JSON_BYTES {
+                break;
+            }
+        }
+    }
+    if truncated {
+        mark_terminal_truncated(kind, &mut value);
+        text = serde_json::to_string(&value).unwrap_or_default();
+    }
+    if text.is_empty() || text.len() > MAX_STORED_EVENT_JSON_BYTES {
+        return (
+            fallback_event_json(kind, Some(&value), normalized_json),
+            true,
+        );
+    }
+    (text, truncated)
+}
+
+fn mark_terminal_truncated(kind: &str, value: &mut Value) {
+    if kind != "terminal_updated" {
+        return;
+    }
+    let Some(terminal) = value.get_mut("terminal").and_then(Value::as_object_mut) else {
+        return;
+    };
+    terminal.insert("output_truncated".to_string(), Value::Bool(true));
+}
+
+fn cap_strings(value: &mut Value, max_bytes: usize) -> bool {
+    match value {
+        Value::String(text) => {
+            if text.len() <= max_bytes {
+                return false;
+            }
+            *text = truncate_string_keep_tail(text, max_bytes);
+            true
+        }
+        Value::Array(items) => {
+            let mut truncated = false;
+            for item in items {
+                truncated |= cap_strings(item, max_bytes);
+            }
+            truncated
+        }
+        Value::Object(map) => {
+            let mut truncated = false;
+            for item in map.values_mut() {
+                truncated |= cap_strings(item, max_bytes);
+            }
+            truncated
+        }
+        _ => false,
+    }
+}
+
+fn truncate_string_keep_tail(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let marker = STORED_TRUNCATION_MARKER;
+    if max_bytes <= marker.len() {
+        return marker
+            .char_indices()
+            .take_while(|(index, _)| *index < max_bytes)
+            .map(|(_, ch)| ch)
+            .collect();
+    }
+    let budget = max_bytes - marker.len();
+    let mut start = value.len().saturating_sub(budget);
+    while start < value.len() && !value.is_char_boundary(start) {
+        start += 1;
+    }
+    let mut tail = &value[start.min(value.len())..];
+    let mut out = String::with_capacity(marker.len() + tail.len());
+    out.push_str(marker);
+    out.push_str(tail);
+    while out.len() > max_bytes {
+        let mut next = 1;
+        while next < tail.len() && !tail.is_char_boundary(next) {
+            next += 1;
+        }
+        if next >= tail.len() {
+            out = marker.to_string();
+            break;
+        }
+        tail = &tail[next..];
+        out.clear();
+        out.push_str(marker);
+        out.push_str(tail);
+    }
+    out
+}
+
+fn fallback_event_json(kind: &str, parsed: Option<&Value>, raw: &str) -> String {
+    let preview = truncate_string_keep_tail(raw, 512);
+    let value = match kind {
+        "tool_call_upsert" => {
+            let id = parsed
+                .and_then(|value| value.pointer("/tool_call/tool_call_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("truncated");
+            serde_json::json!({
+                "kind": "tool_call_upsert",
+                "tool_call": {
+                    "tool_call_id": id,
+                    "status": "failed",
+                    "title": preview,
+                }
+            })
+        }
+        "terminal_updated" => {
+            let id = parsed
+                .and_then(|value| value.pointer("/terminal/terminal_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("truncated");
+            serde_json::json!({
+                "kind": "terminal_updated",
+                "terminal": {
+                    "terminal_id": id,
+                    "status": "failed",
+                    "output_summary": preview,
+                    "output_truncated": true,
+                }
+            })
+        }
+        _ => serde_json::json!({
+            "kind": "raw_diagnostic_recorded",
+            "label": "truncated",
+            "payload": preview,
+        }),
+    };
+    value.to_string()
+}
+
+#[derive(FromRow)]
+struct OversizedEventPayload {
+    id: Uuid,
+    event_kind: String,
+    normalized_json: String,
+    raw_json: Option<String>,
+}
+
+async fn compact_oversized_payloads_on_connection(
+    conn: &mut SqliteConnection,
+    limit: i64,
+) -> Result<u64, sqlx::Error> {
+    let cap = MAX_STORED_EVENT_JSON_BYTES as i64;
+    let rows = sqlx::query_as::<_, OversizedEventPayload>(
+        r#"SELECT id, event_kind, normalized_json, raw_json
+           FROM conversation_events
+           WHERE (
+               event_kind IN ('tool_call_upsert', 'terminal_updated', 'raw_diagnostic_recorded')
+               AND (
+                   length(CAST(normalized_json AS BLOB)) > ?
+                   OR IFNULL(length(CAST(raw_json AS BLOB)), 0) > ?
+               )
+           ) OR (
+               event_kind NOT IN ('tool_call_upsert', 'terminal_updated', 'raw_diagnostic_recorded')
+               AND IFNULL(length(CAST(raw_json AS BLOB)), 0) > ?
+           )
+           LIMIT ?"#,
+    )
+    .bind(cap)
+    .bind(cap)
+    .bind(cap)
+    .bind(limit)
+    .fetch_all(&mut *conn)
+    .await?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    let mut rows_updated = 0u64;
+    let mut reclaimed = 0u64;
+    for row in rows {
+        let before = row.normalized_json.len() + row.raw_json.as_ref().map_or(0, String::len);
+        let (normalized, raw) = cap_stored_event_payloads(
+            &row.event_kind,
+            &row.normalized_json,
+            row.raw_json.as_deref(),
+        );
+        let after = normalized.len() + raw.as_ref().map_or(0, |value| value.len());
+        sqlx::query(
+            "UPDATE conversation_events SET normalized_json = ?, raw_json = ? WHERE id = ?",
+        )
+        .bind(normalized.as_ref())
+        .bind(raw.as_deref())
+        .bind(row.id)
+        .execute(&mut *conn)
+        .await?;
+        rows_updated += 1;
+        reclaimed += before.saturating_sub(after) as u64;
+    }
+    if reclaimed == 0 {
+        reclaimed = rows_updated;
+    }
+    tracing::info!(
+        rows = rows_updated,
+        bytes_reclaimed = reclaimed,
+        "compacted oversized conversation event payloads"
+    );
+    Ok(reclaimed)
+}
+
 pub async fn append_conversation_event(
     tx: &mut Transaction<'_, Sqlite>,
     input: AppendConversationEvent<'_>,
@@ -406,6 +748,8 @@ pub async fn insert_conversation_event_with_sequence(
     input: AppendConversationEvent<'_>,
     sequence: i64,
 ) -> Result<ConversationEventRecord, sqlx::Error> {
+    let (normalized_json, raw_json) =
+        cap_stored_event_payloads(input.event_kind, input.normalized_json, input.raw_json);
     let mut turn_id = input.turn_id;
     if let Some(candidate) = turn_id {
         let exists: bool =
@@ -439,8 +783,8 @@ pub async fn insert_conversation_event_with_sequence(
     .bind(input.source)
     .bind(input.event_kind)
     .bind(CURRENT_EVENT_VERSION)
-    .bind(input.normalized_json)
-    .bind(input.raw_json)
+    .bind(normalized_json.as_ref())
+    .bind(raw_json.as_deref())
     .bind(input.idempotency_key)
     .fetch_one(&mut *conn)
     .await
@@ -860,5 +1204,117 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{db_path}{suffix}"));
         }
+    }
+
+    #[test]
+    fn small_assistant_text_is_not_copied_or_capped() {
+        let (normalized, raw) = cap_stored_event_payloads(
+            "assistant_text_delta",
+            r#"{"kind":"assistant_text_delta","text":"hi"}"#,
+            Some(r#"{"method":"session/update"}"#),
+        );
+        assert!(matches!(normalized, std::borrow::Cow::Borrowed(_)));
+        assert!(matches!(raw, Some(std::borrow::Cow::Borrowed(_))));
+    }
+
+    #[tokio::test]
+    async fn oversized_tool_call_is_stored_with_a_visible_truncation_marker() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        let output = "x".repeat(100_000);
+        let normalized = format!(
+            r#"{{"kind":"tool_call_upsert","tool_call":{{"tool_call_id":"call-1","status":"completed","raw_output":"{output}"}}}}"#
+        );
+        let stored = ConversationEventRecord::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "acp",
+                event_kind: "tool_call_upsert",
+                normalized_json: &normalized,
+                raw_json: Some(&normalized),
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append oversized tool call");
+
+        assert!(stored.normalized_json.len() <= MAX_STORED_EVENT_JSON_BYTES);
+        assert!(stored.normalized_json.contains("[truncated]"));
+        assert!(stored.raw_json.is_none());
+        let parsed: serde_json::Value =
+            serde_json::from_str(&stored.normalized_json).expect("capped json parses");
+        assert_eq!(parsed["kind"], "tool_call_upsert");
+        assert_eq!(parsed["tool_call"]["tool_call_id"], "call-1");
+    }
+
+    #[test]
+    fn truncated_terminal_output_is_marked() {
+        let output = "y".repeat(20_000);
+        let normalized = format!(
+            r#"{{"kind":"terminal_updated","terminal":{{"terminal_id":"term-1","status":"finished","output_summary":"{output}","output_truncated":false}}}}"#
+        );
+        let (capped, raw) =
+            cap_stored_event_payloads("terminal_updated", &normalized, Some(r#"{"raw":true}"#));
+        assert!(raw.is_none());
+        let parsed: serde_json::Value =
+            serde_json::from_str(capped.as_ref()).expect("terminal json parses");
+        assert_eq!(parsed["terminal"]["output_truncated"], true);
+        assert!(
+            parsed["terminal"]["output_summary"]
+                .as_str()
+                .unwrap_or("")
+                .contains("[truncated]")
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_oversized_payloads_rewrites_rows_inserted_before_the_cap() {
+        let pool = setup_pool().await;
+        let id = Uuid::new_v4();
+        let conversation_id = Uuid::new_v4();
+        let output = "z".repeat(80_000);
+        let normalized = format!(
+            r#"{{"kind":"tool_call_upsert","tool_call":{{"tool_call_id":"old","status":"completed","raw_output":"{output}"}}}}"#
+        );
+        sqlx::query(
+            "INSERT INTO conversation_events (
+                id, conversation_id, sequence, source, event_kind, normalized_json, raw_json
+             ) VALUES (?, ?, 1, 'acp', 'tool_call_upsert', ?, ?)",
+        )
+        .bind(id)
+        .bind(conversation_id)
+        .bind(&normalized)
+        .bind(&normalized)
+        .execute(&pool)
+        .await
+        .expect("insert historical oversized row");
+
+        let reclaimed = ConversationEventRecord::compact_oversized_payloads(&pool, 25)
+            .await
+            .expect("compact");
+        assert!(reclaimed > 0);
+
+        let stored = sqlx::query_as::<_, ConversationEventRecord>(&format!(
+            "SELECT {EVENT_COLUMNS} FROM conversation_events WHERE id = ?"
+        ))
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .expect("read compacted row");
+        assert!(stored.normalized_json.len() <= MAX_STORED_EVENT_JSON_BYTES);
+        assert!(stored.normalized_json.contains("[truncated]"));
+        assert!(stored.raw_json.is_none());
+        assert_eq!(
+            ConversationEventRecord::compact_oversized_payloads(&pool, 25)
+                .await
+                .expect("second compact"),
+            0
+        );
     }
 }

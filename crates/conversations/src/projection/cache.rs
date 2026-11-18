@@ -683,6 +683,7 @@ pub struct CachedRowProjector {
     has_unpersisted: bool,
     last_used: Instant,
     generation: u64,
+    active_pins: Vec<std::sync::Weak<()>>,
 }
 
 impl CachedRowProjector {
@@ -696,11 +697,24 @@ impl CachedRowProjector {
             has_unpersisted: false,
             last_used: Instant::now(),
             generation,
+            active_pins: Vec::new(),
         }
     }
 
     pub fn touch(&mut self) {
         self.last_used = Instant::now();
+    }
+
+    pub fn pin(&mut self) -> Arc<()> {
+        self.active_pins.retain(|pin| pin.strong_count() > 0);
+        let guard = Arc::new(());
+        self.active_pins.push(Arc::downgrade(&guard));
+        self.touch();
+        guard
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        self.active_pins.iter().any(|pin| pin.strong_count() > 0)
     }
 
     pub fn has_unpersisted(&self) -> bool {
@@ -846,7 +860,7 @@ pub fn evict_least_recently_used_projectors(
     while cache.len() > MAX_CACHED_ROW_PROJECTORS {
         let Some(oldest) = cache
             .iter()
-            .filter(|(id, entry)| **id != keep && !entry.has_unpersisted)
+            .filter(|(id, entry)| **id != keep && !entry.has_unpersisted && !entry.is_pinned())
             .min_by_key(|(_, entry)| entry.last_used)
             .map(|(id, _)| *id)
         else {
@@ -857,7 +871,7 @@ pub fn evict_least_recently_used_projectors(
     while cache.len() > HARD_MAX_CACHED_ROW_PROJECTORS {
         let Some(oldest) = cache
             .iter()
-            .filter(|(id, _)| **id != keep)
+            .filter(|(id, entry)| **id != keep && !entry.is_pinned())
             .min_by_key(|(_, entry)| entry.last_used)
             .map(|(id, _)| *id)
         else {

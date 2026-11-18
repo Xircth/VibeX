@@ -310,11 +310,12 @@ const AgentTimelineConversation = forwardRef<
   const {
     containerRef,
     virtualListRef,
+    virtualWindowRef,
     scrollMargin,
     rowVirtualizer,
     virtualEntries,
     virtualRows,
-    totalSize,
+    listHeight,
     visibleTimelineStartIndex,
     visibleTimelineItems,
     hasEarlierTimeline,
@@ -1174,9 +1175,10 @@ const AgentTimelineConversation = forwardRef<
                       <div
                         ref={virtualListRef}
                         className="relative w-full"
-                        style={{ height: `${totalSize}px` }}
+                        style={{ height: `${listHeight}px` }}
                       >
                         <div
+                          ref={virtualWindowRef}
                           className="absolute top-0 left-0 w-full"
                           style={{
                             transform: getVirtualWindowTranslateY(
@@ -1323,6 +1325,7 @@ const AgentTimelineConversation = forwardRef<
                                   suppressStatusRowPadding
                                 }
                                 hideAssistantStats={hideAssistantStats}
+                                hideThinking={hideThinking}
                               />
                             );
                           })}

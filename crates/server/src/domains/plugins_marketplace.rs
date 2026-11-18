@@ -597,7 +597,11 @@ impl ServerApplicationDomains {
         Ok(Value::Null)
     }
 
-    pub(super) async fn plugin_host_call(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_host_call(
+        &self,
+        principal: &Principal,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct PluginHostCallArgs {
@@ -616,17 +620,35 @@ impl ServerApplicationDomains {
                 "pluginId, capability, and operation are required",
             ));
         }
+        if !matches!(principal, Principal::LocalDesktop)
+            && !is_remote_safe_plugin_host_call(capability, operation)
+        {
+            return Err(ApplicationError::forbidden(format!(
+                "capability `{capability}.{operation}` via plugin_host_call is restricted to the local desktop host"
+            )));
+        }
+        let installed = self
+            .plugin_control_plane
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!("plugin `{plugin_id}` is not installed"))
+            })?;
         let is_self_diagnostic =
             capability == "plugin.self" && matches!(operation, "quarantine" | "status" | "doctor");
         if !is_self_diagnostic {
-            if let Ok(Some(reason)) = self.plugin_control_plane.quarantine_reason(plugin_id).await {
+            if let Some(reason) = self
+                .plugin_control_plane
+                .quarantine_reason(plugin_id)
+                .await
+                .map_err(|error| ApplicationError::internal(error.to_string()))?
+            {
                 return Err(ApplicationError::forbidden(format!(
                     "plugin_quarantined: {reason}"
                 )));
             }
-            if let Ok(Some(installed)) = self.plugin_control_plane.plugin(plugin_id).await
-                && installed.activation != plugins::PluginActivation::Enabled
-            {
+            if installed.activation != plugins::PluginActivation::Enabled {
                 return Err(ApplicationError::forbidden(format!(
                     "plugin_disabled: plugin `{plugin_id}` is not enabled"
                 )));
@@ -1078,4 +1100,14 @@ pub(super) fn remove_managed_plugin_snapshot(
 ) -> Result<(), ApplicationError> {
     let source = managed_plugin_snapshot_path(runtime_root, source)?;
     std::fs::remove_dir_all(source).map_err(internal_error)
+}
+
+fn is_remote_safe_plugin_host_call(capability: &str, operation: &str) -> bool {
+    match capability {
+        "storage" | "storage.kv" | "browser" | "artifact.preview" | "artifact"
+        | "conversation" | "collaboration" | "workspace" | "blob" | "log" | "app" => true,
+        "provider.presets" => operation == "list",
+        "plugin.self" => matches!(operation, "status" | "doctor"),
+        _ => false,
+    }
 }

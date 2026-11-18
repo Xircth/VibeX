@@ -1612,8 +1612,8 @@ impl NativeTabs for TauriNativeTabs {
         let tab_id = tab_id.to_owned();
         let url = url.to_owned();
         let mut bounds = bounds.clone();
-        if bounds.width >= 32.0 && bounds.height >= 32.0 {
-            bounds.visible = true;
+        if bounds.width < 2.0 || bounds.height < 2.0 {
+            bounds.visible = false;
         }
         let profile_id = profile_id.to_owned();
         let app = self.app.clone();
@@ -2419,6 +2419,67 @@ impl NativeTabs for TauriNativeTabs {
                 {
                     let mut store = slot.borrow_mut();
                     store.profile_proxy.remove(&profile_id);
+                }
+                Ok(())
+            })
+        })
+    }
+
+    async fn reset_all(&self) -> Result<(), BrowserHostError> {
+        if let Ok(mut map) = gestures().lock() {
+            map.clear();
+        }
+        if let Ok(mut map) = pending_popups().lock() {
+            map.clear();
+        }
+        self.on_main(move || {
+            SURFACES.with(|slot| {
+                let mut store = slot.borrow_mut();
+                #[cfg(not(target_os = "linux"))]
+                {
+                    #[cfg(target_os = "windows")]
+                    let mut tokens = event_tokens()
+                        .lock()
+                        .ok()
+                        .map(|mut map| std::mem::take(&mut *map))
+                        .unwrap_or_default();
+                    for (tab_id, webview) in store.views.drain() {
+                        #[cfg(target_os = "windows")]
+                        {
+                            use tauri_runtime_wry::wry::WebViewExtWindows;
+                            if let Some(new_win_token) = tokens.remove(&tab_id) {
+                                let core = webview.webview();
+                                unsafe {
+                                    let _ = core.remove_NewWindowRequested(new_win_token);
+                                }
+                            }
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        let _ = &tab_id;
+                        let _ = webview.set_visible(false);
+                        let _ = webview.load_url("about:blank");
+                    }
+                    #[cfg(target_os = "windows")]
+                    {
+                        store.tab_profiles.clear();
+                        store.contexts.clear();
+                    }
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    for (_, window) in store.windows.drain() {
+                        let _ = window.close();
+                    }
+                }
+                store.profile_proxy.clear();
+                store.devices.clear();
+                store.last_bounds.clear();
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                {
+                    let _ = std::fs::remove_dir_all(ephemeral_profile_dir());
+                    let _ = std::fs::remove_dir_all(
+                        utils::assets::host_data_dir().join("browser-profiles"),
+                    );
                 }
                 Ok(())
             })

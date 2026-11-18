@@ -37,6 +37,12 @@ import {
   formatScanBytes,
   localHistorySessionKey,
 } from '@/features/history-import/importLocalSessions';
+import {
+  armQuietHistoryImport,
+  clearQuietHistoryImport,
+  noteQuietHistoryImportFinished,
+  readQuietHistoryImport,
+} from '@/features/history-import/quietHistoryImport';
 import { backendListen } from '@/lib/backendTransport';
 import {
   filterOnboardingHistory,
@@ -112,6 +118,9 @@ export function OnboardingHistoryImport({
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<LocalHistoryImportJobSnapshot | null>(null);
   const [importRequested, setImportRequested] = useState(false);
+  const [importPhase, setImportPhase] = useState<
+    null | 'preparing' | 'importing'
+  >(null);
   const mounted = useRef(false);
   const generation = useRef(0);
   const importInFlight = useRef(false);
@@ -119,7 +128,22 @@ export function OnboardingHistoryImport({
   const discoveryRequest = useRef<Promise<string[]> | null>(null);
   const activeSourceIds = useRef<AgentId[]>([]);
   const preparedProjectIds = useRef<string[]>([]);
-  const running = busy || job?.status === 'running';
+  const continued = useRef(false);
+  const leaveEarly = useRef(false);
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
+  const running =
+    busy || importPhase !== null || job?.status === 'running';
+  const continueOnboarding = useCallback(async () => {
+    if (continued.current) return;
+    continued.current = true;
+    try {
+      await onFinishRef.current(preparedProjectIds.current);
+    } catch (cause) {
+      continued.current = false;
+      throw cause;
+    }
+  }, []);
   const visibleFolders = useMemo(
     () => filterOnboardingHistory(folders, timeRangeDays, rangeNow),
     [folders, timeRangeDays, rangeNow]
@@ -271,48 +295,13 @@ export function OnboardingHistoryImport({
     )
       return;
     setImportRequested(false);
-    setBusy(true);
-    void (async () => {
-      const scans = await Promise.allSettled(
-        activeSourceIds.current.map(async (id) => ({
-          id,
-          page: await agentsApi.scanLocalHistory(id),
-        }))
-      );
-      if (!mounted.current) return;
-      const fullyScanned = scans.every(
-        (result) => result.status === 'fulfilled'
-      );
-      if (fullyScanned) {
-        const remaining = scans.flatMap((result) =>
-          result.status === 'fulfilled'
-            ? result.value.page.folders.filter(
-                (folder) => folderImportableKeys(folder).length > 0
-              )
-            : []
-        );
-        setFolders(groupOnboardingHistory(remaining));
-        const keys = new Set(remaining.flatMap(folderImportableKeys));
-        setSelectedSessions(
-          (current) => new Set([...current].filter((key) => keys.has(key)))
-        );
-      }
-      try {
-        if (
-          job.status === 'completed' &&
-          job.result &&
-          job.result.failed === 0 &&
-          job.result.errors.length === 0
-        )
-          await onFinish(preparedProjectIds.current);
-      } catch (cause) {
-        if (mounted.current) setError(errorSummary(cause));
-      } finally {
-        importInFlight.current = false;
-        if (mounted.current) setBusy(false);
-      }
-    })();
-  }, [importRequested, job, onFinish]);
+    setImportPhase(null);
+    if (readQuietHistoryImport()) noteQuietHistoryImportFinished();
+    void continueOnboarding().catch((cause) => {
+      importInFlight.current = false;
+      if (mounted.current) setError(errorSummary(cause));
+    });
+  }, [continueOnboarding, importRequested, job]);
 
   const toggleSessions = (keys: string[], checked: boolean) =>
     setSelectedSessions((current) => {
@@ -337,6 +326,8 @@ export function OnboardingHistoryImport({
     importInFlight.current = true;
     setBusy(true);
     setError(null);
+    setImportPhase('preparing');
+    let started = false;
     try {
       const result = await prepareOnboardingHistoryImport(
         visibleFolders,
@@ -344,19 +335,42 @@ export function OnboardingHistoryImport({
         {}
       );
       preparedProjectIds.current = result.projectIds;
+      if (!result.selections.length) {
+        setImportPhase(null);
+        clearQuietHistoryImport();
+        await continueOnboarding();
+        return;
+      }
       setJob(null);
       const before = jobEventEpoch.current;
       const snapshot = await agentsApi.startLocalHistoryImport(
         result.selections
       );
+      started = true;
       if (jobEventEpoch.current === before) setJob(snapshot);
       setImportRequested(true);
-      if (!result.selections.length) await onFinish(result.projectIds);
+      setImportPhase('importing');
+      if (leaveEarly.current) await continueOnboarding();
     } catch (cause) {
       setError(errorSummary(cause));
+      setImportPhase(null);
+      leaveEarly.current = false;
       importInFlight.current = false;
+      // A quiet arm made before the host job exists would otherwise spin
+      // forever in the main window.
+      if (!started) clearQuietHistoryImport();
     } finally {
       if (mounted.current) setBusy(false);
+    }
+  };
+
+  const continueInBackground = () => {
+    armQuietHistoryImport();
+    leaveEarly.current = true;
+    if (job?.status === 'running' || importRequested) {
+      void continueOnboarding().catch((cause) => {
+        if (mounted.current) setError(errorSummary(cause));
+      });
     }
   };
 
@@ -393,7 +407,7 @@ export function OnboardingHistoryImport({
           : 'importDescription';
 
   return (
-    <main className="onboarding-history-step" inert={running || undefined}>
+    <main className="onboarding-history-step">
       <header className="onboarding-page-heading">
         <h1 id={active ? 'onboarding-title' : undefined} tabIndex={-1}>
           {t(`onboarding.${heading}`)}
@@ -752,30 +766,85 @@ export function OnboardingHistoryImport({
             <p className="onboarding-history-note">
               {t('onboarding.importContinuity')}
             </p>
+            {importPhase === 'preparing' ? (
+              <div
+                className="onboarding-import-progress"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="onboarding-import-progress-head">
+                  <span>{t('onboarding.importPreparing')}</span>
+                  <Loader2
+                    aria-hidden="true"
+                    className="size-4 motion-safe:animate-spin"
+                  />
+                </div>
+                <div className="onboarding-import-track" aria-hidden="true">
+                  <span className="is-indeterminate" />
+                </div>
+              </div>
+            ) : null}
             {job &&
-            (importRequested || job.status === 'running' || job.result) ? (
-              <div className="onboarding-import-progress" aria-live="polite">
+            (importRequested ||
+              job.status === 'running' ||
+              job.result ||
+              importPhase === 'importing') ? (
+              <div
+                className="onboarding-import-progress"
+                role="status"
+                aria-live="polite"
+              >
                 <div className="onboarding-import-progress-head">
                   <span className="tabular-nums">
                     {job.status === 'running'
-                      ? t('onboarding.importProgress', {
-                          current: job.progress?.current ?? 0,
-                          total: job.progress?.total ?? 0,
-                        })
+                      ? job.progress && job.progress.total > 0
+                        ? t('onboarding.importProgress', {
+                            current: job.progress.current,
+                            total: job.progress.total,
+                          })
+                        : t('onboarding.importWorking')
                       : job.result
                         ? t('onboarding.importResult', job.result)
-                        : null}
+                        : t('onboarding.importWorking')}
                   </span>
-                  {job.status === 'running' ? (
+                  {job.status === 'running' || importPhase === 'importing' ? (
                     <Loader2
                       aria-hidden="true"
                       className="size-4 motion-safe:animate-spin"
                     />
                   ) : null}
                 </div>
-                {job.status === 'running' && job.progress?.title ? (
-                  <p className="onboarding-import-title">
-                    {job.progress.title}
+                <div
+                  className="onboarding-import-track"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={job.progress?.total || 1}
+                  aria-valuenow={job.progress?.current ?? 0}
+                >
+                  <span
+                    className={
+                      job.progress && job.progress.total > 0
+                        ? undefined
+                        : 'is-indeterminate'
+                    }
+                    style={
+                      job.progress && job.progress.total > 0
+                        ? {
+                            width: `${Math.min(
+                              100,
+                              (job.progress.current / job.progress.total) * 100
+                            )}%`,
+                          }
+                        : undefined
+                    }
+                  />
+                </div>
+                {job.progress ? (
+                  <p className="onboarding-import-title tabular-nums">
+                    {t('onboarding.importResult', job.progress)}
+                    {job.progress.title
+                      ? ` · ${job.progress.title}`
+                      : ''}
                   </p>
                 ) : null}
                 {job.result?.errors.map((message, index) => (
@@ -786,6 +855,19 @@ export function OnboardingHistoryImport({
                     {message}
                   </p>
                 ))}
+                {job.status === 'running'
+                  ? job.log
+                      .filter((entry) => entry.error)
+                      .slice(-3)
+                      .map((entry) => (
+                        <p
+                          className="onboarding-scan-error-entry"
+                          key={`${entry.external_session_id}-${entry.error}`}
+                        >
+                          {entry.error}
+                        </p>
+                      ))
+                  : null}
               </div>
             ) : null}
           </>
@@ -832,6 +914,15 @@ export function OnboardingHistoryImport({
           ) : null}
           {phase === 'review' ? (
             <>
+              {importPhase || job?.status === 'running' ? (
+                <button
+                  type="button"
+                  className="onboarding-skip-button"
+                  onClick={continueInBackground}
+                >
+                  {t('onboarding.importInBackground')}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="onboarding-skip-button"

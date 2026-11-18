@@ -213,6 +213,7 @@ import {
   resolveMessageConversationId,
   sidebarMemberToSpaceMember,
   sortMembersLeadFirst,
+  strayMentionError,
   strayMentions,
   surfaceErrorCopy,
   toggleMemberDeleteSelection,
@@ -5197,13 +5198,13 @@ export function useCollaborationSpaceRuntime(
     const content = buildCollaborationSendContent(rawText, sendingAttachments);
     const textPart = rawText.replace(/\u00a0/g, ' ').trim();
     if (!selected || !content || sending || isBotSessionLoading) return;
-    if (
-      !directThreadRef.current &&
-      textPart &&
-      strayMentions(textPart, allWorkspaceMembers).length > 0
-    ) {
+    const unmatchedMentions =
+      !directThreadRef.current && textPart
+        ? strayMentions(textPart, allWorkspaceMembers)
+        : [];
+    if (unmatchedMentions.length > 0) {
       restoreDraft(rawText);
-      setError(COPY.nicknameMissing);
+      setError(strayMentionError(unmatchedMentions));
       return;
     }
     const sendingSelectedId = selectedIdRef.current;

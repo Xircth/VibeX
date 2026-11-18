@@ -286,24 +286,43 @@ fn highlight_short_excerpt(text: &str, query: &str) -> String {
     if trimmed_query.is_empty() {
         return text.chars().take(80).collect();
     }
-    let lower_text = text.to_lowercase();
+    let chars: Vec<char> = text.chars().collect();
+    let mut lower_text = String::with_capacity(text.len());
+    let mut byte_to_orig_char_idx = Vec::with_capacity(text.len());
+    for (orig_idx, &ch) in chars.iter().enumerate() {
+        for lc in ch.to_lowercase() {
+            let new_len = lower_text.len() + lc.len_utf8();
+            byte_to_orig_char_idx.resize(new_len, orig_idx);
+            lower_text.push(lc);
+        }
+    }
     let lower_query = trimmed_query.to_lowercase();
-    if let Some(byte_idx) = lower_text.find(&lower_query) {
-        let prefix_chars = text[..byte_idx].chars().count();
-        let match_chars = trimmed_query.chars().count();
-        let chars: Vec<char> = text.chars().collect();
+    if let Some(byte_idx) = lower_text.find(&lower_query)
+        && let Some(&prefix_chars) = byte_to_orig_char_idx.get(byte_idx)
+    {
+        let match_end_byte = byte_idx + lower_query.len();
+        let match_end_chars = if match_end_byte >= byte_to_orig_char_idx.len() {
+            chars.len()
+        } else if match_end_byte > byte_idx
+            && byte_to_orig_char_idx[match_end_byte] == byte_to_orig_char_idx[match_end_byte - 1]
+        {
+            (byte_to_orig_char_idx[match_end_byte] + 1).min(chars.len())
+        } else {
+            byte_to_orig_char_idx[match_end_byte].min(chars.len())
+        };
+        let match_end_chars = match_end_chars.max(prefix_chars);
         let start = prefix_chars.saturating_sub(20);
-        let end = (prefix_chars + match_chars + 32).min(chars.len());
+        let end = (match_end_chars + 32).min(chars.len());
         let mut out = String::new();
         if start > 0 {
             out.push('…');
         }
         out.extend(&chars[start..prefix_chars]);
         out.push('[');
-        out.extend(&chars[prefix_chars..(prefix_chars + match_chars).min(chars.len())]);
+        out.extend(&chars[prefix_chars..match_end_chars]);
         out.push(']');
-        if prefix_chars + match_chars < end {
-            out.extend(&chars[(prefix_chars + match_chars)..end]);
+        if match_end_chars < end {
+            out.extend(&chars[match_end_chars..end]);
         }
         if end < chars.len() {
             out.push('…');
@@ -756,5 +775,14 @@ mod integration_tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn highlight_short_excerpt_handles_case_expansion_without_panic() {
+        let excerpt = highlight_short_excerpt("İstanbul Ⱥbc ẞ K xy", "xy");
+        assert!(excerpt.contains("[xy]"));
+
+        let turkish = highlight_short_excerpt("İstanbul test", "i");
+        assert!(turkish.contains("[İ]"));
     }
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use agents::conversation::{
     ContentBlock, ConversationRowOp, ConversationRowsSincePage, ConversationTimeline,
     ConversationTimelinePage, ConversationTimelineRow, MessageTurn, TimelineRow, TurnRole,
-    cap_timeline_row_preview_fields,
+    cap_timeline_row_preview_fields, shrink_timeline_row_for_window,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use db::models::{
@@ -63,6 +63,7 @@ pub fn decode_timeline_cursor(raw: &str) -> Option<TimelineKeysetCursor> {
 /// keeping at least 1 row when `items` is non-empty.
 ///
 /// Returns `(retained_items, dropped_oldest_count)`.
+#[cfg(test)]
 pub(super) fn trim_newest_within_byte_budget<T>(
     mut items: Vec<(i64, usize, T)>,
     max_bytes: usize,
@@ -93,6 +94,104 @@ pub(super) fn trim_newest_within_byte_budget<T>(
         .map(|(sort, _, val)| (sort, val))
         .collect();
     (retained, dropped)
+}
+
+/// Pick an oldest-first open window. Each row is shrunk and measured after that
+/// shrink, so a stored multi-megabyte tool preview does not count at its raw
+/// `row_json` length. Side rows that do not fit are skipped. A message that
+/// does not fit ends the walk, unless no message has been kept yet — then that
+/// newest message stays so the page still makes progress. When the newest kept
+/// message is an assistant, the closest older user row of the same turn is kept
+/// with it.
+///
+/// The returned count is the number of rows older than the oldest kept row.
+/// Callers use a non-zero count as "an older page exists".
+fn select_open_timeline_window(items: Vec<(i64, TimelineRow)>) -> (Vec<(i64, TimelineRow)>, usize) {
+    if items.is_empty() {
+        return (Vec::new(), 0);
+    }
+    let sized: Vec<(i64, usize, TimelineRow)> = items
+        .into_iter()
+        .map(|(sort, mut row)| {
+            let bytes = shrink_timeline_row_for_window(&mut row);
+            (sort, bytes, row)
+        })
+        .collect();
+    let mut keep = vec![false; sized.len()];
+    let mut cumulative = 0usize;
+    let mut kept_message = false;
+    for idx in (0..sized.len()).rev() {
+        let bytes = sized[idx].1;
+        let is_message = row_is_message(&sized[idx].2);
+        let next = cumulative.saturating_add(bytes);
+        if next <= MAX_WINDOW_BYTES || (is_message && !kept_message) {
+            cumulative = next;
+            keep[idx] = true;
+            if is_message {
+                kept_message = true;
+            }
+            continue;
+        }
+        if is_message {
+            break;
+        }
+    }
+    if !keep.iter().any(|kept| *kept) {
+        keep[sized.len() - 1] = true;
+    }
+    keep_paired_user(&sized, &mut keep);
+    let dropped_older = keep.iter().position(|kept| *kept).unwrap_or(0);
+    let retained = sized
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, (sort, _, row))| keep[idx].then_some((sort, row)))
+        .collect();
+    (retained, dropped_older)
+}
+
+fn row_is_message(row: &TimelineRow) -> bool {
+    matches!(row.row, ConversationTimelineRow::MessageTurn { .. })
+}
+
+fn message_role(row: &TimelineRow) -> Option<TurnRole> {
+    match &row.row {
+        ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn.role),
+        _ => None,
+    }
+}
+
+fn turn_id_prefix(row_id: &str) -> Option<&str> {
+    let (prefix, rest) = row_id.split_once(':')?;
+    if prefix.is_empty() || rest.is_empty() {
+        return None;
+    }
+    Uuid::parse_str(prefix).ok()?;
+    Some(prefix)
+}
+
+fn keep_paired_user(sized: &[(i64, usize, TimelineRow)], keep: &mut [bool]) {
+    let Some(assistant_idx) = (0..sized.len())
+        .rev()
+        .find(|idx| keep[*idx] && message_role(&sized[*idx].2) == Some(TurnRole::Assistant))
+    else {
+        return;
+    };
+    let newest_message = (0..sized.len())
+        .rev()
+        .find(|idx| keep[*idx] && row_is_message(&sized[*idx].2));
+    if newest_message != Some(assistant_idx) {
+        return;
+    }
+    let Some(prefix) = turn_id_prefix(&sized[assistant_idx].2.row_id) else {
+        return;
+    };
+    let Some(user_idx) = (0..assistant_idx).rev().find(|idx| {
+        message_role(&sized[*idx].2) == Some(TurnRole::User)
+            && turn_id_prefix(&sized[*idx].2.row_id) == Some(prefix)
+    }) else {
+        return;
+    };
+    keep[user_idx] = true;
 }
 
 impl ProjectionFold {
@@ -148,16 +247,8 @@ impl ProjectionFold {
         let total = all.len();
         let count_truncated = limit > 0 && total > limit;
         let start = if count_truncated { total - limit } else { 0 };
-        let tail: Vec<(i64, usize, TimelineRow)> = all
-            .into_iter()
-            .skip(start)
-            .map(|(sort, mut row)| {
-                cap_timeline_row_preview_fields(&mut row);
-                let approx_bytes = serde_json::to_string(&row).map(|s| s.len()).unwrap_or(0);
-                (sort, approx_bytes, row)
-            })
-            .collect();
-        let (retained, dropped_for_bytes) = trim_newest_within_byte_budget(tail, MAX_WINDOW_BYTES);
+        let tail: Vec<(i64, TimelineRow)> = all.into_iter().skip(start).collect();
+        let (retained, dropped_for_bytes) = select_open_timeline_window(tail);
         let truncated = count_truncated || dropped_for_bytes > 0;
         let older_cursor = if truncated {
             retained
@@ -202,15 +293,12 @@ impl ConversationProjector {
             return Ok(None);
         }
         let decoded = decode_timeline_row_records(&records)?;
-        let sized: Vec<(i64, usize, TimelineRow)> = records
-            .iter()
-            .zip(decoded.into_iter())
-            .map(|(rec, mut row)| {
-                cap_timeline_row_preview_fields(&mut row);
-                (rec.sort_index, rec.row_json.len(), row)
-            })
+        let opened: Vec<(i64, TimelineRow)> = records
+            .into_iter()
+            .zip(decoded)
+            .map(|(rec, row)| (rec.sort_index, row))
             .collect();
-        let (retained, dropped_for_bytes) = trim_newest_within_byte_budget(sized, MAX_WINDOW_BYTES);
+        let (retained, dropped_for_bytes) = select_open_timeline_window(opened);
         let truncated = snapshot.total_rows > retained.len() as i64 || dropped_for_bytes > 0;
         if !truncated
             && !retained
@@ -300,17 +388,8 @@ impl ConversationProjector {
                 .collect();
             let total_older = older_all.len();
             let skip = total_older.saturating_sub(bounded_limit);
-            let candidates: Vec<(i64, usize, TimelineRow)> = older_all
-                .into_iter()
-                .skip(skip)
-                .map(|(sort, mut row)| {
-                    cap_timeline_row_preview_fields(&mut row);
-                    let approx = serde_json::to_string(&row).map(|s| s.len()).unwrap_or(0);
-                    (sort, approx, row)
-                })
-                .collect();
-            let (retained, dropped_for_bytes) =
-                trim_newest_within_byte_budget(candidates, MAX_WINDOW_BYTES);
+            let candidates: Vec<(i64, TimelineRow)> = older_all.into_iter().skip(skip).collect();
+            let (retained, dropped_for_bytes) = select_open_timeline_window(candidates);
             let has_more_older = skip > 0 || dropped_for_bytes > 0;
             let next_cursor = if has_more_older {
                 retained
@@ -405,15 +484,12 @@ impl ConversationProjector {
             }));
         }
         let decoded = decode_timeline_row_records(&records)?;
-        let sized: Vec<(i64, usize, TimelineRow)> = records
-            .iter()
-            .zip(decoded.into_iter())
-            .map(|(rec, mut row)| {
-                cap_timeline_row_preview_fields(&mut row);
-                (rec.sort_index, rec.row_json.len(), row)
-            })
+        let opened: Vec<(i64, TimelineRow)> = records
+            .into_iter()
+            .zip(decoded)
+            .map(|(rec, row)| (rec.sort_index, row))
             .collect();
-        let (retained, dropped_for_bytes) = trim_newest_within_byte_budget(sized, MAX_WINDOW_BYTES);
+        let (retained, dropped_for_bytes) = select_open_timeline_window(opened);
         let has_more_older = if dropped_for_bytes > 0 {
             true
         } else if let Some((oldest_sort, oldest_row)) = retained.first() {
@@ -946,5 +1022,218 @@ mod tests {
         let (retained_huge, dropped_huge) = trim_newest_within_byte_budget(huge, MAX_WINDOW_BYTES);
         assert_eq!(dropped_huge, 1);
         assert_eq!(retained_huge, vec![(2, "huge-newest")]);
+    }
+
+    fn message_row(
+        sort: i64,
+        row_id: &str,
+        role: TurnRole,
+        blocks: Vec<ContentBlock>,
+    ) -> (i64, TimelineRow) {
+        (
+            sort,
+            TimelineRow {
+                row_id: row_id.into(),
+                revision: 1,
+                row: ConversationTimelineRow::MessageTurn {
+                    turn: MessageTurn {
+                        id: row_id.into(),
+                        role,
+                        blocks,
+                        timestamp: chrono::Utc::now(),
+                        usage: None,
+                        duration_ms: None,
+                        model: None,
+                        completed_at: None,
+                        agent_message_id: None,
+                    },
+                    phase: "settled".into(),
+                    fork_point_status: None,
+                },
+            },
+        )
+    }
+
+    fn notice_row(sort: i64, row_id: &str, message: &str) -> (i64, TimelineRow) {
+        (
+            sort,
+            TimelineRow {
+                row_id: row_id.into(),
+                revision: 1,
+                row: ConversationTimelineRow::SessionNotice {
+                    notice: ConversationSessionNotice {
+                        title: "notice".into(),
+                        message: Some(message.into()),
+                        severity: "info".into(),
+                        ..Default::default()
+                    },
+                },
+            },
+        )
+    }
+
+    fn file_change_row(sort: i64) -> (i64, TimelineRow) {
+        (
+            sort,
+            TimelineRow {
+                row_id: "fc:4309".into(),
+                revision: 1,
+                row: ConversationTimelineRow::FileChangeSummary {
+                    summary: agents::conversation::ConversationFileChangeSummary {
+                        source: "checkpoint".into(),
+                        files: Vec::new(),
+                        summary: Some("20 files".into()),
+                    },
+                    turn_id: None,
+                },
+            },
+        )
+    }
+
+    fn row_text(row: &TimelineRow) -> String {
+        let ConversationTimelineRow::MessageTurn { turn, .. } = &row.row else {
+            return String::new();
+        };
+        turn.blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn open_window_keeps_user_and_assistant_text_when_tool_preview_exceeds_budget() {
+        let turn = "655f4f3e-082e-4ffb-bec2-ef716d25719f";
+        let reply = "无限画布上按住 Ctrl 再滚动，回复仍然在。";
+        let rows = vec![
+            notice_row(2, "notice:old", "old"),
+            message_row(
+                1_000_001,
+                &format!("{turn}:user"),
+                TurnRole::User,
+                vec![ContentBlock::Text {
+                    text: "请你修复以下BUG".into(),
+                }],
+            ),
+            message_row(
+                1_000_002,
+                &format!("{turn}:assistant"),
+                TurnRole::Assistant,
+                vec![
+                    ContentBlock::ToolResult {
+                        tool_use_id: Some("tool-1".into()),
+                        output_preview: Some("x".repeat(2_000_000)),
+                        is_error: false,
+                        agent_stats: None,
+                    },
+                    ContentBlock::Text { text: reply.into() },
+                ],
+            ),
+            file_change_row(1_000_003),
+            notice_row(
+                1_000_004,
+                "notice:agent-connection-recovering",
+                "recovering",
+            ),
+        ];
+        let (retained, dropped) = select_open_timeline_window(rows);
+        assert_eq!(dropped, 0);
+        let ids: Vec<_> = retained
+            .iter()
+            .map(|(_, row)| row.row_id.as_str())
+            .collect();
+        assert!(ids.contains(&format!("{turn}:user").as_str()));
+        assert!(ids.contains(&format!("{turn}:assistant").as_str()));
+        assert!(ids.contains(&"fc:4309"));
+        let assistant = retained
+            .iter()
+            .find(|(_, row)| row.row_id.ends_with(":assistant"))
+            .expect("assistant row");
+        assert_eq!(row_text(&assistant.1), reply);
+        let ConversationTimelineRow::MessageTurn { turn, .. } = &assistant.1.row else {
+            panic!("assistant missing");
+        };
+        match &turn.blocks[0] {
+            ContentBlock::ToolResult { output_preview, .. } => {
+                let preview = output_preview.as_deref().unwrap_or("");
+                assert!(preview.len() < 20_000, "preview is {} bytes", preview.len());
+            }
+            other => panic!("unexpected block: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn open_window_keeps_the_user_paired_with_an_oversized_assistant() {
+        let turn = "655f4f3e-082e-4ffb-bec2-ef716d25719f";
+        let reply = "回".repeat(1_500_000);
+        let rows = vec![
+            notice_row(2, "notice:old", "old"),
+            message_row(
+                1_000_001,
+                &format!("{turn}:user"),
+                TurnRole::User,
+                vec![ContentBlock::Text {
+                    text: "请你修复以下BUG".into(),
+                }],
+            ),
+            message_row(
+                1_000_002,
+                &format!("{turn}:assistant"),
+                TurnRole::Assistant,
+                vec![ContentBlock::Text {
+                    text: reply.clone(),
+                }],
+            ),
+            file_change_row(1_000_003),
+            notice_row(1_000_004, "notice:tail", "tail"),
+        ];
+        let (retained, dropped) = select_open_timeline_window(rows);
+        assert!(dropped > 0);
+        let ids: Vec<_> = retained
+            .iter()
+            .map(|(_, row)| row.row_id.as_str())
+            .collect();
+        assert!(ids.contains(&format!("{turn}:user").as_str()));
+        assert!(ids.contains(&format!("{turn}:assistant").as_str()));
+        assert!(!ids.contains(&"notice:old"));
+        let assistant = retained
+            .iter()
+            .find(|(_, row)| row.row_id.ends_with(":assistant"))
+            .expect("assistant row");
+        assert_eq!(row_text(&assistant.1), reply);
+    }
+
+    #[test]
+    fn open_window_skips_an_oversized_newer_side_row_instead_of_dropping_the_turn() {
+        let turn = "655f4f3e-082e-4ffb-bec2-ef716d25719f";
+        let reply = "侧栏通知不能把这一轮挤掉。";
+        let rows = vec![
+            message_row(
+                1_000_001,
+                &format!("{turn}:user"),
+                TurnRole::User,
+                vec![ContentBlock::Text {
+                    text: "请你修复以下BUG".into(),
+                }],
+            ),
+            message_row(
+                1_000_002,
+                &format!("{turn}:assistant"),
+                TurnRole::Assistant,
+                vec![ContentBlock::Text { text: reply.into() }],
+            ),
+            notice_row(1_000_003, "notice:huge", &"n".repeat(2_000_000)),
+        ];
+        let (retained, dropped) = select_open_timeline_window(rows);
+        assert_eq!(dropped, 0);
+        let ids: Vec<_> = retained
+            .iter()
+            .map(|(_, row)| row.row_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, [format!("{turn}:user"), format!("{turn}:assistant")]);
+        assert_eq!(row_text(&retained[1].1), reply);
     }
 }

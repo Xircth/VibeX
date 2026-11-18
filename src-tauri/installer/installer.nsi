@@ -203,7 +203,7 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
     !endif
 
     Call RestorePreviousInstallLocation
@@ -462,7 +462,7 @@ Section Install DimoSecInstall
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayIcon" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\""
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr SHCTX "${UNINSTKEY}" "Publisher" "${MANUFACTURER}"
-  WriteRegStr SHCTX "${UNINSTKEY}" "InstallLocation" "$\"$INSTDIR$\""
+  WriteRegStr SHCTX "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoModify" "1"
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoRepair" "1"
@@ -569,6 +569,9 @@ Section Uninstall
   {{#each resources_ancestors}}
   RMDir /REBOOTOK "$INSTDIR\\{{this}}"
   {{/each}}
+  ${If} $UpdateMode <> 1
+    RmDir /r "$INSTDIR\acp-tmp"
+  ${EndIf}
   RMDir "$INSTDIR"
 
   ${If} $UpdateMode <> 1
@@ -609,6 +612,12 @@ Section Uninstall
 
   ${If} $UpdateMode <> 1
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+    SetShellVarContext current
+    RmDir /r "$INSTDIR\acp-tmp"
+    RmDir /r "$LOCALAPPDATA\${BUNDLEID}\acp-tmp"
+    RmDir /r "$LOCALAPPDATA\${PRODUCTNAME}\acp-tmp"
+    RmDir /r "$LOCALAPPDATA\VibeX\acp-tmp"
+    RMDir "$LOCALAPPDATA\VibeX"
   ${EndIf}
 
   ${If} $DeleteAppDataCheckboxState = 1

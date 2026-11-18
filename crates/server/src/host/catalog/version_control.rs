@@ -197,13 +197,41 @@ async fn resolve_gh_path() -> Option<PathBuf> {
         .and_then(utils::process::first_spawnable_command)
 }
 
-fn host_from_args(args: &HostArgs) -> String {
-    args.host
+fn validate_github_host(host: &str) -> Result<String, ApplicationError> {
+    let trimmed = host.trim();
+    if trimmed.is_empty() || trimmed.len() > 253 {
+        return Err(ApplicationError::bad_request("Invalid GitHub hostname"));
+    }
+    if trimmed.starts_with('-')
+        || trimmed.starts_with('.')
+        || trimmed.ends_with('.')
+        || trimmed.ends_with('-')
+        || trimmed.contains("..")
+    {
+        return Err(ApplicationError::bad_request("Invalid GitHub hostname"));
+    }
+    let valid_labels = trimmed.split('.').all(|label| {
+        !label.is_empty()
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    });
+    if !valid_labels {
+        return Err(ApplicationError::bad_request("Invalid GitHub hostname"));
+    }
+    Ok(trimmed.to_ascii_lowercase())
+}
+
+fn host_from_args(args: &HostArgs) -> Result<String, ApplicationError> {
+    let raw = args
+        .host
         .as_deref()
         .map(str::trim)
         .filter(|host| !host.is_empty())
-        .unwrap_or(DEFAULT_GITHUB_HOST)
-        .to_string()
+        .unwrap_or(DEFAULT_GITHUB_HOST);
+    validate_github_host(raw)
 }
 
 async fn github_api_user(gh_path: &Path, host: &str) -> Result<String, String> {
@@ -290,7 +318,7 @@ pub(super) async fn github_status(args: Value) -> Result<Value, ApplicationError
         host: None,
         username: None,
     });
-    serialize(github_status_for(host_from_args(&args)).await?)
+    serialize(github_status_for(host_from_args(&args)?).await?)
 }
 
 pub(super) async fn open_login(args: Value) -> Result<Value, ApplicationError> {
@@ -298,10 +326,10 @@ pub(super) async fn open_login(args: Value) -> Result<Value, ApplicationError> {
         host: None,
         username: None,
     });
+    let host = host_from_args(&args)?;
     let gh_path = resolve_gh_path()
         .await
         .ok_or_else(|| ApplicationError::bad_request("GitHub CLI is not installed."))?;
-    let host = host_from_args(&args);
     let command = build_github_login_terminal_command(&gh_path, &host);
 
     spawn_visible_terminal(&gh_path, &host, &command).map_err(|error| {
@@ -407,7 +435,7 @@ pub(super) async fn logout(args: Value) -> Result<Value, ApplicationError> {
         host: None,
         username: None,
     });
-    let host = host_from_args(&args);
+    let host = host_from_args(&args)?;
     let gh_path = resolve_gh_path()
         .await
         .ok_or_else(|| ApplicationError::bad_request("GitHub CLI is not installed."))?;
@@ -420,6 +448,13 @@ pub(super) async fn logout(args: Value) -> Result<Value, ApplicationError> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        if username.starts_with('-')
+            || !username
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'[' | b']'))
+        {
+            return Err(ApplicationError::bad_request("Invalid GitHub username"));
+        }
         command_args.push("--user".to_string());
         command_args.push(username.to_string());
     }
@@ -651,6 +686,34 @@ mod tests {
                 "--hostname",
                 "ghe.example.com",
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn github_host_validation_rejects_shell_metacharacters_and_flags() {
+        for bad_host in [
+            "github.com & calc.exe",
+            "github.com\";id;\"",
+            "github.com' ; id ; '",
+            "github.com\nid",
+            "--upload-pack=evil",
+            "-ghe.example.com",
+            ".github.com",
+            "github..com",
+            "https://github.com",
+        ] {
+            assert!(
+                validate_github_host(bad_host).is_err(),
+                "must reject `{bad_host}`"
+            );
+            let err = open_login(json!({ "host": bad_host }))
+                .await
+                .expect_err("open_login must reject malicious host");
+            assert_eq!(err.envelope().message, "Invalid GitHub hostname");
+        }
+        assert_eq!(
+            validate_github_host("GHE.Example.COM").unwrap(),
+            "ghe.example.com"
         );
     }
 }

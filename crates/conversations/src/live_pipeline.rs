@@ -192,18 +192,19 @@ impl ConversationLivePipeline {
         let _conv_guard = conv_lock.lock().await;
 
         let after_sequence = record.sequence.saturating_sub(1);
-        let (mut publish_after, mut has_projector) = {
+        let (mut publish_after, mut has_projector, mut pin_guard) = {
             let mut map = self.projectors.lock().await;
             match map.get_mut(&conversation_id) {
                 Some(entry) => {
                     entry.sync_if_rebuilt(conversation_id);
-                    (entry.db_cursor, true)
+                    let guard = entry.pin();
+                    (entry.db_cursor, true, Some(guard))
                 }
-                None => (after_sequence, false),
+                None => (after_sequence, false, None),
             }
         };
 
-        let mut new_records = match ConversationEventRecord::events_since(
+        let mut new_records = match ConversationEventRecord::events_since_for_projection(
             &self.pool,
             conversation_id,
             publish_after,
@@ -228,10 +229,11 @@ impl ConversationLivePipeline {
                 ConversationEventRecord::max_sequence(&self.pool, conversation_id).await
             && max_seq < publish_after
         {
+            pin_guard = None;
             self.projectors.lock().await.remove(&conversation_id);
             publish_after = after_sequence;
             has_projector = false;
-            new_records = match ConversationEventRecord::events_since(
+            new_records = match ConversationEventRecord::events_since_for_projection(
                 &self.pool,
                 conversation_id,
                 publish_after,
@@ -277,22 +279,39 @@ impl ConversationLivePipeline {
             None
         };
         if let Some(projector) = loaded_projector {
-            self.projectors
-                .lock()
-                .await
-                .entry(conversation_id)
-                .or_insert(projector);
+            let mut map = self.projectors.lock().await;
+            let entry = map.entry(conversation_id).or_insert(projector);
+            pin_guard = Some(entry.pin());
         }
         self.ensure_projector_turns_hydrated(conversation_id, &new_records)
             .await;
+
+        let mut fallback_projector = None;
+        if !self.projectors.lock().await.contains_key(&conversation_id) {
+            match IncrementalRowProjector::load(&self.pool, conversation_id, publish_after).await {
+                Ok(projector) => {
+                    fallback_projector = Some(CachedRowProjector::new(projector));
+                }
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: projector reload failed");
+                    return;
+                }
+            }
+        }
 
         // Fold the new records into row ops.
         let mut ops = Vec::new();
         let should_emit = {
             let mut map = self.projectors.lock().await;
-            let entry = map
-                .get_mut(&conversation_id)
-                .expect("projector present after insert");
+            let entry = match map.entry(conversation_id) {
+                std::collections::hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    let Some(projector) = fallback_projector else {
+                        return;
+                    };
+                    vacant.insert(projector)
+                }
+            };
             entry.touch();
             let previous_sequence = entry.last_emitted_sequence;
             for item in &new_records {
@@ -312,6 +331,7 @@ impl ConversationLivePipeline {
             } else {
                 None
             };
+            drop(pin_guard);
             evict_least_recently_used_projectors(&mut map, conversation_id);
             self.prune_conversation_locks(&map);
             result
@@ -402,14 +422,15 @@ impl ConversationLivePipeline {
         let last_seq = conv_records[conv_records.len() - 1].sequence;
         let before_first = first_seq.saturating_sub(1);
 
-        let (mut publish_after, mut has_projector) = {
+        let (mut publish_after, mut has_projector, mut pin_guard) = {
             let mut map = self.projectors.lock().await;
             match map.get_mut(&conversation_id) {
                 Some(entry) => {
                     entry.sync_if_rebuilt(conversation_id);
-                    (entry.db_cursor, true)
+                    let guard = entry.pin();
+                    (entry.db_cursor, true, Some(guard))
                 }
-                None => (before_first, false),
+                None => (before_first, false, None),
             }
         };
 
@@ -420,6 +441,7 @@ impl ConversationLivePipeline {
                 ConversationEventRecord::max_sequence(&self.pool, conversation_id).await
             && max_seq < publish_after
         {
+            pin_guard = None;
             self.projectors.lock().await.remove(&conversation_id);
             publish_after = before_first;
             has_projector = false;
@@ -427,7 +449,7 @@ impl ConversationLivePipeline {
 
         let mut new_records: Vec<ConversationEventRecord> = Vec::with_capacity(conv_records.len());
         if publish_after < before_first {
-            match ConversationEventRecord::events_since(
+            match ConversationEventRecord::events_since_for_projection(
                 &self.pool,
                 conversation_id,
                 publish_after,
@@ -460,7 +482,7 @@ impl ConversationLivePipeline {
                 continue;
             }
             if rec.sequence > prev_seq + 1
-                && let Ok(mid_gap) = ConversationEventRecord::events_since(
+                && let Ok(mid_gap) = ConversationEventRecord::events_since_for_projection(
                     &self.pool,
                     conversation_id,
                     prev_seq,
@@ -500,21 +522,38 @@ impl ConversationLivePipeline {
             None
         };
         if let Some(projector) = loaded_projector {
-            self.projectors
-                .lock()
-                .await
-                .entry(conversation_id)
-                .or_insert(projector);
+            let mut map = self.projectors.lock().await;
+            let entry = map.entry(conversation_id).or_insert(projector);
+            pin_guard = Some(entry.pin());
         }
         self.ensure_projector_turns_hydrated(conversation_id, &new_records)
             .await;
 
+        let mut fallback_projector = None;
+        if !self.projectors.lock().await.contains_key(&conversation_id) {
+            match IncrementalRowProjector::load(&self.pool, conversation_id, publish_after).await {
+                Ok(projector) => {
+                    fallback_projector = Some(CachedRowProjector::new(projector));
+                }
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op batch emit: projector reload failed");
+                    return;
+                }
+            }
+        }
+
         let mut ops = Vec::new();
         let should_emit = {
             let mut map = self.projectors.lock().await;
-            let entry = map
-                .get_mut(&conversation_id)
-                .expect("projector present after insert");
+            let entry = match map.entry(conversation_id) {
+                std::collections::hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    let Some(projector) = fallback_projector else {
+                        return;
+                    };
+                    vacant.insert(projector)
+                }
+            };
             entry.touch();
             let previous_sequence = entry.last_emitted_sequence;
             for item in &new_records {
@@ -534,6 +573,7 @@ impl ConversationLivePipeline {
             } else {
                 None
             };
+            drop(pin_guard);
             evict_least_recently_used_projectors(&mut map, conversation_id);
             self.prune_conversation_locks(&map);
             result
@@ -587,7 +627,13 @@ impl ConversationLivePipeline {
         let conv_lock = self.conversation_lock(conversation_id);
         let _conv_guard = conv_lock.lock().await;
 
-        let has_projector = self.projectors.lock().await.contains_key(&conversation_id);
+        let (has_projector, mut pin_guard) = {
+            let mut map = self.projectors.lock().await;
+            match map.get_mut(&conversation_id) {
+                Some(entry) => (true, Some(entry.pin())),
+                None => (false, None),
+            }
+        };
         let loaded_projector = if !has_projector {
             match IncrementalRowProjector::load_through_latest(&self.pool, conversation_id).await {
                 Ok(projector) => Some(CachedRowProjector::new(projector)),
@@ -600,20 +646,37 @@ impl ConversationLivePipeline {
             None
         };
         if let Some(projector) = loaded_projector {
-            self.projectors
-                .lock()
-                .await
-                .entry(conversation_id)
-                .or_insert(projector);
+            let mut map = self.projectors.lock().await;
+            let entry = map.entry(conversation_id).or_insert(projector);
+            pin_guard = Some(entry.pin());
         }
         self.ensure_projector_turns_hydrated(conversation_id, std::slice::from_ref(record))
             .await;
 
+        let mut fallback_projector = None;
+        if !self.projectors.lock().await.contains_key(&conversation_id) {
+            match IncrementalRowProjector::load_through_latest(&self.pool, conversation_id).await {
+                Ok(projector) => {
+                    fallback_projector = Some(CachedRowProjector::new(projector));
+                }
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: projector reload failed");
+                    return;
+                }
+            }
+        }
+
         let (cursor, ops) = {
             let mut map = self.projectors.lock().await;
-            let entry = map
-                .get_mut(&conversation_id)
-                .expect("projector present after insert");
+            let entry = match map.entry(conversation_id) {
+                std::collections::hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    let Some(projector) = fallback_projector else {
+                        return;
+                    };
+                    vacant.insert(projector)
+                }
+            };
             entry.touch();
             let cursor = entry.last_emitted_sequence;
             let record_ops = match entry.apply_unpersisted(record) {
@@ -625,6 +688,7 @@ impl ConversationLivePipeline {
             };
             let mut ops = Vec::new();
             extend_coalesced_row_ops(&mut ops, record_ops);
+            drop(pin_guard);
             evict_least_recently_used_projectors(&mut map, conversation_id);
             self.prune_conversation_locks(&map);
             (cursor, ops)

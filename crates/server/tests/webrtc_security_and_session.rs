@@ -650,4 +650,116 @@ async fn mobile_zero_config_connect_request_triggers_host_prompt_and_approves_wi
         paired[0].public_key_ed25519.as_deref(),
         Some(pubkey_b64.as_str())
     );
+    assert_eq!(
+        pending[0].public_key_ed25519.as_deref(),
+        Some(pubkey_b64.as_str())
+    );
+}
+
+#[tokio::test]
+async fn unauthenticated_connect_request_cannot_revoke_mobile_or_probe_device_names() {
+    use application::{ApplicationCore, SqliteConversationRepository};
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use remote_protocol::{
+        CreateDeviceConnectRequest, DeviceConnectRequestStatus, PollDeviceConnectResponse,
+    };
+    use tower::ServiceExt;
+
+    let clock = ManualClock::new(1_762_660_000);
+    let auth = Arc::new(test_auth_with_clock(clock).await);
+    let owner = AuthenticatedCredential::host_console_owner();
+
+    let (_victim_kp, _victim_bytes, victim_pub_b64) = generate_ed25519_keypair();
+    let challenge = auth
+        .create_pairing(
+            &owner,
+            CreatePairingRequest {
+                preset: Some(DevicePermissionPreset::Companion),
+                requested_scopes: Vec::new(),
+                ttl_seconds: None,
+            },
+        )
+        .await
+        .expect("create pairing");
+    let victim_cred = auth
+        .redeem_pairing(RedeemPairingRequest {
+            pairing_token: challenge.pairing_token,
+            device_name: "Victim Phone".to_owned(),
+            public_key_ed25519: Some(victim_pub_b64),
+            client_kind: Some("mobile".to_owned()),
+            replace_existing_mobile: false,
+        })
+        .await
+        .expect("redeem victim mobile");
+
+    let options = SqliteConnectOptions::new()
+        .filename(":memory:")
+        .create_if_missing(true)
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("sqlite memory pool");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    let runtime = ServerRuntime::from_auth_with_preview_proxy(
+        ServerConfig::default().with_host_identity("host-desktop-1", Vec::new()),
+        Arc::clone(&auth) as Arc<dyn ServerAuth>,
+        ApplicationCore::new(SqliteConversationRepository::new(pool)),
+        server::PreviewProxyRegistry::default(),
+    );
+
+    let (_atk_kp, _atk_bytes, atk_pub_b64) = generate_ed25519_keypair();
+    let resp = runtime
+        .router()
+        .oneshot(
+            Request::post("/api/v1/auth/connect-requests")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&CreateDeviceConnectRequest {
+                        device_name: "Victim Phone".to_owned(),
+                        client_kind: Some("mobile".to_owned()),
+                        public_key_ed25519: Some(atk_pub_b64.clone()),
+                        session_nonce: Some("atk-nonce".to_owned()),
+                        replace_existing_mobile: true,
+                    })
+                    .expect("serialize"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: PollDeviceConnectResponse = serde_json::from_slice(
+        &to_bytes(resp.into_body(), 16 * 1024)
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(created.status, DeviceConnectRequestStatus::Pending);
+
+    // Victim's active mobile credential MUST remain valid before host approval.
+    assert!(
+        auth.authenticate(&victim_cred.access_token)
+            .await
+            .expect("auth victim")
+            .is_some(),
+        "unauthenticated connect request must never revoke paired mobile devices"
+    );
+
+    let pending = auth
+        .list_connect_requests(&owner)
+        .await
+        .expect("list pending");
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].public_key_ed25519.as_deref(),
+        Some(atk_pub_b64.as_str())
+    );
 }

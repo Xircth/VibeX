@@ -712,14 +712,10 @@ impl ServerApplicationDomains {
                     })
                     .await?;
                 git::GitCli::new()
-                    .git(
+                    .add_remote(
                         &path,
-                        [
-                            "remote",
-                            "add",
-                            args.name.as_deref().unwrap_or("origin"),
-                            args.url.as_deref().unwrap_or_default(),
-                        ],
+                        args.name.as_deref().unwrap_or("origin"),
+                        args.url.as_deref().unwrap_or_default(),
                     )
                     .map_err(internal_error)?;
                 Ok(Value::Null)
@@ -732,10 +728,7 @@ impl ServerApplicationDomains {
                     })
                     .await?;
                 git::GitCli::new()
-                    .git(
-                        &path,
-                        ["remote", "remove", args.name.as_deref().unwrap_or("origin")],
-                    )
+                    .remove_remote(&path, args.name.as_deref().unwrap_or("origin"))
                     .map_err(internal_error)?;
                 Ok(Value::Null)
             }
@@ -747,14 +740,10 @@ impl ServerApplicationDomains {
                     })
                     .await?;
                 git::GitCli::new()
-                    .git(
+                    .set_remote_url(
                         &path,
-                        [
-                            "remote",
-                            "set-url",
-                            args.name.as_deref().unwrap_or("origin"),
-                            args.url.as_deref().unwrap_or_default(),
-                        ],
+                        args.name.as_deref().unwrap_or("origin"),
+                        args.url.as_deref().unwrap_or_default(),
                     )
                     .map_err(internal_error)?;
                 Ok(Value::Null)
@@ -826,15 +815,18 @@ impl ServerApplicationDomains {
             }
             DomainCommand::WorkflowSourceRead => {
                 let args: WorkflowSourceArgs = parse(args)?;
-                serialize(read_workflow_source(&args.path)?)
+                serialize(self.read_workflow_source(&args.path).await?)
             }
             DomainCommand::WorkflowSourceWrite => {
                 let args: WorkflowSourceArgs = parse(args)?;
-                serialize(write_workflow_source(
-                    &args.path,
-                    args.content.unwrap_or_default(),
-                    args.expected_revision.as_deref(),
-                )?)
+                serialize(
+                    self.write_workflow_source(
+                        &args.path,
+                        args.content.unwrap_or_default(),
+                        args.expected_revision.as_deref(),
+                    )
+                    .await?,
+                )
             }
             DomainCommand::WorkflowCanvasFocus => {
                 let args: WorkflowCanvasFocusArgs = parse(args)?;
@@ -1560,114 +1552,158 @@ fn workflow_source_revision(content: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(content))
 }
 
-fn resolve_workflow_source_path(path: &str) -> Result<PathBuf, ApplicationError> {
-    let expanded = if path.starts_with("~/") {
-        let home = dirs::home_dir().ok_or_else(|| {
-            ApplicationError::internal("Unable to resolve the user home directory")
-        })?;
-        let expanded = home.join(path.trim_start_matches("~/"));
-        if path.starts_with("~/.dimo/workflows/")
-            && let Some(parent) = expanded.parent()
-        {
-            std::fs::create_dir_all(parent).map_err(internal_error)?;
-        }
-        expanded
-    } else {
-        crate::host_ops::sanitize_absolute(path)?
+async fn canonicalize_shared_workflows_dir() -> Result<Option<PathBuf>, ApplicationError> {
+    let Some(dir) = shared_workflows_dir() else {
+        return Ok(None);
     };
-    if !expanded
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".dimo-workflow.json"))
-    {
-        return Err(ApplicationError::bad_request(
-            "Workflow source must end with .dimo-workflow.json",
-        ));
-    }
-    Ok(expanded)
+    let resolved = crate::host_ops::resolve_canonical_sandbox_candidate(&dir).await?;
+    Ok(Some(resolved))
 }
 
-fn read_workflow_source(path: &str) -> Result<Value, ApplicationError> {
-    let path = resolve_workflow_source_path(path)?;
-    let bytes = std::fs::read(&path)
-        .map_err(|_| ApplicationError::not_found(format!("{}: not found", path.display())))?;
-    if bytes.len() > WORKFLOW_SOURCE_MAX_BYTES {
-        return Err(ApplicationError::bad_request(
-            "Workflow source exceeds 4 MiB",
-        ));
-    }
-    let content = String::from_utf8(bytes.clone())
-        .map_err(|_| ApplicationError::bad_request("Workflow source must be UTF-8 JSON"))?;
-    Ok(json!({
-        "path": path.to_string_lossy(),
-        "content": content,
-        "revision": workflow_source_revision(&bytes),
-    }))
-}
-
-fn write_workflow_source(
-    path: &str,
-    content: String,
-    expected_revision: Option<&str>,
-) -> Result<Value, ApplicationError> {
-    if content.len() > WORKFLOW_SOURCE_MAX_BYTES {
-        return Err(ApplicationError::bad_request(
-            "Workflow source exceeds 4 MiB",
-        ));
-    }
-    let parsed: workflows::WorkflowDefinition =
-        serde_json::from_str(&content).map_err(|error| {
-            ApplicationError::bad_request(format!("Invalid Workflow JSON: {error}"))
-        })?;
-    workflows::validate_definition(&parsed)
-        .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-    let written_name = parsed.name.clone();
-    let path = resolve_workflow_source_path(path)?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| ApplicationError::bad_request("Workflow source has no parent directory"))?;
-    if !parent.is_dir() {
-        return Err(ApplicationError::not_found(format!(
-            "Parent directory does not exist: {}",
-            parent.display()
-        )));
-    }
-    match (std::fs::read(&path), expected_revision) {
-        (Ok(current), Some(expected)) if workflow_source_revision(&current) != expected => {
-            return Err(ApplicationError::conflict(
-                "Workflow source changed outside this editor; reload before saving",
-            ));
-        }
-        (Ok(_), None) => {
-            return Err(ApplicationError::conflict(
-                "Existing Workflow source requires expectedRevision",
-            ));
-        }
-        (Err(error), Some(_)) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(ApplicationError::conflict(
-                "Workflow source was deleted outside this editor",
-            ));
-        }
-        (Err(error), None) if error.kind() == std::io::ErrorKind::NotFound => {}
-        (Err(error), _) => return Err(internal_error(error)),
-        _ => {}
-    }
-    let temporary = parent.join(format!(
-        ".{}.tmp",
-        path.file_name()
+impl ServerApplicationDomains {
+    async fn resolve_workflow_source_path(
+        &self,
+        path: &str,
+        create_shared_dir: bool,
+    ) -> Result<PathBuf, ApplicationError> {
+        let expanded = if let Some(rel) = path.strip_prefix("~/") {
+            if !path.starts_with("~/.dimo/workflows/") {
+                return Err(ApplicationError::forbidden(
+                    "Workflow paths under ~/ must reside inside ~/.dimo/workflows/",
+                ));
+            }
+            let rel_path = Path::new(rel);
+            if rel_path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                return Err(ApplicationError::bad_request(
+                    "path traversal is not allowed",
+                ));
+            }
+            let home = dirs::home_dir().ok_or_else(|| {
+                ApplicationError::internal("Unable to resolve the user home directory")
+            })?;
+            let expanded = home.join(rel_path);
+            if create_shared_dir && let Some(parent) = expanded.parent() {
+                std::fs::create_dir_all(parent).map_err(internal_error)?;
+            }
+            expanded
+        } else {
+            crate::host_ops::sanitize_absolute(path)?
+        };
+        if !expanded
+            .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("workflow")
-    ));
-    std::fs::write(&temporary, content.as_bytes()).map_err(internal_error)?;
-    std::fs::rename(&temporary, &path).map_err(internal_error)?;
-    if let Some(dir) = shared_workflows_dir()
-        && path.starts_with(&dir)
-    {
-        enforce_single_unnamed_draft(&dir, &path, &written_name);
+            .is_some_and(|name| name.ends_with(".dimo-workflow.json"))
+        {
+            return Err(ApplicationError::bad_request(
+                "Workflow source must end with .dimo-workflow.json",
+            ));
+        }
+
+        let resolved = crate::host_ops::resolve_canonical_sandbox_candidate(&expanded).await?;
+        let mut allowed_roots = self.sandbox_roots().await?;
+        if let Some(shared_dir) = canonicalize_shared_workflows_dir().await? {
+            allowed_roots.push(shared_dir);
+        }
+        if !allowed_roots.iter().any(|root| resolved.starts_with(root)) {
+            return Err(ApplicationError::forbidden(
+                "Workflow source path is outside ~/.dimo/workflows and every registered repository or workspace",
+            ));
+        }
+
+        Ok(utils::path::normalize_windows_extended_path_prefix(
+            resolved,
+        ))
     }
-    Ok(json!({
-        "revision": workflow_source_revision(content.as_bytes()),
-    }))
+
+    async fn read_workflow_source(&self, path: &str) -> Result<Value, ApplicationError> {
+        let path = self.resolve_workflow_source_path(path, false).await?;
+        let bytes = std::fs::read(&path)
+            .map_err(|_| ApplicationError::not_found(format!("{}: not found", path.display())))?;
+        if bytes.len() > WORKFLOW_SOURCE_MAX_BYTES {
+            return Err(ApplicationError::bad_request(
+                "Workflow source exceeds 4 MiB",
+            ));
+        }
+        let content = String::from_utf8(bytes.clone())
+            .map_err(|_| ApplicationError::bad_request("Workflow source must be UTF-8 JSON"))?;
+        Ok(json!({
+            "path": path.to_string_lossy(),
+            "content": content,
+            "revision": workflow_source_revision(&bytes),
+        }))
+    }
+
+    async fn write_workflow_source(
+        &self,
+        path: &str,
+        content: String,
+        expected_revision: Option<&str>,
+    ) -> Result<Value, ApplicationError> {
+        if content.len() > WORKFLOW_SOURCE_MAX_BYTES {
+            return Err(ApplicationError::bad_request(
+                "Workflow source exceeds 4 MiB",
+            ));
+        }
+        let parsed: workflows::WorkflowDefinition =
+            serde_json::from_str(&content).map_err(|error| {
+                ApplicationError::bad_request(format!("Invalid Workflow JSON: {error}"))
+            })?;
+        workflows::validate_definition(&parsed)
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let written_name = parsed.name.clone();
+        let path = self.resolve_workflow_source_path(path, true).await?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| ApplicationError::bad_request("Workflow source has no parent directory"))?;
+        if !parent.is_dir() {
+            return Err(ApplicationError::not_found(format!(
+                "Parent directory does not exist: {}",
+                parent.display()
+            )));
+        }
+        match (std::fs::read(&path), expected_revision) {
+            (Ok(current), Some(expected)) if workflow_source_revision(&current) != expected => {
+                return Err(ApplicationError::conflict(
+                    "Workflow source changed outside this editor; reload before saving",
+                ));
+            }
+            (Ok(_), None) => {
+                return Err(ApplicationError::conflict(
+                    "Existing Workflow source requires expectedRevision",
+                ));
+            }
+            (Err(error), Some(_)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ApplicationError::conflict(
+                    "Workflow source was deleted outside this editor",
+                ));
+            }
+            (Err(error), None) if error.kind() == std::io::ErrorKind::NotFound => {}
+            (Err(error), _) => return Err(internal_error(error)),
+            _ => {}
+        }
+        let temporary = parent.join(format!(
+            ".{}.tmp",
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("workflow")
+        ));
+        std::fs::write(&temporary, content.as_bytes()).map_err(internal_error)?;
+        std::fs::rename(&temporary, &path).map_err(internal_error)?;
+        if let Some(dir) = shared_workflows_dir() {
+            let normalized_dir = std::fs::canonicalize(&dir)
+                .map(utils::path::normalize_windows_extended_path_prefix)
+                .unwrap_or(dir);
+            if path.starts_with(&normalized_dir) {
+                enforce_single_unnamed_draft(&normalized_dir, &path, &written_name);
+            }
+        }
+        Ok(json!({
+            "revision": workflow_source_revision(content.as_bytes()),
+        }))
+    }
 }
 
 const CANVAS_VIEWING_MARKER: &str = "dimo.canvas.viewing";

@@ -12,7 +12,7 @@ use sqlx::SqlitePool;
 use crate::{
     HeadlessAutomationRuntime, PreviewProxyRegistry,
     host::events::{HostEventBus, TerminalBridgeRegistry},
-    host_core::host_application_core,
+    host_core::host_application_core_with_outbox_policy,
 };
 
 /// Live Automation Engine ownership. Desktop reads the process lease registry;
@@ -79,6 +79,13 @@ pub struct HostRuntimeParts {
 
 impl HostRuntime {
     pub fn build(parts: HostRuntimeParts) -> Self {
+        Self::build_with_outbox_policy(parts, false)
+    }
+
+    pub(crate) fn build_with_outbox_policy(
+        parts: HostRuntimeParts,
+        allow_loopback_outbox: bool,
+    ) -> Self {
         let events = parts
             .events
             .unwrap_or_else(|| Arc::new(HostEventBus::new()));
@@ -104,7 +111,7 @@ impl HostRuntime {
                 ));
             }
         }
-        let core = host_application_core(
+        let core = host_application_core_with_outbox_policy(
             parts.pool,
             parts.conversations,
             parts.plugin_control_plane,
@@ -123,6 +130,7 @@ impl HostRuntime {
             terminal_bridges.clone(),
             agent_management_runtime.clone(),
             parts.delegation_broker,
+            allow_loopback_outbox,
         );
         let core = Arc::new(core);
         if let Some(conversation_host) = parts.conversation_host {

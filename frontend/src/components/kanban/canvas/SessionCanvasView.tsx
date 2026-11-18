@@ -48,6 +48,7 @@ import {
 import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { cn } from '@/lib/utils';
+import { CanvasModifierWheelZoom } from './CanvasModifierWheelZoom';
 import { FloatingSessionList } from './FloatingSessionList';
 import { ImportRecentSessionsDialog } from './ImportRecentSessionsDialog';
 import { SessionCanvasCardNode } from './SessionCanvasCardNode';
@@ -2812,6 +2813,10 @@ function SessionCanvasFlow({
             zoomOnDoubleClick={false}
             proOptions={CANVAS_PRO_OPTIONS}
           >
+            <CanvasModifierWheelZoom
+              minZoom={CANVAS_MIN_ZOOM}
+              maxZoom={CANVAS_MAX_ZOOM}
+            />
             <Background
               variant={BackgroundVariant.Dots}
               gap={BOARD_DOT_GAP}

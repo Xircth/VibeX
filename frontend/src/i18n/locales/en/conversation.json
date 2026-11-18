@@ -270,7 +270,8 @@
       "otherActivities_one": "{{count}} other activity",
       "otherActivities_other": "{{count}} other activities",
       "separator": ", ",
-      "failed": "Tool call failed"
+      "failed": "Tool call failed",
+      "commandExitCode": "Command exited with code {{code}}"
     },
     "fileReadRange": "Lines {{start}}–{{end}}",
     "fileReadFrom": "From line {{start}}",

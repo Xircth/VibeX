@@ -271,7 +271,9 @@ export function TurnToolChipRow({
         ) : null}
 
         {isError && errorMessage && !expanded ? (
-          <span className="conv-tool-chip-error-badge">{errorMessage}</span>
+          <span className="conv-tool-chip-error-badge tabular-nums">
+            {errorMessage}
+          </span>
         ) : null}
       </div>
 

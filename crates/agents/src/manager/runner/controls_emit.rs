@@ -40,6 +40,7 @@ impl AgentConnectionRunner {
             entry.modes = raw_modes.clone();
             entry.config_options = config_options.clone();
             if is_omp {
+                qualify_omp_model_labels(&mut entry.config_options);
                 ensure_omp_yolo_config_option(&mut entry.config_options);
                 if let Some(ref mut mode_state) = entry.modes {
                     ensure_omp_yolo_session_mode(mode_state);

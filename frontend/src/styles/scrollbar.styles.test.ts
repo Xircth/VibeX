@@ -62,14 +62,15 @@ describe('thumb-only scrollbars', () => {
     expect(hits).toEqual([]);
   });
 
-  it('keeps a Firefox thumb-only fallback', () => {
+  it('keeps native scrollbars from consuming layout width', () => {
     const css = readFileSync(
       resolve(process.cwd(), 'src/styles/legacy/index.css'),
       'utf8'
     );
 
     expect(css).toMatch(
-      /@supports not selector\(::-webkit-scrollbar\)[\s\S]*scrollbar-color:\s*hsl\(var\(--muted-foreground\) \/ 0\.32\) transparent/
+      /\.legacy-design,\s*\.legacy-design \* \{\s*scrollbar-width:\s*none;/
     );
+    expect(css).not.toMatch(/scrollbar-width:\s*thin/);
   });
 });

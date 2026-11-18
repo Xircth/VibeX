@@ -39,7 +39,10 @@ describe('workspace dockview sash', () => {
     expect(line).toBeTruthy();
     expect(selector(line!)).not.toContain('dv-enabled');
     expect(declaration(line!, 'width')).toBe('1px');
-    expect(declaration(line!, 'background-color')).toBe('transparent');
+    expect(declaration(line!, 'margin-left')).toBe('1.5px');
+    expect(declaration(line!, 'background-color')).toBe(
+      'var(--workspace-divider-color, var(--dv-sash-color))'
+    );
     expect(declaration(capsule!, 'width')).toBe('4px');
     expect(declaration(capsule!, 'height')).toBe('21px');
     expect(selector(capsule!)).not.toContain('dv-enabled');
@@ -82,6 +85,7 @@ describe('workspace dockview sash', () => {
 
     expect(selector(line!)).not.toContain('dv-enabled');
     expect(declaration(line!, 'height')).toBe('1px');
+    expect(declaration(line!, 'margin-top')).toBe('1.5px');
     expect(declaration(capsule!, 'width')).toBe('21px');
     expect(declaration(capsule!, 'height')).toBe('4px');
   });
@@ -99,6 +103,16 @@ describe('workspace dockview sash', () => {
     );
 
     expect(declaration(hidden!, 'display')).toBe('none');
+    expect(
+      declaration(
+        rules().find((rule) =>
+          selector(rule).endsWith(
+            "[class*='dockview-theme-ayu'] .workspace-right-panel"
+          )
+        )!,
+        'border-left'
+      )
+    ).toBe('0');
     expect(declaration(theme!, '--dv-separator-border')).toBe('transparent');
     expect(declaration(theme!, '--dv-active-sash-color')).toBe(
       'var(--workspace-divider-hover)'

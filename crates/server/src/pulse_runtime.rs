@@ -11,8 +11,8 @@ use std::{
 };
 
 use api_types::pulse::{
-    EventEnvelope, EventSourceKind, EventTrustLevel, MandateOrigin, PulseEvalMode, PulseRuleSpec,
-    PulseSourceView,
+    EventEnvelope, EventSourceKind, EventTrace, EventTrustLevel, MandateOrigin, PulseEvalMode,
+    PulseRuleSpec, PulseSourceView,
 };
 use application::{ApplicationError, DomainCommand, Principal};
 use base64::Engine as _;

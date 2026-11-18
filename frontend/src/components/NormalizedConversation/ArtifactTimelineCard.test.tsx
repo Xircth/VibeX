@@ -58,10 +58,12 @@ describe('ArtifactTimelineCard', () => {
     expect(call).toHaveBeenCalledWith('artifact_open_preview', {
       artifactId: 'artifact-1',
     });
-    expect(await screen.findByTitle('Q3-plan.pptx 预览')).toHaveAttribute(
+    const frame = await screen.findByTitle('Q3-plan.pptx 预览');
+    expect(frame).toHaveAttribute(
       'src',
       'http://127.0.0.1:42100/api/v1/previews/lease-1/c/capability-1/'
     );
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
     expect(
       screen.getByRole('button', { name: '打开 Q3-plan.pptx 预览' })
     ).toBeDisabled();

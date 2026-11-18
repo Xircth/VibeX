@@ -48,6 +48,8 @@ describe('PluginFilePreview', () => {
       'src',
       'https://host.test/api/v1/previews/lease-8/c/secret-capability/'
     );
+    expect(frame.getAttribute('sandbox')).toContain('allow-scripts');
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
     view.unmount();
     await waitFor(() => {
       expect(closeFilePreview).toHaveBeenCalledWith(

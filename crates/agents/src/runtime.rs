@@ -6091,4 +6091,124 @@ mod tests {
             "PromptFinished must never be shed under overflow"
         );
     }
+
+    #[tokio::test]
+    async fn user_prompt_queues_during_background_compact_and_promotes_on_completion() {
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
+        let (connection_id, session) = prepare_bound_session(&runtime).await;
+
+        // Simulate an active background `/compact` dispatched on the session.
+        let compact_prompt_id = AgentPromptId::new();
+        {
+            let mut state = runtime.state.write().await;
+            let now = Utc::now();
+            let runtime_session = state.sessions.get_mut(&session.id).unwrap();
+            assert!(matches!(
+                runtime_session.queue.submit(compact_prompt_id),
+                QueueTransition::Started { .. }
+            ));
+            runtime_session.snapshot.active_prompt_id = Some(compact_prompt_id);
+            runtime_session.snapshot.queued_prompt_ids.clear();
+            runtime_session.snapshot.status = AgentSessionStatus::Running;
+            runtime_session.snapshot.updated_at = now;
+            state.prompts.insert(
+                compact_prompt_id,
+                AgentPromptSnapshot {
+                    id: compact_prompt_id,
+                    session_id: session.id,
+                    status: AgentPromptStatus::Running,
+                    text_preview: "/compact".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                },
+            );
+            state.background_compactions.insert(compact_prompt_id);
+        }
+
+        // Sending a user prompt during active background `/compact` must queue rather than reject/drop.
+        let user_prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "follow-up during compact".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .unwrap();
+        assert!(matches!(user_prompt.status, AgentPromptStatus::Queued));
+
+        let mid_snapshot = runtime.snapshot().await;
+        let mid_session = mid_snapshot
+            .sessions
+            .iter()
+            .find(|s| s.id == session.id)
+            .unwrap();
+        assert_eq!(mid_session.active_prompt_id, Some(compact_prompt_id));
+        assert_eq!(mid_session.queued_prompt_ids, vec![user_prompt.id]);
+
+        // Completing the background `/compact` must promote and schedule the queued user prompt.
+        let next_prompt = {
+            let mut state = runtime.state.write().await;
+            let event = AgentConnectionManagerEvent {
+                connection_id,
+                session_id: Some(session.id),
+                prompt_id: Some(compact_prompt_id),
+                event: AgentEvent::PromptFinished {
+                    finished: crate::AgentPromptFinished {
+                        prompt_id: compact_prompt_id,
+                        stop_reason: Some("end_turn".to_string()),
+                        usage: None,
+                    },
+                },
+            };
+            let active_before = AgentRuntime::active_prompt_for_manager_event_locked(&state, &event);
+            assert_eq!(active_before, Some(compact_prompt_id));
+            AgentRuntime::apply_manager_event_locked(&mut state, &event);
+            let next = AgentRuntime::prompt_to_dispatch_after_manager_event_locked(
+                &state,
+                &event,
+                active_before,
+            );
+            state.background_compactions.remove(&compact_prompt_id);
+            next
+        };
+
+        let (next_session, next_id, next_blocks, _, _) =
+            next_prompt.expect("queued user prompt must be dispatched once /compact settles");
+        assert_eq!(next_session, session.id);
+        assert_eq!(next_id, user_prompt.id);
+        assert!(matches!(
+            next_blocks.as_slice(),
+            [AgentContentBlock::Text { text }] if text == "follow-up during compact"
+        ));
+
+        let post_snapshot = runtime.snapshot().await;
+        let post_session = post_snapshot
+            .sessions
+            .iter()
+            .find(|s| s.id == session.id)
+            .unwrap();
+        assert_eq!(post_session.active_prompt_id, Some(user_prompt.id));
+        assert!(post_session.queued_prompt_ids.is_empty());
+        let promoted_prompt = post_snapshot
+            .prompts
+            .iter()
+            .find(|p| p.id == user_prompt.id)
+            .unwrap();
+        assert!(matches!(promoted_prompt.status, AgentPromptStatus::Running));
+        assert!(
+            !runtime
+                .state
+                .read()
+                .await
+                .background_compactions
+                .contains(&compact_prompt_id)
+        );
+    }
 }

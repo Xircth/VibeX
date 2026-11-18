@@ -57,6 +57,25 @@ test('worker registers all required handlers and talks to the native computer da
       `Daemon should be healthy: ${JSON.stringify(health)}`
     );
     assert.equal(health.status, 'running');
+    assert.equal(health.endpoint, undefined);
+
+    const daemonInfo = JSON.parse(
+      fs.readFileSync(path.join(tempDataDir, 'daemon.json'), 'utf8')
+    );
+    assert.equal(typeof daemonInfo.token, 'string');
+    assert.ok(daemonInfo.token.length >= 32, 'daemon token must be high-entropy');
+
+    const unauthRpcRes = await fetch(`${daemonInfo.url}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method: 'computer.status', params: {} }),
+    });
+    assert.equal(unauthRpcRes.status, 401);
+    assert.equal(unauthRpcRes.headers.get('access-control-allow-origin'), null);
+    assert.equal(
+      unauthRpcRes.headers.get('access-control-allow-private-network'),
+      null
+    );
 
     const session = await worker.invoke('surface.createSession', {
       surfaceId: 'computer-use',
@@ -64,6 +83,7 @@ test('worker registers all required handlers and talks to the native computer da
     assert.equal(session.ready, true);
     assert.equal(session.title, '电脑控制');
     assert.ok(session.state, 'session.state must be returned');
+    assert.equal(session.state.daemonUrl, undefined);
     assert.equal(session.state.settings.enabled, false);
     assert.equal(session.state.driverInfo.version, '0.32.0');
     assert.ok(Array.isArray(session.state.settings.defaultBlocklist));

@@ -152,6 +152,19 @@ pub fn lookup_session_by_id(session_id: &str) -> Option<E2eeSession> {
     Some(session.clone())
 }
 
+pub fn mark_session_active_e2ee(session_id: &str) {
+    let trimmed = session_id.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = session_store().write()
+        && let Some(session) = guard.by_session_id.get_mut(trimmed)
+    {
+        session.active_e2ee = true;
+        session.last_used = Instant::now();
+    }
+}
+
 pub fn get_or_create_session_for_client_pub(client_pub_b64: &str) -> Option<E2eeSession> {
     let clean_pub = client_pub_b64.trim();
     if clean_pub.is_empty() {
@@ -202,7 +215,9 @@ pub fn get_or_create_session_for_client_pub(client_pub_b64: &str) -> Option<E2ee
             && let Some(oldest_key) = guard
                 .by_session_id
                 .iter()
+                .filter(|(_, v)| !v.active_e2ee)
                 .min_by_key(|(_, v)| v.last_used)
+                .or_else(|| guard.by_session_id.iter().min_by_key(|(_, v)| v.last_used))
                 .map(|(k, _)| k.clone())
             && let Some(removed) = guard.by_session_id.remove(&oldest_key)
         {
@@ -215,6 +230,13 @@ pub fn get_or_create_session_for_client_pub(client_pub_b64: &str) -> Option<E2ee
     }
 
     Some(session)
+}
+
+fn ws_has_e2ee_protocol(protocols: &str) -> bool {
+    protocols
+        .split(',')
+        .map(str::trim)
+        .any(|protocol| protocol.starts_with("dimo.e2ee."))
 }
 
 fn ws_session_from_protocols(protocols: &str) -> Option<E2eeSession> {
@@ -261,11 +283,30 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
 
-    let ws_protocol_session = request
+    let ws_protocol_header = request
         .headers()
         .get("sec-websocket-protocol")
         .and_then(|v| v.to_str().ok())
+        .map(ToOwned::to_owned);
+
+    let ws_requests_e2ee = ws_protocol_header
+        .as_deref()
+        .is_some_and(ws_has_e2ee_protocol);
+
+    let ws_protocol_session = ws_protocol_header
+        .as_deref()
         .and_then(ws_session_from_protocols);
+
+    // If the client explicitly requested an E2EE WebSocket subprotocol, do not
+    // silently fall back to an unencrypted socket or substitute an unrelated
+    // session when that session ID is unknown/expired.
+    if ws_requests_e2ee && ws_protocol_session.is_none() {
+        return (
+            StatusCode::PRECONDITION_FAILED,
+            "E2EE WebSocket session expired or unknown; re-establish handshake",
+        )
+            .into_response();
+    }
 
     let mut session = requested_session_id
         .as_deref()
@@ -291,7 +332,6 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
             )
                 .into_response();
         };
-        active_session.active_e2ee = true;
 
         // If the client specified a session ID from before a Host restart and it didn't match,
         // trigger an immediate 412 re-key with the new server public key.
@@ -300,6 +340,8 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
         {
             return precondition_failed_rekey(active_session);
         }
+
+        let mut verified_e2ee_proof = false;
 
         if let Some(enc_auth) = request
             .headers()
@@ -314,6 +356,7 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
             let Ok(auth_str) = String::from_utf8(decrypted_auth) else {
                 return precondition_failed_rekey(active_session);
             };
+            verified_e2ee_proof = true;
             let normalized = if auth_str.starts_with("Bearer ") || auth_str.starts_with("bearer ") {
                 auth_str
             } else {
@@ -340,6 +383,7 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
             else {
                 return precondition_failed_rekey(active_session);
             };
+            verified_e2ee_proof = true;
             parts.headers.insert(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("application/json"),
@@ -349,14 +393,20 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
         } else {
             request = Request::from_parts(parts, Body::empty());
         }
-    } else if let Some(active_session) = session.as_mut()
-        && request
-            .headers()
-            .get("sec-websocket-protocol")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|p| p.contains("dimo.e2ee."))
-    {
+
         active_session.active_e2ee = true;
+        if verified_e2ee_proof {
+            mark_session_active_e2ee(&active_session.session_id);
+        }
+    } else if ws_requests_e2ee {
+        if let Some(active_session) = session.as_mut() {
+            active_session.active_e2ee = true;
+            mark_session_active_e2ee(&active_session.session_id);
+        }
+    } else if let Some(ref existing_session) = session
+        && existing_session.active_e2ee
+    {
+        return precondition_failed_rekey(existing_session);
     }
 
     if let Some(ref active_session) = session {
@@ -377,24 +427,34 @@ pub async fn e2ee_middleware(mut request: Request, next: Next) -> Response {
 
         if request_is_e2ee && !is_ws_upgrade && !is_sse {
             let (mut parts, body) = response.into_parts();
-            if let Ok(resp_bytes) = axum::body::to_bytes(body, MAX_E2EE_BODY_BYTES).await {
-                if !resp_bytes.is_empty()
-                    && let Ok(encrypted_b64) =
-                        encrypt_payload(&active_session.key, AAD_RESP, &resp_bytes)
-                {
-                    parts
-                        .headers
-                        .insert(HEADER_E2EE, HeaderValue::from_static(E2EE_VERSION));
-                    parts.headers.insert(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static("text/plain; charset=utf-8"),
-                    );
-                    parts.headers.remove(header::CONTENT_LENGTH);
-                    return Response::from_parts(parts, Body::from(encrypted_b64));
-                }
-                return Response::from_parts(parts, Body::from(resp_bytes));
+            let Ok(resp_bytes) = axum::body::to_bytes(body, MAX_E2EE_BODY_BYTES).await else {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "E2EE response body read failed",
+                )
+                    .into_response();
+            };
+            if !resp_bytes.is_empty() {
+                let Ok(encrypted_b64) =
+                    encrypt_payload(&active_session.key, AAD_RESP, &resp_bytes)
+                else {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "E2EE response encryption failed",
+                    )
+                        .into_response();
+                };
+                parts
+                    .headers
+                    .insert(HEADER_E2EE, HeaderValue::from_static(E2EE_VERSION));
+                parts.headers.insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/plain; charset=utf-8"),
+                );
+                parts.headers.remove(header::CONTENT_LENGTH);
+                return Response::from_parts(parts, Body::from(encrypted_b64));
             }
-            return Response::from_parts(parts, Body::empty());
+            return Response::from_parts(parts, Body::from(resp_bytes));
         }
     }
 
@@ -552,5 +612,112 @@ mod tests {
         let json_resp: serde_json::Value = serde_json::from_slice(&decrypted_resp).unwrap();
         assert_eq!(json_resp["auth"], "Bearer secret-companion-token");
         assert_eq!(json_resp["received"]["hello"], "world");
+    }
+
+    #[tokio::test]
+    async fn e2ee_middleware_persists_active_flag_and_rejects_plaintext_downgrade() {
+        use axum::{
+            Json, Router,
+            body::Body,
+            http::{Request, StatusCode},
+            middleware,
+            routing::{get, post},
+        };
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route("/health", get(|| async { Json(serde_json::json!({"ok": true})) }))
+            .route(
+                "/api/v1/echo",
+                post(|body: String| async move { Json(serde_json::json!({ "body": body })) }),
+            )
+            .layer(middleware::from_fn(e2ee_middleware));
+
+        let rng = SystemRandom::new();
+        let client_priv = EphemeralPrivateKey::generate(&ECDH_P256, &rng).expect("client key");
+        let client_pub = client_priv.compute_public_key().expect("client pub");
+        let client_pub_b64 = STANDARD.encode(client_pub.as_ref());
+
+        let handshake_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header(HEADER_E2EE_CLIENT_PUB, &client_pub_b64)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let session_id = handshake_resp
+            .headers()
+            .get(HEADER_E2EE_SESSION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let server_pub_b64 = handshake_resp
+            .headers()
+            .get(HEADER_E2EE_SERVER_PUB)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let server_pub_bytes = STANDARD.decode(&server_pub_b64).unwrap();
+        let client_key = agree_ephemeral(
+            client_priv,
+            &UnparsedPublicKey::new(&ECDH_P256, &server_pub_bytes),
+            derive_aes256_key,
+        )
+        .unwrap();
+
+        let encrypted_body = encrypt_payload(&client_key, AAD_REQ, br#"{"secret":"ok"}"#).unwrap();
+        let first_e2ee = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/echo")
+                    .header(HEADER_E2EE, E2EE_VERSION)
+                    .header(HEADER_E2EE_SESSION, &session_id)
+                    .body(Body::from(encrypted_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first_e2ee.status(), StatusCode::OK);
+        assert!(
+            lookup_session_by_id(&session_id)
+                .expect("persisted session")
+                .active_e2ee
+        );
+
+        // Downgrade attempt: omit x-dimo-e2ee header while keeping active session ID.
+        let downgrade_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/echo")
+                    .header(HEADER_E2EE_SESSION, &session_id)
+                    .body(Body::from(r#"{"plaintext":"downgrade"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(downgrade_resp.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Unknown E2EE WS subprotocol must not fall back to plaintext WS.
+        let ws_unknown_resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/echo")
+                    .header("sec-websocket-protocol", "dimo.v1, dimo.e2ee.nonexistent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ws_unknown_resp.status(), StatusCode::PRECONDITION_FAILED);
     }
 }

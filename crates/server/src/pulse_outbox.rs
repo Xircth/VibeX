@@ -2,7 +2,7 @@
 //! and user-interaction channel mirrors) with exponential retry backoff and hop-count guards.
 
 use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
@@ -129,7 +129,8 @@ fn validate_outbound_url_syntax(
             ));
         }
     }
-    Ok((parsed, clean_host.to_string(), port))
+    let host = clean_host.to_string();
+    Ok((parsed, host, port))
 }
 
 pub(crate) async fn build_safe_outbound_client(

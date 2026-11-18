@@ -264,6 +264,12 @@ async fn proxy_does_not_forward_cap_or_server_credentials_and_rewrites_html_and_
     )
     .await;
     assert_eq!(html.status(), StatusCode::OK);
+    assert_eq!(
+        html.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
     let html = String::from_utf8(
         to_bytes(html.into_body(), usize::MAX)
             .await

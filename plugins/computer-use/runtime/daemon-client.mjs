@@ -88,12 +88,14 @@ export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
   return candidates[0];
 }
 
-export async function isDaemonHealthy(url) {
-  if (!url) return false;
+export async function isDaemonHealthy(url, token) {
+  if (!url || !token) return false;
   let timer = null;
   try {
     const res = await Promise.race([
-      fetch(`${url}/health`),
+      fetch(`${url}/health`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('timeout')), 1500);
       }),
@@ -101,72 +103,58 @@ export async function isDaemonHealthy(url) {
     if (timer) clearTimeout(timer);
     if (!res || !res.ok) return false;
     const data = await res.json();
-    return Boolean(data && data.ok);
+    return Boolean(data && data.ok && data.auth === true);
   } catch {
     if (timer) clearTimeout(timer);
     return false;
   }
 }
 
-function readDaemonUrl(dataDir, pluginRoot) {
-  const files = [
-    path.join(dataDir, 'daemon.json'),
-    path.join(pluginRoot, '.dimo-plugin', 'daemon.json'),
-  ];
-  for (const file of files) {
-    try {
-      if (fs.existsSync(file)) {
-        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (parsed && typeof parsed.url === 'string') {
-          return parsed.url;
-        }
+function readDaemonInfo(dataDir) {
+  const file = path.join(dataDir, 'daemon.json');
+  try {
+    if (fs.existsSync(file)) {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (
+        parsed &&
+        typeof parsed.url === 'string' &&
+        parsed.url &&
+        typeof parsed.token === 'string' &&
+        parsed.token
+      ) {
+        return { url: parsed.url, token: parsed.token };
       }
-    } catch {
-      // ignore
     }
+  } catch {
+    // ignore
   }
   return null;
 }
 
-function writeDaemonMirrors(dataDir, url) {
-  const payload = JSON.stringify(
-    { url, dataDir, updatedAt: Date.now() },
-    null,
-    2
-  );
-  try {
-    fs.mkdirSync(dataDir, { recursive: true });
-    fs.writeFileSync(path.join(dataDir, 'daemon.json'), payload, 'utf8');
-  } catch {
-    // ignore
-  }
-}
-
-let cachedDaemonUrl = null;
+let cachedDaemon = null;
 let lastHealthyAt = 0;
 let spawningPromise = null;
 const HEALTH_TTL_MS = 4000;
 
-function markHealthy(url) {
-  cachedDaemonUrl = url;
+function markHealthy(info) {
+  cachedDaemon = info;
   lastHealthyAt = Date.now();
 }
 
-export async function ensureDaemon(envOrCtx) {
-  if (cachedDaemonUrl && Date.now() - lastHealthyAt < HEALTH_TTL_MS) {
-    return cachedDaemonUrl;
+export async function ensureDaemonAuth(envOrCtx) {
+  if (cachedDaemon && Date.now() - lastHealthyAt < HEALTH_TTL_MS) {
+    return cachedDaemon;
   }
-  if (cachedDaemonUrl && (await isDaemonHealthy(cachedDaemonUrl))) {
-    markHealthy(cachedDaemonUrl);
-    return cachedDaemonUrl;
+  if (cachedDaemon && (await isDaemonHealthy(cachedDaemon.url, cachedDaemon.token))) {
+    markHealthy(cachedDaemon);
+    return cachedDaemon;
   }
   const pluginRoot = resolvePluginRoot();
   const dataDir = resolveDataDir(envOrCtx);
-  const existingUrl = readDaemonUrl(dataDir, pluginRoot);
-  if (existingUrl && (await isDaemonHealthy(existingUrl))) {
-    markHealthy(existingUrl);
-    writeDaemonMirrors(dataDir, existingUrl);
-    return existingUrl;
+  const existing = readDaemonInfo(dataDir);
+  if (existing && (await isDaemonHealthy(existing.url, existing.token))) {
+    markHealthy(existing);
+    return existing;
   }
 
   if (spawningPromise) {
@@ -259,9 +247,12 @@ export async function ensureDaemon(envOrCtx) {
       child.stderr?.destroy();
       child.unref();
 
-      markHealthy(readyUrl);
-      writeDaemonMirrors(dataDir, readyUrl);
-      return readyUrl;
+      const info = readDaemonInfo(dataDir);
+      if (!info || info.url !== readyUrl) {
+        throw new Error('Computer daemon started without valid daemon.json credentials');
+      }
+      markHealthy(info);
+      return info;
     } finally {
       spawningPromise = null;
     }
@@ -270,13 +261,34 @@ export async function ensureDaemon(envOrCtx) {
   return spawningPromise;
 }
 
+export async function ensureDaemon(envOrCtx) {
+  const info = await ensureDaemonAuth(envOrCtx);
+  return info.url;
+}
+
 export async function callDaemon(envOrCtx, method, params = {}) {
-  const url = await ensureDaemon(envOrCtx);
-  const res = await fetch(`${url}/rpc`, {
+  let info = await ensureDaemonAuth(envOrCtx);
+  let res = await fetch(`${info.url}/rpc`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${info.token}`,
+    },
     body: JSON.stringify({ method, params: params ?? {} }),
   });
+  if (res.status === 401) {
+    cachedDaemon = null;
+    lastHealthyAt = 0;
+    info = await ensureDaemonAuth(envOrCtx);
+    res = await fetch(`${info.url}/rpc`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${info.token}`,
+      },
+      body: JSON.stringify({ method, params: params ?? {} }),
+    });
+  }
   if (!res.ok) {
     throw new Error(`Daemon HTTP ${res.status} for ${method}`);
   }
@@ -284,6 +296,6 @@ export async function callDaemon(envOrCtx, method, params = {}) {
   if (!body.ok) {
     throw new Error(body.error || `Daemon RPC error in ${method}`);
   }
-  markHealthy(url);
+  markHealthy(info);
   return body.result;
 }

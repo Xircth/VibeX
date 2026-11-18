@@ -1642,6 +1642,7 @@ impl ServerApplicationDomains {
         content: String,
         expected_revision: Option<&str>,
     ) -> Result<Value, ApplicationError> {
+        let resolved_path = self.resolve_workflow_source_path(path, false).await?;
         if content.len() > WORKFLOW_SOURCE_MAX_BYTES {
             return Err(ApplicationError::bad_request(
                 "Workflow source exceeds 4 MiB",
@@ -1654,7 +1655,11 @@ impl ServerApplicationDomains {
         workflows::validate_definition(&parsed)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         let written_name = parsed.name.clone();
-        let path = self.resolve_workflow_source_path(path, true).await?;
+        let path = if path.starts_with("~/.dimo/workflows/") {
+            self.resolve_workflow_source_path(path, true).await?
+        } else {
+            resolved_path
+        };
         let parent = path
             .parent()
             .ok_or_else(|| ApplicationError::bad_request("Workflow source has no parent directory"))?;

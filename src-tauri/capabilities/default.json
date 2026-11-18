@@ -5,8 +5,6 @@
   "windows": [
     "main",
     "settings",
-    "desktop-toast",
-    "project-rail",
     "host-*",
     "settings-host-*",
     "app-*"

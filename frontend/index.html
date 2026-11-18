@@ -12,29 +12,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <title>Dimo</title>
-    <script>
-      (function () {
-        try {
-          if (location.pathname === '/desktop-toast') return;
-          var theme = null;
-          try {
-            theme = localStorage.getItem('dimo:resolved-theme');
-          } catch (e) {}
-          if (theme !== 'light' && theme !== 'dark') {
-            theme =
-              window.matchMedia &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'dark'
-                : 'light';
-          }
-          var root = document.documentElement;
-          root.classList.add(theme);
-          var canvas = theme === 'dark' ? '#1b1b1b' : '#ffffff';
-          root.style.backgroundColor = canvas;
-          root.style.colorScheme = theme === 'dark' ? 'only dark' : 'only light';
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/init-theme.js"></script>
   </head>
 
   <body>

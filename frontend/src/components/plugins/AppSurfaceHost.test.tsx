@@ -206,13 +206,17 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     expect(transport.revoke).not.toHaveBeenCalled();
   });
 
-  it('mounts a full-trust frame and sends lifecycle context over a MessagePort', async () => {
+  it('mounts a sandboxed frame without allow-same-origin and sends lifecycle context over a MessagePort', async () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
 
     const iframe = await findSurfaceFrame('Project health');
-    expect(iframe).not.toHaveAttribute('sandbox');
+    expect(iframe).toHaveAttribute(
+      'sandbox',
+      'allow-scripts allow-forms allow-popups'
+    );
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin');
     expect(iframe).toHaveAttribute('referrerpolicy', 'no-referrer');
     expect(iframe).not.toHaveAttribute('allow');
     expect(iframe.getAttribute('srcdoc')).not.toContain(

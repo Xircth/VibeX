@@ -377,7 +377,9 @@ async fn setup_server_with_git_workspace() -> (TempDir, HeadlessServer, String, 
     std::fs::create_dir_all(&workspace_dir).expect("create workspace dir");
 
     let server = HeadlessServer::bootstrap(
-        ServerBootstrapConfig::new(&data_dir).with_token(ServerToken::new(TEST_TOKEN)),
+        ServerBootstrapConfig::new(&data_dir)
+            .with_token(ServerToken::new(TEST_TOKEN))
+            .with_allow_loopback_outbox_for_tests(true),
     )
     .await
     .expect("bootstrap HeadlessServer");
@@ -1213,17 +1215,17 @@ async fn pulse_security_hardening_hmac_sdk_emit_and_full_rest_parity_impl() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let (deck_st, deck_after_replay) = send_json(
+    let (events_st, events_after_replay) = send_json(
         router.clone(),
         Method::GET,
-        "/api/pulse/deck",
+        "/api/pulse/events?limit=50",
         Some(TEST_TOKEN),
         &[],
         Vec::new(),
     )
     .await;
-    assert_eq!(deck_st, StatusCode::OK);
-    let replay_matches = deck_after_replay["recentEvents"]
+    assert_eq!(events_st, StatusCode::OK);
+    let replay_matches = events_after_replay
         .as_array()
         .map(|arr| {
             arr.iter()

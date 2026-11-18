@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/capabilities.json",
+  "identifier": "chrome-windows",
+  "description": "Minimal window permissions for desktop-toast and project-rail chrome windows",
+  "windows": [
+    "desktop-toast",
+    "project-rail"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus"
+  ]
+}

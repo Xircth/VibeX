@@ -70,7 +70,7 @@ const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
           <iframe
             src={releaseNotesUrl}
             className="flex-1 w-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-popups"
+            sandbox="allow-scripts allow-popups"
             referrerPolicy="no-referrer"
             title={i18n.t('panels:ui.releaseNotes.releaseNotes')}
             onError={handleIframeError}

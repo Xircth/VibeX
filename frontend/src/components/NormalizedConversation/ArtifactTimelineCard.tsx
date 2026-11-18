@@ -159,11 +159,7 @@ export function ArtifactTimelineCard({
           <iframe
             title={t('artifact.previewTitle', { name })}
             src={previewUrl ?? undefined}
-            sandbox={
-              transport.environment === 'desktop'
-                ? 'allow-scripts allow-same-origin allow-popups allow-forms'
-                : 'allow-scripts allow-popups allow-forms'
-            }
+            sandbox="allow-scripts allow-popups allow-forms"
             referrerPolicy="no-referrer"
             className="aspect-video w-full border-0 bg-[var(--document-paper)]"
           />

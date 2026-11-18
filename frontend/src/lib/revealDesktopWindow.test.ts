@@ -163,13 +163,19 @@ describe('revealDesktopWindow', () => {
       path.resolve(__dirname, '../../index.html'),
       'utf8'
     );
-    const bootIndex = html.indexOf('dimo:resolved-theme');
+    const bootIndex = html.indexOf('/init-theme.js');
     const entryIndex = html.indexOf('revealDesktopWindowEntry.ts');
     expect(bootIndex).toBeGreaterThan(-1);
     expect(bootIndex).toBeLessThan(entryIndex);
-    expect(html).toContain('#1b1b1b');
-    expect(html).toContain('#ffffff');
-    expect(html).toContain("location.pathname === '/desktop-toast'");
+
+    const bootScript = fs.readFileSync(
+      path.resolve(__dirname, '../../public/init-theme.js'),
+      'utf8'
+    );
+    expect(bootScript).toContain('dimo:resolved-theme');
+    expect(bootScript).toContain('#1b1b1b');
+    expect(bootScript).toContain('#ffffff');
+    expect(bootScript).toContain("location.pathname === '/desktop-toast'");
   });
 
   it('does not reveal settings or plugin windows before the surface paints', () => {

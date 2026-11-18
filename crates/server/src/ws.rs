@@ -176,27 +176,12 @@ async fn handle_socket<R>(
                     Message::Text(text) => text,
                     Message::Binary(_) => continue,
                 };
-                let decoded_text: String = if let Some(ref session) = e2ee_session
-                    && let Ok(wrapper) = serde_json::from_str::<serde_json::Value>(&text)
-                    && wrapper.get("type").and_then(|v| v.as_str()) == Some("e2ee")
-                {
-                    let Some(cipher_b64) = wrapper.get("d").and_then(|v| v.as_str()) else {
-                        break;
-                    };
-                    let Ok(plain_bytes) = crate::e2ee::decrypt_payload(
-                        &session.key,
-                        crate::e2ee::AAD_WS,
-                        cipher_b64,
-                    ) else {
-                        break;
-                    };
-                    let Ok(plain_str) = String::from_utf8(plain_bytes) else {
-                        break;
-                    };
-                    ws_e2ee_key = Some(session.key);
-                    plain_str
-                } else {
-                    text.to_string()
+                let Ok(decoded_text) = decode_ws_text(
+                    &text,
+                    e2ee_session.as_ref(),
+                    &mut ws_e2ee_key,
+                ) else {
+                    break;
                 };
                 let message = match serde_json::from_str::<SubscriptionClientMessage>(&decoded_text) {
                     Ok(message) => message,
@@ -687,6 +672,32 @@ fn authorize_host_channel(principal: &Principal, channel: &str) -> Result<(), Er
     Ok(())
 }
 
+fn decode_ws_text(
+    text: &str,
+    e2ee_session: Option<&crate::e2ee::E2eeSession>,
+    ws_e2ee_key: &mut Option<[u8; 32]>,
+) -> Result<String, ()> {
+    if let Some(session) = e2ee_session
+        && let Ok(wrapper) = serde_json::from_str::<serde_json::Value>(text)
+        && wrapper.get("type").and_then(|v| v.as_str()) == Some("e2ee")
+    {
+        let cipher_b64 = wrapper.get("d").and_then(|v| v.as_str()).ok_or(())?;
+        let plain_bytes =
+            crate::e2ee::decrypt_payload(&session.key, crate::e2ee::AAD_WS, cipher_b64)
+                .map_err(|_| ())?;
+        let plain_str = String::from_utf8(plain_bytes).map_err(|_| ())?;
+        *ws_e2ee_key = Some(session.key);
+        crate::e2ee::mark_session_active_e2ee(&session.session_id);
+        return Ok(plain_str);
+    }
+
+    if ws_e2ee_key.is_some() || e2ee_session.is_some_and(|session| session.active_e2ee) {
+        return Err(());
+    }
+
+    Ok(text.to_string())
+}
+
 async fn send_message<S>(
     sender: &mut S,
     message: SubscriptionServerMessage,
@@ -696,10 +707,10 @@ where
     S: futures::Sink<Message> + Unpin,
 {
     let text = serde_json::to_string(&message).map_err(|_| ())?;
-    let wire_text = if let Some(key) = e2ee_key
-        && let Ok(encrypted) =
+    let wire_text = if let Some(key) = e2ee_key {
+        let encrypted =
             crate::e2ee::encrypt_payload(key, crate::e2ee::AAD_WS, text.as_bytes())
-    {
+                .map_err(|_| ())?;
         serde_json::json!({
             "type": "e2ee",
             "d": encrypted,
@@ -728,4 +739,65 @@ fn live_events(bootstrap: SubscriptionBootstrap) -> Vec<RemoteEvent> {
         .and_then(|snapshot| snapshot.payload.get("events").cloned())
         .and_then(|value| serde_json::from_value(value).ok())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_e2ee_socket_rejects_plaintext_frames() {
+        let session = crate::e2ee::E2eeSession {
+            session_id: "sess-ws-test".into(),
+            key: [0x2a; 32],
+            client_pub_b64: String::new(),
+            server_pub_b64: String::new(),
+            active_e2ee: true,
+            last_used: std::time::Instant::now(),
+        };
+        let mut active_key = Some(session.key);
+        let plaintext = r#"{"type":"ping"}"#;
+        assert!(decode_ws_text(plaintext, Some(&session), &mut active_key).is_err());
+
+        let encrypted = crate::e2ee::encrypt_payload(
+            &session.key,
+            crate::e2ee::AAD_WS,
+            plaintext.as_bytes(),
+        )
+        .expect("encrypt ws payload");
+        let wrapped = serde_json::json!({ "type": "e2ee", "d": encrypted }).to_string();
+        assert_eq!(
+            decode_ws_text(&wrapped, Some(&session), &mut active_key).expect("decrypt ws frame"),
+            plaintext
+        );
+    }
+
+    #[test]
+    fn socket_without_e2ee_allows_plaintext_until_e2ee_frame_arrives() {
+        let session = crate::e2ee::E2eeSession {
+            session_id: "sess-ws-upgrade".into(),
+            key: [0x11; 32],
+            client_pub_b64: String::new(),
+            server_pub_b64: String::new(),
+            active_e2ee: false,
+            last_used: std::time::Instant::now(),
+        };
+        let mut active_key = None;
+        let plaintext = r#"{"type":"ping"}"#;
+        assert_eq!(
+            decode_ws_text(plaintext, Some(&session), &mut active_key).expect("initial plaintext"),
+            plaintext
+        );
+
+        let encrypted = crate::e2ee::encrypt_payload(
+            &session.key,
+            crate::e2ee::AAD_WS,
+            plaintext.as_bytes(),
+        )
+        .expect("encrypt ws payload");
+        let wrapped = serde_json::json!({ "type": "e2ee", "d": encrypted }).to_string();
+        assert!(decode_ws_text(&wrapped, Some(&session), &mut active_key).is_ok());
+        assert!(active_key.is_some());
+        assert!(decode_ws_text(plaintext, Some(&session), &mut active_key).is_err());
+    }
 }

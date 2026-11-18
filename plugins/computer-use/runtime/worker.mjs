@@ -1,7 +1,7 @@
 import { definePluginWorker } from '@dimoai/plugin-sdk/worker';
 import {
   callDaemon,
-  ensureDaemon,
+  ensureDaemonAuth,
   isDaemonHealthy,
 } from './daemon-client.mjs';
 
@@ -36,10 +36,9 @@ export const RPC_METHODS = [
 ];
 
 async function loadSnapshotState(env) {
-  const daemonUrl = await ensureDaemon(env);
+  await ensureDaemonAuth(env);
   try {
-    const snapshot = await callDaemon(env, 'computer.snapshotState', {});
-    return { daemonUrl, ...snapshot };
+    return await callDaemon(env, 'computer.snapshotState', {});
   } catch {
     const [settings, status, sharedState, stopKeyStatus, driverInfo, activity] =
       await Promise.all([
@@ -51,7 +50,6 @@ async function loadSnapshotState(env) {
         callDaemon(env, 'computer.activity'),
       ]);
     return {
-      daemonUrl,
       settings,
       status,
       sharedState,
@@ -69,12 +67,11 @@ export async function dispatchWorkerRpc(method, rawParams, env) {
       : {};
   if (method === 'runtime.healthcheck') {
     try {
-      const url = await ensureDaemon(env);
-      const healthy = await isDaemonHealthy(url);
+      const { url, token } = await ensureDaemonAuth(env);
+      const healthy = await isDaemonHealthy(url, token);
       return {
         healthy,
         status: healthy ? 'running' : 'unreachable',
-        endpoint: url,
       };
     } catch (error) {
       return {

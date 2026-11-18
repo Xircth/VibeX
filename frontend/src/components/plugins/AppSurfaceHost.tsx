@@ -166,34 +166,21 @@ export function buildAppSurfaceDocument({
       document.documentElement.dir = context.direction === 'rtl' ? 'rtl' : 'ltr';
       document.documentElement.dataset.theme = context.theme || 'light';
       document.documentElement.style.colorScheme = context.theme === 'dark' ? 'dark' : 'light';
-      try {
-        const root = parent.document.documentElement;
-        const styles = parent.getComputedStyle(root);
-        const ui = styles.getPropertyValue('--font-ui').trim();
-        const mono = styles.getPropertyValue('--font-mono').trim();
-        if (ui) document.documentElement.style.setProperty('--font-ui', ui);
-        if (mono) document.documentElement.style.setProperty('--font-mono', mono);
-        if (!document.getElementById('dimo-host-fonts')) {
-          const faces = [];
-          for (const sheet of parent.document.styleSheets) {
-            let rules;
-            try { rules = sheet.cssRules; } catch { continue; }
-            if (!rules) continue;
-            for (const rule of rules) {
-              if (rule.constructor && rule.constructor.name === 'CSSFontFaceRule') {
-                faces.push(rule.cssText);
-              }
-            }
-          }
-          if (faces.length) {
-            const style = document.createElement('style');
-            style.id = 'dimo-host-fonts';
-            style.textContent = faces.join('\\n');
-            document.head.append(style);
-          }
-        }
-      } catch {
-        /* srcDoc tests and opaque frames cannot read Host font faces. */
+      if (typeof context.fontUi === 'string' && context.fontUi) {
+        document.documentElement.style.setProperty('--font-ui', context.fontUi);
+      }
+      if (typeof context.fontMono === 'string' && context.fontMono) {
+        document.documentElement.style.setProperty('--font-mono', context.fontMono);
+      }
+      if (
+        typeof context.fontFacesCss === 'string' &&
+        context.fontFacesCss &&
+        !document.getElementById('dimo-host-fonts')
+      ) {
+        const style = document.createElement('style');
+        style.id = 'dimo-host-fonts';
+        style.textContent = context.fontFacesCss;
+        document.head.append(style);
       }
       dispatchEvent(new CustomEvent('dimosurfacecontext', { detail: context }));
     };
@@ -344,9 +331,41 @@ export function AppSurfaceHost({
   const [reloadKey, setReloadKey] = useState(0);
   const direction = i18n.dir(i18n.language) === 'rtl' ? 'rtl' : 'ltr';
   const reducedMotion = useReducedMotionPreference();
+  const hostFonts = useMemo(() => {
+    const fonts: Record<string, string> = {};
+    try {
+      const styles = getComputedStyle(document.documentElement);
+      const fontUi = styles.getPropertyValue('--font-ui').trim();
+      const fontMono = styles.getPropertyValue('--font-mono').trim();
+      if (fontUi) fonts.fontUi = fontUi;
+      if (fontMono) fonts.fontMono = fontMono;
+      const faces: string[] = [];
+      for (const sheet of document.styleSheets) {
+        let rules: CSSRuleList | undefined;
+        try {
+          rules = sheet.cssRules;
+        } catch {
+          continue;
+        }
+        if (!rules) continue;
+        for (const rule of rules) {
+          if (rule.constructor?.name === 'CSSFontFaceRule') {
+            faces.push(rule.cssText);
+          }
+        }
+      }
+      if (faces.length > 0) {
+        fonts.fontFacesCss = faces.join('\n');
+      }
+    } catch {
+      /* Ignore font introspection failures in non-browser test environments. */
+    }
+    return fonts;
+  }, []);
   const context = useMemo<SurfaceContext>(
     () => ({
       ...(mounted?.hostContext ?? {}),
+      ...hostFonts,
       theme: resolvedTheme,
       locale: i18n.language,
       direction,
@@ -358,6 +377,7 @@ export function AppSurfaceHost({
       descriptor.initialRoute,
       descriptor.label,
       direction,
+      hostFonts,
       i18n.language,
       reducedMotion,
       resolvedTheme,
@@ -682,6 +702,7 @@ export function AppSurfaceHost({
             minHeight:
               variant === 'editor' ? '100%' : (descriptor.minHeight ?? 320),
           }}
+          sandbox="allow-scripts allow-forms allow-popups"
           referrerPolicy="no-referrer"
           srcDoc={mounted.document}
           aria-label={descriptor.label}

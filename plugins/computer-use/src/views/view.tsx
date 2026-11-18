@@ -2455,25 +2455,6 @@ function LocalAppPickerModal({
 // Main Computer Use Settings View (Tahoe Settings Design System)
 // ============================================================================
 
-const DAEMON_URL_STORAGE_KEY = 'dimo.computerUse.daemonUrl';
-
-function readCachedDaemonUrl(): string | null {
-  try {
-    return globalThis.sessionStorage?.getItem(DAEMON_URL_STORAGE_KEY) || null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedDaemonUrl(url: string | undefined | null): void {
-  if (!url || typeof url !== 'string') return;
-  try {
-    globalThis.sessionStorage?.setItem(DAEMON_URL_STORAGE_KEY, url);
-  } catch {
-    // ignore
-  }
-}
-
 function sameJson(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   try {
@@ -2481,73 +2462,6 @@ function sameJson(a: unknown, b: unknown): boolean {
   } catch {
     return false;
   }
-}
-
-async function postDaemonRpc(
-  daemonUrl: string,
-  method: string,
-  params: Record<string, unknown>
-): Promise<unknown> {
-  const res = await fetch(`${daemonUrl}/rpc`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, params }),
-  });
-  if (!res.ok) {
-    throw new Error(`Daemon HTTP ${res.status}`);
-  }
-  const payload = (await res.json()) as {
-    ok?: boolean;
-    result?: unknown;
-    error?: string;
-  };
-  if (!payload.ok) {
-    throw new Error(payload.error || `Daemon RPC error on ${method}`);
-  }
-  return payload.result;
-}
-
-async function callDaemonDirectHttp(
-  daemonUrl: string,
-  method: string,
-  params: Record<string, unknown>
-): Promise<unknown> {
-  if (method === 'computer.snapshotState') {
-    try {
-      const snapshot = (await postDaemonRpc(
-        daemonUrl,
-        'computer.snapshotState',
-        {}
-      )) as Record<string, unknown>;
-      return { daemonUrl, ...snapshot };
-    } catch {
-      const [
-        settings,
-        status,
-        sharedState,
-        stopKeyStatus,
-        driverInfo,
-        activity,
-      ] = await Promise.all([
-        postDaemonRpc(daemonUrl, 'computer.getSettings', {}),
-        postDaemonRpc(daemonUrl, 'computer.status', {}),
-        postDaemonRpc(daemonUrl, 'computer.sharedState', {}),
-        postDaemonRpc(daemonUrl, 'computer.stopKeyStatus', {}),
-        postDaemonRpc(daemonUrl, 'computer.driverInfo', {}),
-        postDaemonRpc(daemonUrl, 'computer.activity', {}),
-      ]);
-      return {
-        daemonUrl,
-        settings,
-        status,
-        sharedState,
-        stopKeyStatus,
-        driverInfo,
-        activity,
-      };
-    }
-  }
-  return await postDaemonRpc(daemonUrl, method, params);
 }
 
 export default function ComputerUseSettingsView({
@@ -2588,7 +2502,6 @@ export default function ComputerUseSettingsView({
     sharedStateEpochRef.current += 1;
     setSharedState(nextState);
   }, []);
-  const daemonUrlRef = useRef<string | null>(readCachedDaemonUrl());
   const renewedSessionRef = useRef<{
     token: string;
     surfaceId: string;
@@ -2697,35 +2610,12 @@ export default function ComputerUseSettingsView({
       };
 
       const run = async () => {
-        if (daemonUrlRef.current) {
-          try {
-            return await callDaemonDirectHttp(
-              daemonUrlRef.current,
-              method,
-              cleanParams
-            );
-          } catch {
-            daemonUrlRef.current = null;
-          }
-        }
-
         if (environment?.invoke && !renewedSessionRef.current) {
           try {
-            const res = await environment.invoke('surface.createSession', {
+            return await environment.invoke('surface.createSession', {
               rpcMethod: method,
               rpcParams: cleanParams,
             });
-            if (
-              res &&
-              typeof res === 'object' &&
-              'daemonUrl' in res &&
-              typeof (res as { daemonUrl?: unknown }).daemonUrl === 'string'
-            ) {
-              const url = (res as { daemonUrl: string }).daemonUrl;
-              daemonUrlRef.current = url;
-              writeCachedDaemonUrl(url);
-            }
-            return res;
           } catch (hostErr) {
             const msg = formatErrorMessage(hostErr);
             const isSessionError =
@@ -2734,59 +2624,20 @@ export default function ComputerUseSettingsView({
               msg.includes('generation') ||
               msg.includes('sequence') ||
               msg.includes('Worker');
-            if (!isSessionError && !daemonUrlRef.current) {
+            if (!isSessionError) {
               throw hostErr;
             }
-            // Fall through to Direct Daemon HTTP or Tauri Session Renewal
-            if (daemonUrlRef.current) {
-              try {
-                return await callDaemonDirectHttp(
-                  daemonUrlRef.current,
-                  method,
-                  cleanParams
-                );
-              } catch {
-                // try Tauri session renewal next
-              }
-            }
             try {
-              const renewedRes = await tryRenewedTauriInvoke();
-              if (
-                renewedRes &&
-                typeof renewedRes === 'object' &&
-                'daemonUrl' in renewedRes &&
-                typeof (renewedRes as { daemonUrl?: unknown }).daemonUrl ===
-                  'string'
-              ) {
-                const url = (renewedRes as { daemonUrl: string }).daemonUrl;
-                daemonUrlRef.current = url;
-                writeCachedDaemonUrl(url);
-              }
-              return renewedRes;
+              return await tryRenewedTauriInvoke();
             } catch {
               throw hostErr;
             }
           }
         }
 
-        if (daemonUrlRef.current) {
-          try {
-            return await callDaemonDirectHttp(
-              daemonUrlRef.current,
-              method,
-              cleanParams
-            );
-          } catch {
-            // fall through to Tauri session renewal
-          }
-        }
-
         return await tryRenewedTauriInvoke();
       };
 
-      if (daemonUrlRef.current) {
-        return await run();
-      }
       const next = invokeQueueRef.current.then(run, run);
       invokeQueueRef.current = next.catch(() => undefined);
       return await next;
@@ -2799,7 +2650,6 @@ export default function ComputerUseSettingsView({
       const epochAtStart = sharedStateEpochRef.current;
       try {
         const snapshot = (await invoke('computer.snapshotState', {})) as {
-          daemonUrl?: string;
           settings?: ComputerToolsSettings;
           status?: ComputerStatus;
           sharedState?: SharedState;
@@ -2807,11 +2657,6 @@ export default function ComputerUseSettingsView({
           driverInfo?: DriverInfo;
           activity?: ComputerActivityPayload[];
         } | null;
-
-        if (snapshot?.daemonUrl) {
-          daemonUrlRef.current = snapshot.daemonUrl;
-          writeCachedDaemonUrl(snapshot.daemonUrl);
-        }
 
         if (snapshot && snapshot.status && snapshot.sharedState) {
           if (updateSettings && snapshot.settings) {

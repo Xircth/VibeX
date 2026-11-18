@@ -391,6 +391,10 @@ async fn proxy_with(
              style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:",
         ),
     );
+    proxied.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
     proxied
 }
 

@@ -281,7 +281,6 @@ test("plugin publish parses credentials and marketplace origin", () => {
   assert.equal(packed.flags.showTree, true);
   const repo = parseArgs(["--web", "ada/notes#v1.2.0", "--owner", "ada"]);
   assert.equal(repo.flags.web, "ada/notes#v1.2.0");
-  assert.equal(marketplaceOrigin(), "https://vibex.xforever.xin");
   assert.equal(
     marketplaceOrigin("https://example.test/"),
     "https://example.test",
@@ -291,6 +290,8 @@ test("plugin publish parses credentials and marketplace origin", () => {
   const prevMarketUrl = process.env.DIMO_MARKETPLACE_URL;
   try {
     delete process.env.DIMO_MARKETPLACE_URL;
+    delete process.env.DIMO_SITE_URL;
+    assert.equal(marketplaceOrigin(), "https://dimo-ai.com");
     process.env.DIMO_SITE_URL = "https://site.example.com/";
     assert.equal(marketplaceOrigin(), "https://site.example.com");
 

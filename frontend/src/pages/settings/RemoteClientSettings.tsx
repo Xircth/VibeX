@@ -40,6 +40,7 @@ import {
   type HostClientProfile,
   type SavedHostUpdateView,
 } from '@/lib/api';
+import { getSiteUrl } from '@/lib/branding';
 import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 
@@ -219,8 +220,7 @@ export function RemoteClientSettings() {
     isSignedIn && overview?.relayPermission !== false
   );
   const relayPublicOrigin =
-    overview?.assignedRelayServer?.publicOrigin?.trim() ||
-    'https://vibex.xforever.xin';
+    overview?.assignedRelayServer?.publicOrigin?.trim() || getSiteUrl();
   const locationContext = useContext(UNSAFE_LocationContext);
   const rawSearch =
     locationContext?.location.search ??

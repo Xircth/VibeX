@@ -133,6 +133,12 @@ describe('official plugin presentation', () => {
         sourceOrigin: 'https://vibex.xforever.xin/marketplace/dimo/office',
       })
     ).toBe(false);
+    expect(
+      isOpenSourcePluginOrigin({
+        sourceKind: 'marketplace',
+        sourceOrigin: 'https://dimo-ai.com/marketplace/dimo/office',
+      })
+    ).toBe(false);
   });
 
   it('allows uninstall only for non-builtin packages that support it', () => {

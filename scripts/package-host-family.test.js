@@ -20,7 +20,7 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     path.join(root, "dimo-plugin.json"),
     JSON.stringify({
       schemaVersion: 1,
-      marketplace: { origin: "https://vibex.xforever.xin", path: "/marketplace" },
+      marketplace: { origin: "https://dimo-ai.com", path: "/marketplace" },
       official: [
         {
           id: "dimo.session-enhance",

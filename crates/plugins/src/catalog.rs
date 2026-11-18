@@ -696,6 +696,7 @@ pub fn origin_kind(origin: Option<&str>) -> Option<&'static str> {
     } else if origin.contains("marketplace")
         || matches_origin_host(origin, &marketplace_origin())
         || matches_origin_host(origin, &utils::site_origin())
+        || matches_origin_host(origin, utils::LEGACY_SITE_ORIGIN)
         || matches_origin_host(
             origin,
             crate::official_catalog::official_marketplace_origin(),
@@ -1070,9 +1071,14 @@ mod tests {
             Some("github")
         );
         assert_eq!(
-            origin_kind(Some("https://vibex.xforever.xin/marketplace/dimo/office")),
+            origin_kind(Some("https://dimo-ai.com/marketplace/dimo/office")),
             Some("marketplace")
         );
+        assert_eq!(
+            origin_kind(Some("https://vibex.xforever.xin/files/a.vxp")),
+            Some("marketplace")
+        );
+        assert_eq!(origin_kind(Some("https://evil.example/plugin.vxp")), None);
         assert!(source_allows_remote_update(
             PluginSourceKind::Snapshot,
             Some("https://github.com/acme/notes")

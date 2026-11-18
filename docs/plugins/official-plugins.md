@@ -4,7 +4,7 @@
 
 ### 分发与生效规则
 
-- **市场官方分类与源码登记**：仓库根 [`dimo-plugin.json`](../../dimo-plugin.json) 登记了通过 [官方插件市场](https://vibex.xforever.xin/marketplace/) 与独立 GitHub Release 分发的核心官方包；Host 优先从市场拉取，离线或市场无制品时回退至快照/仓库地址，也支持直接导入 `.vxp` 或 `dimo plugin add --dev` 链接本地源码目录。
+- **市场官方分类与源码登记**：仓库根 [`dimo-plugin.json`](../../dimo-plugin.json) 登记了通过 [官方插件市场](https://dimo-ai.com/marketplace/) 与独立 GitHub Release 分发的核心官方包；Host 优先从市场拉取，离线或市场无制品时回退至快照/仓库地址，也支持直接导入 `.vxp` 或 `dimo plugin add --dev` 链接本地源码目录。
 - **能力等价插件（Capability-Parity）**：从原内置功能迁出的等价官方插件（如浏览器、代码补全、提示词增强、看板视图、笔记等）按 Host 版本白名单自动就绪，用户仍可随时禁用或卸载。
 - **生效双轨（Dual Activation）**：UI 面板、主题、右键菜单与 Provider 接缝**启用即刻生效、禁用原子撤下**；向 Agent 注入的 **Skill、MCP 与 Hook 仅对启用后新建或重新绑定的会话生效**（不热拆已在运行中的 STDIO 会话）。
 - **单层独立**：各插件彼此完全独立，不存在插件依赖插件；关闭任一插件只会按反序回收其当前激活代（Activation Generation）。

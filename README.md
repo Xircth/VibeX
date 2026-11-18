@@ -15,10 +15,10 @@
   </p>
 
   <p>
-    <a href="https://vibex.xforever.xin"><img src="https://img.shields.io/badge/Website-vibex.xforever.xin-2563EB?style=for-the-badge" alt="Website" /></a>
-    <a href="https://vibex.xforever.xin/#download"><img src="https://img.shields.io/badge/Download-macOS%20%7C%20Windows%20%7C%20Linux-0F172A?style=for-the-badge" alt="Download" /></a>
-    <a href="https://vibex.xforever.xin/docs"><img src="https://img.shields.io/badge/Docs-vibex.xforever.xin%2Fdocs-4F46E5?style=for-the-badge" alt="Docs" /></a>
-    <a href="https://vibex.xforever.xin/marketplace"><img src="https://img.shields.io/badge/Marketplace-Plugins-059669?style=for-the-badge" alt="Marketplace" /></a>
+    <a href="https://dimo-ai.com"><img src="https://img.shields.io/badge/Website-dimo-ai.com-2563EB?style=for-the-badge" alt="Website" /></a>
+    <a href="https://dimo-ai.com/#download"><img src="https://img.shields.io/badge/Download-macOS%20%7C%20Windows%20%7C%20Linux-0F172A?style=for-the-badge" alt="Download" /></a>
+    <a href="https://dimo-ai.com/docs"><img src="https://img.shields.io/badge/Docs-dimo-ai.com%2Fdocs-4F46E5?style=for-the-badge" alt="Docs" /></a>
+    <a href="https://dimo-ai.com/marketplace"><img src="https://img.shields.io/badge/Marketplace-Plugins-059669?style=for-the-badge" alt="Marketplace" /></a>
     <a href="https://www.npmjs.com/package/dimoai"><img src="https://img.shields.io/npm/v/dimoai?style=for-the-badge&label=CLI&color=7C3AED" alt="npm version" /></a>
   </p>
 </div>
@@ -126,7 +126,7 @@ Built on a lightweight native Rust core where **everything is a plugin**. Equip 
 
 ### 1. Native Desktop App (Recommended)
 
-Download the native installer (with built-in auto-updates) from the [Official Download Page](https://vibex.xforever.xin/#download):
+Download the native installer (with built-in auto-updates) from the [Official Download Page](https://dimo-ai.com/#download):
 
 - **macOS**: Apple Silicon (`aarch64` `.dmg`) · Intel (`x64` `.dmg`)
 - **Windows**: Windows 10 / 11 (`x64` / `arm64` `.exe`)
@@ -173,10 +173,10 @@ pnpm run check    # Run frontend & Rust type/compile checks
 
 ## Official Links & Community
 
-- **Website**: [https://vibex.xforever.xin](https://vibex.xforever.xin)
-- **Downloads**: [https://vibex.xforever.xin/#download](https://vibex.xforever.xin/#download)
-- **Online Docs**: [https://vibex.xforever.xin/docs](https://vibex.xforever.xin/docs)
-- **Plugin Marketplace**: [https://vibex.xforever.xin/marketplace](https://vibex.xforever.xin/marketplace)
+- **Website**: [https://dimo-ai.com](https://dimo-ai.com)
+- **Downloads**: [https://dimo-ai.com/#download](https://dimo-ai.com/#download)
+- **Online Docs**: [https://dimo-ai.com/docs](https://dimo-ai.com/docs)
+- **Plugin Marketplace**: [https://dimo-ai.com/marketplace](https://dimo-ai.com/marketplace)
 - **CLI Package**: [https://www.npmjs.com/package/dimoai](https://www.npmjs.com/package/dimoai)
 
 <div align="center">

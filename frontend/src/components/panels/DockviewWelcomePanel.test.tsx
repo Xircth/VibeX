@@ -369,7 +369,7 @@ describe('DockviewWelcomePanel', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '去官网查看' })).toHaveAttribute(
       'href',
-      'https://vibex.com/docs'
+      'https://dimo-ai.com/docs'
     );
 
     expect(

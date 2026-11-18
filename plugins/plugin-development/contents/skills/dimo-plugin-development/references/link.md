@@ -36,7 +36,7 @@ Host 未运行时，路径写入 `~/.dimo/imports/links.jsonl`，下次启动再
 dimo plugin pack [dir] [--output file.vxp]
 dimo plugin add --profile file.vxp -y
 dimo plugin add --web <git>#tag -y
-dimo plugin add --web https://vibex.xforever.xin/marketplace/<owner>/<name> -y
+dimo plugin add --web https://dimo-ai.com/marketplace/<owner>/<name> -y
 dimo plugin list
 dimo plugin update <id>
 dimo plugin remove <id>

@@ -1,6 +1,8 @@
 export const APP_NAME = 'Dimo';
 
-export const DEFAULT_SITE_URL = 'https://vibex.xforever.xin';
+export const DEFAULT_SITE_URL = 'https://dimo-ai.com';
+/** Previous public site. Marketplace icons and saved origins on this host stay valid. */
+export const LEGACY_SITE_HOST = 'vibex.xforever.xin';
 export const DEFAULT_DEV_SITE_URL = 'http://localhost:3100';
 
 function resolveDefaultSiteUrl(): string {

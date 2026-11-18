@@ -15,10 +15,10 @@
   </p>
 
   <p>
-    <a href="https://vibex.xforever.xin"><img src="https://img.shields.io/badge/官网-vibex.xforever.xin-2563EB?style=for-the-badge" alt="官网" /></a>
-    <a href="https://vibex.xforever.xin/#download"><img src="https://img.shields.io/badge/立即下载-macOS%20%7C%20Windows%20%7C%20Linux-0F172A?style=for-the-badge" alt="下载客户端" /></a>
-    <a href="https://vibex.xforever.xin/docs"><img src="https://img.shields.io/badge/文档中心-Docs-4F46E5?style=for-the-badge" alt="文档中心" /></a>
-    <a href="https://vibex.xforever.xin/marketplace"><img src="https://img.shields.io/badge/插件市场-Marketplace-059669?style=for-the-badge" alt="插件市场" /></a>
+    <a href="https://dimo-ai.com"><img src="https://img.shields.io/badge/官网-dimo-ai.com-2563EB?style=for-the-badge" alt="官网" /></a>
+    <a href="https://dimo-ai.com/#download"><img src="https://img.shields.io/badge/立即下载-macOS%20%7C%20Windows%20%7C%20Linux-0F172A?style=for-the-badge" alt="下载客户端" /></a>
+    <a href="https://dimo-ai.com/docs"><img src="https://img.shields.io/badge/文档中心-Docs-4F46E5?style=for-the-badge" alt="文档中心" /></a>
+    <a href="https://dimo-ai.com/marketplace"><img src="https://img.shields.io/badge/插件市场-Marketplace-059669?style=for-the-badge" alt="插件市场" /></a>
     <a href="https://www.npmjs.com/package/dimoai"><img src="https://img.shields.io/npm/v/dimoai?style=for-the-badge&label=CLI&color=7C3AED" alt="npm version" /></a>
   </p>
 </div>
@@ -130,7 +130,7 @@
 
 ### 1. 下载桌面客户端（推荐）
 
-前往 [Dimo 官方下载页](https://vibex.xforever.xin/#download) 获取原生安装包（支持自动更新）：
+前往 [Dimo 官方下载页](https://dimo-ai.com/#download) 获取原生安装包（支持自动更新）：
 
 - **macOS**：Apple Silicon (`aarch64` `.dmg`) · Intel (`x64` `.dmg`)
 - **Windows**：Windows 10 / 11 (`x64` / `arm64` `.exe`)
@@ -177,10 +177,10 @@ pnpm run check    # 运行前后端类型与编译检查
 
 ## 官方链接与社区交流
 
-- **官方网站**：[https://vibex.xforever.xin](https://vibex.xforever.xin)
-- **客户端下载**：[https://vibex.xforever.xin/#download](https://vibex.xforever.xin/#download)
-- **在线文档**：[https://vibex.xforever.xin/docs](https://vibex.xforever.xin/docs)
-- **插件市场**：[https://vibex.xforever.xin/marketplace](https://vibex.xforever.xin/marketplace)
+- **官方网站**：[https://dimo-ai.com](https://dimo-ai.com)
+- **客户端下载**：[https://dimo-ai.com/#download](https://dimo-ai.com/#download)
+- **在线文档**：[https://dimo-ai.com/docs](https://dimo-ai.com/docs)
+- **插件市场**：[https://dimo-ai.com/marketplace](https://dimo-ai.com/marketplace)
 - **CLI 工具包**：[https://www.npmjs.com/package/dimoai](https://www.npmjs.com/package/dimoai)
 
 <div align="center">

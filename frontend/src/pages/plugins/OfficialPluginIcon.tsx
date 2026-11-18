@@ -4,7 +4,11 @@ import { type ComponentType, type SVGProps, useId, useState } from 'react';
 import { CONTRIBUTION_ICONS } from '@/components/plugins/contributionIcon';
 import type { CoreFoundationArtworkKey } from '@/features/plugins/coreFoundationPlugins';
 import type { CatalogListing } from '@/lib/api/plugins';
-import { getMarketplaceHost, getMarketplaceOrigin } from '@/lib/branding';
+import {
+  LEGACY_SITE_HOST,
+  getMarketplaceHost,
+  getMarketplaceOrigin,
+} from '@/lib/branding';
 
 import {
   listingPackageIds,
@@ -659,7 +663,7 @@ export function allowedMarketplaceIconUrl(value: string): string | null {
   if (!isLoopbackHttp) {
     if (url.protocol !== 'https:') return null;
     if (url.port !== '' && url.port !== '443') return null;
-    if (host !== getMarketplaceHost()) return null;
+    if (host !== getMarketplaceHost() && host !== LEGACY_SITE_HOST) return null;
   }
   return url.href;
 }

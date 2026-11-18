@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { RouterProvision } from './account';
 import {
+  MODEL_GATEWAY_ORIGIN,
   ROUTER_OPENCODE_PROVIDER_ID,
   ROUTER_PROVIDER_NAME,
   dshProviderSaveRequest,
+  officialModelBaseUrl,
   openCodeConnectRequest,
   providerSaveRequest,
   supportsModelRouter,
@@ -92,6 +94,17 @@ describe('openCodeConnectRequest', () => {
     expect(request.models.map((model) => model.id)).toEqual(['sonnet', 'opus']);
   });
 
+  it('does not append a second /v1 when the official gateway is already versioned', () => {
+    const request = openCodeConnectRequest(
+      provision({
+        agentId: 'opencode',
+        protocol: 'anthropic',
+        baseUrl: 'https://model.xforever.xin',
+      })
+    );
+    expect(request.base_url).toBe(`${MODEL_GATEWAY_ORIGIN}/v1`);
+  });
+
   it('keeps the OpenAI-compatible base as issued', () => {
     const request = openCodeConnectRequest(
       provision({
@@ -138,6 +151,70 @@ describe('dshProviderSaveRequest', () => {
       set_default: false,
       default_model: 'sonnet',
     });
+  });
+});
+
+describe('officialModelBaseUrl', () => {
+  it('keeps a user gateway and only rewrites the official model host', () => {
+    expect(officialModelBaseUrl('codex', 'https://gateway.example/v1')).toBe(
+      'https://gateway.example/v1'
+    );
+    expect(
+      officialModelBaseUrl('claude_code', 'https://api.anthropic.com')
+    ).toBe('https://api.anthropic.com');
+    expect(officialModelBaseUrl('codex', 'not a url')).toBe('not a url');
+  });
+
+  it('uses the model host root for Claude and Gemini and /v1 for OpenAI clients', () => {
+    expect(
+      officialModelBaseUrl('claude_code', 'https://model.xforever.xin')
+    ).toBe(MODEL_GATEWAY_ORIGIN);
+    expect(officialModelBaseUrl('gemini', 'https://model.dimo-ai.com/v1')).toBe(
+      MODEL_GATEWAY_ORIGIN
+    );
+    expect(
+      officialModelBaseUrl('antigravity', 'https://model.xforever.xin/v1')
+    ).toBe(MODEL_GATEWAY_ORIGIN);
+    expect(officialModelBaseUrl('codex', 'https://model.xforever.xin')).toBe(
+      `${MODEL_GATEWAY_ORIGIN}/v1`
+    );
+    expect(
+      officialModelBaseUrl('opencode', 'https://model.dimo-ai.com/v1')
+    ).toBe(`${MODEL_GATEWAY_ORIGIN}/v1`);
+    expect(
+      officialModelBaseUrl(
+        'deepseek_harness',
+        'https://vibex.xforever.xin/api/router'
+      )
+    ).toBe(`${MODEL_GATEWAY_ORIGIN}/v1`);
+    expect(
+      officialModelBaseUrl('claude_code', 'https://dimo-ai.com/api/router/v1')
+    ).toBe(MODEL_GATEWAY_ORIGIN);
+  });
+
+  it('writes the normalized official URL onto the ModelRouter preset only', () => {
+    const saved = providerSaveRequest(
+      provision({
+        agentId: 'codex',
+        protocol: 'openai',
+        baseUrl: 'https://model.xforever.xin',
+      }),
+      'preset-1'
+    );
+    expect(saved.id).toBe('preset-1');
+    expect(saved.name).toBe(ROUTER_PROVIDER_NAME);
+    expect(saved.api_url).toBe(`${MODEL_GATEWAY_ORIGIN}/v1`);
+
+    const custom = providerSaveRequest(
+      provision({
+        agentId: 'codex',
+        protocol: 'openai',
+        baseUrl: 'https://gateway.example/v1',
+      }),
+      'user-preset'
+    );
+    expect(custom.id).toBe('user-preset');
+    expect(custom.api_url).toBe('https://gateway.example/v1');
   });
 });
 

@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 
 pub const DEFAULT_TUNNEL_PORT: u16 = 17891;
-pub const DEFAULT_OFFICIAL_RELAY_HOST: &str = "vibex.xforever.xin";
+pub const DEFAULT_OFFICIAL_RELAY_HOST: &str = "dimo-ai.com";
 pub const DEFAULT_OFFICIAL_RELAY_PORT: u16 = 443;
 pub const RELAY_HEARTBEAT_INTERVAL_MS: u64 = 15_000;
 pub const RELAY_CONTROL_TIMEOUT_MS: u64 = 45_000;
@@ -184,8 +184,9 @@ pub fn scheme_hint_from_input(input: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_TUNNEL_PORT, TunnelEndpoint, extract_relay_token, format_origin, install_command,
-        parse_tunnel_endpoint, probe_origins, scheme_hint_from_input,
+        DEFAULT_OFFICIAL_RELAY_HOST, DEFAULT_TUNNEL_PORT, TunnelEndpoint, extract_relay_token,
+        format_origin, install_command, official_relay_endpoint, parse_tunnel_endpoint,
+        probe_origins, scheme_hint_from_input,
     };
 
     #[test]
@@ -283,11 +284,9 @@ mod tests {
         assert_eq!(extract_relay_token("203.0.113.10:13630"), None);
     }
 
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn install_command_includes_the_public_host() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = crate::lock_site_env();
         unsafe {
             std::env::set_var("DIMO_SITE_URL", "https://site.example.com");
         }
@@ -303,7 +302,7 @@ mod tests {
 
     #[test]
     fn install_command_uses_sudo_for_privileged_ports() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = crate::lock_site_env();
         unsafe {
             std::env::set_var("DIMO_SITE_URL", "https://site.example.com");
         }
@@ -324,7 +323,7 @@ mod tests {
 
     #[test]
     fn install_command_respects_dimo_site_url_env() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = crate::lock_site_env();
         unsafe {
             std::env::set_var("DIMO_SITE_URL", "https://site.example.com/");
         }
@@ -336,5 +335,36 @@ mod tests {
             cmd,
             "curl -fsSL https://site.example.com/tunnel.sh | sh -s -- -t tok_abc -p 17891 -h relay.example.com"
         );
+    }
+
+    #[test]
+    fn official_relay_uses_the_public_site_unless_overridden() {
+        let _lock = crate::lock_site_env();
+        let previous_url = std::env::var("DIMO_RELAY_URL").ok();
+        let previous_host = std::env::var("DIMO_RELAY_HOST").ok();
+        unsafe {
+            std::env::remove_var("DIMO_RELAY_URL");
+            std::env::remove_var("DIMO_RELAY_HOST");
+        }
+        let endpoint = official_relay_endpoint(None).expect("default relay");
+        let assigned = official_relay_endpoint(Some("assigned.example.test")).expect("assigned");
+        unsafe {
+            std::env::set_var("DIMO_RELAY_HOST", "relay.example.test");
+        }
+        let overridden = official_relay_endpoint(None).expect("env relay");
+        unsafe {
+            match previous_url {
+                Some(value) => std::env::set_var("DIMO_RELAY_URL", value),
+                None => std::env::remove_var("DIMO_RELAY_URL"),
+            }
+            match previous_host {
+                Some(value) => std::env::set_var("DIMO_RELAY_HOST", value),
+                None => std::env::remove_var("DIMO_RELAY_HOST"),
+            }
+        }
+        assert_eq!(endpoint.host, DEFAULT_OFFICIAL_RELAY_HOST);
+        assert_eq!(endpoint.port, 443);
+        assert_eq!(assigned.host, "assigned.example.test");
+        assert_eq!(overridden.host, "relay.example.test");
     }
 }

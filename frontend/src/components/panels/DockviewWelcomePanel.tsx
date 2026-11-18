@@ -47,6 +47,7 @@ import {
   useKanbanProjectSessions,
 } from '@/hooks/useKanbanProjectSessions';
 import { fileTreeApi, openSettingsSurface, projectsApi } from '@/lib/api';
+import { getSiteUrl } from '@/lib/branding';
 import { openLocalAppWindow } from '@/lib/api/appWindow';
 import { useTauriClient } from '@/lib/desktopShell';
 import {
@@ -77,7 +78,6 @@ import {
 
 const WELCOME_RECENT_SESSION_LIMIT = 4;
 const WELCOME_RECENT_PROJECT_LIMIT = 5;
-const DOCS_URL = 'https://vibex.com/docs';
 const TIP_KEYS = [
   'promptEnhance',
   'pageLayout',
@@ -237,7 +237,7 @@ function WelcomeTips() {
       </div>
       <a
         className="workspace-welcome__tips-docs"
-        href={DOCS_URL}
+        href={getSiteUrl('/docs')}
         target="_blank"
         rel="noreferrer"
       >

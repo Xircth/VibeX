@@ -2,9 +2,9 @@
 
 Official CLI and Host-family launcher for **Dimo** — the **Integrated Agent Development Environment (IADE)** unifying **20 built-in Coding Agents** (Claude Code, Codex, DeepSeek Harness, Google Antigravity, Cursor, OpenCode, Pi, Grok, Cline, OpenClaw, Hermes, CodeBuddy, Kimi Code, Qoder, Kiro CLI, Auggie, TRAE CLI, Command Code, ZCode, OMP) and the **Official ACP Registry** on a single local-first Rust Host.
 
-- **Website**: [https://vibex.xforever.xin](https://vibex.xforever.xin)
-- **Documentation**: [https://vibex.xforever.xin/docs](https://vibex.xforever.xin/docs)
-- **Plugin Marketplace**: [https://vibex.xforever.xin/marketplace](https://vibex.xforever.xin/marketplace)
+- **Website**: [https://dimo-ai.com](https://dimo-ai.com)
+- **Documentation**: [https://dimo-ai.com/docs](https://dimo-ai.com/docs)
+- **Plugin Marketplace**: [https://dimo-ai.com/marketplace](https://dimo-ai.com/marketplace)
 - **GitHub**: [https://github.com/DimoADE/Dimo](https://github.com/DimoADE/Dimo)
 
 ---

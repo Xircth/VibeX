@@ -1,5 +1,5 @@
 #!/bin/sh
-# Dimo public tunnel installer. POSIX sh. Safe to pipe: curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh
+# Dimo public tunnel installer. POSIX sh. Safe to pipe: curl -fsSL https://dimo-ai.com/tunnel.sh | sh
 set -eu
 
 TOKEN=""
@@ -7,7 +7,7 @@ PORT=""
 HOST=""
 BIND="0.0.0.0"
 BIND_SET=0
-SITE_URL="${DIMO_SITE_URL:-https://vibex.xforever.xin}"
+SITE_URL="${DIMO_SITE_URL:-https://dimo-ai.com}"
 SITE_URL="${SITE_URL%/}"
 PY_URL="${SITE_URL}/tunnel.py"
 MODE="install"

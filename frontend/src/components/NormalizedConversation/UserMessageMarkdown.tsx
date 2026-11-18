@@ -213,7 +213,7 @@ function loosenOrderedMarkers(line: string): string {
     `^([ \\t]{0,3})(${ORDERED_MARKER})(?=[^\\d\\s.)\\uFF0E])`,
     'u'
   );
-  let next = line.replace(lineStart, rewrite);
+  const next = line.replace(lineStart, rewrite);
   if (candidates.length < 2) return next;
 
   return next.replace(

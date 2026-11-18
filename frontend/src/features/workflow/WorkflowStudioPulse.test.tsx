@@ -1322,7 +1322,7 @@ describe('Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () 
   it('requires a real name before leaving or saving an edited unnamed task', async () => {
     const user = userEvent.setup();
     const onBack = vi.fn();
-    const callSpy = vi.fn(async (command: string) => {
+    const callSpy = vi.fn(async (command: string, _args?: unknown) => {
       if (command === 'workflow_list') return [];
       if (command === 'workflow_source_read') {
         throw new Error('missing');

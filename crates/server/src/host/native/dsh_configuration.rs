@@ -261,18 +261,17 @@ pub fn save_provider(
     ))
 }
 
+pub type DshProviderDelete = (
+    DshProvidersView,
+    Vec<NativeFileMutation>,
+    BTreeMap<String, Option<String>>,
+);
+
 pub fn delete_provider(
     paths: &DshPaths,
     provider_id: &str,
     environment: &HashMap<String, String>,
-) -> Result<
-    (
-        DshProvidersView,
-        Vec<NativeFileMutation>,
-        BTreeMap<String, Option<String>>,
-    ),
-    String,
-> {
+) -> Result<DshProviderDelete, String> {
     let id = normalize_provider_id(provider_id)?;
     if id == OFFICIAL_PROVIDER_ID {
         return Err("不能删除官方 DeepSeek Provider".to_string());
@@ -445,10 +444,11 @@ fn revert_projected_official_endpoint(
     }
     let official_ids = yaml_model_ids(section);
     section.remove(Value::String("baseURL".into()));
-    if !removed_model_ids.is_empty() && same_model_ids(&official_ids, removed_model_ids) {
-        if let Ok(sequence) = model_sequence(&official_models()) {
-            section.insert(Value::String("models".into()), Value::Sequence(sequence));
-        }
+    if !removed_model_ids.is_empty()
+        && same_model_ids(&official_ids, removed_model_ids)
+        && let Ok(sequence) = model_sequence(&official_models())
+    {
+        section.insert(Value::String("models".into()), Value::Sequence(sequence));
     }
     true
 }

@@ -74,8 +74,7 @@
     0 6px 18px -4px hsl(var(--shadow-ink) / 0.1);
 }
 
-.workflow-studio-top-chrome
-  .workflow-studio-task-select.astryx-select {
+.workflow-studio-top-chrome .workflow-studio-task-select.astryx-select {
   width: 28px;
   flex: 0 0 28px;
 }

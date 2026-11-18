@@ -199,13 +199,12 @@ pub async fn execute_workflow_tool<C: HostCommandCaller>(
                 "definition": definition,
                 "revision": sha256_revision(content.as_bytes()),
             });
-            if let Some(focus) = read_canvas_focus() {
-                if focus.get("path").and_then(Value::as_str) == Some(rel_path) {
-                    if let Some(obj) = result.as_object_mut() {
-                        obj.insert("canvasViewing".to_string(), json!(true));
-                        obj.insert("marker".to_string(), json!("dimo.canvas.viewing"));
-                    }
-                }
+            if let Some(focus) = read_canvas_focus()
+                && focus.get("path").and_then(Value::as_str) == Some(rel_path)
+                && let Some(obj) = result.as_object_mut()
+            {
+                obj.insert("canvasViewing".to_string(), json!(true));
+                obj.insert("marker".to_string(), json!("dimo.canvas.viewing"));
             }
             Ok(result)
         }

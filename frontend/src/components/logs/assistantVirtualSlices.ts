@@ -25,7 +25,7 @@ export function blockVirtualKey(item: TurnRenderItem): string {
     case 'tool': {
       const id = item.use?.tool_use_id ?? item.result?.tool_use_id;
       if (id) return `tool:${id}`;
-      const name = item.use?.tool_name ?? item.result?.tool_name ?? 'tool';
+      const name = item.use?.tool_name ?? 'tool';
       return `tool-name:${name}`;
     }
     case 'markdown':

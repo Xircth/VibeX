@@ -1660,10 +1660,10 @@ fn write_workflow_source(
     ));
     std::fs::write(&temporary, content.as_bytes()).map_err(internal_error)?;
     std::fs::rename(&temporary, &path).map_err(internal_error)?;
-    if let Some(dir) = shared_workflows_dir() {
-        if path.starts_with(&dir) {
-            enforce_single_unnamed_draft(&dir, &path, &written_name);
-        }
+    if let Some(dir) = shared_workflows_dir()
+        && path.starts_with(&dir)
+    {
+        enforce_single_unnamed_draft(&dir, &path, &written_name);
     }
     Ok(json!({
         "revision": workflow_source_revision(content.as_bytes()),

@@ -42,6 +42,7 @@ impl SignInOpener {
         })
     }
 
+    #[cfg(test)]
     fn discard() -> Arc<Self> {
         Arc::new(Self {
             seen: Mutex::new(HashSet::new()),
@@ -127,6 +128,7 @@ pub async fn run_antigravity_login(
     }
 }
 
+#[cfg(test)]
 async fn sign_in<R, W>(reader: R, writer: W, cwd: &str) -> Result<(), String>
 where
     R: AsyncBufRead + Unpin,

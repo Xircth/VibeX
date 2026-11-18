@@ -21,6 +21,16 @@ import {
   formatWorkflowTemporalBadge,
 } from './workflowStepPresentation';
 
+function definedConfigOverrides(
+  overrides: { [key: string]: string | undefined } | undefined
+): Record<string, string> {
+  const defined: Record<string, string> = {};
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    if (typeof value === 'string') defined[key] = value;
+  }
+  return defined;
+}
+
 export function WorkflowStudioInspectorInfo({
   selectedStep,
   studio,
@@ -412,7 +422,9 @@ export function WorkflowStudioInspectorInfo({
                     currentModeId={agentControls.current_mode ?? null}
                     configOptions={agentControls.config_options}
                     selectedModeId={selectedStep.modeOverride}
-                    pendingConfigValues={selectedStep.configOverrides ?? {}}
+                    pendingConfigValues={definedConfigOverrides(
+                      selectedStep.configOverrides
+                    )}
                     onSelectMode={(modeId) => {
                       updateStep(selectedStep.id, (step) =>
                         step.kind === 'session' || step.kind === 'agent'

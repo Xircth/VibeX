@@ -855,18 +855,17 @@ function SessionCanvasFlow({
   );
 
   const nodes = useMemo(() => {
-    const held = heldSessionIdsRef.current;
     const displayed = displayedCanvasNodes(
       documentState.nodes,
       liveIds,
       sessionsReady,
-      held
+      heldSessionIds
     );
     return retainUnconfirmedCanvasSessions(
       displayed,
       documentState.nodes,
       observedLiveIdsRef.current,
-      held
+      heldSessionIds
     );
   }, [documentState.nodes, heldSessionIds, liveIds, sessionsReady]);
   const allPlacedSessionIds = reuseStringListIfEqual(
@@ -2221,91 +2220,95 @@ function SessionCanvasFlow({
     ]
   );
 
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
-    const geometryChanges = changes.flatMap((change) =>
-      (change.type === 'position' || change.type === 'dimensions') && change.id
-        ? [
-            {
-              id: change.id,
-              type: change.type,
-              position:
-                change.type === 'position' ? change.position : undefined,
-              dimensions:
-                change.type === 'dimensions' ? change.dimensions : undefined,
-              dragging:
-                change.type === 'position' ? change.dragging : undefined,
-            },
-          ]
-        : []
-    );
-    const primary = alignPrimaryRef.current;
-    if (primary && !altHeldRef.current) {
-      const lead = geometryChanges.find(
-        (change) =>
-          change.type === 'position' &&
-          parseCanvasNodeId(change.id) === primary.id &&
-          change.dragging === true
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const geometryChanges = changes.flatMap((change) =>
+        (change.type === 'position' || change.type === 'dimensions') &&
+        change.id
+          ? [
+              {
+                id: change.id,
+                type: change.type,
+                position:
+                  change.type === 'position' ? change.position : undefined,
+                dimensions:
+                  change.type === 'dimensions' ? change.dimensions : undefined,
+                dragging:
+                  change.type === 'position' ? change.dragging : undefined,
+              },
+            ]
+          : []
       );
-      if (lead?.position) {
-        const alignment = computeAlignment(
-          {
-            id: primary.id,
-            x: lead.position.x,
-            y: lead.position.y,
-            width: primary.width,
-            height: primary.height,
-          },
-          alignCandidatesRef.current,
-          ALIGN_TOLERANCE_PX / Math.max(zoomRef.current, 0.01)
+      const primary = alignPrimaryRef.current;
+      if (primary && !altHeldRef.current) {
+        const lead = geometryChanges.find(
+          (change) =>
+            change.type === 'position' &&
+            parseCanvasNodeId(change.id) === primary.id &&
+            change.dragging === true
         );
-        setAlignGuides((current) =>
-          alignGuidesEqual(current, alignment.guides)
-            ? current
-            : alignment.guides
-        );
+        if (lead?.position) {
+          const alignment = computeAlignment(
+            {
+              id: primary.id,
+              x: lead.position.x,
+              y: lead.position.y,
+              width: primary.width,
+              height: primary.height,
+            },
+            alignCandidatesRef.current,
+            ALIGN_TOLERANCE_PX / Math.max(zoomRef.current, 0.01)
+          );
+          setAlignGuides((current) =>
+            alignGuidesEqual(current, alignment.guides)
+              ? current
+              : alignment.guides
+          );
+        }
+      } else if (primary && altHeldRef.current) {
+        setAlignGuides((current) => (current.length === 0 ? current : []));
       }
-    } else if (primary && altHeldRef.current) {
-      setAlignGuides((current) => (current.length === 0 ? current : []));
-    }
-    const nextOverlay = dragOverlayFromPositionChanges(
-      documentRef.current.nodes,
-      geometryChanges,
-      dragOverlayRef.current
-    );
-    if (nextOverlay !== dragOverlayRef.current) {
-      dragOverlayRef.current = nextOverlay;
-      setDragOverlay(nextOverlay);
-      publishCanvasDragPositions(flowStore, nextOverlay);
-    }
-    setSelectedIds((current) => {
-      let changed = false;
-      const next = new Set(current);
-      for (const change of changes) {
-        if (change.type !== 'select') continue;
-        const instanceId = parseCanvasNodeId(change.id);
-        if (!instanceId) continue;
-        if (change.selected) {
-          if (!next.has(instanceId)) {
-            next.add(instanceId);
+      const nextOverlay = dragOverlayFromPositionChanges(
+        documentRef.current.nodes,
+        geometryChanges,
+        dragOverlayRef.current
+      );
+      if (nextOverlay !== dragOverlayRef.current) {
+        dragOverlayRef.current = nextOverlay;
+        setDragOverlay(nextOverlay);
+        publishCanvasDragPositions(flowStore, nextOverlay);
+      }
+      setSelectedIds((current) => {
+        let changed = false;
+        const next = new Set(current);
+        for (const change of changes) {
+          if (change.type !== 'select') continue;
+          const instanceId = parseCanvasNodeId(change.id);
+          if (!instanceId) continue;
+          if (change.selected) {
+            if (!next.has(instanceId)) {
+              next.add(instanceId);
+              changed = true;
+            }
+          } else if (next.delete(instanceId)) {
             changed = true;
           }
-        } else if (next.delete(instanceId)) {
-          changed = true;
         }
-      }
-      if (!changed) return current;
-      const resolved = marqueeSelectingRef.current
-        ? expandSelectionToGroups(documentRef.current.nodes, next)
-        : excludeSelectedGroupChildren(documentRef.current.nodes, next);
-      if (
-        resolved.size === current.size &&
-        [...resolved].every((id) => current.has(id))
-      ) {
-        return current;
-      }
-      return resolved;
-    });
-  }, [flowStore]);
+        if (!changed) return current;
+        const resolved = marqueeSelectingRef.current
+          ? expandSelectionToGroups(documentRef.current.nodes, next)
+          : excludeSelectedGroupChildren(documentRef.current.nodes, next);
+        if (
+          resolved.size === current.size &&
+          [...resolved].every((id) => current.has(id))
+        ) {
+          return current;
+        }
+        return resolved;
+      });
+    },
+    [flowStore]
+  );
 
   const handleNodeDragStart = useCallback((_event: unknown, dragged: Node) => {
     const instanceId = parseCanvasNodeId(dragged.id);
@@ -2746,12 +2749,9 @@ function SessionCanvasFlow({
     },
     []
   );
-  const handleFlowInit = useCallback(
-    (instance: { getZoom: () => number }) => {
-      zoomRef.current = instance.getZoom();
-    },
-    []
-  );
+  const handleFlowInit = useCallback((instance: { getZoom: () => number }) => {
+    zoomRef.current = instance.getZoom();
+  }, []);
 
   const handleNativeDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {

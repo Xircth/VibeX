@@ -268,9 +268,7 @@ describe('SessionCanvasView', () => {
     const saved = JSON.parse(
       window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
     ) as { nodes: Array<{ sessionId: string }> };
-    expect(saved.nodes.some((node) => node.sessionId === 'created')).toBe(
-      true
-    );
+    expect(saved.nodes.some((node) => node.sessionId === 'created')).toBe(true);
   });
 
   it('marks a session viewed when focusing it from the session list', async () => {

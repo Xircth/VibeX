@@ -135,8 +135,7 @@ export function AgentRuntimeStatus({
   const waitingConnection = Boolean(
     connection && !connection.bound && !connectionFailed
   );
-  const isActive =
-    !terminal && (Boolean(request) || waitingConnection);
+  const isActive = !terminal && (Boolean(request) || waitingConnection);
 
   const content = (
     <div

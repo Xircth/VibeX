@@ -170,7 +170,9 @@ export function WorkflowArtifactStudio({
       const previous = stack.at(-1);
       if (!previous) return stack;
       setDefinition((current) => {
-        setRedoStack((redo) => [...redo.slice(-39), current]);
+        if (current) {
+          setRedoStack((redo) => [...redo.slice(-39), current]);
+        }
         return previous;
       });
       return stack.slice(0, -1);
@@ -182,7 +184,9 @@ export function WorkflowArtifactStudio({
       const next = stack.at(-1);
       if (!next) return stack;
       setDefinition((current) => {
-        setUndoStack((undoStack) => [...undoStack.slice(-39), current]);
+        if (current) {
+          setUndoStack((undoStack) => [...undoStack.slice(-39), current]);
+        }
         return next;
       });
       return stack.slice(0, -1);

@@ -28,6 +28,7 @@ import {
 } from './tools/subagentCardModel';
 import {
   getToolCallDescription,
+  getToolExitStatus,
   getToolSummary,
 } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
@@ -632,6 +633,21 @@ export function TurnActivity({
       const expansionKey = `${turnId}-${index}`;
       const action = toolEntry.action_type;
       const backgrounded = isToolCallBackgrounded(use.meta);
+      const status = backgrounded
+        ? 'complete'
+        : getToolExitStatus(toolEntry) === 'error'
+          ? 'error'
+          : getToolChatStatus(toolEntry.status);
+      const exitStatus =
+        action.action === 'command_run' ? action.result?.exit_status : null;
+      const errorMessage =
+        status === 'error'
+          ? exitStatus?.type === 'exit_code' && exitStatus.code !== 0
+            ? t('messageTurnView.toolSummary.commandExitCode', {
+                code: exitStatus.code,
+              })
+            : t('messageTurnView.toolSummary.failed')
+          : undefined;
       callCategories.set(
         toolUseId || expansionKey,
         summaryCategory(action.action)
@@ -710,13 +726,8 @@ export function TurnActivity({
           monoChip: !description && isMonoToolChip(action),
           additions: editStats.additions,
           deletions: editStats.deletions,
-          status: backgrounded
-            ? 'complete'
-            : getToolChatStatus(toolEntry.status),
-          errorMessage:
-            toolEntry.status.status === 'failed'
-              ? t('messageTurnView.toolSummary.failed')
-              : undefined,
+          status,
+          errorMessage,
           rawEntry: entry,
           resultDetail: (
             <ToolCallResultDetail>

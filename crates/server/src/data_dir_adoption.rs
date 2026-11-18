@@ -974,7 +974,8 @@ mod tests {
         let custom = root.path().join("custom");
         create_test_sqlite(&custom, &["live"], 0).await;
 
-        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[custom.clone()]).await;
+        let outcomes =
+            preserve_weaker_install_copies(&exe_dir, &stable, std::slice::from_ref(&custom)).await;
 
         assert!(matches!(
             outcomes.as_slice(),
@@ -998,7 +999,8 @@ mod tests {
         let stable = root.path().join("AppSupport").join("app.dimo.dimo");
         std::fs::create_dir_all(&stable).unwrap();
 
-        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[data.clone()]).await;
+        let outcomes =
+            preserve_weaker_install_copies(&exe_dir, &stable, std::slice::from_ref(&data)).await;
 
         assert!(outcomes.is_empty());
         assert!(data.join("db.sqlite").is_file());

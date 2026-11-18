@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   check: vi.fn(),
   relaunch: vi.fn(),
   getVersion: vi.fn(() => Promise.resolve('0.37.0')),
-  invoke: vi.fn(() => Promise.resolve()),
+  invoke: vi.fn((_command: string) => Promise.resolve()),
 }));
 
 vi.mock('@tauri-apps/plugin-updater', () => ({

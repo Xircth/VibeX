@@ -40,6 +40,7 @@ Welcome to the Dimo documentation hub. Every document here describes **current `
 | [`docs/specs/`](specs/) | Active cross-cutting technical specifications (`agent-capability-catalog.md`, `codex-native-provider-app-server-alignment.md`, `context-menu-surfaces.md`, `prepared-acp-session-controls.md`, `session-runtime-placement.md`). |
 | [`docs/adr/`](adr/) | Architectural Decision Records (`ADR-0001` through `ADR-0086`) — immutable record of design decisions and supersession notes. |
 | [`docs/agents/`](agents/) | Local `.scratch/` issue tracker conventions (`issue-tracker.md`, `triage-labels.md`) used by repository automation skills. |
+| [`docs/agents/troubleshooting.md`](agents/troubleshooting.md) | Agent and collaboration troubleshooting: separate authorization, authentication, tools and search; recovery steps and verification evidence linked to issues #93–#96. |
 | [`docs/security/dependency-license-audit.md`](security/dependency-license-audit.md) | Dependency license gate (`pnpm run dependency:licenses`) and supply-chain audit policy. |
 | [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) & [`docs/third-party/`](third-party/) | Open-source attributions, vendored skill notices, and clean-room adoption provenance. |
 | [`docs/release/`](release/) | Versioned release notes (`0.1.2.md` – `0.5.1.md`) consumed by GitHub Release pipelines. |

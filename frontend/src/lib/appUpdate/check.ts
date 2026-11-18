@@ -44,6 +44,13 @@ function isWindowsPlatform(): boolean {
   return /windows|win32|win64/i.test(navigator.userAgent);
 }
 
+/// Move session data out of the install tree before the updater replaces it.
+/// A failure aborts the install: continuing on macOS deletes the only database.
+async function evacuateUserDataBeforeReplacingInstall(): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('evacuate_user_data_before_update');
+}
+
 function setLifecycleState(next: AppUpdateLifecycleState): void {
   lifecycleState = next;
   if (typeof window !== 'undefined') {
@@ -357,9 +364,24 @@ export async function installSignedUpdate(
             total,
             error: null,
           });
+          await evacuateUserDataBeforeReplacingInstall();
           await update.install();
         }
+      } else if (isWindowsPlatform()) {
+        await update.downloadAndInstall((event) => {
+          handleDownloadEvent(event);
+          if (event.event === 'Finished') {
+            setLifecycleState({
+              status: 'installing',
+              version: targetVersion,
+              downloaded,
+              total,
+              error: null,
+            });
+          }
+        });
       } else {
+        await evacuateUserDataBeforeReplacingInstall();
         await update.downloadAndInstall((event) => {
           handleDownloadEvent(event);
           if (event.event === 'Finished') {
@@ -423,6 +445,12 @@ export async function relaunchApp(): Promise<void> {
   stagedUpdate = null;
 
   try {
+    try {
+      await evacuateUserDataBeforeReplacingInstall();
+    } catch (error) {
+      stagedUpdate = pendingUpdate;
+      throw error;
+    }
     if (pendingUpdate) {
       try {
         await pendingUpdate.install();

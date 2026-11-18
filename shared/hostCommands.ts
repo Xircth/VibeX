@@ -616,6 +616,7 @@ export const DESKTOP_SHELL_COMMANDS = [
   'control_tauri_inspector',
   'create_host_device_pairing',
   'desktop_toast_window_ready',
+  'evacuate_user_data_before_update',
   'exit_app',
   'generate_web_service_token',
   'get_host_tunnel',

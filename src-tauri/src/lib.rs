@@ -384,6 +384,11 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn evacuate_user_data_before_update() -> Result<(), String> {
+    server::evacuate_user_data_before_app_update().await
+}
+
 pub fn run() {
     if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -396,14 +401,14 @@ pub fn run() {
     }
     // Before anything resolves the data directory (logging, WebView2 profiles,
     // the database): existing data must be moved in, never shadowed.
-    let data_dir_adoption = tauri::async_runtime::block_on(server::adopt_legacy_data_dir());
+    let data_dir_adoptions = tauri::async_runtime::block_on(server::adopt_legacy_data_dir());
     windows_webview2::install_process_arguments();
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
     // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
     let mut log_guard = Some(logging::init_logging());
-    if let Some(outcome) = data_dir_adoption {
-        server::log_data_dir_adoption(&outcome);
+    for outcome in &data_dir_adoptions {
+        server::log_data_dir_adoption(outcome);
     }
     // Persist panics as local crash reports (opt-in surfacing happens in the UI).
     crash_reports::install_panic_hook();
@@ -717,6 +722,7 @@ pub fn run() {
         health_check,
         reveal_main_window,
         exit_app,
+        evacuate_user_data_before_update,
         set_app_icon,
         commands::projects::open_project_in_editor,
         commands::workspaces::open_workspace_in_editor,

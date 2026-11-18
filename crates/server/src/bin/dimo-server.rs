@@ -39,7 +39,7 @@ async fn run_command() -> ExitCode {
 }
 
 async fn run(launch: ServerLaunch) -> ExitCode {
-    let data_dir_adoption = server::adopt_legacy_data_dir().await;
+    let data_dir_adoptions = server::adopt_legacy_data_dir().await;
     utils::shell::bootstrap_desktop_path();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -51,8 +51,8 @@ async fn run(launch: ServerLaunch) -> ExitCode {
         }))
         .without_time()
         .init();
-    if let Some(outcome) = data_dir_adoption {
-        server::log_data_dir_adoption(&outcome);
+    for outcome in &data_dir_adoptions {
+        server::log_data_dir_adoption(outcome);
     }
 
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();

@@ -59,7 +59,10 @@ pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{EmbeddedAsset, ListenPolicyError, ServerConfig, StaticAssetResolver};
 pub use conversations as dimo_conversations;
-pub use data_dir_adoption::{DataDirAdoptionOutcome, adopt_legacy_data_dir, log_data_dir_adoption};
+pub use data_dir_adoption::{
+    DataDirAdoptionOutcome, adopt_legacy_data_dir, evacuate_user_data_before_app_update,
+    log_data_dir_adoption,
+};
 pub use delegation_runtime::{DimoDelegationInjector, SpaceSessionLookup};
 pub use domains::ServerApplicationDomains;
 pub use host::{

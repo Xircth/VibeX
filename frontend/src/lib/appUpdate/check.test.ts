@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   check: vi.fn(),
   relaunch: vi.fn(),
   getVersion: vi.fn(() => Promise.resolve('0.37.0')),
+  invoke: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
@@ -12,6 +13,10 @@ vi.mock('@tauri-apps/plugin-updater', () => ({
 
 vi.mock('@tauri-apps/plugin-process', () => ({
   relaunch: mocks.relaunch,
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: mocks.invoke,
 }));
 
 vi.mock('@tauri-apps/api/app', () => ({
@@ -40,6 +45,8 @@ describe('appUpdate lifecycle state', () => {
   beforeEach(() => {
     mocks.check.mockReset();
     mocks.relaunch.mockReset();
+    mocks.invoke.mockReset();
+    mocks.invoke.mockResolvedValue(undefined);
     resetAppUpdateStateForTests();
     writeDismissedVersion(null);
     window.localStorage.removeItem('dimo.appUpdate.lastMainRoute');
@@ -64,7 +71,12 @@ describe('appUpdate lifecycle state', () => {
       states.push({ ...next });
     });
 
+    const order: string[] = [];
+    mocks.invoke.mockImplementation(async (command: string) => {
+      order.push(command);
+    });
     const install = vi.fn(async () => {
+      order.push('install');
       expect(getAppUpdateState().status).toBe('installing');
     });
     const close = vi.fn(async () => undefined);
@@ -86,6 +98,7 @@ describe('appUpdate lifecycle state', () => {
     unsubscribe();
 
     expect(progresses).toEqual([0, 25, 100, 100]);
+    expect(order).toEqual(['evacuate_user_data_before_update', 'install']);
     expect(install).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
     expect(states.map((s) => s.status)).toEqual([
@@ -135,10 +148,20 @@ describe('appUpdate lifecycle state', () => {
     expect(download).toHaveBeenCalledOnce();
     expect(install).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalled();
     expect(getAppUpdateState().status).toBe('ready_to_restart');
+
+    const order: string[] = [];
+    mocks.invoke.mockImplementation(async (command: string) => {
+      order.push(command);
+    });
+    install.mockImplementation(async () => {
+      order.push('install');
+    });
 
     await relaunchApp();
 
+    expect(order).toEqual(['evacuate_user_data_before_update', 'install']);
     expect(install).toHaveBeenCalledOnce();
     expect(mocks.relaunch).toHaveBeenCalledOnce();
     expect(getAppUpdateState().status).toBe('restarting');
@@ -158,6 +181,7 @@ describe('appUpdate lifecycle state', () => {
     });
 
     await expect(installSignedUpdate()).rejects.toThrow('network timeout');
+    expect(mocks.invoke).not.toHaveBeenCalled();
     expect(getAppUpdateState()).toEqual({
       status: 'error',
       version: '0.39.0',
@@ -165,6 +189,52 @@ describe('appUpdate lifecycle state', () => {
       total: null,
       error: 'network timeout',
     });
+  });
+
+  it('does not install when evacuating session data fails', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      configurable: true,
+    });
+    const install = vi.fn(async () => undefined);
+    mocks.invoke.mockRejectedValue(new Error('still inside bundle'));
+    mocks.check.mockResolvedValue({
+      version: '0.39.0',
+      download: vi.fn(async (onEvent) => {
+        onEvent({ event: 'Finished' });
+      }),
+      install,
+      close: vi.fn(async () => undefined),
+    });
+
+    await expect(installSignedUpdate()).rejects.toThrow('still inside bundle');
+    expect(install).not.toHaveBeenCalled();
+    expect(getAppUpdateState().status).toBe('error');
+    expect(getAppUpdateState().error).toBe('still inside bundle');
+  });
+
+  it('does not relaunch on Windows when evacuating session data fails', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      configurable: true,
+    });
+    const install = vi.fn(async () => undefined);
+    mocks.check.mockResolvedValue({
+      version: '0.39.0',
+      download: vi.fn(async (onEvent) => {
+        onEvent({ event: 'Finished' });
+      }),
+      install,
+      close: vi.fn(async () => undefined),
+    });
+
+    await installSignedUpdate();
+    mocks.invoke.mockRejectedValue(new Error('still inside bundle'));
+
+    await expect(relaunchApp()).rejects.toThrow('still inside bundle');
+    expect(install).not.toHaveBeenCalled();
+    expect(mocks.relaunch).not.toHaveBeenCalled();
+    expect(getAppUpdateState().status).toBe('error');
   });
 
   it('persists and broadcasts dismissed update version', () => {

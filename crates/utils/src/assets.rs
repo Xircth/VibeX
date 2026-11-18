@@ -77,9 +77,12 @@ pub fn read_custom_data_dir() -> Option<PathBuf> {
         .flatten()
 }
 
-/// Data directory used before release builds moved data under the install
-/// directory (`%APPDATA%\dimo\dimo\data` on Windows). Also the fallback when
-/// the install directory is read-only.
+/// Stable data directory for release builds. It lives outside the install
+/// tree, so replacing the app bundle cannot delete sessions.
+///
+/// Windows: `%APPDATA%\dimo\dimo\data`. macOS:
+/// `~/Library/Application Support/app.dimo.dimo`. Linux: `$XDG_DATA_HOME/dimo`
+/// or `~/.local/share/dimo`.
 pub fn legacy_roaming_data_dir() -> PathBuf {
     ProjectDirs::from("app", "dimo", "dimo")
         .map(|dirs| dirs.data_dir().to_path_buf())
@@ -148,6 +151,10 @@ pub fn install_data_dir_for_exe_dir(install_dir: &Path) -> Option<PathBuf> {
 
 /// `<install_dir>/data` when writable; `None` for read-only installs
 /// (e.g. `C:\Program Files`) and Cargo build trees.
+///
+/// This is not the live data directory. Probing creates `<install_dir>/data`,
+/// and a later app update deletes that directory on macOS. [`release_default_data_dir`]
+/// must not call this.
 pub fn install_data_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
@@ -155,11 +162,61 @@ pub fn install_data_dir() -> Option<PathBuf> {
         .and_then(|install_dir| install_data_dir_for_exe_dir(&install_dir))
 }
 
-/// Release default: `<install_dir>/data`, or [`legacy_roaming_data_dir`] when
-/// the install directory is read-only. Data left in the legacy directory is
-/// moved here at startup by `db::adopt_legacy_data_dir`, never shadowed.
+/// Install directory of a packaged app, excluding Cargo `target/{debug,release}`
+/// and `deps` test binaries.
+pub fn packaged_install_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let install_dir = exe.parent()?.to_path_buf();
+    if is_cargo_build_or_test_dir(&install_dir) {
+        return None;
+    }
+    Some(install_dir)
+}
+
+/// Live release data directory. `install_data` is ignored on purpose: 0.5.0
+/// stored the only database under the install tree, and replacing `Dimo.app`
+/// deleted it. The stable roaming/XDG directory is the only default.
+pub fn resolve_release_data_dir(_install_data: Option<&Path>, stable: PathBuf) -> PathBuf {
+    stable
+}
+
+/// Release default: [`legacy_roaming_data_dir`]. Does not create
+/// `<install_dir>/data`.
 pub fn release_default_data_dir() -> PathBuf {
-    install_data_dir().unwrap_or_else(legacy_roaming_data_dir)
+    resolve_release_data_dir(None, legacy_roaming_data_dir())
+}
+
+/// `.app` bundle that contains `exe`, when `exe` is `*.app/Contents/MacOS/*`.
+pub fn macos_app_bundle_containing(exe: &Path) -> Option<PathBuf> {
+    let mut cursor = exe.parent()?;
+    loop {
+        if cursor.extension().is_some_and(|ext| ext == "app") {
+            return Some(cursor.to_path_buf());
+        }
+        cursor = cursor.parent()?;
+    }
+}
+
+/// Whether replacing the running app would delete `dir`.
+///
+/// Only a macOS in-app update replaces the whole `.app`. Windows NSIS and
+/// Linux AppImage updates keep a sibling data directory. Cargo test binaries
+/// are never treated as a bundle, even when `update_replaces_bundle` is set.
+pub fn app_update_deletes_directory(
+    update_replaces_bundle: bool,
+    current_exe: &Path,
+    dir: &Path,
+) -> bool {
+    if !update_replaces_bundle {
+        return false;
+    }
+    let Some(exe_dir) = current_exe.parent() else {
+        return false;
+    };
+    if is_cargo_build_or_test_dir(exe_dir) {
+        return false;
+    }
+    macos_app_bundle_containing(current_exe).is_some_and(|bundle| dir.starts_with(bundle))
 }
 
 fn debug_dev_assets_dir() -> PathBuf {
@@ -179,6 +236,10 @@ pub struct LegacyDataDirAdoption {
 }
 
 const ADOPTED_LEGACY_MARKER_FILE: &str = ".adopted-legacy-source";
+
+pub fn same_data_dir(a: &Path, b: &Path) -> bool {
+    same_path_for_adoption(a, b)
+}
 
 fn same_path_for_adoption(a: &Path, b: &Path) -> bool {
     let norm_a = crate::path::normalize_windows_extended_path_prefix(
@@ -330,6 +391,136 @@ pub fn pre_rename_install_data_dir_candidates_for(
     candidates
 }
 
+/// `<Dimo install>/data` directories that may still hold the database written
+/// by 0.5.0 and 0.5.1. Paths are joined only; nothing is created.
+///
+/// The running executable's sibling `data` is first so an activity-score tie
+/// prefers the copy that app was using.
+pub fn dimo_install_data_dir_candidates_for(
+    current_exe: Option<&Path>,
+    local_app_data: Option<&Path>,
+    program_files: Option<&Path>,
+    program_files_x86: Option<&Path>,
+    home_dir: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(exe_dir) = current_exe.and_then(|exe| exe.parent())
+        && !is_cargo_build_or_test_dir(exe_dir)
+    {
+        push_unique_candidate(&mut candidates, exe_dir.join("data"));
+    }
+
+    if cfg!(target_os = "windows") {
+        if let Some(local) = local_app_data {
+            push_unique_candidate(&mut candidates, local.join("Dimo").join("data"));
+            push_unique_candidate(
+                &mut candidates,
+                local.join("Programs").join("Dimo").join("data"),
+            );
+        }
+        if let Some(pf) = program_files {
+            push_unique_candidate(&mut candidates, pf.join("Dimo").join("data"));
+        }
+        if let Some(pf86) = program_files_x86 {
+            push_unique_candidate(&mut candidates, pf86.join("Dimo").join("data"));
+        }
+    } else if cfg!(target_os = "macos") {
+        if let Some(home) = home_dir {
+            push_unique_candidate(
+                &mut candidates,
+                home.join("Applications")
+                    .join("Dimo.app")
+                    .join("Contents")
+                    .join("MacOS")
+                    .join("data"),
+            );
+        }
+        push_unique_candidate(
+            &mut candidates,
+            PathBuf::from("/Applications/Dimo.app/Contents/MacOS/data"),
+        );
+    } else if cfg!(target_os = "linux") {
+        if let Some(exe_dir) = current_exe.and_then(|exe| exe.parent())
+            && !is_cargo_build_or_test_dir(exe_dir)
+            && let Some(parent) = exe_dir.parent()
+        {
+            push_unique_candidate(&mut candidates, parent.join("Dimo").join("data"));
+        }
+        push_unique_candidate(&mut candidates, PathBuf::from("/opt/Dimo/data"));
+    }
+
+    candidates
+}
+
+pub fn dimo_install_data_dir_candidates() -> Vec<PathBuf> {
+    let current_exe = std::env::current_exe().ok();
+    let local_app_data = std::env::var_os("LOCALAPPDATA")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::data_local_dir);
+    let program_files = std::env::var_os("ProgramFiles")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let program_files_x86 = std::env::var_os("ProgramFiles(x86)")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let home_dir = dirs::home_dir();
+    dimo_install_data_dir_candidates_for(
+        current_exe.as_deref(),
+        local_app_data.as_deref(),
+        program_files.as_deref(),
+        program_files_x86.as_deref(),
+        home_dir.as_deref(),
+    )
+}
+
+/// Set-aside copies named `{dir}.superseded-*` that still contain `db.sqlite`.
+/// Missing directories are ignored. Nothing is created.
+pub fn superseded_data_dirs_beside(dir: &Path) -> Vec<PathBuf> {
+    let Some(parent) = dir.parent() else {
+        return Vec::new();
+    };
+    if parent.as_os_str().is_empty() {
+        return Vec::new();
+    }
+    let Some(file_name) = dir.file_name().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    if file_name.is_empty() {
+        return Vec::new();
+    }
+    let prefix = format!("{file_name}.superseded-");
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if name.starts_with(&prefix) && path.join("db.sqlite").is_file() {
+            found.push(crate::path::normalize_windows_extended_path_prefix(path));
+        }
+    }
+    found.sort();
+    found
+}
+
+fn append_superseded_siblings(candidates: &mut Vec<PathBuf>) {
+    let mut seeds = candidates.clone();
+    seeds.push(release_default_data_dir());
+    for seed in seeds {
+        for sibling in superseded_data_dirs_beside(&seed) {
+            push_unique_candidate(candidates, sibling);
+        }
+    }
+}
+
 pub fn pre_rename_install_data_dir_candidates() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     let registry_dirs = windows_vibex_registry_install_dirs();
@@ -361,12 +552,18 @@ pub fn pre_rename_install_data_dir_candidates() -> Vec<PathBuf> {
     )
 }
 
-/// Ordered candidate directories that may hold pre-migration VibeX or legacy
-/// Dimo user data (`db.sqlite`, `settings.json`, worktrees, attachments).
+/// Ordered directories that may still hold a database that belongs in the
+/// stable roaming/XDG directory. The stable directory itself is the target,
+/// not a source. Nothing here is created.
 pub fn legacy_data_dir_candidates() -> Vec<PathBuf> {
-    let mut candidates = pre_rename_install_data_dir_candidates();
+    let mut candidates = dimo_install_data_dir_candidates();
+    for dir in pre_rename_install_data_dir_candidates() {
+        push_unique_candidate(&mut candidates, dir);
+    }
     push_unique_candidate(&mut candidates, pre_rename_data_dir());
-    push_unique_candidate(&mut candidates, legacy_roaming_data_dir());
+    append_superseded_siblings(&mut candidates);
+    let stable = release_default_data_dir();
+    candidates.retain(|dir| !same_path_for_adoption(dir, &stable));
     candidates
 }
 
@@ -425,12 +622,8 @@ pub fn pending_legacy_data_dir_adoptions() -> Vec<LegacyDataDirAdoption> {
         .collect()
 }
 
-/// Returns the adoption to perform at startup, if any. Only release builds
-/// without an explicit data directory (`DIMO_DATA_DIR` or `bootstrap.json`)
-/// adopt, and only when the legacy directory holds a database.
-///
-/// Pre-rename (`VibeX`) install and Roaming directories as well as the older
-/// Dimo Roaming default are all checked.
+/// First pending adoption in candidate order, before activity scoring.
+/// Startup ranks every entry from [`pending_legacy_data_dir_adoptions`].
 pub fn pending_legacy_data_dir_adoption() -> Option<LegacyDataDirAdoption> {
     pending_legacy_data_dir_adoptions().into_iter().next()
 }
@@ -516,9 +709,9 @@ pub fn renamed_env_var(name: &str) -> Option<std::ffi::OsString> {
 }
 
 /// `DIMO_DATA_DIR` wins. Otherwise this is [`asset_dir`] so debug Desktop
-/// keeps using `dev_assets/` (unless customized) and release builds use
-/// `<install_dir>/data` (Roaming when the install dir is read-only) or the
-/// user's custom data directory.
+/// keeps using `dev_assets/` (unless customized) and release builds use the
+/// stable roaming/XDG directory ([`legacy_roaming_data_dir`]) or the user's
+/// custom data directory.
 pub fn host_data_dir() -> PathBuf {
     if let Some(explicit) = renamed_env_var("DIMO_DATA_DIR") {
         let path = PathBuf::from(explicit);
@@ -854,6 +1047,8 @@ fn existing_materialized_plugin_roots(data_root: &Path) -> BTreeMap<String, Path
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use super::{
         adopt_legacy_file, copy_missing_files, existing_official_plugin_roots,
         load_or_create_host_id, tauri_app_data_file_candidates,
@@ -1008,7 +1203,7 @@ mod tests {
         assert_eq!(
             super::legacy_data_dir_adoption(legacy.clone(), legacy),
             None,
-            "read-only installs already use the legacy directory"
+            "a directory is not adopted into itself"
         );
     }
 
@@ -1076,5 +1271,146 @@ mod tests {
         assert!(super::legacy_data_dir_adoption(legacy.clone(), target.clone()).is_some());
         super::record_adopted_legacy_source(&target, &legacy).unwrap();
         assert_eq!(super::legacy_data_dir_adoption(legacy, target), None);
+    }
+
+    #[test]
+    fn release_data_dir_ignores_the_install_directory() {
+        let install = PathBuf::from("/Applications/Dimo.app/Contents/MacOS/data");
+        let stable = PathBuf::from("/Users/me/Library/Application Support/app.dimo.dimo");
+        let resolved = super::resolve_release_data_dir(Some(&install), stable.clone());
+        assert_eq!(resolved, stable);
+        assert_ne!(resolved, install);
+        assert_eq!(
+            super::resolve_release_data_dir(None, stable.clone()),
+            stable
+        );
+        assert_eq!(
+            super::release_default_data_dir(),
+            super::legacy_roaming_data_dir()
+        );
+    }
+
+    #[test]
+    fn release_default_data_dir_does_not_create_an_install_directory() {
+        let source = include_str!("assets.rs");
+        let start = source
+            .find("pub fn release_default_data_dir()")
+            .expect("release_default_data_dir");
+        let body = &source[start..];
+        let end = body.find("\n}\n").expect("function end");
+        let body = &body[..end];
+        assert!(
+            !body.contains("install_data_dir"),
+            "resolving the live data directory must not probe or create <install>/data"
+        );
+        assert!(body.contains("resolve_release_data_dir(None"));
+    }
+
+    #[test]
+    fn dimo_install_candidates_start_with_the_running_bundle_data_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = root
+            .path()
+            .join("Dimo.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("dimo");
+        let local = root.path().join("LocalAppData");
+        let pf = root.path().join("ProgramFiles");
+        let pf86 = root.path().join("ProgramFilesX86");
+        let home = root.path().join("Home");
+        let candidates = super::dimo_install_data_dir_candidates_for(
+            Some(&exe),
+            Some(&local),
+            Some(&pf),
+            Some(&pf86),
+            Some(&home),
+        );
+        let bundle_data = exe.parent().unwrap().join("data");
+        assert_eq!(candidates.first(), Some(&bundle_data));
+        assert!(!candidates.contains(&super::legacy_roaming_data_dir()));
+        if cfg!(target_os = "windows") {
+            assert!(candidates.contains(&local.join("Dimo").join("data")));
+            assert!(candidates.contains(&local.join("Programs").join("Dimo").join("data")));
+            assert!(candidates.contains(&pf.join("Dimo").join("data")));
+        }
+        if cfg!(target_os = "macos") {
+            assert!(
+                candidates.contains(
+                    &home
+                        .join("Applications")
+                        .join("Dimo.app")
+                        .join("Contents")
+                        .join("MacOS")
+                        .join("data")
+                )
+            );
+            assert!(
+                candidates.contains(&PathBuf::from("/Applications/Dimo.app/Contents/MacOS/data"))
+            );
+        }
+        if cfg!(target_os = "linux") {
+            assert!(candidates.contains(&PathBuf::from("/opt/Dimo/data")));
+        }
+    }
+
+    #[test]
+    fn dimo_install_candidates_skip_cargo_build_trees() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = root
+            .path()
+            .join("target")
+            .join("debug")
+            .join("deps")
+            .join("dimo-test");
+        let candidates =
+            super::dimo_install_data_dir_candidates_for(Some(&exe), None, None, None, None);
+        assert!(
+            candidates.iter().all(|dir| !dir.starts_with(root.path())),
+            "cargo test binaries must not adopt target/debug/deps/data: {candidates:?}"
+        );
+    }
+
+    #[test]
+    fn superseded_siblings_with_a_database_are_adoption_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let kept = root.path().join("data.superseded-20261118-120000");
+        std::fs::create_dir_all(&kept).unwrap();
+        std::fs::write(kept.join("db.sqlite"), b"sqlite").unwrap();
+        let empty = root.path().join("data.superseded-20261118-130000");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::write(root.path().join("data.superseded-note.txt"), b"no").unwrap();
+
+        let found = super::superseded_data_dirs_beside(&data);
+        assert_eq!(found, vec![kept]);
+    }
+
+    #[test]
+    fn app_update_deletes_only_a_macos_bundle_database() {
+        let exe = Path::new("/Applications/Dimo.app/Contents/MacOS/dimo");
+        let data = Path::new("/Applications/Dimo.app/Contents/MacOS/data");
+        let aside =
+            Path::new("/Applications/Dimo.app/Contents/MacOS/data.superseded-20261118-120000");
+        let roaming = Path::new("/Users/me/Library/Application Support/app.dimo.dimo");
+        assert!(super::app_update_deletes_directory(true, exe, data));
+        assert!(super::app_update_deletes_directory(true, exe, aside));
+        assert!(!super::app_update_deletes_directory(false, exe, data));
+        assert!(!super::app_update_deletes_directory(true, exe, roaming));
+
+        let cargo = Path::new("/repo/target/debug/deps/dimo-test");
+        let cargo_data = Path::new("/repo/target/debug/deps/data");
+        assert!(!super::app_update_deletes_directory(
+            true, cargo, cargo_data
+        ));
+
+        let windows = Path::new(r"C:\Users\me\AppData\Local\Dimo\dimo.exe");
+        let windows_data = Path::new(r"C:\Users\me\AppData\Local\Dimo\data");
+        assert!(!super::app_update_deletes_directory(
+            false,
+            windows,
+            windows_data
+        ));
     }
 }

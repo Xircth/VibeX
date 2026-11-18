@@ -1,7 +1,7 @@
-//! Moves a legacy VibeX or Roaming Dimo data directory into the release
-//! default (`<install_dir>/data` or Roaming fallback) before any database is
-//! opened, so a newly created install-dir database can never shadow the user's
-//! existing data.
+//! Moves legacy VibeX, Roaming, and install-directory databases into the
+//! stable data directory outside the app bundle before any database is
+//! opened. The install directory is not the live location: a macOS update
+//! replaces the whole `.app` and deletes `<bundle>/Contents/MacOS/data`.
 
 use std::{
     cmp::Reverse,
@@ -35,6 +35,12 @@ pub enum DataDirAdoptionOutcome {
     /// older Dimo/VibeX). It is opened in place for this run and the move is
     /// retried on the next launch.
     OpenedInPlace { legacy_dir: PathBuf, error: String },
+    /// A weaker install-tree copy was moved next to the stable directory so
+    /// replacing the app bundle cannot delete it.
+    PreservedInstallCopy { from: PathBuf, preserved: PathBuf },
+    /// An install-tree database is still inside the install tree. A macOS
+    /// update must not continue while this is true.
+    InstallCopyRemains { dir: PathBuf, error: String },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -45,40 +51,117 @@ struct DirActivityScore {
     database_bytes: u64,
 }
 
-/// Runs the pending legacy adoption, if any. Must be called before anything
-/// resolves the Host data directory.
-pub async fn adopt_legacy_data_dir() -> Option<DataDirAdoptionOutcome> {
-    let adoptions = utils::assets::pending_legacy_data_dir_adoptions();
-    if adoptions.is_empty() {
-        return None;
+/// Adopts every pending legacy directory, highest activity first. Must be
+/// called before anything opens the Host database. Returns every outcome,
+/// including install-tree copies parked beside the stable directory.
+pub async fn adopt_legacy_data_dir() -> Vec<DataDirAdoptionOutcome> {
+    let mut outcomes = adopt_ranked(utils::assets::pending_legacy_data_dir_adoptions()).await;
+    if cfg!(test) {
+        return outcomes;
     }
-    let adoption = select_best_adoption(adoptions).await?;
-    let outcome = adopt(&adoption).await;
-    if let DataDirAdoptionOutcome::OpenedInPlace { legacy_dir, .. } = &outcome {
-        utils::assets::use_data_dir_for_this_run(legacy_dir.clone());
+    let stable = utils::assets::release_default_data_dir();
+    let explicit = explicit_data_dirs();
+    if let Some(exe_dir) = utils::assets::packaged_install_dir()
+        && (stable.join("db.sqlite").is_file() || !explicit.is_empty())
+    {
+        outcomes.extend(preserve_weaker_install_copies(&exe_dir, &stable, &explicit).await);
     }
-    Some(outcome)
+    pin_opened_in_place_when_stable_is_empty(&outcomes, &stable);
+    outcomes
 }
 
+/// Moves user data out of a directory the in-app updater will delete.
+///
+/// Startup has already adopted what it could before the database was opened.
+/// This runs again immediately before the bundle is replaced. It does not
+/// replace a stable database this process already has open. When a more
+/// active database is still inside a macOS `.app`, the update is refused so
+/// the next launch can adopt it before opening SQLite.
+pub async fn evacuate_user_data_before_app_update() -> Result<(), String> {
+    if cfg!(debug_assertions) || cfg!(test) {
+        return Ok(());
+    }
+    let stable = utils::assets::release_default_data_dir();
+    let outcomes = if stable.join("db.sqlite").is_file() {
+        match utils::assets::packaged_install_dir() {
+            Some(exe_dir) => {
+                preserve_weaker_install_copies(&exe_dir, &stable, &explicit_data_dirs()).await
+            }
+            None => Vec::new(),
+        }
+    } else {
+        adopt_legacy_data_dir().await
+    };
+    for outcome in &outcomes {
+        log_data_dir_adoption(outcome);
+    }
+    if let Some(blocker) = install_tree_database_update_would_delete() {
+        return Err(update_blocked_message(&blocker));
+    }
+    Ok(())
+}
+
+fn pin_opened_in_place_when_stable_is_empty(outcomes: &[DataDirAdoptionOutcome], stable: &Path) {
+    if stable.join("db.sqlite").is_file() {
+        return;
+    }
+    for outcome in outcomes {
+        if let DataDirAdoptionOutcome::OpenedInPlace { legacy_dir, .. } = outcome
+            && legacy_dir.join("db.sqlite").is_file()
+        {
+            utils::assets::use_data_dir_for_this_run(legacy_dir.clone());
+            return;
+        }
+    }
+}
+
+fn explicit_data_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(value) = utils::assets::renamed_env_var("DIMO_DATA_DIR") {
+        dirs.push(PathBuf::from(value));
+    }
+    if let Some(custom) = utils::assets::read_custom_data_dir() {
+        dirs.push(custom);
+    }
+    dirs
+}
+
+async fn adopt_ranked(adoptions: Vec<LegacyDataDirAdoption>) -> Vec<DataDirAdoptionOutcome> {
+    let ranked = rank_adoptions(adoptions).await;
+    let mut outcomes = Vec::new();
+    for adoption in ranked {
+        let Some(still_pending) = utils::assets::legacy_data_dir_adoption(
+            adoption.legacy_dir.clone(),
+            adoption.target_dir.clone(),
+        ) else {
+            continue;
+        };
+        outcomes.push(adopt(&still_pending).await);
+    }
+    outcomes
+}
+
+async fn rank_adoptions(adoptions: Vec<LegacyDataDirAdoption>) -> Vec<LegacyDataDirAdoption> {
+    if adoptions.len() <= 1 {
+        return adoptions;
+    }
+    let mut scored = Vec::with_capacity(adoptions.len());
+    for (idx, candidate) in adoptions.into_iter().enumerate() {
+        let score = dir_activity_score(&candidate.legacy_dir).await;
+        scored.push((score, Reverse(idx), candidate));
+    }
+    scored.sort_by(|left, right| (&right.0, &right.1).cmp(&(&left.0, &left.1)));
+    scored
+        .into_iter()
+        .map(|(_, _, candidate)| candidate)
+        .collect()
+}
+
+#[cfg(test)]
 async fn select_best_adoption(
     adoptions: Vec<LegacyDataDirAdoption>,
 ) -> Option<LegacyDataDirAdoption> {
-    if adoptions.len() <= 1 {
-        return adoptions.into_iter().next();
-    }
-    let mut best: Option<(DirActivityScore, Reverse<usize>, LegacyDataDirAdoption)> = None;
-    for (idx, candidate) in adoptions.into_iter().enumerate() {
-        let score = dir_activity_score(&candidate.legacy_dir).await;
-        let key = (score, Reverse(idx));
-        let replace = match &best {
-            None => true,
-            Some((best_score, best_idx, _)) => key > (*best_score, *best_idx),
-        };
-        if replace {
-            best = Some((score, Reverse(idx), candidate));
-        }
-    }
-    best.map(|(_, _, adoption)| adoption)
+    rank_adoptions(adoptions).await.into_iter().next()
 }
 
 async fn dir_activity_score(dir: &Path) -> DirActivityScore {
@@ -169,7 +252,7 @@ pub fn log_data_dir_adoption(outcome: &DataDirAdoptionOutcome) {
             from = %legacy_dir.display(),
             to = %target_dir.display(),
             superseded = ?superseded,
-            "moved existing Dimo data into the install data directory"
+            "moved existing Dimo data into the stable data directory"
         ),
         DataDirAdoptionOutcome::KeptTarget {
             target_dir,
@@ -177,13 +260,166 @@ pub fn log_data_dir_adoption(outcome: &DataDirAdoptionOutcome) {
         } => tracing::warn!(
             data_dir = %target_dir.display(),
             superseded = %superseded.display(),
-            "install data directory already held the more active database; legacy data kept aside"
+            "stable data directory already held the more active database; legacy data kept aside"
         ),
         DataDirAdoptionOutcome::OpenedInPlace { legacy_dir, error } => tracing::warn!(
             data_dir = %legacy_dir.display(),
             %error,
             "could not move existing Dimo data yet; opened it in place and will retry next launch"
         ),
+        DataDirAdoptionOutcome::PreservedInstallCopy { from, preserved } => tracing::info!(
+            from = %from.display(),
+            preserved = %preserved.display(),
+            "preserved an install-directory database outside the app bundle"
+        ),
+        DataDirAdoptionOutcome::InstallCopyRemains { dir, error } => tracing::warn!(
+            data_dir = %dir.display(),
+            %error,
+            "could not move an install-directory database out of the install tree"
+        ),
+    }
+}
+
+fn sqlite_dirs_directly_under(exe_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(exe_dir) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && path.join("db.sqlite").is_file() {
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
+fn install_tree_database_update_would_delete() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    database_update_would_delete(cfg!(target_os = "macos"), &exe)
+}
+
+fn database_update_would_delete(
+    update_replaces_bundle: bool,
+    current_exe: &Path,
+) -> Option<PathBuf> {
+    let exe_dir = current_exe.parent()?;
+    sqlite_dirs_directly_under(exe_dir).into_iter().find(|dir| {
+        utils::assets::app_update_deletes_directory(update_replaces_bundle, current_exe, dir)
+    })
+}
+
+fn update_blocked_message(dir: &Path) -> String {
+    if explicit_data_dirs()
+        .iter()
+        .any(|explicit| utils::assets::same_data_dir(explicit, dir))
+    {
+        return format!(
+            "更新已取消：当前数据目录在应用安装包内部（{}），继续更新会删掉它。请先把数据目录改到安装包外面，重新打开并确认会话还在，然后再更新。\nUpdate cancelled: the configured data directory is inside the app bundle ({}). Move it outside the bundle, open Dimo once and confirm your sessions are there, then update again.",
+            dir.display(),
+            dir.display()
+        );
+    }
+    format!(
+        "更新已取消：会话数据仍在应用安装目录里（{}），继续更新会把这份数据删掉。请完全退出 Dimo，重新打开并确认会话还在，然后再更新。\nUpdate cancelled: session data is still inside the app bundle ({}). Continuing would delete it. Quit Dimo completely, open it once and confirm your sessions are there, then update again.",
+        dir.display(),
+        dir.display()
+    )
+}
+
+async fn preserve_weaker_install_copies(
+    exe_dir: &Path,
+    stable: &Path,
+    skip: &[PathBuf],
+) -> Vec<DataDirAdoptionOutcome> {
+    let stable_score = dir_activity_score(stable).await;
+    let mut outcomes = Vec::new();
+    for dir in sqlite_dirs_directly_under(exe_dir) {
+        if utils::assets::same_data_dir(&dir, stable)
+            || skip
+                .iter()
+                .any(|kept| utils::assets::same_data_dir(&dir, kept))
+        {
+            continue;
+        }
+        let stable_is_live = stable.join("db.sqlite").is_file();
+        let live_is_explicit = !skip.is_empty();
+        if !stable_is_live && !live_is_explicit {
+            outcomes.push(DataDirAdoptionOutcome::InstallCopyRemains {
+                dir,
+                error: "stable data directory has no database yet; leaving the only copy in place"
+                    .to_string(),
+            });
+            continue;
+        }
+        if stable_is_live && !live_is_explicit {
+            let readable = db::inspect_sqlite_content_summary(&dir.join("db.sqlite"))
+                .await
+                .is_some();
+            let score = dir_activity_score(&dir).await;
+            if !readable || score > stable_score {
+                outcomes.push(DataDirAdoptionOutcome::InstallCopyRemains {
+                    dir,
+                    error:
+                        "left in place so the next launch can adopt it before the database is open"
+                            .to_string(),
+                });
+                continue;
+            }
+        }
+        match preserve_sqlite_dir_beside_stable(&dir, stable) {
+            Ok(preserved) => outcomes.push(DataDirAdoptionOutcome::PreservedInstallCopy {
+                from: dir,
+                preserved,
+            }),
+            Err(error) => outcomes.push(DataDirAdoptionOutcome::InstallCopyRemains {
+                dir,
+                error: error.to_string(),
+            }),
+        }
+    }
+    outcomes
+}
+
+fn preserve_sqlite_dir_beside_stable(dir: &Path, stable: &Path) -> std::io::Result<PathBuf> {
+    let parent = stable.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "stable data directory has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let name = dir
+        .file_name()
+        .map(|file_name| file_name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "data".to_string());
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let mut dest = parent.join(format!("{name}.preserved-{stamp}"));
+    let mut suffix = 1u32;
+    while dest.exists() {
+        dest = parent.join(format!("{name}.preserved-{stamp}-{suffix}"));
+        suffix += 1;
+    }
+    if utils::assets::same_data_dir(&dest, stable) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "refusing to overwrite the live data directory",
+        ));
+    }
+    match std::fs::rename(dir, &dest) {
+        Ok(()) => Ok(dest),
+        Err(error) if is_windows_sharing_violation(&error) => Err(error),
+        Err(_) => {
+            if let Err(copy_err) = copy_dir_tree_for_adoption(dir, &dest) {
+                let _ = std::fs::remove_dir_all(&dest);
+                return Err(copy_err);
+            }
+            match std::fs::remove_dir_all(dir) {
+                Ok(()) => Ok(dest),
+                Err(error) => Err(error),
+            }
+        }
     }
 }
 
@@ -610,5 +846,183 @@ mod tests {
         let mut found = linked_worktrees(root.path());
         found.sort();
         assert_eq!(found, vec![flat, nested]);
+    }
+
+    #[tokio::test]
+    async fn adopt_ranked_moves_every_candidate_and_keeps_the_active_database() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("stable");
+        let weak = root.path().join("empty-large");
+        let strong = root.path().join("populated");
+        create_test_sqlite(&weak, &[], 256 * 1024).await;
+        create_test_sqlite(&strong, &["conv-a"], 0).await;
+
+        let outcomes = adopt_ranked(vec![
+            LegacyDataDirAdoption {
+                legacy_dir: weak.clone(),
+                target_dir: target.clone(),
+            },
+            LegacyDataDirAdoption {
+                legacy_dir: strong.clone(),
+                target_dir: target.clone(),
+            },
+        ])
+        .await;
+
+        assert_eq!(outcomes.len(), 2);
+        assert!(!strong.exists());
+        assert!(!weak.exists());
+        let summary = db::inspect_sqlite_content_summary(&target.join("db.sqlite"))
+            .await
+            .expect("stable database");
+        assert_eq!(summary.conversation_count, 1);
+    }
+
+    #[tokio::test]
+    async fn weaker_install_copies_are_preserved_beside_the_stable_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("Dimo.app").join("Contents").join("MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let data = exe_dir.join("data");
+        let aside = exe_dir.join("data.superseded-20261118-120000");
+        create_test_sqlite(&data, &[], 64).await;
+        create_test_sqlite(&aside, &[], 32).await;
+        let stable = root.path().join("AppSupport").join("app.dimo.dimo");
+        create_test_sqlite(&stable, &["kept"], 0).await;
+
+        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[]).await;
+
+        assert!(outcomes.iter().all(|outcome| {
+            matches!(outcome, DataDirAdoptionOutcome::PreservedInstallCopy { .. })
+        }));
+        assert!(!data.exists());
+        assert!(!aside.exists());
+        let summary = db::inspect_sqlite_content_summary(&stable.join("db.sqlite"))
+            .await
+            .expect("live database");
+        assert_eq!(summary.conversation_count, 1);
+        let preserved: Vec<_> = std::fs::read_dir(stable.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.contains(".preserved-"))
+            })
+            .collect();
+        assert_eq!(preserved.len(), 2);
+        assert!(preserved.iter().all(|dir| dir.join("db.sqlite").is_file()));
+    }
+
+    #[tokio::test]
+    async fn a_more_active_install_database_is_not_parked_away_from_its_path() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let data = exe_dir.join("data");
+        create_test_sqlite(&data, &["real-session"], 0).await;
+        let stable = root.path().join("AppSupport").join("app.dimo.dimo");
+        create_test_sqlite(&stable, &[], 4096).await;
+
+        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[]).await;
+
+        assert!(matches!(
+            outcomes.as_slice(),
+            [DataDirAdoptionOutcome::InstallCopyRemains { .. }]
+        ));
+        assert!(data.join("db.sqlite").is_file());
+        assert_eq!(
+            std::fs::read_dir(stable.parent().unwrap())
+                .unwrap()
+                .flatten()
+                .filter(|entry| { entry.file_name().to_string_lossy().contains(".preserved-") })
+                .count(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn the_only_database_is_not_moved_into_a_preserved_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let data = exe_dir.join("data");
+        create_test_sqlite(&data, &["only-copy"], 0).await;
+        let stable = root.path().join("AppSupport").join("app.dimo.dimo");
+        std::fs::create_dir_all(&stable).unwrap();
+
+        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[]).await;
+
+        assert!(matches!(
+            outcomes.as_slice(),
+            [DataDirAdoptionOutcome::InstallCopyRemains { .. }]
+        ));
+        assert!(data.join("db.sqlite").is_file());
+        assert!(!stable.join("db.sqlite").is_file());
+    }
+
+    #[tokio::test]
+    async fn an_install_copy_is_preserved_when_the_live_directory_is_explicit() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let data = exe_dir.join("data");
+        create_test_sqlite(&data, &["old"], 0).await;
+        let stable = root.path().join("AppSupport").join("app.dimo.dimo");
+        std::fs::create_dir_all(&stable).unwrap();
+        let custom = root.path().join("custom");
+        create_test_sqlite(&custom, &["live"], 0).await;
+
+        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[custom.clone()]).await;
+
+        assert!(matches!(
+            outcomes.as_slice(),
+            [DataDirAdoptionOutcome::PreservedInstallCopy { .. }]
+        ));
+        assert!(!data.exists());
+        assert!(custom.join("db.sqlite").is_file());
+        let summary = db::inspect_sqlite_content_summary(&custom.join("db.sqlite"))
+            .await
+            .expect("custom database");
+        assert_eq!(summary.conversation_count, 1);
+    }
+
+    #[tokio::test]
+    async fn an_explicit_data_directory_inside_the_install_tree_is_not_moved() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let data = exe_dir.join("data");
+        create_test_sqlite(&data, &["live"], 0).await;
+        let stable = root.path().join("AppSupport").join("app.dimo.dimo");
+        std::fs::create_dir_all(&stable).unwrap();
+
+        let outcomes = preserve_weaker_install_copies(&exe_dir, &stable, &[data.clone()]).await;
+
+        assert!(outcomes.is_empty());
+        assert!(data.join("db.sqlite").is_file());
+    }
+
+    #[test]
+    fn macos_bundle_update_would_delete_a_database_left_beside_the_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let exe_dir = root.path().join("Dimo.app").join("Contents").join("MacOS");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let data = exe_dir.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("db.sqlite"), b"x").unwrap();
+        let exe = exe_dir.join("dimo");
+
+        assert_eq!(
+            database_update_would_delete(true, &exe).as_deref(),
+            Some(data.as_path())
+        );
+        assert!(database_update_would_delete(false, &exe).is_none());
+    }
+
+    #[tokio::test]
+    async fn evacuate_does_not_touch_the_machine_from_a_test_build() {
+        assert!(evacuate_user_data_before_app_update().await.is_ok());
     }
 }

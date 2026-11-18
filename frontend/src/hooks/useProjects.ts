@@ -23,7 +23,7 @@ export function useProjects(): UseProjectsResult {
   const remote = transport.environment !== 'desktop';
   const initialData = useCallback((): ProjectsState => ({ projects: {} }), []);
 
-  const { data, isConnected, isInitialized, error } =
+  const { data, isConnected, isInitialized, isRetrying, retryCount, error } =
     usePatchStream<ProjectsState>({
       subscribeCommand: 'subscribe_projects_stream',
       eventChannel: 'projects-stream',
@@ -63,16 +63,17 @@ export function useProjects(): UseProjectsResult {
     (remote && remoteProjects.data !== undefined) || (!remote && data)
       ? projects
       : undefined;
+  const waitingForInitialRetry = !isInitialized && isRetrying && retryCount <= 2;
   const errorObj = useMemo(
     () =>
       remote
         ? remoteProjects.error instanceof Error
           ? remoteProjects.error
           : null
-        : error
+        : error && !waitingForInitialRetry
           ? new Error(error)
           : null,
-    [error, remote, remoteProjects.error]
+    [error, remote, remoteProjects.error, waitingForInitialRetry]
   );
 
   return {
@@ -80,7 +81,8 @@ export function useProjects(): UseProjectsResult {
     projectsById,
     isLoading: remote
       ? remoteProjects.isLoading
-      : !error && (data === undefined || !isInitialized),
+      : (!error || waitingForInitialRetry) &&
+        (data === undefined || !isInitialized),
     isConnected: remote ? remoteProjects.isSuccess : isConnected,
     error: errorObj,
   };

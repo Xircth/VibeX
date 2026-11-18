@@ -105,33 +105,68 @@ impl ServerApplicationDomains {
         }
     }
 
+    async fn pump_snapshot_and_spawn_tail(
+        &self,
+        channel: String,
+        mut stream: futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>,
+    ) -> Result<Value, ApplicationError> {
+        let mut finished = false;
+        while let Some(item) = stream.next().await {
+            let msg = item.map_err(internal_error)?;
+            let is_ready = matches!(msg, LogMsg::Ready);
+            let is_finished = matches!(msg, LogMsg::Finished);
+            self.events.emit(&channel, &msg);
+            if is_ready {
+                break;
+            }
+            if is_finished {
+                finished = true;
+                break;
+            }
+        }
+        if !finished {
+            let host_events = self.events.clone();
+            let task_channel = channel.clone();
+            self.events.replace_stream_task(
+                task_channel,
+                tokio::spawn(async move {
+                    while let Some(Ok(msg)) = stream.next().await {
+                        host_events.emit(&channel, &msg);
+                    }
+                }),
+            );
+        }
+        Ok(Value::Null)
+    }
+
     async fn subscribe_diff_stream(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: DiffStreamArgs = parse(args)?;
-        let workspace = Workspace::find_by_id(&self.pool, args.workspace_id)
-            .await
-            .map_err(internal_error)?
-            .ok_or_else(|| {
-                ApplicationError::not_found(format!("Workspace {} not found", args.workspace_id))
-            })?;
+        let workspace =
+            Workspace::find_by_id(self.deployment.db().reader().as_pool(), args.workspace_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| {
+                    ApplicationError::not_found(format!("Workspace {} not found", args.workspace_id))
+                })?;
         let stats = args.stats_only.unwrap_or(false);
         let channel = if stats {
             format!("diff-stream:{}:stats", args.workspace_id)
         } else {
             format!("diff-stream:{}", args.workspace_id)
         };
-        let deployment = self.deployment.clone();
+        let mut stream = self
+            .deployment
+            .container()
+            .stream_diff(&workspace, stats)
+            .await
+            .map_err(internal_error)?;
         let host_events = self.events.clone();
         let task_channel = channel.clone();
         self.events.replace_stream_task(
             task_channel,
             tokio::spawn(async move {
-                match deployment.container().stream_diff(&workspace, stats).await {
-                    Ok(mut stream) => {
-                        while let Some(Ok(msg)) = stream.next().await {
-                            host_events.emit(&channel, &msg);
-                        }
-                    }
-                    Err(error) => tracing::error!(%error, "failed to start diff stream"),
+                while let Some(Ok(msg)) = stream.next().await {
+                    host_events.emit(&channel, &msg);
                 }
             }),
         );
@@ -179,30 +214,14 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         let args: ExecutionProcessesStreamArgs = parse(args)?;
         let channel = format!("execution-processes-stream:{}", args.session_id);
-        let deployment = self.deployment.clone();
-        let host_events = self.events.clone();
         let soft_deleted = args.show_soft_deleted.unwrap_or(false);
-        let task_channel = channel.clone();
-        self.events.replace_stream_task(
-            task_channel,
-            tokio::spawn(async move {
-                match deployment
-                    .events()
-                    .stream_execution_processes_for_session_raw(args.session_id, soft_deleted)
-                    .await
-                {
-                    Ok(mut stream) => {
-                        while let Some(Ok(msg)) = stream.next().await {
-                            host_events.emit(&channel, &msg);
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "failed to start execution processes stream")
-                    }
-                }
-            }),
-        );
-        Ok(Value::Null)
+        let stream = self
+            .deployment
+            .events()
+            .stream_execution_processes_for_session_raw(args.session_id, soft_deleted)
+            .await
+            .map_err(internal_error)?;
+        self.pump_snapshot_and_spawn_tail(channel, stream).await
     }
 
     async fn subscribe_project_workspaces_stream(
@@ -211,48 +230,24 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         let args: ProjectStreamArgs = parse(args)?;
         let channel = format!("project-workspaces-stream:{}", args.project_id);
-        let deployment = self.deployment.clone();
-        let host_events = self.events.clone();
-        let task_channel = channel.clone();
-        self.events.replace_stream_task(
-            task_channel,
-            tokio::spawn(async move {
-                match deployment
-                    .events()
-                    .stream_project_workspaces_raw(args.project_id)
-                    .await
-                {
-                    Ok(mut stream) => {
-                        while let Some(Ok(msg)) = stream.next().await {
-                            host_events.emit(&channel, &msg);
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "failed to start project workspaces stream")
-                    }
-                }
-            }),
-        );
-        Ok(Value::Null)
+        let stream = self
+            .deployment
+            .events()
+            .stream_project_workspaces_raw(args.project_id)
+            .await
+            .map_err(internal_error)?;
+        self.pump_snapshot_and_spawn_tail(channel, stream).await
     }
 
     async fn subscribe_projects_stream(&self) -> Result<Value, ApplicationError> {
-        let deployment = self.deployment.clone();
-        let host_events = self.events.clone();
-        self.events.replace_stream_task(
-            "projects-stream",
-            tokio::spawn(async move {
-                match deployment.events().stream_projects_raw().await {
-                    Ok(mut stream) => {
-                        while let Some(Ok(msg)) = stream.next().await {
-                            host_events.emit("projects-stream", &msg);
-                        }
-                    }
-                    Err(error) => tracing::error!(%error, "failed to start projects stream"),
-                }
-            }),
-        );
-        Ok(Value::Null)
+        let stream = self
+            .deployment
+            .events()
+            .stream_projects_raw()
+            .await
+            .map_err(internal_error)?;
+        self.pump_snapshot_and_spawn_tail("projects-stream".to_string(), stream)
+            .await
     }
 
     async fn subscribe_file_tree_stream(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -308,27 +303,13 @@ impl ServerApplicationDomains {
     async fn subscribe_scratch_stream(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ScratchStreamArgs = parse(args)?;
         let channel = format!("scratch-stream:{}", args.scratch_id);
-        let deployment = self.deployment.clone();
-        let host_events = self.events.clone();
-        let task_channel = channel.clone();
-        self.events.replace_stream_task(
-            task_channel,
-            tokio::spawn(async move {
-                match deployment
-                    .events()
-                    .stream_scratch_raw(args.scratch_id, &args.scratch_type)
-                    .await
-                {
-                    Ok(mut stream) => {
-                        while let Some(Ok(msg)) = stream.next().await {
-                            host_events.emit(&channel, &msg);
-                        }
-                    }
-                    Err(error) => tracing::error!(%error, "failed to start scratch stream"),
-                }
-            }),
-        );
-        Ok(Value::Null)
+        let stream = self
+            .deployment
+            .events()
+            .stream_scratch_raw(args.scratch_id, &args.scratch_type)
+            .await
+            .map_err(internal_error)?;
+        self.pump_snapshot_and_spawn_tail(channel, stream).await
     }
 
     async fn subscribe_log_stream(&self, args: Value) -> Result<Value, ApplicationError> {

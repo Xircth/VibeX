@@ -152,4 +152,119 @@ describe('usePatchStream', () => {
       unmountTransport();
     }
   });
+
+  it('recovers when a snapshot-backed stream stalls without emitting Ready', async () => {
+    vi.useFakeTimers();
+    let attempt = 0;
+    let closedStalledIterator = false;
+    let resolveLiveTail:
+      | ((value: IteratorResult<RemoteEvent>) => void)
+      | undefined;
+
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+      subscribe: vi.fn(() => {
+        attempt += 1;
+        const currentAttempt = attempt;
+        let step = 0;
+        const iterator: AsyncIterator<RemoteEvent> = {
+          next: async (): Promise<IteratorResult<RemoteEvent>> => {
+            if (currentAttempt === 1) {
+              return new Promise<IteratorResult<RemoteEvent>>(() => {});
+            }
+            step += 1;
+            if (step === 1) {
+              return {
+                done: false,
+                value: {
+                  sequence: 1n,
+                  kind: 'patch',
+                  payload: {
+                    JsonPatch: [
+                      {
+                        op: 'replace',
+                        path: '/projects',
+                        value: { p1: { id: 'p1', name: 'Demo' } },
+                      },
+                    ],
+                  },
+                },
+              };
+            }
+            if (step === 2) {
+              return {
+                done: false,
+                value: {
+                  sequence: 2n,
+                  kind: 'patch',
+                  payload: 'Ready',
+                },
+              };
+            }
+            return new Promise<IteratorResult<RemoteEvent>>((resolve) => {
+              resolveLiveTail = resolve;
+            });
+          },
+          return: async (): Promise<IteratorResult<RemoteEvent>> => {
+            if (currentAttempt === 1) {
+              closedStalledIterator = true;
+            }
+            return { done: true, value: undefined };
+          },
+        };
+        return {
+          [Symbol.asyncIterator]: () => iterator,
+        };
+      }),
+    };
+
+    const unmountTransport = mountBackendTransport(transport);
+    try {
+      const initialData = () => ({ projects: {} as Record<string, unknown> });
+      const { result, unmount } = renderHook(() =>
+        usePatchStream({
+          subscribeCommand: 'subscribe_projects_stream',
+          eventChannel: 'projects-stream',
+          initialData,
+          enabled: true,
+        })
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(attempt).toBe(1);
+      expect(result.current.isInitialized).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8_000);
+        await Promise.resolve();
+      });
+
+      expect(closedStalledIterator).toBe(true);
+      expect(result.current.error).toBe(
+        'Timed out waiting for initial stream snapshot'
+      );
+      expect(result.current.isRetrying).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(attempt).toBe(2);
+      expect(result.current.isInitialized).toBe(true);
+      expect(result.current.error).toBeNull();
+      expect(result.current.data).toEqual({
+        projects: { p1: { id: 'p1', name: 'Demo' } },
+      });
+
+      resolveLiveTail?.({ done: true, value: undefined });
+      unmount();
+    } finally {
+      unmountTransport();
+    }
+  });
 });

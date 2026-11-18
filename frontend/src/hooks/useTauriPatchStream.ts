@@ -27,6 +27,15 @@ const STREAM_BY_COMMAND: Record<string, string> = {
   subscribe_conversation_stream: 'conversation',
 };
 
+const SNAPSHOT_READY_COMMANDS = new Set<string>([
+  'subscribe_projects_stream',
+  'subscribe_project_workspaces_stream',
+  'subscribe_execution_processes_stream',
+  'subscribe_scratch_stream',
+]);
+
+const INITIAL_SNAPSHOT_TIMEOUT_MS = 8_000;
+
 export interface TauriPatchStreamOptions<T> {
   subscribeCommand: string;
   subscribeArgs?: Record<string, unknown>;
@@ -41,6 +50,8 @@ export interface TauriPatchStreamResult<T> {
   data: T | undefined;
   isConnected: boolean;
   isInitialized: boolean;
+  isRetrying: boolean;
+  retryCount: number;
   error: string | null;
   retry: () => void;
 }
@@ -53,6 +64,25 @@ function asLogMsg(payload: unknown): TauriLogMsg | null {
     return payload as TauriLogMsg;
   }
   return null;
+}
+
+function extractStreamErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  if (typeof err === 'string' && err.length > 0) {
+    return err;
+  }
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    typeof (err as { message?: unknown }).message === 'string' &&
+    (err as { message: string }).message.length > 0
+  ) {
+    return (err as { message: string }).message;
+  }
+  return 'Failed to connect';
 }
 
 export const usePatchStream = <T extends object>(
@@ -71,6 +101,8 @@ export const usePatchStream = <T extends object>(
   const [data, setData] = useState<T | undefined>(undefined);
   const [isConnected, setIsConnected] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const dataRef = useRef<T | undefined>(undefined);
@@ -87,6 +119,8 @@ export const usePatchStream = <T extends object>(
       setData(undefined);
       setIsConnected(false);
       setIsInitialized(false);
+      setIsRetrying(false);
+      setRetryCount(0);
       setError(null);
       dataRef.current = undefined;
       finishedRef.current = false;
@@ -101,6 +135,8 @@ export const usePatchStream = <T extends object>(
     dataRef.current = init;
     finishedRef.current = false;
     isInitializedRef.current = false;
+    setIsRetrying(false);
+    setRetryCount(0);
 
     let cancelled = false;
     let pendingOps: Operation[] = [];
@@ -130,6 +166,16 @@ export const usePatchStream = <T extends object>(
       }
     };
 
+    const markInitialized = () => {
+      if (!isInitializedRef.current) {
+        isInitializedRef.current = true;
+        setIsInitialized(true);
+      }
+      if (dataRef.current !== undefined) {
+        setData((prev) => (prev === undefined ? dataRef.current : prev));
+      }
+    };
+
     const applyMessage = (payload: unknown) => {
       if (cancelled || finishedRef.current) return;
       const msg = asLogMsg(payload);
@@ -140,10 +186,7 @@ export const usePatchStream = <T extends object>(
           const filtered = deduplicatePatches
             ? deduplicatePatches(patches)
             : patches;
-          if (!isInitializedRef.current) {
-            isInitializedRef.current = true;
-            setIsInitialized(true);
-          }
+          markInitialized();
           if (!filtered.length || !dataRef.current) return;
           pendingOps.push(...filtered);
           if (!flushScheduled) {
@@ -154,19 +197,13 @@ export const usePatchStream = <T extends object>(
         }
         if (msg === 'Ready') {
           flushPendingPatches();
-          if (!isInitializedRef.current) {
-            isInitializedRef.current = true;
-            setIsInitialized(true);
-          }
+          markInitialized();
           return;
         }
         if (msg === 'Finished') {
           flushPendingPatches();
           finishedRef.current = true;
-          if (!isInitializedRef.current) {
-            isInitializedRef.current = true;
-            setIsInitialized(true);
-          }
+          markInitialized();
           setIsConnected(false);
         }
       } catch (err) {
@@ -177,6 +214,7 @@ export const usePatchStream = <T extends object>(
 
     let iterator: AsyncIterator<RemoteEvent> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let clearSnapshotWatchdog = () => {};
     let retryAttempts = 0;
 
     const scheduleReconnect = () => {
@@ -185,9 +223,12 @@ export const usePatchStream = <T extends object>(
       }
       const delay = Math.min(1000 * 2 ** retryAttempts, 10_000);
       retryAttempts += 1;
+      setRetryCount(retryAttempts);
+      setIsRetrying(true);
       retryTimer = setTimeout(() => {
         retryTimer = undefined;
         if (!cancelled && !finishedRef.current) {
+          setIsRetrying(false);
           void setup(true);
         }
       }, delay);
@@ -201,6 +242,7 @@ export const usePatchStream = <T extends object>(
       const stream = STREAM_BY_COMMAND[subscribeCommand];
       if (!stream || !transport.subscribe) {
         setIsConnected(false);
+        setIsRetrying(false);
         setError(`patch stream ${subscribeCommand} is not available`);
         return;
       }
@@ -232,32 +274,78 @@ export const usePatchStream = <T extends object>(
         setIsConnected(true);
         setError(null);
         let sawMessage = false;
+        let timedOutWaitingForSnapshot = false;
+
+        const waitForNextEvent = async (): Promise<
+          IteratorResult<RemoteEvent> | 'snapshot_timeout'
+        > => {
+          if (
+            isInitializedRef.current ||
+            !SNAPSHOT_READY_COMMANDS.has(subscribeCommand)
+          ) {
+            return currentIterator!.next();
+          }
+          return new Promise<IteratorResult<RemoteEvent> | 'snapshot_timeout'>(
+            (resolve, reject) => {
+              const timer = setTimeout(() => {
+                resolve('snapshot_timeout');
+              }, INITIAL_SNAPSHOT_TIMEOUT_MS);
+              clearSnapshotWatchdog = () => {
+                clearTimeout(timer);
+              };
+              currentIterator!.next().then(
+                (res) => {
+                  clearTimeout(timer);
+                  resolve(res);
+                },
+                (err) => {
+                  clearTimeout(timer);
+                  reject(err);
+                }
+              );
+            }
+          );
+        };
+
         while (!cancelled) {
-          const next = await currentIterator.next();
+          const next = await waitForNextEvent();
+          if (next === 'snapshot_timeout') {
+            timedOutWaitingForSnapshot = true;
+            break;
+          }
           if (next.done || cancelled) break;
           if (!sawMessage) {
             sawMessage = true;
             retryAttempts = 0;
+            setRetryCount(0);
+            setIsRetrying(false);
           }
           applyMessage((next.value as RemoteEvent).payload);
         }
         if (!cancelled && !finishedRef.current) {
-          setError('Stream disconnected unexpectedly');
+          setError(
+            timedOutWaitingForSnapshot
+              ? 'Timed out waiting for initial stream snapshot'
+              : 'Stream disconnected unexpectedly'
+          );
           scheduleReconnect();
         }
       } catch (err) {
         if (!cancelled) {
           console.error(`Failed to subscribe to ${eventChannel}:`, err);
-          setError(err instanceof Error ? err.message : 'Failed to connect');
+          setError(extractStreamErrorMessage(err));
           const retryable =
             typeof err === 'object' && err !== null && 'retryable' in err
               ? (err as { retryable?: unknown }).retryable !== false
               : true;
           if (retryable) {
             scheduleReconnect();
+          } else {
+            setIsRetrying(false);
           }
         }
       } finally {
+        clearSnapshotWatchdog();
         void currentIterator?.return?.();
         if (iterator === currentIterator) {
           iterator = undefined;
@@ -272,6 +360,7 @@ export const usePatchStream = <T extends object>(
 
     return () => {
       cancelled = true;
+      clearSnapshotWatchdog();
       if (retryTimer !== undefined) {
         clearTimeout(retryTimer);
         retryTimer = undefined;
@@ -283,6 +372,8 @@ export const usePatchStream = <T extends object>(
       setData(undefined);
       setIsInitialized(false);
       setIsConnected(false);
+      setIsRetrying(false);
+      setRetryCount(0);
     };
   }, [
     subscribeCommand,
@@ -295,5 +386,13 @@ export const usePatchStream = <T extends object>(
     retryNonce,
   ]);
 
-  return { data, isConnected, isInitialized, error, retry };
+  return {
+    data,
+    isConnected,
+    isInitialized,
+    isRetrying,
+    retryCount,
+    error,
+    retry,
+  };
 };

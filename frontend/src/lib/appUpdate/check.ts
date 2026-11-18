@@ -368,6 +368,7 @@ export async function installSignedUpdate(
           await update.install();
         }
       } else if (isWindowsPlatform()) {
+        await evacuateUserDataBeforeReplacingInstall();
         await update.downloadAndInstall((event) => {
           handleDownloadEvent(event);
           if (event.event === 'Finished') {

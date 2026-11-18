@@ -407,9 +407,13 @@ fn preserve_sqlite_dir_beside_stable(dir: &Path, stable: &Path) -> std::io::Resu
             "refusing to overwrite the live data directory",
         ));
     }
-    match std::fs::rename(dir, &dest) {
+    match rename_dir_with_windows_retry(dir, &dest) {
         Ok(()) => Ok(dest),
-        Err(error) if is_windows_sharing_violation(&error) => Err(error),
+        Err(error)
+            if is_windows_sharing_violation(&error) || sqlite_files_have_open_handles(dir) =>
+        {
+            Err(error)
+        }
         Err(_) => {
             if let Err(copy_err) = copy_dir_tree_for_adoption(dir, &dest) {
                 let _ = std::fs::remove_dir_all(&dest);
@@ -437,12 +441,76 @@ fn move_into_target(legacy_dir: &Path, target_dir: &Path) -> std::io::Result<Mov
 fn is_windows_sharing_violation(error: &std::io::Error) -> bool {
     #[cfg(windows)]
     {
-        error.raw_os_error() == Some(32)
+        matches!(error.raw_os_error(), Some(32 | 33))
     }
     #[cfg(not(windows))]
     {
         let _ = error;
         false
+    }
+}
+
+/// Checks whether any SQLite database/WAL/SHM file inside `dir` currently has an
+/// open handle in another process (or connection). On Windows, renaming a
+/// directory with open handles inside it often fails with `ERROR_ACCESS_DENIED`
+/// (`os error 5`) rather than `ERROR_SHARING_VIOLATION` (`os error 32`); probing
+/// `DB_FILES` with `share_mode(0)` distinguishes active SQLite handle contention
+/// (must NOT raw-copy live `-wal`/`-shm` files) from quiescent read-only install
+/// directories (safe to copy).
+fn sqlite_files_have_open_handles(dir: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        for name in DB_FILES {
+            let path = dir.join(name);
+            if !path.exists() {
+                continue;
+            }
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&path)
+            {
+                Ok(_file) => {}
+                Err(err) if matches!(err.raw_os_error(), Some(32 | 33)) => return true,
+                Err(_) => {}
+            }
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        false
+    }
+}
+
+fn rename_dir_with_windows_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        #[cfg(windows)]
+        Err(first_err)
+            if !cfg!(test)
+                && matches!(first_err.raw_os_error(), Some(5 | 32 | 33))
+                && sqlite_files_have_open_handles(from) =>
+        {
+            let mut last_err = first_err;
+            for _ in 0..10 {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                match std::fs::rename(from, to) {
+                    Ok(()) => return Ok(()),
+                    Err(err) => {
+                        last_err = err;
+                        if !sqlite_files_have_open_handles(from) {
+                            return std::fs::rename(from, to);
+                        }
+                    }
+                }
+            }
+            Err(last_err)
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -455,9 +523,11 @@ fn move_into_target_with_decision(
         let superseded = match set_aside(legacy_dir) {
             Ok(aside) => aside,
             Err(_) => {
-                // Read-only legacy directory (e.g. Program Files\VibeX\data):
-                // mark as already evaluated so we don't inspect it on every launch.
-                let _ = utils::assets::record_adopted_legacy_source(target_dir, legacy_dir);
+                // Only mark as permanently evaluated when no process holds live
+                // SQLite handles; if still open, re-evaluate on next launch.
+                if !sqlite_files_have_open_handles(legacy_dir) {
+                    let _ = utils::assets::record_adopted_legacy_source(target_dir, legacy_dir);
+                }
                 legacy_dir.to_path_buf()
             }
         };
@@ -474,10 +544,12 @@ fn move_into_target_with_decision(
     if let Some(parent) = target_dir.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    match std::fs::rename(legacy_dir, target_dir) {
+    match rename_dir_with_windows_retry(legacy_dir, target_dir) {
         Ok(()) => Ok(MoveResult::Moved { superseded }),
         Err(rename_err) => {
-            if is_windows_sharing_violation(&rename_err) {
+            if is_windows_sharing_violation(&rename_err)
+                || sqlite_files_have_open_handles(legacy_dir)
+            {
                 if let Some(superseded) = &superseded {
                     let _ = std::fs::rename(superseded, target_dir);
                 }
@@ -1026,5 +1098,39 @@ mod tests {
     #[tokio::test]
     async fn evacuate_does_not_touch_the_machine_from_a_test_build() {
         assert!(evacuate_user_data_before_app_update().await.is_ok());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn locked_sqlite_in_legacy_dir_is_opened_in_place_instead_of_raw_copied() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = adoption(root.path());
+        create_test_sqlite(&dirs.legacy_dir, &["conv-1", "conv-2"], 1024).await;
+        create_test_sqlite(&dirs.target_dir, &[], 64).await;
+
+        // Hold an open SQLite handle on legacy_dir/db.sqlite simulating a still-exiting
+        // predecessor/companion process during Windows update restart.
+        let held_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dirs.legacy_dir.join("db.sqlite"))
+            .unwrap();
+
+        assert!(sqlite_files_have_open_handles(&dirs.legacy_dir));
+
+        let outcome = adopt(&dirs).await;
+        assert!(
+            matches!(outcome, DataDirAdoptionOutcome::OpenedInPlace { .. }),
+            "expected OpenedInPlace when SQLite files have open handles, got {outcome:?}"
+        );
+        assert!(dirs.legacy_dir.join("db.sqlite").is_file());
+        // Target directory must be restored intact rather than replaced with a torn copy.
+        let target_summary = db::inspect_sqlite_content_summary(&dirs.target_dir.join("db.sqlite"))
+            .await
+            .expect("restored target db");
+        assert_eq!(target_summary.conversation_count, 0);
+
+        drop(held_file);
+        assert!(!sqlite_files_have_open_handles(&dirs.legacy_dir));
     }
 }

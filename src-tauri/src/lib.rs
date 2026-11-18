@@ -345,12 +345,7 @@ async fn reveal_main_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn cleanup_processes_on_exit(app: &tauri::AppHandle) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static EXIT_CLEANUP_RAN: AtomicBool = AtomicBool::new(false);
-    if EXIT_CLEANUP_RAN.swap(true, Ordering::SeqCst) {
-        return;
-    }
+fn terminate_child_and_companion_processes(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<state::AppState>() {
         state.agent_runtime.kill_all_processes_on_exit();
     }
@@ -364,6 +359,15 @@ pub(crate) fn cleanup_processes_on_exit(app: &tauri::AppHandle) {
         tauri::async_runtime::block_on(agents::terminal::agent_terminal_registry().release_all());
     }
     kill_companion_processes_on_exit();
+}
+
+pub(crate) fn cleanup_processes_on_exit(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static EXIT_CLEANUP_RAN: AtomicBool = AtomicBool::new(false);
+    if EXIT_CLEANUP_RAN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    terminate_child_and_companion_processes(app);
 }
 
 pub(crate) fn graceful_exit_app(app: &tauri::AppHandle) {
@@ -385,8 +389,40 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn evacuate_user_data_before_update() -> Result<(), String> {
-    server::evacuate_user_data_before_app_update().await
+async fn evacuate_user_data_before_update(app: tauri::AppHandle) -> Result<(), String> {
+    server::evacuate_user_data_before_app_update().await?;
+    if let Some(state) = app.try_state::<state::AppState>() {
+        let pool = state.deployment.db().pool.clone();
+        let _ = tokio::time::timeout(
+            Duration::from_secs(2),
+            sqlx::query("PRAGMA wal_checkpoint(PASSIVE)").execute(&pool),
+        )
+        .await;
+    }
+    // On Windows, `tauri-plugin-updater` spawns the NSIS installer and calls
+    // `std::process::exit(0)` directly without firing `RunEvent::Exit`. Clean up
+    // companion MCP/helper daemons and ACP agent processes here right before
+    // `pendingUpdate.install()` runs so they do not hold open handles in the
+    // data or install directories across the update restart.
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(state) = app.try_state::<state::AppState>() {
+            state.agent_runtime.kill_all_processes_on_exit();
+        }
+        agents::terminal::agent_terminal_registry()
+            .release_all()
+            .await;
+        kill_companion_processes_on_exit();
+        if let Some(state) = app.try_state::<state::AppState>() {
+            let pool = state.deployment.db().pool.clone();
+            let _ = tokio::time::timeout(
+                Duration::from_secs(1),
+                sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&pool),
+            )
+            .await;
+        }
+    }
+    Ok(())
 }
 
 pub fn run() {
@@ -912,6 +948,8 @@ mod tests {
         let tray_source = include_str!("tray.rs");
         assert!(source.contains("if let tauri::RunEvent::Exit = event"));
         assert!(source.contains("kill_companion_processes_on_exit();"));
+        assert!(source.contains("PRAGMA wal_checkpoint(PASSIVE)"));
+        assert!(source.contains("PRAGMA wal_checkpoint(TRUNCATE)"));
         assert!(source.contains("dimo-mcp.exe"));
         assert!(source.contains("dimo-workflow-mcp.exe"));
         assert!(source.contains("dimo-computer-helper.exe"));

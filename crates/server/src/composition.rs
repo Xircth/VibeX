@@ -115,6 +115,10 @@ impl HeadlessServer {
         }
         let deployment = Arc::new(LocalDeployment::new_at(&config.data_dir).await?);
         let pool = deployment.db().pool.clone();
+        if let Err(error) = crate::reconcile_migrated_data_dir_paths(&pool, &config.data_dir).await
+        {
+            tracing::warn!(%error, "could not reconcile migrated data directory paths");
+        }
         let provisioned = SqliteTokenHashStore::new(pool.clone())
             .provision(config.token)
             .await?;

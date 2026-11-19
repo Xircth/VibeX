@@ -54,6 +54,8 @@
     "keepLocal": "Keep mine"
   },
   "children": {
+    "tabLabel": "Child sessions",
+    "dismiss": "Dismiss child sessions",
     "title": "Child conversations ({{count}})",
     "active": "{{count}} active",
     "waiting": "{{count}} waiting",
@@ -271,7 +273,9 @@
       "otherActivities_other": "{{count}} other activities",
       "separator": ", ",
       "failed": "Tool call failed",
-      "commandExitCode": "Command exited with code {{code}}"
+      "commandExitCode": "Command exited with code {{code}}",
+      "permissionDenied": "Permission denied",
+      "timedOut": "Timed out"
     },
     "fileReadRange": "Lines {{start}}–{{end}}",
     "fileReadFrom": "From line {{start}}",
@@ -301,7 +305,15 @@
     "connectingTitle": "Connecting to agent…",
     "initSessionTitle": "Initializing session…",
     "autoPermissionTitle": "Permissions auto-approved",
-    "autoPermissionDescription": "Automatically approved {{count}} permission request(s)"
+    "autoPermissionDescription": "Automatically approved {{count}} permission request(s)",
+    "queueTab": "Queue",
+    "childrenTab": "Child sessions",
+    "asyncTasksTab": "Background tasks",
+    "goalTab": "Goal",
+    "noticeTab": "Notices",
+    "collapsePanel": "Collapse",
+    "dismissTab": "Dismiss {{label}}",
+    "regionLabel": "Composer status cockpit"
   },
   "liveFeedback": {
     "placeholder": "Steer this turn",
@@ -554,12 +566,15 @@
     "collapse": "Collapse agent question",
     "recommended": "Recommended",
     "customAnswer": "Type an answer",
-    "customPlaceholder": "Enter your answer",
+    "customPlaceholder": "Something else…",
     "previous": "Previous",
     "next": "Next",
+    "skip": "Skip",
+    "continue": "Continue",
     "submit": "Submit answer",
     "decline": "Decline",
     "answered": "Answered",
+    "sentMessage": "Answers sent",
     "justNow": "Now"
   },
   "backendNotice": {

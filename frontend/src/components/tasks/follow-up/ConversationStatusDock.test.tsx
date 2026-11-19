@@ -111,7 +111,7 @@ describe('ConversationStatusDock', () => {
     ).not.toBeInTheDocument();
 
     const detailsButton = screen.getByRole('button', {
-      name: '查看详细信息：加载 Agent 会话失败',
+      name: '查看详情：加载 Agent 会话失败',
     });
     expect(detailsButton).toHaveAttribute('aria-expanded', 'false');
 
@@ -157,7 +157,7 @@ describe('ConversationStatusDock', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: '查看详细信息：Skill descriptions were shortened to fit the skills context budget.',
+        name: '查看详情：Skill descriptions were shortened to fit the skills context budget.',
       })
     );
     expect(
@@ -227,13 +227,13 @@ describe('ConversationStatusDock', () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByRole('button', { name: '查看详细信息：操作失败' })
+      screen.getByRole('button', { name: '查看详情：操作失败' })
     );
     fireEvent.click(
-      screen.getByRole('button', { name: '查看详细信息：连接已断开' })
+      screen.getByRole('button', { name: '查看详情：连接已断开' })
     );
     fireEvent.click(
-      screen.getByRole('button', { name: '查看详细信息：因重启中断' })
+      screen.getByRole('button', { name: '查看详情：因重启中断' })
     );
 
     expect(

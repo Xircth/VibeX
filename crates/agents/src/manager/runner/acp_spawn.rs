@@ -124,6 +124,26 @@ impl AgentConnectionRunner {
         }
         let mut launch_program = acp_program.clone();
         let mut launch_args = launch_lock.args.clone();
+        if let Some(profile) =
+            crate::BuiltInProfileCatalog::management().profile(&self.snapshot.agent_id)
+        {
+            let matched_component = [
+                crate::ProfileComponent::AcpAdapter,
+                crate::ProfileComponent::CombinedRuntime,
+            ]
+            .into_iter()
+            .find(|component| {
+                crate::external_candidate_for_program(profile, *component, &acp_program).is_some()
+            });
+            if let Some(component) = matched_component {
+                crate::normalize_acp_launch_args_for_program(
+                    profile,
+                    component,
+                    Some(&acp_program),
+                    &mut launch_args,
+                );
+            }
+        }
         let mut zcode_launch_env = HashMap::new();
         if self.snapshot.agent_id.as_str() == "zcode" {
             // The install lock points at the npm shim. Official ZCode and a

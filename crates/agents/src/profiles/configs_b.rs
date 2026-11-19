@@ -421,7 +421,6 @@ pub(super) const KIMI_INTERFACE_OPTIONS: &[(&str, &str)] = &[
     ("openai_responses", "OpenAI Responses"),
     ("anthropic", "Anthropic"),
     ("google-genai", "Google GenAI"),
-    ("vertexai", "Vertex AI"),
 ];
 pub(super) const KIMI_FIELDS: &[NativeConfigField] = &[
     authentication(select_field(
@@ -446,7 +445,7 @@ pub(super) const KIMI_FIELDS: &[NativeConfigField] = &[
     authentication(json_field(
         "kimi_provider_env",
         "Provider 环境变量",
-        "env 鉴权或 Vertex ADC 使用的环境变量对象",
+        "Provider 需要注入的额外环境变量对象",
         &["providers", "dimo", "env"],
     )),
     authentication(tagged_text_field(

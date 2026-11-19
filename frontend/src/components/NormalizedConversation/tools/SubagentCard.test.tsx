@@ -159,7 +159,7 @@ describe('SubagentCard', () => {
     expect(document.querySelector('.lucide-bot')).not.toBeInTheDocument();
   });
 
-  it('renders nested subagent thinking, live text, and child tool calls inside SubagentCard', () => {
+  it('suppresses raw thinking, live text, and child tool dumps while keeping tool count', () => {
     const childUse: ToolUseBlock = {
       type: 'tool_use',
       tool_use_id: 'toolu_child_1',
@@ -181,12 +181,13 @@ describe('SubagentCard', () => {
           {
             subagent_type: 'Explore',
             description: 'Verify crates/agents',
+            prompt: 'Inspect crates/agents',
           },
           {
             claudeCode: { subagent: true },
             subagent: {
               thinking: 'Inspecting crates/agents test suite...',
-              text: 'Running cargo test now.',
+              text: 'Verify crates/agentsVerify crates/agents',
             },
           }
         )}
@@ -200,15 +201,36 @@ describe('SubagentCard', () => {
       />
     );
 
-    expect(screen.getByTestId('subagent-thinking')).toHaveTextContent(
-      'Inspecting crates/agents test suite...'
-    );
-    expect(screen.getByTestId('subagent-live-text')).toHaveTextContent(
-      'Running cargo test now.'
-    );
-    const childTools = screen.getByTestId('subagent-child-tools');
-    expect(childTools).toHaveTextContent('Run agents unit tests');
-    expect(childTools).toHaveTextContent('cargo test -p agents');
+    expect(screen.queryByTestId('subagent-thinking')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('subagent-live-text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('subagent-child-tools')).not.toBeInTheDocument();
+    expect(screen.queryByText(/cargo test -p agents/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Verify crates\/agentsVerify crates\/agents/)
+    ).not.toBeInTheDocument();
     expect(screen.getByText('1 次工具调用')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '提示词' })).toBeInTheDocument();
+  });
+
+  it('bounds disclosed prompt and result inside a scrollable length-limited container', () => {
+    const longResult = 'A'.repeat(15_000);
+    render(
+      <SubagentCard
+        use={use({
+          subagent_type: 'general-purpose',
+          description: 'Long output task',
+          prompt: 'Summarize everything',
+        })}
+        result={result(longResult)}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    const panel = screen.getByTestId('subagent-disclosure-panel');
+    expect(panel).toHaveClass('overflow-y-auto');
+    expect(panel.className).toContain('max-h-');
+    const rendered = screen.getByTestId('markdown').textContent ?? '';
+    expect(rendered.length).toBeLessThan(12_100);
+    expect(rendered.endsWith('…')).toBe(true);
   });
 });

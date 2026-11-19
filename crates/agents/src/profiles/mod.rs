@@ -599,6 +599,139 @@ pub fn acp_launch_args(profile: &BuiltInProfile, component: ProfileComponent) ->
         .collect()
 }
 
+fn normalized_program_command_name(program: &std::path::Path) -> Option<String> {
+    let name = program.file_name().and_then(|value| value.to_str())?;
+    let trimmed = name
+        .strip_suffix(".exe")
+        .or_else(|| name.strip_suffix(".EXE"))
+        .or_else(|| name.strip_suffix(".cmd"))
+        .or_else(|| name.strip_suffix(".CMD"))
+        .or_else(|| name.strip_suffix(".bat"))
+        .or_else(|| name.strip_suffix(".BAT"))
+        .or_else(|| name.strip_suffix(".par"))
+        .or_else(|| name.strip_suffix(".PAR"))
+        .unwrap_or(name);
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+pub fn candidate_command_matches(executable: &str, program: &std::path::Path) -> bool {
+    normalized_program_command_name(program)
+        .is_some_and(|name| name.eq_ignore_ascii_case(executable))
+}
+
+pub fn external_candidate_for_program<'a>(
+    profile: &'a BuiltInProfile,
+    component: ProfileComponent,
+    program: &std::path::Path,
+) -> Option<&'a ProfileExternalCandidate> {
+    profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == component && candidate_command_matches(candidate.executable, program))
+}
+
+pub fn acp_launch_args_for_program(
+    profile: &BuiltInProfile,
+    component: ProfileComponent,
+    program: Option<&std::path::Path>,
+) -> Vec<String> {
+    if let Some(program) = program
+        && let Some(candidate) = external_candidate_for_program(profile, component, program)
+    {
+        return candidate
+            .acp_args
+            .iter()
+            .map(|argument| (*argument).to_string())
+            .collect();
+    }
+    acp_launch_args(profile, component)
+}
+
+fn args_start_with(args: &[String], expected: &[&str]) -> bool {
+    args.len() >= expected.len()
+        && expected
+            .iter()
+            .enumerate()
+            .all(|(idx, item)| args[idx] == *item)
+}
+
+pub fn normalize_acp_launch_args_for_program(
+    profile: &BuiltInProfile,
+    component: ProfileComponent,
+    program: Option<&std::path::Path>,
+    args: &mut Vec<String>,
+) {
+    let Some(program) = program else {
+        if args.is_empty() {
+            let defaults = acp_launch_args(profile, component);
+            if !defaults.is_empty() {
+                *args = defaults;
+            }
+        }
+        return;
+    };
+    let Some(matched) = external_candidate_for_program(profile, component, program) else {
+        if args.is_empty() {
+            let defaults = acp_launch_args(profile, component);
+            if !defaults.is_empty() {
+                *args = defaults;
+            }
+        }
+        return;
+    };
+
+    for sibling in profile.external_candidates {
+        if sibling.component == component
+            && !sibling.acp_args.is_empty()
+            && sibling.acp_args != matched.acp_args
+            && args_start_with(args, sibling.acp_args)
+        {
+            args.drain(0..sibling.acp_args.len());
+            break;
+        }
+    }
+
+    if matched.acp_args.is_empty() {
+        return;
+    }
+
+    if args.is_empty() {
+        *args = matched
+            .acp_args
+            .iter()
+            .map(|argument| (*argument).to_string())
+            .collect();
+        return;
+    }
+
+    // Deduplicate accidental repeated leading ACP subcommands (e.g. `hermes acp acp`).
+    let step = matched.acp_args.len();
+    while args.len() >= step * 2
+        && args_start_with(args, matched.acp_args)
+        && args_start_with(&args[step..], matched.acp_args)
+    {
+        args.drain(0..step);
+    }
+}
+
+pub fn version_args_for_program(
+    profile: &BuiltInProfile,
+    component: ProfileComponent,
+    program: Option<&std::path::Path>,
+) -> &'static [&'static str] {
+    if let Some(program) = program
+        && let Some(candidate) = external_candidate_for_program(profile, component, program)
+    {
+        return candidate.version_args;
+    }
+    profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == component)
+        .map(|candidate| candidate.version_args)
+        .unwrap_or(&["--version"])
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryEntryIdentity {
     pub registry_id: String,

@@ -984,3 +984,205 @@ async fn canceled_delegation_remains_canceled_after_projection_rebuild() {
     assert_eq!(delegation.status, "canceled");
     assert!(delegation.child_conversation_id.is_some());
 }
+
+#[tokio::test]
+async fn rejected_permission_correlates_to_denied_tool_status_in_both_orderings_and_timed_out_survives_rebuild() {
+    let pool = setup_pool().await;
+    let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+    let make_tool_patch = |id: &str, status: &str, raw_output: Option<serde_json::Value>| {
+        ConversationEvent::ToolCallUpsert {
+            tool_call: ConversationToolCallPatch {
+                tool_call_id: id.into(),
+                title: Some("Bash".into()),
+                kind: Some("execute".into()),
+                status: Some(status.into()),
+                raw_input: Some(serde_json::json!({ "command": "echo test" })),
+                raw_output,
+                raw_output_append: None,
+                content: None,
+                locations: None,
+                metadata: None,
+                images: Vec::new(),
+            },
+        }
+    };
+
+    // Ordering A: PermissionRequested -> PermissionResponded(RejectOnce) -> ToolCallUpsert(failed)
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        make_tool_patch("tool-deny-before", "in_progress", None),
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::PermissionRequested {
+            request: ConversationPermissionRequest {
+                permission_id: "perm-deny-before".into(),
+                request: AgentPermissionRequest {
+                    id: AgentPermissionId::new(),
+                    session_id: AgentSessionId::new(),
+                    title: "Run command".into(),
+                    details: Some(serde_json::json!({ "toolCallId": "tool-deny-before" })),
+                    options: vec![
+                        AgentPermissionOption {
+                            id: "allow".into(),
+                            label: "Allow".into(),
+                            kind: AgentPermissionOptionKind::AllowOnce,
+                            description: None,
+                        },
+                        AgentPermissionOption {
+                            id: "reject".into(),
+                            label: "Reject".into(),
+                            kind: AgentPermissionOptionKind::RejectOnce,
+                            description: None,
+                        },
+                    ],
+                    revision: 1,
+                },
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::PermissionResponded {
+            permission_id: "perm-deny-before".into(),
+            response: ConversationPermissionResponse {
+                response: AgentPermissionResponse::selected("reject"),
+                auto: false,
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        make_tool_patch("tool-deny-before", "failed", Some(serde_json::json!("User declined"))),
+        None,
+    )
+    .await;
+
+    // Ordering B: ToolCallUpsert(cancelled) arrives BEFORE PermissionResponded(RejectOnce)
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        ConversationEvent::PermissionRequested {
+            request: ConversationPermissionRequest {
+                permission_id: "perm-deny-after".into(),
+                request: AgentPermissionRequest {
+                    id: AgentPermissionId::new(),
+                    session_id: AgentSessionId::new(),
+                    title: "Run command".into(),
+                    details: Some(serde_json::json!({ "toolCallId": "tool-deny-after" })),
+                    options: vec![AgentPermissionOption {
+                        id: "reject".into(),
+                        label: "Reject".into(),
+                        kind: AgentPermissionOptionKind::RejectOnce,
+                        description: None,
+                    }],
+                    revision: 1,
+                },
+            },
+        },
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        make_tool_patch("tool-deny-after", "cancelled", None),
+        None,
+    )
+    .await;
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "runtime",
+        ConversationEvent::PermissionResponded {
+            permission_id: "perm-deny-after".into(),
+            response: ConversationPermissionResponse {
+                response: AgentPermissionResponse::selected("reject"),
+                auto: false,
+            },
+        },
+        None,
+    )
+    .await;
+
+    // Timed-out command via structured timedOut flag on raw_output
+    append_event(
+        &pool,
+        conversation_id,
+        Some(turn_id),
+        "acp",
+        make_tool_patch(
+            "tool-timed-out",
+            "failed",
+            Some(serde_json::json!({ "timedOut": true, "exitCode": 124, "aggregatedOutput": "partial\n" })),
+        ),
+        None,
+    )
+    .await;
+
+    ConversationProjector::rebuild_projection(&pool, conversation_id)
+        .await
+        .expect("rebuild projection");
+    let timeline = ConversationProjector::project(&pool, conversation_id)
+        .await
+        .expect("timeline");
+
+    let mut statuses = std::collections::HashMap::new();
+    let mut errors = std::collections::HashMap::new();
+    for row in &timeline.rows {
+        if let ConversationTimelineRow::MessageTurn { turn, .. } = &row.row {
+            for block in &turn.blocks {
+                match block {
+                    ContentBlock::ToolUse {
+                        tool_use_id: Some(id),
+                        status,
+                        ended_at,
+                        ..
+                    } => {
+                        assert!(ended_at.is_some(), "{id} should have ended_at");
+                        statuses.insert(id.clone(), status.clone());
+                    }
+                    ContentBlock::ToolResult {
+                        tool_use_id: Some(id),
+                        is_error,
+                        ..
+                    } => {
+                        errors.insert(id.clone(), *is_error);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    assert_eq!(statuses.get("tool-deny-before").and_then(|s| s.as_deref()), Some("denied"));
+    assert_eq!(errors.get("tool-deny-before").copied(), Some(true));
+    assert_eq!(statuses.get("tool-deny-after").and_then(|s| s.as_deref()), Some("denied"));
+    assert_eq!(errors.get("tool-deny-after").copied(), Some(true));
+    assert_eq!(statuses.get("tool-timed-out").and_then(|s| s.as_deref()), Some("timed_out"));
+    assert_eq!(errors.get("tool-timed-out").copied(), Some(true));
+}

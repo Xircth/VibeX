@@ -83,6 +83,11 @@ fn response(body: &str, etag: &str) -> Result<RegistryFetchResponse, BoundaryErr
     })
 }
 
+fn is_registry_document_url(url: &str) -> bool {
+    url == RegistrySnapshotClient::OFFICIAL_REGISTRY_URL
+        || url == RegistrySnapshotClient::MIRROR_REGISTRY_URL
+}
+
 struct HungIconFetcher {
     catalog: RegistryFetchResponse,
     icon_starts: AtomicUsize,
@@ -95,7 +100,7 @@ impl RegistryFetcher for HungIconFetcher {
         url: &str,
         _etag: Option<&str>,
     ) -> Result<RegistryFetchResponse, BoundaryError> {
-        if url == RegistrySnapshotClient::OFFICIAL_REGISTRY_URL {
+        if is_registry_document_url(url) {
             return Ok(self.catalog.clone());
         }
         self.icon_starts.fetch_add(1, Ordering::SeqCst);
@@ -116,7 +121,7 @@ impl RegistryFetcher for ReusableIconFetcher {
         url: &str,
         _etag: Option<&str>,
     ) -> Result<RegistryFetchResponse, BoundaryError> {
-        if url == RegistrySnapshotClient::OFFICIAL_REGISTRY_URL {
+        if is_registry_document_url(url) {
             return self
                 .catalogs
                 .lock()
@@ -149,7 +154,7 @@ impl RegistryFetcher for ParallelIconFetcher {
         url: &str,
         _etag: Option<&str>,
     ) -> Result<RegistryFetchResponse, BoundaryError> {
-        if url == RegistrySnapshotClient::OFFICIAL_REGISTRY_URL {
+        if is_registry_document_url(url) {
             return Ok(self.catalog.clone());
         }
         self.barrier.wait().await;
@@ -279,10 +284,11 @@ async fn registry_cache_keeps_last_valid_snapshot_on_invalid_refresh() {
     let target = first.entries[0].lock_add_target(first.snapshot_id);
     assert_eq!(target.version, "1.2.3");
 
+    let requests_after_open = fetcher.request_count();
     clock.advance(Duration::hours(23));
     let cached = client.open(&mut cache).await;
     assert_eq!(cached.freshness, RegistryCacheFreshness::Fresh);
-    assert_eq!(fetcher.request_count(), 2);
+    assert_eq!(fetcher.request_count(), requests_after_open);
 
     clock.advance(Duration::hours(2));
     let retained = client.open(&mut cache).await;
@@ -515,4 +521,106 @@ async fn registry_refresh_reuses_cached_icons_when_icon_refetch_fails() {
         second_view.entries[0].icon_svg,
         first_view.entries[0].icon_svg
     );
+}
+
+#[tokio::test]
+async fn registry_refresh_falls_back_between_mirror_and_official_and_guards_etag() {
+    struct EtagRecordingFetcher {
+        seen: Mutex<Vec<(String, Option<String>)>>,
+        mirror_body: Option<String>,
+        official_body: Option<String>,
+    }
+
+    #[async_trait]
+    impl RegistryFetcher for EtagRecordingFetcher {
+        async fn fetch(
+            &self,
+            url: &str,
+            etag: Option<&str>,
+        ) -> Result<RegistryFetchResponse, BoundaryError> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push((url.to_string(), etag.map(ToOwned::to_owned)));
+            if url == RegistrySnapshotClient::MIRROR_REGISTRY_URL {
+                return self
+                    .mirror_body
+                    .as_ref()
+                    .map(|body| RegistryFetchResponse {
+                        status: 200,
+                        body: body.as_bytes().to_vec(),
+                        etag: Some("\"mirror-etag\"".to_string()),
+                    })
+                    .ok_or_else(|| BoundaryError::new("mirror offline"));
+            }
+            if url == RegistrySnapshotClient::OFFICIAL_REGISTRY_URL {
+                return self
+                    .official_body
+                    .as_ref()
+                    .map(|body| RegistryFetchResponse {
+                        status: 200,
+                        body: body.as_bytes().to_vec(),
+                        etag: Some("\"official-etag\"".to_string()),
+                    })
+                    .ok_or_else(|| BoundaryError::new("official offline"));
+            }
+            Err(BoundaryError::new("icon skipped"))
+        }
+    }
+
+    let doc = registry("1.0.0", "1.2.3", "");
+    let fetcher = Arc::new(EtagRecordingFetcher {
+        seen: Mutex::new(Vec::new()),
+        mirror_body: Some(doc.clone()),
+        official_body: Some(doc),
+    });
+    let clock = Arc::new(SystemClock);
+    let client = RegistrySnapshotClient::new(fetcher.clone(), clock.clone());
+    let mut cache = RegistryCache::default();
+
+    // Seed cache with an opposite-source ETag so only matching source_url receives If-None-Match.
+    let first = client.refresh(&mut cache).await;
+    assert_eq!(first.refresh_error, None);
+    let active_source = cache.snapshot().unwrap().source_url.clone();
+    assert!(
+        active_source == RegistrySnapshotClient::MIRROR_REGISTRY_URL
+            || active_source == RegistrySnapshotClient::OFFICIAL_REGISTRY_URL
+    );
+
+    // Next refresh on matching source sends its ETag.
+    let _ = client.refresh(&mut cache).await;
+    let seen = fetcher.seen.lock().unwrap();
+    let expected_etag = if active_source == RegistrySnapshotClient::MIRROR_REGISTRY_URL {
+        "\"mirror-etag\""
+    } else {
+        "\"official-etag\""
+    };
+    assert_eq!(
+        seen.last().unwrap(),
+        &(active_source.clone(), Some(expected_etag.to_string()))
+    );
+    drop(seen);
+
+    // If the preferred source fails, refresh falls back to the alternate source cleanly.
+    let mirror_only = Arc::new(EtagRecordingFetcher {
+        seen: Mutex::new(Vec::new()),
+        mirror_body: Some(registry("1.0.0", "2.0.0", "")),
+        official_body: None,
+    });
+    let client_mirror = RegistrySnapshotClient::new(mirror_only, clock.clone());
+    let mut mirror_cache = RegistryCache::default();
+    let view_m = client_mirror.refresh(&mut mirror_cache).await;
+    assert_eq!(view_m.refresh_error, None);
+    assert_eq!(view_m.entries[0].version, "2.0.0");
+
+    let official_only = Arc::new(EtagRecordingFetcher {
+        seen: Mutex::new(Vec::new()),
+        mirror_body: None,
+        official_body: Some(registry("1.0.0", "3.0.0", "")),
+    });
+    let client_official = RegistrySnapshotClient::new(official_only, clock);
+    let mut official_cache = RegistryCache::default();
+    let view_o = client_official.refresh(&mut official_cache).await;
+    assert_eq!(view_o.refresh_error, None);
+    assert_eq!(view_o.entries[0].version, "3.0.0");
 }

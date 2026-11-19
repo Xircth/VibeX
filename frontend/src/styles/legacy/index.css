@@ -7341,12 +7341,10 @@ html.dark {
   }
 
   .agent-question-card {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% - 1px);
-    left: 0;
-    z-index: 2;
+    position: relative;
     display: flex;
+    width: 100%;
+    max-width: 26rem;
     max-height: min(520px, 65vh);
     flex-direction: column;
     overflow: hidden;
@@ -7354,79 +7352,51 @@ html.dark {
     border-radius: var(--radius-container, var(--radius));
     background: var(--surface-dialog);
     color: var(--text-primary);
-    box-shadow: var(--shadow-control);
+    box-shadow: var(--shadow-popover);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    transform: translateY(calc(100% - 40px));
-    transition:
-      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      box-shadow 220ms ease-out;
   }
 
-  .agent-question-card:hover,
-  .agent-question-card:focus-within,
-  .agent-question-card[data-expanded='true'] {
-    box-shadow: var(--shadow-popover);
-    transform: translateY(0);
+  @keyframes agent-question-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
-  .agent-question-card-header {
-    display: grid;
-    min-height: 40px;
-    flex: none;
-    grid-template-columns: minmax(52px, 1fr) minmax(0, 3fr) minmax(52px, 1fr);
-    align-items: center;
-    gap: 8px;
-    border: 0;
-    border-bottom: 1px solid var(--border-subtle);
-    background: transparent;
-    padding: 0 14px;
-    color: inherit;
-    cursor: pointer;
-  }
-
-  .agent-question-card-header:focus-visible {
-    outline: 2px solid var(--text-primary);
-    outline-offset: -3px;
-  }
-
-  .agent-question-card-position,
-  .agent-question-card-time {
-    color: var(--text-muted);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
+  @keyframes agent-question-pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   .agent-question-card-position {
-    justify-self: start;
-  }
-
-  .agent-question-card-title {
-    overflow: hidden;
+    color: var(--text-muted);
     font-size: 12px;
-    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     line-height: 1;
-    text-align: center;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .agent-question-card-time {
-    justify-self: end;
   }
 
   .agent-question-card-content {
     min-height: 0;
     overflow-y: auto;
-    padding: 16px;
+    padding: 16px 16px 12px;
   }
 
   .agent-question-card-prompt {
-    margin: 0 0 12px;
+    margin: 0;
     color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     line-height: 1.45;
   }
 
@@ -7467,7 +7437,8 @@ html.dark {
     background: hsl(var(--success) / 0.14);
   }
 
-  .agent-question-option:has(input:focus-visible) {
+  .agent-question-option:has(input:focus-visible),
+  .agent-question-option-row:has(input:focus-visible) {
     outline: 2px solid var(--text-primary);
     outline-offset: 2px;
   }
@@ -7544,14 +7515,14 @@ html.dark {
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     line-height: 1.35;
   }
 
   .agent-question-option-description {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 11.5px;
     line-height: 1.35;
   }
 
@@ -7585,47 +7556,27 @@ html.dark {
 
   .agent-question-card-actions {
     display: flex;
+    flex: none;
     align-items: center;
     justify-content: space-between;
-    margin-top: 14px;
-    padding-top: 12px;
+    gap: 12px;
+    padding: 10px 14px;
     border-top: 1px solid var(--border-subtle);
   }
 
   .agent-question-action {
-    height: 32px;
-    padding: 0 12px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
-    background: var(--surface-raised-control);
-    color: var(--text-primary);
+    height: 30px;
+    border-radius: 9999px;
     font-size: 12px;
     font-weight: 500;
     line-height: 1;
-    cursor: pointer;
-  }
-
-  .agent-question-action:hover:not(:disabled) {
-    background: var(--surface-raised-control-hover);
-  }
-
-  .agent-question-action:disabled {
-    cursor: default;
-    opacity: 0.58;
-  }
-
-  .agent-question-action:focus-visible {
-    outline: 2px solid var(--text-primary);
-    outline-offset: 2px;
   }
 
   .agent-question-decline {
-    background: var(--surface-raised-control);
     color: var(--text-muted);
   }
 
   .agent-question-decline:hover:not(:disabled) {
-    background: var(--surface-raised-control-hover);
     color: var(--text-primary);
   }
 
@@ -7757,25 +7708,26 @@ html.dark {
   }
 
   .conversation-status-dock {
-    --composer-status-gap: 4px;
-    --composer-status-peek: 34px;
-    position: absolute;
-    right: 0;
-    bottom: calc(100% - 1px);
-    left: 0;
-    z-index: 1;
-    padding-bottom: var(--composer-status-gap);
+    --composer-status-gap: 6px;
+    position: relative;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    z-index: auto;
+    margin-bottom: var(--composer-status-gap);
+    padding-bottom: 0;
     container-type: inline-size;
     isolation: isolate;
-    transform: translateY(calc(100% - var(--composer-status-peek)));
-    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transform: none;
   }
 
   .conversation-status-dock--panel {
+    position: absolute;
     right: 8px;
     bottom: 8px;
     left: 8px;
     z-index: 10;
+    margin-bottom: 0;
   }
 
   .conversation-status-dock:has(
@@ -7784,7 +7736,7 @@ html.dark {
   .conversation-status-dock:has(
       .composer-status-row + .composer-status-row + .composer-status-row
     )::after {
-    position: absolute;
+    display: none;
     border: 1px solid var(--border-subtle);
     border-radius: var(
       --radius-composer,
@@ -7792,7 +7744,7 @@ html.dark {
     );
     background: var(--surface-card-strong);
     box-shadow: var(--shadow-control);
-    content: '';
+    content: none;
     pointer-events: none;
   }
 
@@ -7810,14 +7762,12 @@ html.dark {
     z-index: -2;
   }
 
-  /* Overlay chrome (draft conflict, permissions) sits in the peek hit
-     target. Hover-expand would then lose hover and flicker. */
   .conversation-status-dock:hover,
   .conversation-status-dock:focus-within,
   .conversation-status-dock[data-expanded='true'],
   .agent-question-composer-stack[data-has-overlay='true']
     .conversation-status-dock {
-    transform: translateY(0);
+    transform: none;
   }
 
   .composer-status-surface {
@@ -7835,7 +7785,24 @@ html.dark {
   }
 
   .composer-status-row {
-    padding: 8px 12px 10px;
+    padding: 7px 12px 8px;
+    transition: background-color 150ms ease-out;
+  }
+
+  .composer-status-row[data-tone='error'] {
+    background: color-mix(
+      in srgb,
+      hsl(var(--destructive)) 7%,
+      var(--surface-card-strong)
+    );
+  }
+
+  .composer-status-row[data-tone='warning'] {
+    background: color-mix(
+      in srgb,
+      hsl(var(--warning)) 8%,
+      var(--surface-card-strong)
+    );
   }
 
   .composer-status-row + .composer-status-row {
@@ -7844,7 +7811,7 @@ html.dark {
 
   .composer-status-header {
     display: flex;
-    min-height: 28px;
+    min-height: 26px;
     align-items: center;
     gap: 8px;
   }
@@ -7861,9 +7828,9 @@ html.dark {
     min-width: 0;
     overflow: hidden;
     color: var(--text-strong);
-    font-size: 0.75rem;
-    font-weight: 700;
-    line-height: 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -7873,18 +7840,18 @@ html.dark {
   }
 
   .composer-status-row[data-tone='error'] .composer-status-badge.astryx-badge {
-    background: hsl(var(--destructive) / 0.1);
+    background: hsl(var(--destructive) / 0.12);
     color: hsl(var(--destructive));
   }
 
   .composer-status-row[data-tone='warning']
     .composer-status-badge.astryx-badge {
-    background: hsl(var(--warning) / 0.12);
+    background: hsl(var(--warning) / 0.14);
     color: hsl(var(--warning-foreground));
   }
 
   .composer-status-row[data-tone='info'] .composer-status-badge.astryx-badge {
-    background: hsl(var(--info) / 0.1);
+    background: hsl(var(--info) / 0.12);
     color: hsl(var(--info-foreground));
   }
 
@@ -7893,24 +7860,35 @@ html.dark {
   }
 
   .composer-status-disclosure {
-    display: flex;
-    width: 100%;
-    min-height: 28px;
+    display: inline-flex;
+    min-height: 24px;
+    flex: 0 0 auto;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 0;
+    gap: 3px;
+    padding: 0 2px;
     border: 0;
+    border-radius: calc(var(--radius) - 2px);
     background: transparent;
-    color: var(--text-primary);
+    color: var(--text-muted);
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1rem;
+    white-space: nowrap;
     cursor: pointer;
+    transition: color 140ms ease-out;
+  }
+
+  .composer-status-details-section > .composer-status-disclosure {
+    display: flex;
+    width: 100%;
+    min-height: 26px;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0;
   }
 
   .composer-status-disclosure:hover {
-    color: var(--text-strong);
+    color: var(--text-primary);
   }
 
   .composer-status-disclosure:focus-visible {
@@ -7944,6 +7922,10 @@ html.dark {
     overflow-wrap: anywhere;
   }
 
+  .composer-cockpit-row .composer-status-details {
+    margin-top: 0;
+  }
+
   .composer-status-details > * {
     font-size: inherit;
     line-height: inherit;
@@ -7951,14 +7933,15 @@ html.dark {
 
   .composer-status-action {
     display: inline-flex;
-    min-height: 28px;
+    min-height: 24px;
     align-items: center;
     gap: 4px;
-    border: 0;
-    border-radius: var(--radius);
-    background: var(--surface-control-light, hsl(var(--background) / 0.6));
-    padding: 0 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--surface-card-strong);
+    padding: 0 8px;
     color: var(--text-strong);
+    font-size: 11px;
     font-weight: 500;
     transition:
       background-color 160ms ease-out,
@@ -7982,12 +7965,12 @@ html.dark {
 
   .composer-status-dismiss {
     display: inline-flex;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: var(--radius);
+    border-radius: calc(var(--radius) - 2px);
     background: transparent;
     color: var(--text-muted);
     transition:
@@ -8010,17 +7993,9 @@ html.dark {
     flex: 0 0 auto;
     align-items: center;
     gap: 4px;
-    opacity: 0;
+    opacity: 1;
     pointer-events: auto;
     transition: opacity 140ms ease-out;
-  }
-
-  .conversation-status-dock:hover .composer-status-action-slot,
-  .conversation-status-dock:focus-within .composer-status-action-slot,
-  .conversation-status-dock[data-expanded='true'] .composer-status-action-slot,
-  .agent-question-composer-stack[data-has-overlay='true']
-    .composer-status-action-slot {
-    opacity: 1;
   }
 
   @container (max-width: 420px) {
@@ -8029,17 +8004,317 @@ html.dark {
     }
   }
 
+  /* Unified Composer Cockpit: Upward-extending tray tucked behind the composer's intact top radius */
+  .composer-cockpit-dock {
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+    margin-bottom: calc(
+      -1 * var(--radius-composer, var(--radius-container, var(--radius)))
+    );
+    padding-bottom: var(
+      --radius-composer,
+      var(--radius-container, var(--radius))
+    );
+    border: 1px solid var(--border-strong);
+    border-bottom: 0;
+    border-radius: var(
+        --radius-composer,
+        var(--radius-container, var(--radius))
+      )
+      var(--radius-composer, var(--radius-container, var(--radius))) 0 0;
+    background: color-mix(in srgb, var(--text-strong) 6%, var(--surface-card));
+    box-shadow: var(--shadow-control);
+    animation: composer-fade-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .composer-cockpit-dock:has(.composer-cockpit-panel) {
+    background: color-mix(in srgb, var(--text-strong) 3%, var(--surface-card));
+  }
+
+  .composer-cockpit-tabbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 12px;
+    background: transparent;
+  }
+
+  .composer-cockpit-dock:has(.composer-cockpit-panel) .composer-cockpit-tabbar {
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--text-strong) 6%, var(--surface-card));
+  }
+
+  .composer-cockpit-tabs {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .composer-cockpit-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .composer-cockpit-tab-wrap {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    height: 24px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    transition:
+      background-color 140ms ease-out,
+      border-color 140ms ease-out,
+      color 140ms ease-out;
+  }
+
+  .composer-cockpit-tab-wrap:hover {
+    background: var(--surface-control-hover);
+    color: var(--text-primary);
+  }
+
+  .composer-cockpit-tab-wrap.is-active {
+    border-color: var(--border-subtle);
+    background: var(--surface-card-strong);
+    color: var(--text-strong);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  }
+
+  .composer-cockpit-tab {
+    display: inline-flex;
+    height: 100%;
+    align-items: center;
+    gap: 5px;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .composer-cockpit-tab-wrap:has(.composer-cockpit-tab-x) .composer-cockpit-tab {
+    padding-right: 4px;
+  }
+
+  .composer-cockpit-tab:focus-visible,
+  .composer-cockpit-tab-x:focus-visible,
+  .composer-cockpit-collapse:focus-visible,
+  .composer-cockpit-mini-btn:focus-visible,
+  .composer-cockpit-mini-x:focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.45);
+    outline-offset: 1px;
+  }
+
+  .composer-cockpit-dot {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: var(--text-muted);
+  }
+
+  .composer-cockpit-dot.is-live {
+    background: hsl(var(--primary));
+    animation: composer-cockpit-pulse 1.6s ease-in-out infinite;
+  }
+
+  .composer-cockpit-dot.is-warn {
+    background: hsl(var(--warning));
+  }
+
+  .composer-cockpit-dot.is-info {
+    background: hsl(var(--info, var(--primary)));
+  }
+
+  .composer-cockpit-dot.is-success {
+    background: hsl(var(--success));
+  }
+
+  @keyframes composer-cockpit-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .composer-cockpit-count {
+    display: inline-flex;
+    height: 16px;
+    align-items: center;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .composer-cockpit-tab-wrap.is-active .composer-cockpit-count {
+    background: hsl(var(--primary) / 0.14);
+    color: hsl(var(--primary));
+  }
+
+  .composer-cockpit-tab-x {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      background-color 140ms ease-out,
+      color 140ms ease-out;
+  }
+
+  .composer-cockpit-tab-x:hover {
+    background: var(--surface-control-hover);
+    color: var(--text-strong);
+  }
+
+  .composer-cockpit-collapse {
+    display: inline-flex;
+    height: 22px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 3px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease-out,
+      color 140ms ease-out;
+  }
+
+  .composer-cockpit-collapse:hover {
+    background: var(--surface-control-hover);
+    color: var(--text-strong);
+  }
+
+  .composer-cockpit-panel {
+    max-height: 176px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: transparent;
+  }
+
+  .composer-cockpit-children-list {
+    max-height: 139px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .composer-cockpit-subbar {
+    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 75%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 75%, transparent);
+    background: color-mix(in srgb, var(--surface-control) 50%, transparent);
+  }
+
+  .composer-cockpit-subbar:first-child {
+    border-top: 0;
+  }
+
+  .composer-cockpit-row {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
+  }
+
+  .composer-cockpit-row:first-child {
+    border-top: 0;
+  }
+
+  .composer-cockpit-mini-btn {
+    display: inline-flex;
+    height: 22px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--surface-card-strong);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease-out,
+      border-color 140ms ease-out;
+  }
+
+  .composer-cockpit-mini-btn:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-control-hover);
+  }
+
+  .composer-cockpit-mini-x {
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      background-color 140ms ease-out,
+      color 140ms ease-out;
+  }
+
+  .composer-cockpit-mini-x:hover {
+    background: var(--surface-control-hover);
+    color: var(--text-strong);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .conversation-status-dock,
     .composer-status-action-slot,
-    .composer-status-disclosure > svg {
+    .composer-status-disclosure > svg,
+    .composer-cockpit-dock,
+    .composer-cockpit-dot.is-live {
       transition: none;
+      animation: none;
     }
   }
 
   @media (hover: none) {
     .conversation-status-dock {
-      transform: translateY(0);
+      transform: none;
     }
 
     .conversation-status-dock .composer-status-action-slot {
@@ -10078,24 +10353,11 @@ html.tauri-desktop.host-windows .window-chrome {
   padding-right: 6.5rem;
 }
 
-[data-tauri-drag-region] {
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
+/* Window dragging uses Tauri's runtime data-tauri-drag-region / startDragging()
+   instead of CSS app-region so Windows WebView2 avoids creating native
+   cutout HWNDs and calling SetDraggableRegions across WH_CALLWNDPROC hooks. */
 [data-tauri-drag-region] img {
   -webkit-user-drag: none;
-}
-
-.window-chrome button,
-.window-chrome a,
-.window-chrome input,
-.window-chrome [role='button'],
-.window-chrome [role='combobox'],
-.window-chrome [role='radiogroup'],
-.window-chrome [role='radio'] {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
 }
 
 html.host-windows :where(.legacy-design) .tahoe-glass,
@@ -17319,8 +17581,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     .canvas-session-card .session-hub-card,
     .canvas-session-card.session-hub-card
   ),
+.canvas-surface[data-canvas-panning]
+  :is(
+    .canvas-session-card .session-hub-card,
+    .canvas-session-card.session-hub-card
+  )::after,
 .canvas-surface[data-canvas-panning] .canvas-session-group,
-.canvas-surface[data-canvas-panning] .canvas-session-window {
+.canvas-surface[data-canvas-panning] .canvas-session-group::after,
+.canvas-surface[data-canvas-panning] .canvas-session-window,
+.canvas-surface[data-canvas-panning] .canvas-session-window::after {
   animation: none !important;
 }
 
@@ -17337,8 +17606,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     .canvas-session-card .session-hub-card,
     .canvas-session-card.session-hub-card
   ),
+.canvas-surface[data-canvas-dragging]
+  :is(
+    .canvas-session-card .session-hub-card,
+    .canvas-session-card.session-hub-card
+  )::after,
 .canvas-surface[data-canvas-dragging] .canvas-session-group,
-.canvas-surface[data-canvas-dragging] .canvas-session-window {
+.canvas-surface[data-canvas-dragging] .canvas-session-group::after,
+.canvas-surface[data-canvas-dragging] .canvas-session-window,
+.canvas-surface[data-canvas-dragging] .canvas-session-window::after {
   transition: none !important;
   animation: none !important;
 }
@@ -17448,15 +17724,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   ),
 .canvas-surface .canvas-session-group.is-running,
 .canvas-surface .canvas-session-window.is-running {
+  position: relative;
   box-sizing: border-box;
   border-width: 1.5px;
   border-color: color-mix(
     in srgb,
-    var(--session-status-inprogress) 70%,
+    var(--session-status-inprogress) 55%,
     transparent
   );
-  box-shadow: 0 0 0 0
-    color-mix(in srgb, var(--session-status-inprogress) 45%, transparent);
+  box-shadow: none;
 }
 
 .canvas-surface
@@ -17466,42 +17742,63 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   ),
 .canvas-surface .canvas-session-group.is-reviewing,
 .canvas-surface .canvas-session-window.is-reviewing {
+  position: relative;
   box-sizing: border-box;
   border-width: 1.5px;
   border-color: color-mix(
     in srgb,
-    var(--session-status-inreview) 78%,
+    var(--session-status-inreview) 60%,
     transparent
   );
-  box-shadow: 0 0 0 0
-    color-mix(in srgb, var(--session-status-inreview) 50%, transparent);
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .canvas-surface .canvas-session-group.is-running,
-  .canvas-surface .canvas-session-window.is-running {
-    animation: canvas-running-breathe 1.5s ease-in-out infinite;
+  .canvas-surface .canvas-session-group.is-running::after,
+  .canvas-surface .canvas-session-window.is-running::after,
+  .canvas-surface
+    :is(
+      .canvas-session-card.is-running .session-hub-card,
+      .canvas-session-card.session-hub-card.is-running
+    )::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: inset 0 0 0 1.5px var(--session-status-inprogress);
+    animation: canvas-breathe-opacity 1.5s ease-in-out infinite;
   }
 
-  .canvas-surface .canvas-session-group.is-reviewing,
-  .canvas-surface .canvas-session-window.is-reviewing {
-    animation: canvas-reviewing-breathe 1.5s ease-in-out infinite;
+  .canvas-surface .canvas-session-group.is-reviewing::after,
+  .canvas-surface .canvas-session-window.is-reviewing::after,
+  .canvas-surface
+    :is(
+      .canvas-session-card.is-reviewing .session-hub-card,
+      .canvas-session-card.session-hub-card.is-reviewing
+    )::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: inset 0 0 0 1.5px var(--session-status-inreview);
+    animation: canvas-breathe-opacity 1.5s ease-in-out infinite;
   }
 
   .canvas-surface
     :is(
       .canvas-session-card.is-running .session-hub-card,
       .canvas-session-card.session-hub-card.is-running
-    ) {
-    animation: canvas-card-running-breathe 1.35s ease-in-out infinite;
-  }
-
+    )::after,
   .canvas-surface
     :is(
       .canvas-session-card.is-reviewing .session-hub-card,
       .canvas-session-card.session-hub-card.is-reviewing
-    ) {
-    animation: canvas-card-reviewing-breathe 1.35s ease-in-out infinite;
+    )::after {
+    animation-duration: 1.35s;
   }
 }
 
@@ -17535,6 +17832,20 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-color: var(--text-strong);
   animation: none;
   box-shadow: none;
+}
+
+.canvas-surface
+  :is(
+    .canvas-session-card.is-selected .session-hub-card,
+    .canvas-session-card.session-hub-card.is-selected,
+    .react-flow__node.selected .canvas-session-card .session-hub-card,
+    .react-flow__node.selected .canvas-session-card.session-hub-card
+  )::after,
+.canvas-surface .canvas-session-group.is-selected::after,
+.canvas-surface .react-flow__node.selected .canvas-session-group::after,
+.canvas-surface .canvas-session-window.is-selected::after {
+  content: none;
+  animation: none;
 }
 
 .canvas-surface .react-flow__resize-control.line.canvas-node-resize-line {
@@ -17731,83 +18042,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   }
 }
 
-@keyframes canvas-running-breathe {
+@keyframes canvas-breathe-opacity {
   0%,
   100% {
-    border-color: color-mix(
-      in srgb,
-      var(--session-status-inprogress) 55%,
-      transparent
-    );
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--session-status-inprogress) 35%, transparent);
+    opacity: 0.15;
   }
   50% {
-    border-color: var(--session-status-inprogress);
-    box-shadow: 0 0 0 2px
-      color-mix(in srgb, var(--session-status-inprogress) 55%, transparent);
-  }
-}
-
-@keyframes canvas-reviewing-breathe {
-  0%,
-  100% {
-    border-color: color-mix(
-      in srgb,
-      var(--session-status-inreview) 60%,
-      transparent
-    );
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--session-status-inreview) 35%, transparent);
-  }
-  50% {
-    border-color: var(--session-status-inreview);
-    box-shadow: 0 0 0 2px
-      color-mix(in srgb, var(--session-status-inreview) 60%, transparent);
-  }
-}
-
-@keyframes canvas-card-running-breathe {
-  0%,
-  100% {
-    border-color: color-mix(
-      in srgb,
-      var(--session-status-inprogress) 45%,
-      transparent
-    );
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--session-status-inprogress) 18%, transparent);
-  }
-  50% {
-    border-color: color-mix(
-      in srgb,
-      var(--session-status-inprogress) 80%,
-      transparent
-    );
-    box-shadow: 0 0 0 1px
-      color-mix(in srgb, var(--session-status-inprogress) 30%, transparent);
-  }
-}
-
-@keyframes canvas-card-reviewing-breathe {
-  0%,
-  100% {
-    border-color: color-mix(
-      in srgb,
-      var(--session-status-inreview) 45%,
-      transparent
-    );
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--session-status-inreview) 18%, transparent);
-  }
-  50% {
-    border-color: color-mix(
-      in srgb,
-      var(--session-status-inreview) 80%,
-      transparent
-    );
-    box-shadow: 0 0 0 1px
-      color-mix(in srgb, var(--session-status-inreview) 30%, transparent);
+    opacity: 1;
   }
 }
 

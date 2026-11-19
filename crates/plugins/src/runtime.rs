@@ -788,19 +788,28 @@ async fn download_and_verify(url: &str, expected_sha256: Option<&str>) -> Result
     // Plugin Runtime binaries (Open Connector is ~190 MiB) cannot finish
     // from GitHub Releases inside the previous 120s request budget.
     let downloader = HttpDownloader::new(Duration::from_secs(15), Duration::from_secs(600));
-    let bytes = downloader
-        .fetch(url)
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Some(expected) = expected_sha256 {
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(expected) {
-            return Err(format!(
-                "download checksum mismatch: expected `{expected}`, got `{actual}`"
-            ));
+    let candidates = utils::mirror::download_url_candidates(url);
+    let mut errors = Vec::new();
+    for candidate in candidates {
+        match downloader.fetch(&candidate).await {
+            Ok(bytes) => {
+                if let Some(expected) = expected_sha256 {
+                    let actual = format!("{:x}", Sha256::digest(&bytes));
+                    if !actual.eq_ignore_ascii_case(expected) {
+                        errors.push(format!(
+                            "{candidate}: download checksum mismatch: expected `{expected}`, got `{actual}`"
+                        ));
+                        continue;
+                    }
+                }
+                return Ok(bytes);
+            }
+            Err(error) => {
+                errors.push(format!("{candidate}: {error}"));
+            }
         }
     }
-    Ok(bytes)
+    Err(errors.join("; "))
 }
 
 fn validate_global_command(command: &str) -> Result<(), String> {

@@ -22,14 +22,6 @@ use crate::{
 };
 
 const SYSTEM_SECTION: &str = "system";
-const PROXY_URL_ENV_KEYS: [&str; 6] = [
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-];
 const DEFAULT_UPDATE_REPOSITORY: &str = "DimoADE/Dimo";
 const RELEASE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -142,6 +134,12 @@ struct AppReleaseStatus {
     body: Option<String>,
     published_at: Option<String>,
     checked_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    http_status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    proxy_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -258,18 +256,10 @@ fn apply_proxy(settings: &PersistedProxy) {
                 .filter(|url| !url.is_empty())
         }),
     };
-    match url {
-        Some(url) => {
-            for key in PROXY_URL_ENV_KEYS {
-                unsafe { std::env::set_var(key, &url) };
-            }
-        }
-        None => {
-            for key in PROXY_URL_ENV_KEYS {
-                unsafe { std::env::remove_var(key) };
-            }
-        }
-    }
+    utils::proxy::apply_process_proxy_env(
+        url.as_deref(),
+        matches!(settings.mode, ProxyMode::Manual),
+    );
 }
 
 pub(super) fn get_log_settings() -> Result<Value, ApplicationError> {
@@ -388,6 +378,29 @@ pub(super) async fn update_rendering(args: Value) -> Result<Value, ApplicationEr
     serialize(settings)
 }
 
+async fn resolve_effective_proxy_source() -> String {
+    let manual = load_system_store().await.ok().and_then(|store| {
+        if matches!(store.proxy.mode, ProxyMode::Manual) {
+            let active = store
+                .proxy
+                .proxy_url
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|url| !url.is_empty());
+            Some(if active { "manual" } else { "none" })
+        } else {
+            None
+        }
+    });
+    if let Some(source) = manual {
+        return source.to_string();
+    }
+    match detect_proxy() {
+        Some(detected) => detected.source.as_str().to_string(),
+        None => "none".to_string(),
+    }
+}
+
 pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
     let current_version = utils::version::APP_VERSION.to_string();
     let repository = std::env::var("DIMO_UPDATE_REPOSITORY")
@@ -395,17 +408,20 @@ pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_UPDATE_REPOSITORY.to_string());
     let url = format!("https://api.github.com/repos/{repository}/releases/latest");
+    let fallback_release_url = format!("https://github.com/{repository}/releases/latest");
+    let proxy_source = resolve_effective_proxy_source().await;
     let client = reqwest::Client::builder()
         .timeout(RELEASE_CHECK_TIMEOUT)
         .build()
         .map_err(internal_error)?;
     match client
-        .get(url)
+        .get(&url)
         .header(reqwest::header::USER_AGENT, "Dimo")
         .send()
         .await
     {
         Ok(response) if response.status().is_success() => {
+            let status_code = response.status().as_u16();
             let body: Value = response.json().await.unwrap_or(Value::Null);
             let latest = body
                 .get("tag_name")
@@ -420,7 +436,8 @@ pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
                 release_url: body
                     .get("html_url")
                     .and_then(Value::as_str)
-                    .map(ToOwned::to_owned),
+                    .map(ToOwned::to_owned)
+                    .or(Some(fallback_release_url)),
                 repository: Some(repository),
                 checked: true,
                 error: None,
@@ -433,32 +450,47 @@ pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned),
                 checked_at: chrono::Utc::now().to_rfc3339(),
+                http_status: Some(status_code),
+                endpoint: Some(url),
+                proxy_source: Some(proxy_source),
             })
         }
-        Ok(response) => serialize(AppReleaseStatus {
-            current_version,
-            latest_version: None,
-            update_available: false,
-            release_url: None,
-            repository: Some(repository),
-            checked: false,
-            error: Some(format!("GitHub returned {}", response.status())),
-            body: None,
-            published_at: None,
-            checked_at: chrono::Utc::now().to_rfc3339(),
-        }),
-        Err(error) => serialize(AppReleaseStatus {
-            current_version,
-            latest_version: None,
-            update_available: false,
-            release_url: None,
-            repository: Some(repository),
-            checked: false,
-            error: Some(error.to_string()),
-            body: None,
-            published_at: None,
-            checked_at: chrono::Utc::now().to_rfc3339(),
-        }),
+        Ok(response) => {
+            let status = response.status();
+            serialize(AppReleaseStatus {
+                current_version,
+                latest_version: None,
+                update_available: false,
+                release_url: Some(fallback_release_url),
+                repository: Some(repository),
+                checked: false,
+                error: Some(format!("GitHub returned {status}")),
+                body: None,
+                published_at: None,
+                checked_at: chrono::Utc::now().to_rfc3339(),
+                http_status: Some(status.as_u16()),
+                endpoint: Some(url),
+                proxy_source: Some(proxy_source),
+            })
+        }
+        Err(error) => {
+            let http_status = error.status().map(|status| status.as_u16());
+            serialize(AppReleaseStatus {
+                current_version,
+                latest_version: None,
+                update_available: false,
+                release_url: Some(fallback_release_url),
+                repository: Some(repository),
+                checked: false,
+                error: Some(error.to_string()),
+                body: None,
+                published_at: None,
+                checked_at: chrono::Utc::now().to_rfc3339(),
+                http_status,
+                endpoint: Some(url),
+                proxy_source: Some(proxy_source),
+            })
+        }
     }
 }
 
@@ -563,23 +595,13 @@ async fn latest_release_version() -> Result<String, ApplicationError> {
 }
 
 async fn download_release_bytes(canonical: &str) -> Result<Vec<u8>, ApplicationError> {
-    let mirrors = [
-        "",
-        "https://ghfast.top/",
-        "https://ghproxy.net/",
-        "https://mirror.ghproxy.com/",
-    ];
+    let urls = super::release_download::candidate_urls(canonical);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(internal_error)?;
     let mut last_error = None;
-    for prefix in mirrors {
-        let url = if prefix.is_empty() {
-            canonical.to_string()
-        } else {
-            format!("{prefix}{canonical}")
-        };
+    for (_, url) in urls {
         match client
             .get(&url)
             .header(reqwest::header::USER_AGENT, "Dimo")
@@ -594,7 +616,7 @@ async fn download_release_bytes(canonical: &str) -> Result<Vec<u8>, ApplicationE
                     .map_err(internal_error);
             }
             Ok(response) => {
-                last_error = Some(format!("{} returned {}", url, response.status()));
+                last_error = Some(format!("{url} returned {}", response.status()));
             }
             Err(error) => last_error = Some(error.to_string()),
         }
@@ -878,6 +900,9 @@ pub(super) async fn update_data_dir_settings(
         &old_data_dir,
         &target_dir,
     )?;
+    if let Err(error) = utils::assets::record_adopted_legacy_source(&target_dir, &old_data_dir) {
+        tracing::warn!(%error, "could not record migrated source data directory");
+    }
 
     // 4. Persist custom_data_dir in bootstrap.json
     let updated = utils::assets::set_custom_data_dir(Some(&target_dir)).map_err(internal_error)?;
@@ -1032,41 +1057,6 @@ fn copy_dir_recursive_inner(src: &Path, dst: &Path) -> Result<(), ApplicationErr
     Ok(())
 }
 
-pub(crate) fn remap_path_string_prefix(
-    value: &str,
-    old_dir: &Path,
-    new_dir: &Path,
-) -> Option<String> {
-    let old_native = old_dir
-        .to_string_lossy()
-        .trim_end_matches(['\\', '/'])
-        .to_string();
-    let new_native = new_dir
-        .to_string_lossy()
-        .trim_end_matches(['\\', '/'])
-        .to_string();
-    if old_native.is_empty() {
-        return None;
-    }
-    let old_slash = old_native.replace('\\', "/");
-    let new_slash = new_native.replace('\\', "/");
-    let old_backslash = old_native.replace('/', "\\");
-    let new_backslash = new_native.replace('/', "\\");
-
-    for (old_base, new_base) in [(&old_slash, &new_slash), (&old_backslash, &new_backslash)] {
-        if value == old_base {
-            return Some(new_base.clone());
-        }
-        for sep in ['/', '\\'] {
-            let old_prefix = format!("{old_base}{sep}");
-            if let Some(rest) = value.strip_prefix(&old_prefix) {
-                return Some(format!("{new_base}{sep}{rest}"));
-            }
-        }
-    }
-    None
-}
-
 pub(crate) fn remap_settings_json_paths(
     settings_file: &Path,
     old_dir: &Path,
@@ -1082,7 +1072,7 @@ pub(crate) fn remap_settings_json_paths(
     let mut changed = false;
     if let Some(obj) = root.as_object_mut() {
         if let Some(Value::String(ws_dir)) = obj.get_mut("workspace_dir")
-            && let Some(remapped) = remap_path_string_prefix(ws_dir, old_dir, new_dir)
+            && let Some(remapped) = utils::path::remap_path_string_prefix(ws_dir, old_dir, new_dir)
         {
             *ws_dir = remapped;
             changed = true;
@@ -1090,7 +1080,8 @@ pub(crate) fn remap_settings_json_paths(
         for section in ["config", "application"] {
             if let Some(Value::Object(section_obj)) = obj.get_mut(section)
                 && let Some(Value::String(ws_dir)) = section_obj.get_mut("workspace_dir")
-                && let Some(remapped) = remap_path_string_prefix(ws_dir, old_dir, new_dir)
+                && let Some(remapped) =
+                    utils::path::remap_path_string_prefix(ws_dir, old_dir, new_dir)
             {
                 *ws_dir = remapped;
                 changed = true;

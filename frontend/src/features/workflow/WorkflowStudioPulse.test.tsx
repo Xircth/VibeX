@@ -1806,4 +1806,133 @@ describe('Customized Real-Data Execution Records & DockPanel Wiring', () => {
       );
     });
   });
+
+  it('keeps an initialDefinition automation task open past source-poll ticks without reverting to 新建任务', async () => {
+    vi.useFakeTimers();
+    const basePreset = WORKFLOW_PRESET_TEMPLATES[0].build('deepseek-harness');
+    const [triggerBase, sessionBase] = basePreset.steps;
+    const initialDef: StudioWorkflowDefinition = {
+      ...basePreset,
+      name: '每日 07:30 AI 圈 5 件事日报',
+      steps: [
+        {
+          ...triggerBase,
+          id: 'cron-trigger',
+          ...(triggerBase.kind === 'trigger'
+            ? { title: 'Cron 30 7 * * *' }
+            : {}),
+        },
+        {
+          ...sessionBase,
+          id: 'daily-digest-agent',
+          dependsOn: ['cron-trigger'],
+          ...(sessionBase.kind === 'session'
+            ? {
+                agentId: 'deepseek-harness',
+                prompt: '查询 AIHOT 输出日报',
+              }
+            : {}),
+        },
+      ],
+    };
+
+    const files = new Map<string, { content: string; revision: string }>([
+      [
+        '~/.dimo/workflows/新建任务.dimo-workflow.json',
+        {
+          content: JSON.stringify(
+            toBackendWorkflowDefinition(
+              WORKFLOW_PRESET_TEMPLATES[0].build('claude-code')
+            )
+          ),
+          revision: 'rev-unnamed-starter',
+        },
+      ],
+    ]);
+    let writeCount = 0;
+
+    const callSpy = vi.fn(
+      async (command: string, args?: Record<string, unknown>) => {
+        if (command === 'workflow_list') return [];
+        if (command === 'pulse_captured_events') return [];
+        if (command === 'pulse_sources_list') return [];
+        if (command === 'workflow_source_read') {
+          const path = String(args?.path ?? '');
+          const hit = files.get(path);
+          if (!hit) throw new Error('missing');
+          return hit;
+        }
+        if (command === 'workflow_source_write') {
+          const path = String(args?.path ?? '');
+          const content = String(args?.content ?? '');
+          const revision = `rev-write-${++writeCount}`;
+          files.set(path, { content, revision });
+          return { revision };
+        }
+        return null;
+      }
+    );
+
+    const win = window as unknown as {
+      __VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__?: {
+        definitionId?: string | null;
+        initialDefinition?: typeof initialDef | null;
+        sourceRuleId?: string | null;
+      } | null;
+    };
+    win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = {
+      definitionId: null,
+      initialDefinition: initialDef,
+      sourceRuleId: 'rule-daily-ai',
+    };
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+      render(
+        <BackendTransportProvider
+          transport={{ environment: 'desktop', call: callSpy }}
+        >
+          <WorkflowStudioDockPanel embedded />
+        </BackendTransportProvider>
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const nameInput = screen.getByTestId(
+        'workflow-task-name-input'
+      ) as HTMLInputElement;
+      expect(nameInput.value).toBe('每日 07:30 AI 圈 5 件事日报');
+      expect(
+        screen.getByTestId('workflow-node-daily-digest-agent')
+      ).toBeInTheDocument();
+
+      // Advance past the 700ms autosave and multiple 2000ms source polling intervals
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(nameInput.value).toBe('每日 07:30 AI 圈 5 件事日报');
+      expect(
+        screen.getByTestId('workflow-node-daily-digest-agent')
+      ).toBeInTheDocument();
+      expect(
+        callSpy.mock.calls.some(
+          ([cmd, params]) =>
+            cmd === 'workflow_canvas_focus' &&
+            (params as { name?: string; viewing?: boolean } | undefined)
+              ?.name === '每日 07:30 AI 圈 5 件事日报' &&
+            (params as { viewing?: boolean } | undefined)?.viewing === true
+        )
+      ).toBe(true);
+    } finally {
+      win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
+      vi.useRealTimers();
+    }
+  });
 });

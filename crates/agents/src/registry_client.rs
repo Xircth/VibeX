@@ -11,13 +11,16 @@ use reqwest::header::{ETAG, IF_NONE_MATCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use workspace_utils::mirror::{
+    DIMO_ACP_ICON_PREFIX, DIMO_ACP_REGISTRY_URL, OFFICIAL_ACP_ICON_PREFIX,
+    OFFICIAL_ACP_REGISTRY_URL, acp_icon_url_candidates, acp_registry_urls,
+};
 
 use crate::{
     BoundaryError, Clock, RegistryFetchResponse, RegistryFetcher,
     profiles::{BuiltInProfileCatalog, RegistryEntryIdentity},
 };
 
-const OFFICIAL_ICON_PREFIX: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/";
 const FRESH_FOR: Duration = Duration::hours(24);
 const MAX_REGISTRY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ICON_BYTES: usize = 128 * 1024;
@@ -223,11 +226,13 @@ impl RegistryFetcher for OfficialRegistryHttpFetcher {
         url: &str,
         etag: Option<&str>,
     ) -> Result<RegistryFetchResponse, BoundaryError> {
-        if url != RegistrySnapshotClient::OFFICIAL_REGISTRY_URL
-            && !url.starts_with(OFFICIAL_ICON_PREFIX)
+        if url != OFFICIAL_ACP_REGISTRY_URL
+            && url != DIMO_ACP_REGISTRY_URL
+            && !url.starts_with(OFFICIAL_ACP_ICON_PREFIX)
+            && !url.starts_with(DIMO_ACP_ICON_PREFIX)
         {
             return Err(BoundaryError::new(
-                "Registry HTTP adapter only permits the official ACP Registry",
+                "Registry HTTP adapter only permits the official ACP Registry or Dimo mirror",
             ));
         }
         let mut request = self.client.get(url);
@@ -254,8 +259,8 @@ impl RegistryFetcher for OfficialRegistryHttpFetcher {
 }
 
 impl RegistrySnapshotClient {
-    pub const OFFICIAL_REGISTRY_URL: &'static str =
-        "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+    pub const OFFICIAL_REGISTRY_URL: &'static str = OFFICIAL_ACP_REGISTRY_URL;
+    pub const MIRROR_REGISTRY_URL: &'static str = DIMO_ACP_REGISTRY_URL;
 
     pub fn new(fetcher: Arc<dyn RegistryFetcher>, clock: Arc<dyn Clock>) -> Self {
         Self {
@@ -286,45 +291,60 @@ impl RegistrySnapshotClient {
 
     pub async fn refresh(&self, cache: &mut RegistryCache) -> RegistryView {
         let now = self.clock.now();
-        let etag = cache
-            .snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.etag.as_deref());
-        let response = match self.fetcher.fetch(Self::OFFICIAL_REGISTRY_URL, etag).await {
-            Ok(response) => response,
-            Err(error) => return cache.view(now, Some(error.to_string())),
-        };
-        if response.status == 304 {
-            if let Some(snapshot) = cache.snapshot.as_mut() {
-                snapshot.fetched_at = now;
-                return cache.view(now, None);
+        let mut last_error = None;
+
+        for candidate_url in acp_registry_urls() {
+            let etag = cache
+                .snapshot
+                .as_ref()
+                .filter(|snapshot| snapshot.source_url == candidate_url)
+                .and_then(|snapshot| snapshot.etag.as_deref());
+            let response = match self.fetcher.fetch(candidate_url, etag).await {
+                Ok(response) => response,
+                Err(error) => {
+                    last_error = Some(error.to_string());
+                    continue;
+                }
+            };
+            if response.status == 304 {
+                if let Some(snapshot) = cache.snapshot.as_mut() {
+                    snapshot.fetched_at = now;
+                    return cache.view(now, None);
+                }
+                last_error = Some("Registry returned 304 without a cache".to_string());
+                continue;
             }
-            return cache.view(
-                now,
-                Some("Registry returned 304 without a cache".to_string()),
-            );
-        }
-        if response.status != 200 {
-            return cache.view(
-                now,
-                Some(format!("Registry returned HTTP {}", response.status)),
-            );
+            if response.status != 200 {
+                last_error = Some(format!("Registry returned HTTP {}", response.status));
+                continue;
+            }
+
+            match self
+                .parse_snapshot(
+                    candidate_url,
+                    response.body,
+                    response.etag,
+                    now,
+                    cache.snapshot(),
+                )
+                .await
+            {
+                Ok(snapshot) => {
+                    cache.snapshot = Some(snapshot);
+                    return cache.view(now, None);
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                }
+            }
         }
 
-        match self
-            .parse_snapshot(response.body, response.etag, now, cache.snapshot())
-            .await
-        {
-            Ok(snapshot) => {
-                cache.snapshot = Some(snapshot);
-                cache.view(now, None)
-            }
-            Err(error) => cache.view(now, Some(error)),
-        }
+        cache.view(now, last_error)
     }
 
     async fn parse_snapshot(
         &self,
+        source_url: &str,
         body: Vec<u8>,
         etag: Option<String>,
         fetched_at: DateTime<Utc>,
@@ -395,7 +415,7 @@ impl RegistrySnapshotClient {
         let document_sha256 = format!("{:x}", Sha256::digest(document_json.as_bytes()));
         Ok(RegistrySnapshot {
             id: Uuid::new_v4(),
-            source_url: Self::OFFICIAL_REGISTRY_URL.to_string(),
+            source_url: source_url.to_string(),
             fetched_at,
             schema_version: raw.version,
             document_json,
@@ -426,7 +446,23 @@ impl RegistrySnapshotClient {
         let mut stream = futures::stream::iter(jobs)
             .map(|(index, url)| {
                 let fetcher = fetcher.clone();
-                async move { (index, fetcher.fetch(&url, None).await) }
+                async move {
+                    for candidate in acp_icon_url_candidates(&url) {
+                        let Ok(response) = fetcher.fetch(&candidate, None).await else {
+                            continue;
+                        };
+                        if response.status != 200 || response.body.len() > MAX_ICON_BYTES {
+                            continue;
+                        }
+                        let Ok(svg) = String::from_utf8(response.body) else {
+                            continue;
+                        };
+                        if let Some(sanitized) = sanitize_registry_svg(&svg) {
+                            return (index, Some(sanitized));
+                        }
+                    }
+                    (index, None)
+                }
             })
             .buffer_unordered(ICON_FETCH_CONCURRENCY);
         let deadline = tokio::time::Instant::now() + self.icon_fetch_budget;
@@ -435,19 +471,12 @@ impl RegistrySnapshotClient {
                 _ = tokio::time::sleep_until(deadline) => break,
                 item = stream.next() => item,
             };
-            let Some((index, result)) = next else {
+            let Some((index, sanitized)) = next else {
                 break;
             };
-            let Ok(response) = result else {
-                continue;
-            };
-            if response.status != 200 || response.body.len() > MAX_ICON_BYTES {
-                continue;
+            if let Some(svg) = sanitized {
+                entries[index].icon_svg = Some(svg);
             }
-            let Ok(svg) = String::from_utf8(response.body) else {
-                continue;
-            };
-            entries[index].icon_svg = sanitize_registry_svg(&svg);
         }
     }
 }
@@ -668,7 +697,8 @@ fn is_sha256(value: &str) -> bool {
 }
 
 fn valid_official_icon_url(url: &str, registry_id: &str) -> bool {
-    url == format!("{OFFICIAL_ICON_PREFIX}{registry_id}.svg")
+    url == format!("{OFFICIAL_ACP_ICON_PREFIX}{registry_id}.svg")
+        || url == format!("{DIMO_ACP_ICON_PREFIX}{registry_id}.svg")
 }
 
 /// Accept a deliberately small passive SVG subset. Unsafe or surprising

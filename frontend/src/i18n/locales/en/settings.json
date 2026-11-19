@@ -1984,7 +1984,18 @@
     "neverChecked": "Not checked yet",
     "releaseNotes": "Release notes",
     "noReleaseNotes": "No release notes for this version",
-    "viewRelease": "Release page"
+    "viewRelease": "Release page",
+    "copyDiagnostics": "Copy diagnostics",
+    "diagnosticsCopied": "Update diagnostics copied.",
+    "diagnosticsCopyFailed": "Unable to copy update diagnostics.",
+    "diagnosticHttpStatus": "HTTP {{status}}",
+    "diagnosticProxy": "Proxy: {{source}}",
+    "diagnosticStage": {
+      "signed_feed": "Signed feed",
+      "github_release": "GitHub Releases",
+      "both": "Signed feed + GitHub",
+      "install": "Install"
+    }
   },
   "general": {
     "editorFinder": "Finder",
@@ -2150,6 +2161,8 @@
     "environmentDiagnosticTerminal": "Login shell comparison",
     "environmentDiagnosticOsArch": "OS / architecture",
     "environmentDiagnosticAppVersion": "Dimo version",
+    "environmentDiagnosticDataDir": "Active data directory",
+    "environmentDiagnosticDatabasePath": "Database file",
     "environmentDiagnosticShell": "Configured shell",
     "environmentDiagnosticAppPath": "App PATH entries",
     "environmentDiagnosticAppPathHint": "The copied report includes the complete app PATH for local troubleshooting.",
@@ -2584,6 +2597,11 @@
     "providerModelPlaceholder": "Enter an optional model ID…",
     "grokApiBackend": "Protocol",
     "grokContextWindow": "Context window",
+    "grokBackendSearch": "Backend web search",
+    "grokBackendSearchDefault": "Default (unset)",
+    "grokBackendSearchEnabled": "Enabled",
+    "grokBackendSearchDisabled": "Disabled",
+    "grokMaxRetries": "Max retries",
     "saveChanges": "Save changes",
     "providerCreate": "Create Provider",
     "providerModelMapping": "Optional model mapping",

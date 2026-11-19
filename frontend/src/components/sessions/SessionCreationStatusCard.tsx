@@ -1,9 +1,12 @@
-import { type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@/components/ui/button';
-import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
+import {
+  ConversationStatusDetailsContent,
+  ConversationStatusDetailsTrigger,
+} from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { openAgentDiagnostics } from '@/features/agent-management/agentSettingsFocus';
 import {
   invokeErrorText,
@@ -21,6 +24,13 @@ export function SessionCreationStatusCard({
   action?: ReactNode;
 }) {
   const { t } = useTranslation('conversation');
+  const detailsId = useId();
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [detail]);
+
   return (
     <div
       className="composer-status-surface rounded-[var(--radius-composer,0.75rem)]"
@@ -42,20 +52,26 @@ export function SessionCreationStatusCard({
               label={t('statusDock.errorBadge')}
             />
           </div>
-          {action ? (
-            <div className="flex shrink-0 items-center gap-1">{action}</div>
+          {detail || action ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {detail ? (
+                <ConversationStatusDetailsTrigger
+                  title={title}
+                  label={t('statusDock.showDetails')}
+                  accessibleLabel={t('statusDock.showDetailsFor', { title })}
+                  expanded={expanded}
+                  controlsId={detailsId}
+                  onToggle={() => setExpanded((current) => !current)}
+                />
+              ) : null}
+              {action}
+            </div>
           ) : null}
         </div>
-        {detail ? (
-          <ConversationStatusDetails
-            key={detail}
-            title={title}
-            label={t('statusDock.showDetails')}
-            accessibleLabel={t('statusDock.showDetailsFor', { title })}
-            mono
-          >
+        {detail && expanded ? (
+          <ConversationStatusDetailsContent id={detailsId} mono>
             <p className="whitespace-pre-wrap break-words">{detail}</p>
-          </ConversationStatusDetails>
+          </ConversationStatusDetailsContent>
         ) : null}
       </div>
     </div>

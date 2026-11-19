@@ -37,7 +37,18 @@ pub(super) fn is_terminal_tool_status(status: Option<&str>) -> bool {
             .map(str::trim)
             .map(str::to_ascii_lowercase)
             .as_deref(),
-        Some("completed" | "failed" | "cancelled" | "canceled" | "done" | "error")
+        Some(
+            "completed"
+                | "failed"
+                | "denied"
+                | "declined"
+                | "timed_out"
+                | "timedout"
+                | "cancelled"
+                | "canceled"
+                | "done"
+                | "error"
+        )
     )
 }
 
@@ -951,5 +962,16 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn is_terminal_tool_status_recognizes_denied_and_timed_out_variants() {
+        for status in ["denied", "declined", "timed_out", "timedout"] {
+            assert!(
+                super::is_terminal_tool_status(Some(status)),
+                "{status} must be terminal"
+            );
+        }
+        assert!(!super::is_terminal_tool_status(Some("in_progress")));
     }
 }

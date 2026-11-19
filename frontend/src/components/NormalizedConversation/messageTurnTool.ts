@@ -4,6 +4,7 @@ import type {
   JsonValue,
   NormalizedEntry,
   ToolResult,
+  ToolStatus,
 } from 'shared/types';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
 import i18n from '@/i18n';
@@ -614,8 +615,15 @@ function looksLikeShellCommand(toolName: string): boolean {
 
 type CommandRunAction = Extract<ActionType, { action: 'command_run' }>;
 
+type ResolvedToolStatusKind =
+  | 'created'
+  | 'success'
+  | 'failed'
+  | 'denied'
+  | 'timed_out';
+
 function commandResult(
-  status: 'created' | 'success' | 'failed',
+  status: ResolvedToolStatusKind,
   output: string | null,
   toolResult: ToolResult | null
 ): CommandRunAction {
@@ -625,6 +633,12 @@ function commandResult(
     typeof reportedCode === 'number' && Number.isInteger(reportedCode)
       ? reportedCode
       : null;
+  const exitStatus =
+    exitCode != null
+      ? ({ type: 'exit_code', code: exitCode } as const)
+      : status === 'success' || status === 'failed'
+        ? ({ type: 'success', success: status === 'success' } as const)
+        : null;
   return {
     action: 'command_run',
     category: 'other',
@@ -635,10 +649,7 @@ function commandResult(
           ? { exit_status: null, output }
           : null
         : {
-            exit_status:
-              exitCode != null
-                ? { type: 'exit_code', code: exitCode }
-                : { type: 'success', success: status === 'success' },
+            exit_status: exitStatus,
             output,
           },
   };
@@ -720,7 +731,7 @@ function toolActionType(
   kind: string | null,
   parsed: unknown,
   output: string | null,
-  status: 'created' | 'success' | 'failed',
+  status: ResolvedToolStatusKind,
   rawInput: string | null,
   structuredResult: ToolResult | null,
   getFileEdits: () => FileEditPreview[]
@@ -976,10 +987,16 @@ function extractMcpToolMeta(
 
 function isAntigravityMcpActionSummary(
   mcpMeta: McpToolMeta,
-  statusKind: 'created' | 'success' | 'failed',
+  statusKind: ResolvedToolStatusKind,
   output: string | null
 ): boolean {
-  if (!mcpMeta.isAntigravityMcp || statusKind === 'failed' || !output) {
+  if (
+    !mcpMeta.isAntigravityMcp ||
+    statusKind === 'failed' ||
+    statusKind === 'denied' ||
+    statusKind === 'timed_out' ||
+    !output
+  ) {
     return false;
   }
   const trimmed = output.trim();
@@ -1035,6 +1052,106 @@ const toolEntryByUseRef = new WeakMap<ToolUseBlock, CachedToolEntry>();
 const toolEntryByKey = new Map<string, CachedToolEntry>();
 const MAX_TOOL_ENTRY_CACHE_SIZE = 512;
 
+function resolveStructuredFailureStatus(
+  use: ToolUseBlock,
+  rawToolResult: ToolResult | null
+): ToolStatus {
+  const resultRecord = asRecord(rawToolResult?.value);
+  const metaRecord = asRecord(use.meta);
+  const resultStatus = firstString(resultRecord, 'status')?.trim().toLowerCase();
+  const metaStatus = firstString(metaRecord, 'status')?.trim().toLowerCase();
+  const exitStatusRecord = asRecord(
+    resultRecord.exit_status ?? resultRecord.exitStatus
+  );
+  const errorRecord = asRecord(resultRecord.error);
+  const errorCode = firstString(errorRecord, 'code')?.trim().toUpperCase();
+
+  if (
+    resultRecord.timed_out === true ||
+    resultRecord.timedOut === true ||
+    metaRecord.timed_out === true ||
+    metaRecord.timedOut === true ||
+    resultStatus === 'timed_out' ||
+    resultStatus === 'timedout' ||
+    metaStatus === 'timed_out' ||
+    metaStatus === 'timedout' ||
+    exitStatusRecord.type === 'timed_out' ||
+    errorCode === 'ETIMEDOUT'
+  ) {
+    return { status: 'timed_out' };
+  }
+
+  if (
+    resultRecord.denied === true ||
+    metaRecord.denied === true ||
+    resultStatus === 'denied' ||
+    resultStatus === 'declined' ||
+    metaStatus === 'denied' ||
+    metaStatus === 'declined'
+  ) {
+    return {
+      status: 'denied',
+      reason:
+        firstString(resultRecord, 'reason') ??
+        firstString(metaRecord, 'reason') ??
+        null,
+    };
+  }
+
+  return { status: 'failed' };
+}
+
+function resolveToolStatus(
+  use: ToolUseBlock,
+  result: ToolResultBlock | null,
+  rawToolResult: ToolResult | null
+): ToolStatus {
+  const normalized = use.status?.trim().toLowerCase() ?? null;
+  if (normalized != null) {
+    if (
+      normalized === 'completed' ||
+      normalized === 'done' ||
+      normalized === 'success'
+    ) {
+      const structured = resolveStructuredFailureStatus(use, rawToolResult);
+      if (structured.status !== 'failed') {
+        return structured;
+      }
+      return { status: 'success' };
+    }
+    if (normalized === 'denied' || normalized === 'declined') {
+      const resultRecord = asRecord(rawToolResult?.value);
+      const metaRecord = asRecord(use.meta);
+      return {
+        status: 'denied',
+        reason:
+          firstString(resultRecord, 'reason') ??
+          firstString(metaRecord, 'reason') ??
+          null,
+      };
+    }
+    if (normalized === 'timed_out' || normalized === 'timedout') {
+      return { status: 'timed_out' };
+    }
+    if (
+      normalized === 'failed' ||
+      normalized === 'error' ||
+      normalized === 'cancelled' ||
+      normalized === 'canceled'
+    ) {
+      return resolveStructuredFailureStatus(use, rawToolResult);
+    }
+    return { status: 'created' };
+  }
+
+  if (result) {
+    return result.is_error
+      ? resolveStructuredFailureStatus(use, rawToolResult)
+      : { status: 'success' };
+  }
+  return { status: 'created' };
+}
+
 export function toolBlockToNormalizedEntry(
   use: ToolUseBlock,
   result: ToolResultBlock | null,
@@ -1081,24 +1198,9 @@ export function toolBlockToNormalizedEntry(
   const parsed = unwrapMcpArguments(rawParsedInput, use.tool_name);
   const rawToolResult = toolResultFromPreview(outputPreview);
   const rawOutput = extractOutputText(outputPreview, rawToolResult);
-  const statusKind: 'created' | 'success' | 'failed' =
-    use.status != null
-      ? use.status === 'completed'
-        ? 'success'
-        : use.status === 'failed'
-          ? 'failed'
-          : 'created'
-      : result
-        ? result.is_error
-          ? 'failed'
-          : 'success'
-        : 'created';
-  const status =
-    statusKind === 'created'
-      ? ({ status: 'created' } as const)
-      : statusKind === 'failed'
-        ? ({ status: 'failed' } as const)
-        : ({ status: 'success' } as const);
+  const status = resolveToolStatus(use, result, rawToolResult);
+  const statusKind: ResolvedToolStatusKind =
+    status.status === 'pending_approval' ? 'created' : status.status;
 
   const mcpMeta = extractMcpToolMeta(use.meta, use.tool_name, rawParsedInput);
   const outputIsActionSummary = isAntigravityMcpActionSummary(

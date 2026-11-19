@@ -53,6 +53,7 @@ function AsyncTaskKindIcon({ task }: { task: AsyncTaskRecord }) {
 export interface SessionAsyncTaskBarProps {
   tasks: readonly AsyncTaskRecord[];
   sessionBindReady?: boolean;
+  embedded?: boolean;
   onStopTask?: (taskId: string) => Promise<boolean>;
   onOpenOutputFile?: (filePath: string) => void;
   className?: string;
@@ -61,6 +62,7 @@ export interface SessionAsyncTaskBarProps {
 export function SessionAsyncTaskBar({
   tasks,
   sessionBindReady = true,
+  embedded = false,
   onStopTask,
   onOpenOutputFile,
   className,
@@ -122,7 +124,9 @@ export function SessionAsyncTaskBar({
       aria-label={t('asyncTasks.regionAria')}
       data-testid="session-async-task-bar"
       className={cn(
-        'flex shrink-0 flex-col gap-1 overflow-hidden rounded-lg border border-border bg-[var(--surface-card,hsl(var(--card)))] p-1.5 text-xs',
+        embedded
+          ? 'flex flex-col text-xs'
+          : 'flex shrink-0 flex-col gap-1 overflow-hidden rounded-lg border border-border bg-[var(--surface-card,hsl(var(--card)))] p-1.5 text-xs',
         className
       )}
     >
@@ -161,7 +165,11 @@ export function SessionAsyncTaskBar({
             key={task.id}
             data-testid={`async-task-row-${task.id}`}
             data-task-state={task.state}
-            className="flex min-h-7 items-center justify-between gap-2.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/35"
+            className={
+              embedded
+                ? 'composer-cockpit-row justify-between'
+                : 'flex min-h-7 items-center justify-between gap-2.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/35'
+            }
           >
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-muted/70 px-2 py-0.5 text-xs font-medium text-foreground/90">

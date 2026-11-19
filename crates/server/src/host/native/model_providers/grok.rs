@@ -25,6 +25,7 @@ pub struct NativeGrokState {
 }
 
 pub(super) const GROK_DEFAULT_BACKUP_KEY: &str = "models.default";
+pub(super) const GROK_WEB_SEARCH_BACKUP_KEY: &str = "models.web_search";
 
 pub(super) fn project_with_grok_native(
     store: &ProviderStore,
@@ -188,6 +189,25 @@ pub async fn read_native_grok_state(
     Ok(native_grok_state_from_table(&table))
 }
 
+fn attach_grok_entry_model_fields(
+    model: &mut Value,
+    entry: &toml::Table,
+    web_search_enabled: bool,
+) {
+    if let Some(supports_backend_search) = entry
+        .get("supports_backend_search")
+        .and_then(toml::Value::as_bool)
+    {
+        model["supports_backend_search"] = Value::Bool(supports_backend_search);
+    }
+    if let Some(max_retries) = entry.get("max_retries").and_then(toml::Value::as_integer) {
+        model["max_retries"] = Value::from(max_retries);
+    }
+    if web_search_enabled {
+        model["web_search"] = Value::Bool(true);
+    }
+}
+
 pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokState {
     let Some(models) = table.get("model").and_then(toml::Value::as_table) else {
         return NativeGrokState {
@@ -195,6 +215,7 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
             ..NativeGrokState::default()
         };
     };
+    let web_search_target = grok_models_entry_str(table, "web_search");
     let mut providers = Vec::new();
     let mut dimo_models: Vec<String> = Vec::new();
     let mut dimo_entry: Option<(&str, &toml::Table)> = None;
@@ -239,6 +260,16 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
         let context = entry
             .get("context_window")
             .and_then(toml::Value::as_integer);
+        let mut model_json = serde_json::json!({
+            "id": model_id,
+            "api_backend": backend,
+            "context_window": context
+        });
+        attach_grok_entry_model_fields(
+            &mut model_json,
+            entry,
+            web_search_target.as_deref() == Some(id.as_str()),
+        );
         providers.push(NativeGrokProvider {
             id: id.clone(),
             name: entry
@@ -248,12 +279,7 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
                 .to_string(),
             api_url,
             api_key,
-            model: serde_json::json!({
-                "id": model_id,
-                "api_backend": backend,
-                "context_window": context
-            })
-            .to_string(),
+            model: model_json.to_string(),
         });
     }
     if let Some((id, entry)) = dimo_entry {
@@ -271,6 +297,13 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
         if !dimo_models.is_empty() {
             model["models"] = serde_json::json!(dimo_models);
         }
+        attach_grok_entry_model_fields(
+            &mut model,
+            entry,
+            web_search_target
+                .as_deref()
+                .is_some_and(is_dimo_grok_table),
+        );
         providers.insert(
             0,
             NativeGrokProvider {
@@ -323,15 +356,19 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
     }
 }
 
-pub(super) fn grok_default_provider(table: &toml::Table) -> Option<String> {
+fn grok_models_entry_str(table: &toml::Table, key: &str) -> Option<String> {
     table
         .get("models")
         .and_then(toml::Value::as_table)
-        .and_then(|models| models.get("default"))
+        .and_then(|models| models.get(key))
         .and_then(toml::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+pub(super) fn grok_default_provider(table: &toml::Table) -> Option<String> {
+    grok_models_entry_str(table, "default")
 }
 
 pub(super) async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String> {
@@ -360,17 +397,60 @@ pub(super) async fn capture_grok_toml(
             backup
                 .toml_values
                 .insert(GROK_DEFAULT_BACKUP_KEY.to_string(), None);
+            backup
+                .toml_values
+                .insert(GROK_WEB_SEARCH_BACKUP_KEY.to_string(), None);
             return Ok(());
         }
     };
+    let models_table = table.get("models").and_then(toml::Value::as_table);
     backup.toml_values.insert(
         GROK_DEFAULT_BACKUP_KEY.to_string(),
-        table
-            .get("models")
-            .and_then(toml::Value::as_table)
-            .and_then(|models| models.get("default"))
+        models_table.and_then(|models| models.get("default")).cloned(),
+    );
+    backup.toml_values.insert(
+        GROK_WEB_SEARCH_BACKUP_KEY.to_string(),
+        models_table
+            .and_then(|models| models.get("web_search"))
             .cloned(),
     );
+    Ok(())
+}
+
+fn restore_grok_models_entry(
+    table: &mut toml::Table,
+    backup: &ProviderProjectionBackup,
+    backup_key: &str,
+    toml_key: &str,
+    custom_ids: &HashSet<String>,
+) -> Result<(), crate::host::native::NativeError> {
+    let restored = backup
+        .toml_values
+        .get(backup_key)
+        .and_then(Option::as_ref)
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty() && !is_dimo_grok_table(value) && !custom_ids.contains(*value)
+        });
+    if let Some(value) = restored {
+        let models = toml_table_entry(table, "models")?;
+        models.insert(
+            toml_key.to_string(),
+            toml::Value::String(value.to_string()),
+        );
+    } else if let Some(models) = table.get_mut("models").and_then(toml::Value::as_table_mut) {
+        let current = models
+            .get(toml_key)
+            .and_then(toml::Value::as_str)
+            .unwrap_or("");
+        if is_dimo_grok_table(current) || custom_ids.contains(current) {
+            models.remove(toml_key);
+        }
+        if models.is_empty() {
+            table.remove("models");
+        }
+    }
     Ok(())
 }
 
@@ -381,7 +461,10 @@ pub(super) async fn restore_grok_projection(
     let filesystem = TokioNativeFileSystem;
     let path = grok_home.join("config.toml");
     let original = filesystem.read(&path).await?;
-    if original.is_none() && !backup.toml_values.contains_key(GROK_DEFAULT_BACKUP_KEY) {
+    if original.is_none()
+        && !backup.toml_values.contains_key(GROK_DEFAULT_BACKUP_KEY)
+        && !backup.toml_values.contains_key(GROK_WEB_SEARCH_BACKUP_KEY)
+    {
         return Ok(());
     }
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
@@ -410,34 +493,32 @@ pub(super) async fn restore_grok_projection(
                 .collect()
         })
         .unwrap_or_default();
-    let restored_default = backup
-        .toml_values
-        .get(GROK_DEFAULT_BACKUP_KEY)
-        .and_then(Option::as_ref)
-        .and_then(toml::Value::as_str)
-        .map(str::trim)
-        .filter(|value| {
-            !value.is_empty() && !is_dimo_grok_table(value) && !custom_ids.contains(*value)
-        });
-    if let Some(default) = restored_default {
-        let models = toml_table_entry(&mut table, "models")?;
-        models.insert(
-            "default".to_string(),
-            toml::Value::String(default.to_string()),
-        );
-    } else if let Some(models) = table.get_mut("models").and_then(toml::Value::as_table_mut) {
-        let current = models
-            .get("default")
-            .and_then(toml::Value::as_str)
-            .unwrap_or("");
-        if is_dimo_grok_table(current) || custom_ids.contains(current) {
-            models.remove("default");
-        }
-        if models.is_empty() {
-            table.remove("models");
-        }
-    }
+    restore_grok_models_entry(
+        &mut table,
+        backup,
+        GROK_DEFAULT_BACKUP_KEY,
+        "default",
+        &custom_ids,
+    )?;
+    restore_grok_models_entry(
+        &mut table,
+        backup,
+        GROK_WEB_SEARCH_BACKUP_KEY,
+        "web_search",
+        &custom_ids,
+    )?;
     write_toml_mutation(&path, original, &table, true).await
+}
+
+/// How an optional Grok `config.toml` override field should be updated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum GrokFieldUpdate<T> {
+    /// Key was absent in stored JSON — keep any hand-written TOML value intact.
+    Unchanged,
+    /// Explicitly configured — write this value to TOML.
+    Set(T),
+    /// Explicitly cleared (`null`) — remove from TOML.
+    Clear,
 }
 
 /// One `[model.*]` table a grok provider projects.
@@ -455,6 +536,9 @@ pub(super) struct GrokProviderSpec {
     pub(super) models: Vec<GrokModelSpec>,
     pub(super) api_backend: String,
     pub(super) context_window: Option<i64>,
+    pub(super) supports_backend_search: GrokFieldUpdate<bool>,
+    pub(super) max_retries: GrokFieldUpdate<i64>,
+    pub(super) web_search: GrokFieldUpdate<String>,
 }
 
 /// Whether Dimo mints this `[model.*]` name. Only these get swept, so a table
@@ -515,6 +599,39 @@ pub(super) fn grok_spec(raw: &str, provider_name: &str) -> GrokProviderSpec {
         .as_ref()
         .and_then(|object| object.get("context_window"))
         .and_then(Value::as_i64);
+    let supports_backend_search = match object
+        .as_ref()
+        .and_then(|object| object.get("supports_backend_search"))
+    {
+        Some(Value::Bool(enabled)) => GrokFieldUpdate::Set(*enabled),
+        Some(Value::Null) => GrokFieldUpdate::Clear,
+        _ => GrokFieldUpdate::Unchanged,
+    };
+    let max_retries = match object.as_ref().and_then(|object| object.get("max_retries")) {
+        Some(Value::Number(value)) => value
+            .as_i64()
+            .filter(|retries| *retries >= 0)
+            .map_or(GrokFieldUpdate::Unchanged, GrokFieldUpdate::Set),
+        Some(Value::Null) => GrokFieldUpdate::Clear,
+        _ => GrokFieldUpdate::Unchanged,
+    };
+    let web_search = match object.as_ref().and_then(|object| object.get("web_search")) {
+        Some(Value::Bool(true)) => GrokFieldUpdate::Set("dimo".to_string()),
+        Some(Value::Bool(false)) | Some(Value::Null) => GrokFieldUpdate::Clear,
+        Some(Value::String(target)) => {
+            let trimmed = target.trim();
+            if trimmed.is_empty() {
+                GrokFieldUpdate::Clear
+            } else {
+                GrokFieldUpdate::Set(trimmed.to_string())
+            }
+        }
+        _ => match supports_backend_search {
+            GrokFieldUpdate::Set(true) => GrokFieldUpdate::Set("dimo".to_string()),
+            GrokFieldUpdate::Set(false) | GrokFieldUpdate::Clear => GrokFieldUpdate::Clear,
+            GrokFieldUpdate::Unchanged => GrokFieldUpdate::Unchanged,
+        },
+    };
     let mut ids = provider_model_ids(raw);
     if ids.is_empty() {
         // Older saves put the id in `model`, the key grok's own tables use.
@@ -554,6 +671,9 @@ pub(super) fn grok_spec(raw: &str, provider_name: &str) -> GrokProviderSpec {
         models,
         api_backend,
         context_window,
+        supports_backend_search,
+        max_retries,
+        web_search,
     }
 }
 
@@ -571,6 +691,24 @@ pub(super) async fn apply_grok(
         "default".to_string(),
         toml::Value::String("dimo".to_string()),
     );
+    match &spec.web_search {
+        GrokFieldUpdate::Set(target) => {
+            models.insert(
+                "web_search".to_string(),
+                toml::Value::String(target.clone()),
+            );
+        }
+        GrokFieldUpdate::Clear => {
+            let current = models
+                .get("web_search")
+                .and_then(toml::Value::as_str)
+                .unwrap_or("");
+            if is_dimo_grok_table(current) {
+                models.remove("web_search");
+            }
+        }
+        GrokFieldUpdate::Unchanged => {}
+    }
     let owned: HashSet<&str> = spec
         .models
         .iter()
@@ -583,16 +721,17 @@ pub(super) async fn apply_grok(
     model_root.retain(|name, _| !is_dimo_grok_table(name) || owned.contains(name));
     for model in &spec.models {
         let entry = toml_table_entry(model_root, &model.table)?;
-        // Rebuild rather than merge: a field the user cleared (`context_window`,
-        // say) has to go away, and the table holds nothing Dimo does not own.
-        entry.clear();
+        // Update Dimo-managed keys individually instead of clearing the whole
+        // table, so manual TOML extensions (e.g. extra retries/params) survive.
         entry.insert("model".to_string(), toml::Value::String(model.id.clone()));
         entry.insert(
             "base_url".to_string(),
             toml::Value::String(provider.api_url.clone()),
         );
         entry.insert("name".to_string(), toml::Value::String(model.name.clone()));
-        if !provider.api_key.trim().is_empty() {
+        if provider.api_key.trim().is_empty() {
+            entry.remove("api_key");
+        } else {
             entry.insert(
                 "api_key".to_string(),
                 toml::Value::String(provider.api_key.trim().to_string()),
@@ -602,8 +741,34 @@ pub(super) async fn apply_grok(
             "api_backend".to_string(),
             toml::Value::String(spec.api_backend.clone()),
         );
-        if let Some(context) = spec.context_window {
-            entry.insert("context_window".to_string(), toml::Value::Integer(context));
+        match spec.context_window {
+            Some(context) => {
+                entry.insert("context_window".to_string(), toml::Value::Integer(context));
+            }
+            None => {
+                entry.remove("context_window");
+            }
+        }
+        match spec.supports_backend_search {
+            GrokFieldUpdate::Set(enabled) => {
+                entry.insert(
+                    "supports_backend_search".to_string(),
+                    toml::Value::Boolean(enabled),
+                );
+            }
+            GrokFieldUpdate::Clear => {
+                entry.remove("supports_backend_search");
+            }
+            GrokFieldUpdate::Unchanged => {}
+        }
+        match spec.max_retries {
+            GrokFieldUpdate::Set(retries) => {
+                entry.insert("max_retries".to_string(), toml::Value::Integer(retries));
+            }
+            GrokFieldUpdate::Clear => {
+                entry.remove("max_retries");
+            }
+            GrokFieldUpdate::Unchanged => {}
         }
     }
     write_toml_mutation(&path, original, &table, true).await

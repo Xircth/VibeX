@@ -178,21 +178,91 @@ impl ProjectionFold {
                             _ => None,
                         });
                     let kind = tool_call.kind.clone().or(existing_kind);
+                    let normalized_incoming_status = tool_call.status.clone().map(|s| {
+                        match s.trim().to_ascii_lowercase().as_str() {
+                            "declined" => "denied".to_string(),
+                            "timedout" => "timed_out".to_string(),
+                            "timed_out" => "timed_out".to_string(),
+                            "denied" => "denied".to_string(),
+                            _ => s,
+                        }
+                    });
                     // Antigravity stamps cascade and provider errors onto view_file.
                     // A successful view_file is `completed` with no output, so a
                     // failed read result is settled the same way.
                     let settle_read = self.complete_antigravity_reads
                         && kind.as_deref() == Some("read")
-                        && tool_call.status.as_deref() == Some("failed");
-                    let reported_status = if settle_read {
+                        && normalized_incoming_status.as_deref() == Some("failed");
+                    let mut reported_status = if settle_read {
                         Some("completed".to_string())
                     } else {
-                        tool_call.status.clone()
+                        normalized_incoming_status
                     };
-                    let terminal = matches!(
-                        reported_status.as_deref(),
-                        Some("completed") | Some("failed")
-                    );
+                    if !settle_read
+                        && let Some(raw_obj) = tool_call.raw_output.as_ref().and_then(|v| v.as_object())
+                        && reported_status
+                            .as_deref()
+                            .is_none_or(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "failed" | "error"))
+                    {
+                        if raw_obj
+                            .get("timedOut")
+                            .or_else(|| raw_obj.get("timed_out"))
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                            || raw_obj
+                                .get("error")
+                                .and_then(|e| e.get("code"))
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|c| c.eq_ignore_ascii_case("ETIMEDOUT"))
+                            || raw_obj
+                                .get("status")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "timed_out" | "timedout"))
+                        {
+                            reported_status = Some("timed_out".to_string());
+                        } else if raw_obj
+                            .get("denied")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                            || raw_obj
+                                .get("status")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "denied" | "declined"))
+                        {
+                            reported_status = Some("denied".to_string());
+                        }
+                    }
+                    if !settle_read
+                        && self.denied_tool_calls.contains(&call_id)
+                        && reported_status.as_deref().is_none_or(|s| {
+                            matches!(
+                                s.trim().to_ascii_lowercase().as_str(),
+                                "pending"
+                                    | "running"
+                                    | "in_progress"
+                                    | "failed"
+                                    | "error"
+                                    | "cancelled"
+                                    | "canceled"
+                            )
+                        })
+                    {
+                        reported_status = Some("denied".to_string());
+                    }
+                    let terminal = reported_status.as_deref().is_some_and(|s| {
+                        matches!(
+                            s.trim().to_ascii_lowercase().as_str(),
+                            "completed"
+                                | "failed"
+                                | "denied"
+                                | "declined"
+                                | "timed_out"
+                                | "timedout"
+                                | "cancelled"
+                                | "canceled"
+                                | "error"
+                        )
+                    });
 
                     // Upsert semantics: a tool_call_update must fold into the
                     // existing card, not spawn a second titleless block.
@@ -312,7 +382,12 @@ impl ProjectionFold {
                         } if *id == call_id => status.as_deref(),
                         _ => None,
                     });
-                    let is_error = matches!(status, Some("failed"));
+                    let is_error = status.is_some_and(|s| {
+                        matches!(
+                            s.trim().to_ascii_lowercase().as_str(),
+                            "failed" | "error" | "denied" | "declined" | "timed_out" | "timedout"
+                        )
+                    });
                     let output_preview = if settle_read || append_delta.is_some() {
                         None
                     } else {
@@ -550,7 +625,13 @@ impl ProjectionFold {
                 }
             }
             other => {
-                self.apply_side_row_event(record, other, &mut deleted_rows);
+                self.apply_side_row_event(
+                    record,
+                    other,
+                    &mut deleted_rows,
+                    &mut touched_turn_rows,
+                    &mut assistant_emit,
+                );
             }
         }
 

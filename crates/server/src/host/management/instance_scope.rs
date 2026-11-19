@@ -598,6 +598,28 @@ pub(crate) async fn custom_run_action(
             ApplicationError::bad_request(format!("Agent `{agent_id}` 不支持动作 `{action_id}`"))
         })?;
     let scope = ManagementInstanceScope::Custom(record.clone());
+    if agent_id.as_str() == "kimi_code" && action.kind == ProfileManagementActionKind::Logout {
+        let environment = scoped_environment(pool, &scope, &agent_id).await?;
+        let program =
+            resolve_management_action_program(pool, &agent_id, action, &environment).await;
+        super::kimi_logout::execute_kimi_logout(&environment, program).await;
+        let _ = sync_custom_instance_auth_summary(
+            pool,
+            record,
+            &agent_id,
+            "official_subscription",
+            None,
+            None,
+        )
+        .await;
+        crate::host::events::current_host_events()
+            .emit("agent-management-snapshot-invalidated", ());
+        return Ok(AgentManagementActionReceipt {
+            agent_id,
+            action_id,
+            launched: true,
+        });
+    }
     let (environment, resolved_program) = if action.url.is_some() {
         (HashMap::new(), None)
     } else {

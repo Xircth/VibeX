@@ -234,9 +234,15 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   const hasUserEditedRef = useRef(false);
   const sourceRevisionRef = useRef<string | null>(null);
   const applyingRemoteRef = useRef(false);
+  const bindingSourceRef = useRef(false);
+  const openSequenceRef = useRef(0);
   const definitionsRef = useRef<WorkflowDefinitionSummary[]>([]);
   const loadingCatalogRef = useRef(true);
   const agentPollTimerRef = useRef<number | null>(null);
+  const defaultAgentIdRef = useRef(defaultAgentId);
+  defaultAgentIdRef.current = defaultAgentId;
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const dirty = useMemo(
     () =>
@@ -263,53 +269,109 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     [transport]
   );
 
+  const writeCanvasSource = useCallback(
+    async (
+      next: StudioWorkflowDefinition,
+      definitionId: string | null,
+      targetPath: string
+    ) => {
+      const requestId = ++openSequenceRef.current;
+      bindingSourceRef.current = true;
+      setSourcePath(targetPath);
+      sourceRevisionRef.current = null;
+      try {
+        const revision = await writeWorkflowSourceFile(
+          sourceApi,
+          targetPath,
+          toBackendWorkflowDefinition(next),
+          null
+        );
+        if (openSequenceRef.current === requestId) {
+          sourceRevisionRef.current = revision;
+        }
+      } catch {
+        if (openSequenceRef.current === requestId) {
+          sourceRevisionRef.current = null;
+        }
+      } finally {
+        if (openSequenceRef.current === requestId) {
+          bindingSourceRef.current = false;
+          focusViewedWorkflow(targetPath, next.name, definitionId);
+        }
+      }
+    },
+    [focusViewedWorkflow, sourceApi]
+  );
+
   const bindCanvasSource = useCallback(
     async (
       next: StudioWorkflowDefinition,
       definitionId: string | null,
       preferredPath?: string | null
     ) => {
-      const path =
-        preferredPath?.trim() || sourcePathForWorkflowName(next.name);
-      if (!isUnnamedWorkflowName(next.name)) {
-        const existing = await readWorkflowSourceDocument(sourceApi, path);
-        if (existing) {
-          const fromFile = toStudioWorkflowDefinition(existing.definition);
-          const hydrated: StudioWorkflowDefinition = {
-            ...fromFile,
-            name: next.name || fromFile.name,
-            orchestratorPreset:
-              fromFile.orchestratorPreset ?? next.orchestratorPreset ?? null,
-          };
-          setDefinition(hydrated);
-          setSavedDefinition(hydrated);
-          setUndoStack([]);
-          setRedoStack([]);
+      const trimmedPreferred = preferredPath?.trim() || null;
+      const safePreferred =
+        !isUnnamedWorkflowName(next.name) &&
+        trimmedPreferred === CANONICAL_UNNAMED_WORKFLOW_PATH
+          ? null
+          : trimmedPreferred;
+      const path = safePreferred || sourcePathForWorkflowName(next.name);
+      const requestId = ++openSequenceRef.current;
+      bindingSourceRef.current = true;
+      setSourcePath(path);
+      sourceRevisionRef.current = null;
+      try {
+        if (!isUnnamedWorkflowName(next.name)) {
+          const existing = await readWorkflowSourceDocument(sourceApi, path);
+          if (openSequenceRef.current !== requestId) return;
+          if (existing) {
+            const fromFile = toStudioWorkflowDefinition(existing.definition);
+            const hydrated: StudioWorkflowDefinition = {
+              ...fromFile,
+              name: next.name || fromFile.name,
+              orchestratorPreset:
+                fromFile.orchestratorPreset ?? next.orchestratorPreset ?? null,
+            };
+            setDefinition(hydrated);
+            setSavedDefinition(hydrated);
+            setUndoStack([]);
+            setRedoStack([]);
+            setSourcePath(path);
+            sourceRevisionRef.current = existing.revision;
+            focusViewedWorkflow(path, hydrated.name, definitionId);
+            return;
+          }
+        }
+        try {
+          const revision = await writeWorkflowSourceFile(
+            sourceApi,
+            path,
+            toBackendWorkflowDefinition(next),
+            null
+          );
+          if (openSequenceRef.current === requestId) {
+            sourceRevisionRef.current = revision;
+          }
+        } catch {
+          if (openSequenceRef.current === requestId) {
+            sourceRevisionRef.current = null;
+          }
+        }
+        if (openSequenceRef.current === requestId) {
           setSourcePath(path);
-          sourceRevisionRef.current = existing.revision;
-          focusViewedWorkflow(path, hydrated.name, definitionId);
-          return;
+          focusViewedWorkflow(path, next.name, definitionId);
+        }
+      } finally {
+        if (openSequenceRef.current === requestId) {
+          bindingSourceRef.current = false;
         }
       }
-      try {
-        const revision = await writeWorkflowSourceFile(
-          sourceApi,
-          path,
-          toBackendWorkflowDefinition(next),
-          null
-        );
-        sourceRevisionRef.current = revision;
-      } catch {
-        sourceRevisionRef.current = null;
-      }
-      setSourcePath(path);
-      focusViewedWorkflow(path, next.name, definitionId);
     },
     [focusViewedWorkflow, sourceApi]
   );
 
   const refreshUnnamedDraftFile = useCallback(async () => {
-    const starter = createStarterWorkflow(defaultAgentId, t);
+    const starter = createStarterWorkflow(defaultAgentIdRef.current, tRef.current);
     try {
       await writeWorkflowSourceFile(
         sourceApi,
@@ -321,7 +383,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       // The in-memory starter still opens when the source directory is unavailable.
     }
     return starter;
-  }, [defaultAgentId, sourceApi, t]);
+  }, [sourceApi]);
 
   const loadWorkflowSelection = useCallback(
     async (summary: WorkflowDefinitionSummary) => {
@@ -347,7 +409,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           }
         }
         const fresh = {
-          ...createStarterWorkflow(defaultAgentId, t),
+          ...createStarterWorkflow(defaultAgentIdRef.current, tRef.current),
           name: summary.name,
         };
         setActiveVersion(null);
@@ -389,17 +451,17 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         setLoadingWorkflow(false);
       }
     },
-    [bindCanvasSource, defaultAgentId, t, workflowClient]
+    [bindCanvasSource, workflowClient]
   );
 
   const applyPresetTemplateById = useCallback(
     (presetId: string): boolean => {
-      const template = getWorkflowPresetTemplates(t).find(
+      const template = getWorkflowPresetTemplates(tRef.current).find(
         (item) => item.id === presetId
       );
       if (!template) return false;
       hasUserEditedRef.current = true;
-      const nextDefinition = template.build(defaultAgentId);
+      const nextDefinition = template.build(defaultAgentIdRef.current);
       setSelectedDefinitionId(null);
       setSourceRuleId(null);
       setActiveVersion(null);
@@ -410,12 +472,19 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       setRedoStack([]);
       setErrorMessage(null);
       setStatusMessage(null);
+      void writeCanvasSource(
+        nextDefinition,
+        null,
+        sourcePathForWorkflowName(nextDefinition.name)
+      );
       return true;
     },
-    [defaultAgentId, t]
+    [writeCanvasSource]
   );
 
   const startNewWorkflowDraft = useCallback(async () => {
+    openSequenceRef.current += 1;
+    bindingSourceRef.current = false;
     hasUserEditedRef.current = true;
     const fresh = await refreshUnnamedDraftFile();
     setSelectedDefinitionId(null);
@@ -478,16 +547,22 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       }
 
       if (detail.initialDefinition) {
+        const initialDef = detail.initialDefinition;
         hasUserEditedRef.current = true;
         setSelectedDefinitionId(targetDefinitionId || null);
         setActiveVersion(null);
         setSavedRuleIds({});
-        setDefinition(detail.initialDefinition);
-        setSavedDefinition(detail.initialDefinition);
+        setDefinition(initialDef);
+        setSavedDefinition(initialDef);
         setUndoStack([]);
         setRedoStack([]);
         setErrorMessage(null);
         setStatusMessage(null);
+        await writeCanvasSource(
+          initialDef,
+          targetDefinitionId || null,
+          sourcePathForWorkflowName(initialDef.name)
+        );
         return true;
       }
 
@@ -503,6 +578,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       loadWorkflowSelection,
       startNewWorkflowDraft,
       workflowClient,
+      writeCanvasSource,
     ]
   );
 
@@ -511,7 +587,12 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       loadingCatalogRef.current = true;
       setLoadingCatalog(true);
       setErrorMessage(null);
-      if (!preserveCurrentSelection) {
+      const win = window as unknown as WorkflowStudioWindow;
+      const pendingAtStart = win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__;
+      if (
+        !preserveCurrentSelection &&
+        (!pendingAtStart || pendingAtStart.createNew)
+      ) {
         await refreshUnnamedDraftFile();
       }
 
@@ -535,7 +616,6 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         setSources(sourcesResult.value);
       }
 
-      const win = window as unknown as WorkflowStudioWindow;
       const pending = win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__;
 
       if (definitionsResult.status === 'rejected') {
@@ -596,9 +676,10 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   }, [loadWorkspaceData, transport]);
 
   useEffect(() => {
-    if (applyingRemoteRef.current) return;
+    if (applyingRemoteRef.current || bindingSourceRef.current) return;
     const path = sourcePath;
     const handle = window.setTimeout(() => {
+      if (bindingSourceRef.current || sourcePathRef.current !== path) return;
       const current = definitionRef.current;
       void (async () => {
         const existing = await readWorkflowSourceDocument(sourceApi, path);
@@ -615,8 +696,10 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
           toBackendWorkflowDefinition(current),
           sourceRevisionRef.current
         );
-        sourceRevisionRef.current = revision;
-        focusViewedWorkflow(path, current.name, selectedDefinitionId);
+        if (sourcePathRef.current === path) {
+          sourceRevisionRef.current = revision;
+          focusViewedWorkflow(path, current.name, selectedDefinitionId);
+        }
       })().catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(handle);
@@ -631,9 +714,11 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   useEffect(() => {
     let cancelled = false;
     const timer = window.setInterval(() => {
+      if (bindingSourceRef.current) return;
       const path = sourcePathRef.current;
       void readWorkflowSourceDocument(sourceApi, path).then((existing) => {
         if (cancelled || !existing) return;
+        if (bindingSourceRef.current || sourcePathRef.current !== path) return;
         if (existing.revision === sourceRevisionRef.current) return;
         if (dirtyRef.current) return;
         applyingRemoteRef.current = true;

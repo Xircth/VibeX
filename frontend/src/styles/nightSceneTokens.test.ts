@@ -232,7 +232,7 @@ describe('dark night scene tokens', () => {
 
   it('keeps the agent question card opaque in both themes instead of deleting glass at night', () => {
     expect(css).toMatch(
-      /\.agent-question-card \{[\s\S]*?background: var\(--surface-dialog\);/
+      /\.agent-question-card \{[\s\S]*?position: relative;[\s\S]*?background: var\(--surface-dialog\);/
     );
     expect(css).not.toContain('.dark .agent-question-card {');
   });

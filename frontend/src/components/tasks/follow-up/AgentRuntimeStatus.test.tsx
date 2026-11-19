@@ -79,7 +79,7 @@ describe('AgentRuntimeStatus', () => {
     );
     expect(screen.getByRole('status')).toHaveTextContent('请求重试中');
     fireEvent.click(
-      screen.getByRole('button', { name: '查看详细信息: 请求重试中' })
+      screen.getByRole('button', { name: '查看详情: 请求重试中' })
     );
     expect(screen.getByText('provider unavailable')).toBeVisible();
     rerender(

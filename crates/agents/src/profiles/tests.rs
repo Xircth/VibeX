@@ -100,3 +100,64 @@ fn resolve_native_engine_cli_finds_standalone_install_dirs() {
         &["claude-acp", "claude-code-acp", "codex-acp"]
     );
 }
+
+#[test]
+fn hermes_profile_distinguishes_hermes_and_hermes_acp_launch_args() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let hermes = catalog
+        .profile(&AgentId::parse("hermes").unwrap())
+        .expect("hermes profile");
+
+    assert!(candidate_command_matches(
+        "hermes",
+        std::path::Path::new(r"C:\Users\dev\.local\bin\hermes.exe")
+    ));
+    assert!(candidate_command_matches(
+        "hermes-acp",
+        std::path::Path::new("/usr/local/bin/hermes-acp")
+    ));
+
+    assert_eq!(
+        acp_launch_args_for_program(
+            hermes,
+            ProfileComponent::CombinedRuntime,
+            Some(std::path::Path::new("/usr/local/bin/hermes"))
+        ),
+        vec!["acp".to_string()]
+    );
+    assert_eq!(
+        acp_launch_args_for_program(
+            hermes,
+            ProfileComponent::CombinedRuntime,
+            Some(std::path::Path::new("/usr/local/bin/hermes-acp"))
+        ),
+        Vec::<String>::new()
+    );
+
+    let mut args = vec!["acp".to_string()];
+    normalize_acp_launch_args_for_program(
+        hermes,
+        ProfileComponent::CombinedRuntime,
+        Some(std::path::Path::new("/usr/local/bin/hermes-acp")),
+        &mut args,
+    );
+    assert!(args.is_empty());
+
+    let mut duplicate = vec!["acp".to_string(), "acp".to_string()];
+    normalize_acp_launch_args_for_program(
+        hermes,
+        ProfileComponent::CombinedRuntime,
+        Some(std::path::Path::new("/usr/local/bin/hermes")),
+        &mut duplicate,
+    );
+    assert_eq!(duplicate, vec!["acp".to_string()]);
+
+    assert_eq!(
+        version_args_for_program(
+            hermes,
+            ProfileComponent::CombinedRuntime,
+            Some(std::path::Path::new("/usr/local/bin/hermes-acp"))
+        ),
+        &["--version"]
+    );
+}

@@ -41,6 +41,7 @@ interface MessageQueueIndicatorProps {
   canSteerQueued?: boolean;
   steerChannel?: ComposerSteerChannel | null;
   steeringQueued?: boolean;
+  embedded?: boolean;
   onSteerQueuedMessage?: (message: QueuedMessage) => void;
   onEditQueuedMessage?: (message: QueuedMessage) => void;
   onDeleteQueuedMessage?: (message: QueuedMessage) => void;
@@ -55,6 +56,7 @@ export function MessageQueueIndicator({
   canSteerQueued = false,
   steerChannel = null,
   steeringQueued = false,
+  embedded = false,
   onSteerQueuedMessage,
   onEditQueuedMessage,
   onDeleteQueuedMessage,
@@ -93,6 +95,228 @@ export function MessageQueueIndicator({
     setDelayingMessageId(null);
   };
 
+  const renderNormalItems = (listClassName: string) => (
+    <ol className={listClassName}>
+      {queuedMessages.map((message, index) => {
+        const claimed = message.status === 'claimed';
+        const isDelayInputOpen = delayingMessageId === message.id;
+        return (
+          <li
+            key={message.id}
+            className={
+              embedded
+                ? 'composer-cockpit-row'
+                : 'flex min-h-9 items-center gap-2 px-2.5 py-1.5'
+            }
+          >
+            <span className="w-4 flex-none text-center text-[11px] tabular-nums text-muted-foreground">
+              {claimed ? (
+                <Loader2
+                  className="mx-auto h-3 w-3 animate-spin motion-reduce:animate-none"
+                  aria-label={t('messageQueue.sending')}
+                />
+              ) : (
+                index + 1
+              )}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+              {message.data.message || t('messageQueue.attachmentOnly')}
+            </span>
+            {message.data.images.length > 0 ? (
+              <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
+                +{message.data.images.length}
+              </span>
+            ) : null}
+            <div className="flex flex-none items-center gap-0.5">
+              <QueueAction
+                label={t('messageQueue.editMessage')}
+                disabled={claimed || !onEditQueuedMessage}
+                onClick={() => onEditQueuedMessage?.(message)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </QueueAction>
+              <QueueAction
+                label={t('messageQueue.delayMessage', {
+                  defaultValue: '转为延时消息',
+                })}
+                testId={`delay-queued-message-${message.id}`}
+                disabled={claimed || !onDelayQueuedMessage}
+                onClick={() => {
+                  if (isDelayInputOpen) {
+                    setDelayingMessageId(null);
+                  } else {
+                    setDelayMinutesInput('5');
+                    setDelayingMessageId(message.id);
+                  }
+                }}
+              >
+                <Clock className="h-3.5 w-3.5" />
+              </QueueAction>
+              {isDelayInputOpen ? (
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  autoFocus
+                  data-testid={`delay-minutes-input-${message.id}`}
+                  value={delayMinutesInput}
+                  onChange={(event) =>
+                    setDelayMinutesInput(event.target.value)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      submitDelayMinutes(message);
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setDelayingMessageId(null);
+                    }
+                  }}
+                  placeholder={t('messageQueue.delayMinutesPlaceholder', {
+                    defaultValue: '分钟',
+                  })}
+                  aria-label={t('messageQueue.delayMinutesPlaceholder', {
+                    defaultValue: '分钟',
+                  })}
+                  className="h-6 w-14 rounded border border-border bg-background px-1.5 text-[11px] tabular-nums text-foreground focus:border-primary focus:outline-none"
+                />
+              ) : null}
+              <QueueAction
+                label={t('messageQueue.deleteMessage')}
+                disabled={claimed || !onDeleteQueuedMessage}
+                onClick={() => onDeleteQueuedMessage?.(message)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </QueueAction>
+              {canSteerQueued ? (
+                <QueueAction
+                  testId={`steer-queued-message-${message.id}`}
+                  label={
+                    steerChannel === 'interrupt_restart'
+                      ? t('messageQueue.steerInterruptRestart', {
+                          defaultValue: 'Interrupt and send now',
+                        })
+                      : t('messageQueue.steer', {
+                          defaultValue: 'Steer',
+                        })
+                  }
+                  disabled={
+                    claimed || steeringQueued || !onSteerQueuedMessage
+                  }
+                  onClick={() => onSteerQueuedMessage?.(message)}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </QueueAction>
+              ) : null}
+              <QueueAction
+                label={t('messageQueue.moveUp')}
+                disabled={claimed || index === 0 || !onMoveQueuedMessage}
+                onClick={() => onMoveQueuedMessage?.(message, -1)}
+              >
+                <ChevronsUp className="h-3.5 w-3.5" />
+              </QueueAction>
+              <QueueAction
+                label={t('messageQueue.moveDown')}
+                disabled={
+                  claimed ||
+                  index === queuedMessages.length - 1 ||
+                  !onMoveQueuedMessage
+                }
+                onClick={() => onMoveQueuedMessage?.(message, 1)}
+              >
+                <ChevronsDown className="h-3.5 w-3.5" />
+              </QueueAction>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+
+  const renderDelayedItems = (listClassName: string) => (
+    <ol className={listClassName}>
+      {delayedMessages.map((message, index) => (
+        <li
+          key={message.id}
+          className={
+            embedded
+              ? 'composer-cockpit-row'
+              : 'flex min-h-9 items-center gap-2 px-2.5 py-1.5'
+          }
+        >
+          <span className="w-4 flex-none text-center text-[11px] tabular-nums text-muted-foreground">
+            {index + 1}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+            {message.data.message || t('messageQueue.attachmentOnly')}
+          </span>
+          {message.data.images.length > 0 ? (
+            <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
+              +{message.data.images.length}
+            </span>
+          ) : null}
+          <div className="flex flex-none items-center gap-1">
+            <span
+              className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-0.5 font-mono text-[11px] font-medium tabular-nums text-info"
+              data-testid={`delayed-countdown-${message.id}`}
+            >
+              <Clock className="h-3 w-3" />
+              {formatCountdownTimer(message.deliverAt, nowMs)}
+            </span>
+            {onEditQueuedMessage ? (
+              <QueueAction
+                label={t('messageQueue.editMessage')}
+                disabled={false}
+                onClick={() => onEditQueuedMessage(message)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </QueueAction>
+            ) : null}
+            {onDeleteQueuedMessage ? (
+              <QueueAction
+                label={t('messageQueue.deleteMessage')}
+                disabled={false}
+                onClick={() => onDeleteQueuedMessage(message)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </QueueAction>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+
+  if (embedded) {
+    return (
+      <div className="composer-cockpit-section">
+        {hasNormalQueue ? (
+          <div data-testid="normal-message-queue">
+            {renderNormalItems('m-0 list-none p-0')}
+          </div>
+        ) : null}
+        {hasDelayedQueue ? (
+          <div data-testid="delayed-message-queue">
+            {hasNormalQueue ? (
+              <div className="composer-cockpit-subbar flex items-center gap-1.5 px-3 py-1 text-[11px] tabular-nums text-muted-foreground">
+                <Clock className="h-3 w-3 flex-none text-info" />
+                <span>
+                  {t('messageQueue.delayedDescriptionCount', {
+                    count: delayedMessages.length,
+                    defaultValue: `延时消息队列 (${delayedMessages.length})`,
+                  })}
+                </span>
+              </div>
+            ) : null}
+            {renderDelayedItems('m-0 list-none p-0')}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
       {hasNormalQueue ? (
@@ -120,149 +344,9 @@ export function MessageQueueIndicator({
             />
           </button>
 
-          {expanded ? (
-            <ol className="divide-y divide-border border-t border-border">
-              {queuedMessages.map((message, index) => {
-                const claimed = message.status === 'claimed';
-                const isDelayInputOpen = delayingMessageId === message.id;
-                return (
-                  <li
-                    key={message.id}
-                    className="flex min-h-9 items-center gap-2 px-2.5 py-1.5"
-                  >
-                    <span className="w-4 flex-none text-center text-[11px] tabular-nums">
-                      {claimed ? (
-                        <Loader2
-                          className="mx-auto h-3 w-3 animate-spin motion-reduce:animate-none"
-                          aria-label={t('messageQueue.sending')}
-                        />
-                      ) : (
-                        index + 1
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                      {message.data.message || t('messageQueue.attachmentOnly')}
-                    </span>
-                    {message.data.images.length > 0 ? (
-                      <span className="flex-none text-[11px] tabular-nums">
-                        +{message.data.images.length}
-                      </span>
-                    ) : null}
-                    <div className="flex flex-none items-center gap-0.5">
-                      <QueueAction
-                        label={t('messageQueue.editMessage')}
-                        disabled={claimed || !onEditQueuedMessage}
-                        onClick={() => onEditQueuedMessage?.(message)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </QueueAction>
-                      <QueueAction
-                        label={t('messageQueue.delayMessage', {
-                          defaultValue: '转为延时消息',
-                        })}
-                        testId={`delay-queued-message-${message.id}`}
-                        disabled={claimed || !onDelayQueuedMessage}
-                        onClick={() => {
-                          if (isDelayInputOpen) {
-                            setDelayingMessageId(null);
-                          } else {
-                            setDelayMinutesInput('5');
-                            setDelayingMessageId(message.id);
-                          }
-                        }}
-                      >
-                        <Clock className="h-3.5 w-3.5" />
-                      </QueueAction>
-                      {isDelayInputOpen ? (
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          autoFocus
-                          data-testid={`delay-minutes-input-${message.id}`}
-                          value={delayMinutesInput}
-                          onChange={(event) =>
-                            setDelayMinutesInput(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              submitDelayMinutes(message);
-                            } else if (event.key === 'Escape') {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              setDelayingMessageId(null);
-                            }
-                          }}
-                          placeholder={t(
-                            'messageQueue.delayMinutesPlaceholder',
-                            {
-                              defaultValue: '分钟',
-                            }
-                          )}
-                          aria-label={t(
-                            'messageQueue.delayMinutesPlaceholder',
-                            {
-                              defaultValue: '分钟',
-                            }
-                          )}
-                          className="h-6 w-14 rounded border border-border bg-background px-1.5 text-[11px] tabular-nums text-foreground focus:border-primary focus:outline-none"
-                        />
-                      ) : null}
-                      <QueueAction
-                        label={t('messageQueue.deleteMessage')}
-                        disabled={claimed || !onDeleteQueuedMessage}
-                        onClick={() => onDeleteQueuedMessage?.(message)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </QueueAction>
-                      {canSteerQueued ? (
-                        <QueueAction
-                          testId={`steer-queued-message-${message.id}`}
-                          label={
-                            steerChannel === 'interrupt_restart'
-                              ? t('messageQueue.steerInterruptRestart', {
-                                  defaultValue: 'Interrupt and send now',
-                                })
-                              : t('messageQueue.steer', {
-                                  defaultValue: 'Steer',
-                                })
-                          }
-                          disabled={
-                            claimed || steeringQueued || !onSteerQueuedMessage
-                          }
-                          onClick={() => onSteerQueuedMessage?.(message)}
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        </QueueAction>
-                      ) : null}
-                      <QueueAction
-                        label={t('messageQueue.moveUp')}
-                        disabled={
-                          claimed || index === 0 || !onMoveQueuedMessage
-                        }
-                        onClick={() => onMoveQueuedMessage?.(message, -1)}
-                      >
-                        <ChevronsUp className="h-3.5 w-3.5" />
-                      </QueueAction>
-                      <QueueAction
-                        label={t('messageQueue.moveDown')}
-                        disabled={
-                          claimed ||
-                          index === queuedMessages.length - 1 ||
-                          !onMoveQueuedMessage
-                        }
-                        onClick={() => onMoveQueuedMessage?.(message, 1)}
-                      >
-                        <ChevronsDown className="h-3.5 w-3.5" />
-                      </QueueAction>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : null}
+          {expanded
+            ? renderNormalItems('divide-y divide-border border-t border-border')
+            : null}
         </div>
       ) : null}
 
@@ -292,55 +376,9 @@ export function MessageQueueIndicator({
             />
           </button>
 
-          {delayedExpanded ? (
-            <ol className="divide-y divide-border border-t border-border">
-              {delayedMessages.map((message, index) => (
-                <li
-                  key={message.id}
-                  className="flex min-h-9 items-center gap-2 px-2.5 py-1.5"
-                >
-                  <span className="w-4 flex-none text-center text-[11px] tabular-nums">
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                    {message.data.message || t('messageQueue.attachmentOnly')}
-                  </span>
-                  {message.data.images.length > 0 ? (
-                    <span className="flex-none text-[11px] tabular-nums">
-                      +{message.data.images.length}
-                    </span>
-                  ) : null}
-                  <div className="flex flex-none items-center gap-1">
-                    <span
-                      className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-0.5 font-mono text-[11px] font-medium tabular-nums text-info"
-                      data-testid={`delayed-countdown-${message.id}`}
-                    >
-                      <Clock className="h-3 w-3" />
-                      {formatCountdownTimer(message.deliverAt, nowMs)}
-                    </span>
-                    {onEditQueuedMessage ? (
-                      <QueueAction
-                        label={t('messageQueue.editMessage')}
-                        disabled={false}
-                        onClick={() => onEditQueuedMessage(message)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </QueueAction>
-                    ) : null}
-                    {onDeleteQueuedMessage ? (
-                      <QueueAction
-                        label={t('messageQueue.deleteMessage')}
-                        disabled={false}
-                        onClick={() => onDeleteQueuedMessage(message)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </QueueAction>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : null}
+          {delayedExpanded
+            ? renderDelayedItems('divide-y divide-border border-t border-border')
+            : null}
         </div>
       ) : null}
     </div>

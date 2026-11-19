@@ -8,6 +8,7 @@ pub mod browser;
 pub mod diff;
 pub mod host_bin;
 pub mod log_msg;
+pub mod mirror;
 pub mod msg_store;
 pub mod net;
 pub mod path;

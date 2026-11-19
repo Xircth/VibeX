@@ -565,6 +565,46 @@ describe('AgentModelProviderManager', () => {
     });
   });
 
+  it('saves Grok backend web search and max retries settings', async () => {
+    const existing = JSON.stringify({
+      id: 'grok-4.1-fast',
+      api_backend: 'responses',
+      supports_backend_search: true,
+      max_retries: 2,
+    });
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'grok',
+      providers: [{ ...gateway, agent_id: 'grok', model: existing }],
+      bound_provider_id: null,
+      multi_enable: false,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="grok" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    await pickAstryxOption(user, screen.getByLabelText('后端联网搜索'), '关闭');
+    const retriesInput = screen.getByLabelText('最大重试次数');
+    expect(retriesInput).toHaveValue('2');
+    await user.clear(retriesInput);
+    await user.type(retriesInput, '4');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    const saved = vi.mocked(agentManagementApi.saveModelProvider).mock
+      .calls[0][0];
+    expect(JSON.parse(saved.model)).toEqual({
+      id: 'grok-4.1-fast',
+      api_backend: 'responses',
+      context_window: null,
+      supports_backend_search: false,
+      web_search: false,
+      max_retries: 4,
+    });
+  });
+
   it('picks the default model from the detected list for other reusable-provider Agents', async () => {
     const enabled = '{"id":"a","default":"a","models":["a","b","c"]}';
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({

@@ -106,13 +106,24 @@ export function parseGrokModel(value: string): GrokModelSpec {
       model?: string;
       api_backend?: string;
       context_window?: number | string | null;
+      supports_backend_search?: boolean | null;
+      max_retries?: number | string | null;
     };
     if (parsed && typeof parsed === 'object') {
+      const supports_backend_search =
+        parsed.supports_backend_search === true
+          ? 'enabled'
+          : parsed.supports_backend_search === false
+            ? 'disabled'
+            : 'unset';
       return {
         id: String(parsed.id ?? parsed.model ?? ''),
         api_backend: parsed.api_backend || 'responses',
         context_window:
           parsed.context_window == null ? '' : String(parsed.context_window),
+        supports_backend_search,
+        max_retries:
+          parsed.max_retries == null ? '' : String(parsed.max_retries),
         raw: parsed as Record<string, unknown>,
       };
     }
@@ -123,6 +134,8 @@ export function parseGrokModel(value: string): GrokModelSpec {
     id: value,
     api_backend: 'responses',
     context_window: '',
+    supports_backend_search: 'unset',
+    max_retries: '',
     raw: {},
   };
 }

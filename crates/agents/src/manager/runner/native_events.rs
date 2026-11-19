@@ -85,7 +85,77 @@ fn format_file_change_diff_preview(input: &Value) -> Option<String> {
     (!sections.is_empty()).then(|| sections.join("\n\n"))
 }
 
-fn format_tool_result_content(tool_name: Option<&str>, content: &Value) -> Option<String> {
+fn has_structured_tool_result_metadata(obj: &Map<String, Value>) -> bool {
+    obj.contains_key("exitCode")
+        || obj.contains_key("exit_code")
+        || obj.contains_key("stderr")
+        || obj.contains_key("timedOut")
+        || obj.contains_key("timed_out")
+        || obj.contains_key("status")
+        || obj.contains_key("denied")
+        || obj.contains_key("reason")
+        || obj.contains_key("error")
+        || matches!(
+            obj.get("type").and_then(Value::as_str),
+            Some("commandExecution" | "mcpToolCall")
+        )
+}
+
+fn has_non_empty_output_text(obj: &Map<String, Value>) -> bool {
+    ["aggregatedOutput", "aggregated_output", "stdout", "stderr", "output", "text"]
+        .into_iter()
+        .any(|key| {
+            obj.get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty())
+        })
+}
+
+fn derive_native_tool_result_status(is_error: bool, content: &Value) -> String {
+    if let Some(obj) = content.as_object() {
+        if obj
+            .get("timedOut")
+            .or_else(|| obj.get("timed_out"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return "timed_out".to_string();
+        }
+        if obj.get("denied").and_then(Value::as_bool).unwrap_or(false) {
+            return "denied".to_string();
+        }
+        if let Some(status) = obj.get("status").and_then(Value::as_str) {
+            match status.trim().to_ascii_lowercase().as_str() {
+                "denied" | "declined" => return "denied".to_string(),
+                "timed_out" | "timedout" => return "timed_out".to_string(),
+                "cancelled" | "canceled" => return "cancelled".to_string(),
+                "failed" | "error" => return "failed".to_string(),
+                "completed" if !is_error => return "completed".to_string(),
+                "completed" => return "failed".to_string(),
+                _ => {}
+            }
+        }
+        if obj
+            .get("error")
+            .and_then(|err| err.get("code"))
+            .and_then(Value::as_str)
+            .is_some_and(|code| code.eq_ignore_ascii_case("ETIMEDOUT"))
+        {
+            return "timed_out".to_string();
+        }
+    }
+    if is_error {
+        "failed".to_string()
+    } else {
+        "completed".to_string()
+    }
+}
+
+fn format_tool_result_content(
+    tool_name: Option<&str>,
+    content: &Value,
+    buffered: Option<String>,
+) -> Option<String> {
     if let Some(s) = content.as_str() {
         return Some(s.to_string());
     }
@@ -95,6 +165,16 @@ fn format_tool_result_content(tool_name: Option<&str>, content: &Value) -> Optio
         return Some(diff);
     }
     if let Some(obj) = content.as_object() {
+        if has_structured_tool_result_metadata(obj) {
+            if let Some(buf) = buffered.filter(|b| !b.is_empty())
+                && !has_non_empty_output_text(obj)
+            {
+                let mut merged = obj.clone();
+                merged.insert("aggregatedOutput".to_string(), Value::String(buf));
+                return Some(Value::Object(merged).to_string());
+            }
+            return Some(content.to_string());
+        }
         if let Some(out) = obj
             .get("aggregatedOutput")
             .or_else(|| obj.get("stdout"))
@@ -102,14 +182,18 @@ fn format_tool_result_content(tool_name: Option<&str>, content: &Value) -> Optio
             .or_else(|| obj.get("text"))
             .and_then(Value::as_str)
         {
-            return Some(out.to_string());
+            return if out.is_empty() {
+                buffered.or_else(|| Some(String::new()))
+            } else {
+                Some(out.to_string())
+            };
         }
         if content.is_null() || obj.is_empty() {
-            return None;
+            return buffered;
         }
     }
     if content.is_null() {
-        None
+        buffered
     } else {
         Some(content.to_string())
     }
@@ -127,10 +211,21 @@ fn build_permission_details(
     details.insert("kind".to_string(), Value::String(cls.semantic_kind));
     details.insert("title".to_string(), Value::String(cls.title));
     details.insert("toolName".to_string(), Value::String(tool_name.to_string()));
-    if !permission_id.is_empty() {
+    let correlated_tool_id = input
+        .get("itemId")
+        .or_else(|| input.get("callId"))
+        .or_else(|| input.get("toolCallId"))
+        .or_else(|| input.get("toolUseId"))
+        .or_else(|| input.get("toolUseID"))
+        .or_else(|| input.get("tool_use_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(permission_id);
+    if !correlated_tool_id.is_empty() {
         details.insert(
             "toolCallId".to_string(),
-            Value::String(permission_id.to_string()),
+            Value::String(correlated_tool_id.to_string()),
         );
     }
     details.insert("rawInput".to_string(), input.clone());
@@ -419,8 +514,9 @@ impl AgentConnectionRunner {
                     turn_state.running_tool_calls.remove(&id);
                     let tool_name = turn_state.tool_names.remove(&id);
                     let buffered = turn_state.terminal_buffers.remove(&id);
+                    let status = derive_native_tool_result_status(is_error, &content);
                     let formatted =
-                        format_tool_result_content(tool_name.as_deref(), &content).or(buffered);
+                        format_tool_result_content(tool_name.as_deref(), &content, buffered);
                     let meta = self
                         .fold_air_tool_meta(&id, None, false)
                         .await
@@ -432,11 +528,7 @@ impl AgentConnectionRunner {
                             update: AgentToolCallUpdate {
                                 id,
                                 title: None,
-                                status: Some(if is_error {
-                                    "failed".to_string()
-                                } else {
-                                    "completed".to_string()
-                                }),
+                                status: Some(status),
                                 content: formatted,
                                 input_preview: None,
                                 meta,

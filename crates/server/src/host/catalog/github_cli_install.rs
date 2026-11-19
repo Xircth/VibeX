@@ -17,7 +17,6 @@ use uuid::Uuid;
 
 const LATEST_RELEASE_URL: &str = "https://github.com/cli/cli/releases/latest";
 const RELEASE_DOWNLOAD_ROOT: &str = "https://github.com/cli/cli/releases/download";
-const MAINLAND_PROXIES: &[&str] = &["https://ghfast.top/", "https://ghproxy.net/"];
 const MAX_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CHECKSUM_BYTES: usize = 2 * 1024 * 1024;
 
@@ -206,13 +205,10 @@ async fn latest_version(client: &Client) -> Result<String, ApplicationError> {
 }
 
 fn candidate_urls(official: &str) -> Vec<String> {
-    let mut urls = vec![official.to_string()];
-    if official.starts_with("https://github.com/") {
-        for proxy in MAINLAND_PROXIES {
-            urls.push(format!("{proxy}{official}"));
-        }
-    }
-    urls
+    super::release_download::candidate_urls(official)
+        .into_iter()
+        .map(|(_, url)| url)
+        .collect()
 }
 
 async fn download_from_url(

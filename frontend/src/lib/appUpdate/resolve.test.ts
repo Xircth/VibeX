@@ -110,6 +110,9 @@ describe('resolveAppUpdate', () => {
         body: null,
         published_at: null,
         checked_at: '2026-08-18T01:00:00Z',
+        http_status: 403,
+        endpoint: 'https://api.github.com/repos/DimoADE/Dimo/releases/latest',
+        proxy_source: 'system',
       }),
       now: () => 1_700_000_000_000,
     });
@@ -117,5 +120,16 @@ describe('resolveAppUpdate', () => {
     expect(snapshot.update).toBeNull();
     expect(snapshot.checked).toBe(false);
     expect(snapshot.error).toContain('403');
+    expect(snapshot.error).toContain('signed feed timed out');
+    expect(snapshot.diagnostic).toEqual({
+      stage: 'both',
+      signedError: 'signed feed timed out',
+      githubError: 'GitHub release check returned 403',
+      httpStatus: 403,
+      endpoint: 'https://api.github.com/repos/DimoADE/Dimo/releases/latest',
+      proxySource: 'system',
+      checkedAt: '2026-08-18T01:00:00Z',
+      fallbackReleaseUrl: 'https://github.com/DimoADE/Dimo/releases/latest',
+    });
   });
 });

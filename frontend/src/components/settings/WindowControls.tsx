@@ -60,7 +60,7 @@ export function WindowControls() {
   const appWindow = getCurrentWindow();
 
   return (
-    <div className="flex h-9 items-center gap-1 px-1.5 [-webkit-app-region:no-drag]">
+    <div className="flex h-9 items-center gap-1 px-1.5">
       <button
         type="button"
         className={buttonClass}

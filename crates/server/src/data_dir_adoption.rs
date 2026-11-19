@@ -641,6 +641,9 @@ async fn rewrite_moved_paths(legacy_dir: &Path, target_dir: &Path) {
     {
         tracing::warn!(%error, "could not rewrite data paths in the adopted database");
     }
+    if let Err(error) = utils::assets::record_adopted_legacy_source(target_dir, legacy_dir) {
+        tracing::warn!(%error, "could not record adopted legacy data directory");
+    }
     let settings_file = target_dir.join("settings.json");
     let config_file = target_dir.join("config.json");
     if !settings_file.exists() && !config_file.exists() {
@@ -654,6 +657,28 @@ async fn rewrite_moved_paths(legacy_dir: &Path, target_dir: &Path) {
     }
     ensure_adopted_onboarding_acknowledged(target_dir).await;
     repair_worktrees(&target_dir.join("worktrees"));
+}
+
+/// Reconciles stale paths from earlier data-directory moves or adoptions
+/// across SQLite tables and host settings files (`settings.json` / `config.json`).
+pub async fn reconcile_migrated_data_dir_paths(
+    pool: &sqlx::SqlitePool,
+    data_dir: &Path,
+) -> Result<(), sqlx::Error> {
+    let old_dirs = db::reconcile_migrated_data_dir_paths(pool, data_dir).await?;
+    for old_dir in &old_dirs {
+        for file_name in ["settings.json", "config.json"] {
+            let path = data_dir.join(file_name);
+            if let Err(error) = remap_settings_json_paths(&path, old_dir, data_dir) {
+                tracing::warn!(
+                    ?error,
+                    file = %path.display(),
+                    "could not reconcile settings paths after data directory migration"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn ensure_adopted_onboarding_acknowledged(target_dir: &Path) {
@@ -1132,5 +1157,151 @@ mod tests {
 
         drop(held_file);
         assert!(!sqlite_files_have_open_handles(&dirs.legacy_dir));
+    }
+
+    #[tokio::test]
+    async fn adopt_rewrites_plugin_v4_verbatim_paths_and_reconcile_heals_already_adopted_data() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = adoption(root.path());
+        std::fs::create_dir_all(
+            dirs.legacy_dir
+                .join("plugins")
+                .join("runtimes")
+                .join("plugins")
+                .join("snapshots")
+                .join("dimo.browser"),
+        )
+        .unwrap();
+
+        let legacy_db = dirs.legacy_dir.join("db.sqlite");
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&legacy_db)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE conversations (id TEXT PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE projects (id TEXT PRIMARY KEY, root_path TEXT NOT NULL DEFAULT '')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO conversations (id) VALUES ('c1')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE plugin_packages_v4 (
+                publisher TEXT NOT NULL,
+                plugin_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                package_digest TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                package_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (publisher, plugin_id, package_digest)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let verbatim_legacy = format!(
+            r"\\?\{}\plugins\runtimes\plugins\snapshots\dimo.browser",
+            dirs.legacy_dir.to_string_lossy()
+        );
+        let package_json = serde_json::json!({
+            "id": "dimo.browser",
+            "source": {
+                "kind": "marketplace",
+                "path": verbatim_legacy,
+            }
+        })
+        .to_string();
+        sqlx::query(
+            "INSERT INTO plugin_packages_v4
+             (publisher, plugin_id, version, package_digest, source_kind, source_path, manifest_json, package_json, created_at)
+             VALUES ('dimo', 'dimo.browser', '1.0.0', 'd1', 'marketplace', ?1, '{}', ?2, '2026-01-01')",
+        )
+        .bind(&verbatim_legacy)
+        .bind(&package_json)
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let outcome = adopt(&dirs).await;
+        assert!(matches!(outcome, DataDirAdoptionOutcome::Moved { .. }));
+
+        let target_snapshot = dirs
+            .target_dir
+            .join("plugins")
+            .join("runtimes")
+            .join("plugins")
+            .join("snapshots")
+            .join("dimo.browser");
+        let check_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(SqliteConnectOptions::new().filename(dirs.target_dir.join("db.sqlite")))
+            .await
+            .unwrap();
+        let (source_path, raw_json): (String, String) = sqlx::query_as(
+            "SELECT source_path, package_json FROM plugin_packages_v4 WHERE plugin_id = 'dimo.browser'",
+        )
+        .fetch_one(&check_pool)
+        .await
+        .unwrap();
+        assert_eq!(Path::new(&source_path), target_snapshot.as_path());
+        let parsed: Value = serde_json::from_str(&raw_json).unwrap();
+        assert_eq!(
+            Path::new(parsed["source"]["path"].as_str().unwrap()),
+            target_snapshot.as_path()
+        );
+
+        // Simulate an already-adopted DB/settings from an older build where a stale
+        // workspace_dir and plugin path remain while .adopted-legacy-source is recorded.
+        let stale_again = format!(
+            r"\\?\{}\plugins\runtimes\plugins\snapshots\dimo.browser",
+            dirs.legacy_dir.to_string_lossy()
+        );
+        sqlx::query("UPDATE plugin_packages_v4 SET source_path = ?1, package_json = ?2")
+            .bind(&stale_again)
+            .bind(&package_json)
+            .execute(&check_pool)
+            .await
+            .unwrap();
+        std::fs::write(
+            dirs.target_dir.join("settings.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "workspace_dir": format!("{}/worktrees", dirs.legacy_dir.to_string_lossy()),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        reconcile_migrated_data_dir_paths(&check_pool, &dirs.target_dir)
+            .await
+            .unwrap();
+
+        let healed_path: String =
+            sqlx::query_scalar("SELECT source_path FROM plugin_packages_v4 WHERE plugin_id = 'dimo.browser'")
+                .fetch_one(&check_pool)
+                .await
+                .unwrap();
+        assert_eq!(Path::new(&healed_path), target_snapshot.as_path());
+        let settings: Value = serde_json::from_str(
+            &std::fs::read_to_string(dirs.target_dir.join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(!settings["workspace_dir"].as_str().unwrap().contains("roaming"));
+
+        check_pool.close().await;
     }
 }

@@ -409,12 +409,45 @@ pub async fn list_collaboration_spaces_for_caller(
             "user_recipient": "User",
         }));
     }
+    let is_space_session = conversation_is_space_session(pool, caller_id).await?;
+    let supervisor_direct_thread_id = supervisor
+        .as_ref()
+        .map(|(id, _)| identity::direct_thread_id(id));
+    let capabilities = json!({
+        "manage_group": {
+            "available_in_session": is_space_session,
+            "can_create_or_delete_group": is_space_session && is_caller_supervisor,
+            "reason_code": if !is_space_session {
+                "session_context_restricted"
+            } else if !is_caller_supervisor {
+                "role_restricted"
+            } else {
+                "allowed"
+            },
+            "supervisor_only_actions": ["create", "delete"],
+            "ui_path": "协作空间 → ＋ → 创建群聊",
+        },
+        "manage_bot": {
+            "available_in_session": true,
+            "can_create_bot": !is_space_session || is_caller_supervisor,
+            "reason_code": if !is_space_session || is_caller_supervisor {
+                "allowed"
+            } else {
+                "role_restricted"
+            },
+            "supervisor_only_in_space": ["create", "update", "delete", "interrupt"],
+            "ui_path": "协作空间 → ＋ → 创建助手",
+        },
+    });
     let mut overview = json!({
         "caller_conversation_id": caller_id,
         "workspace_id": caller.workspace_id,
+        "is_space_session": is_space_session,
         "is_caller_supervisor": is_caller_supervisor,
         "supervisor_member_id": supervisor.as_ref().map(|(id, _)| id),
         "supervisor_nickname": supervisor.as_ref().map(|(_, name)| name),
+        "supervisor_direct_thread_id": supervisor_direct_thread_id,
+        "capabilities": capabilities,
         "spaces": items,
     });
     if let Some(spaces) = overview.get_mut("spaces").and_then(Value::as_array_mut) {

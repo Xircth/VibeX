@@ -2571,6 +2571,72 @@ context_window = 200000
 }
 
 #[tokio::test]
+async fn grok_binding_manages_search_fields_and_preserves_manual_toml_keys() {
+    let temp = tempfile::tempdir().unwrap();
+    let grok_home = temp.path().join("home/.grok");
+    tokio::fs::create_dir_all(&grok_home).await.unwrap();
+    tokio::fs::write(
+        grok_home.join("config.toml"),
+        r#"
+[models]
+default = "xai"
+web_search = "xai"
+
+[model.dimo]
+model = "old"
+temperature = 0.2
+custom_flag = "keep"
+"#,
+    )
+    .await
+    .unwrap();
+
+    let mut backup = ProviderProjectionBackup::default();
+    capture_grok_toml(&grok_home.join("config.toml"), &mut backup)
+        .await
+        .unwrap();
+
+    let enabled = bind_grok_provider(
+        temp.path(),
+        r#"{"id":"grok-4","api_backend":"responses","supports_backend_search":true,"max_retries":4,"models":["grok-4"]}"#,
+    )
+    .await;
+    assert_eq!(enabled["models"]["web_search"].as_str(), Some("dimo"));
+    let dimo = enabled["model"]["dimo"].as_table().unwrap();
+    assert_eq!(dimo["supports_backend_search"].as_bool(), Some(true));
+    assert_eq!(dimo["max_retries"].as_integer(), Some(4));
+    assert_eq!(dimo["custom_flag"].as_str(), Some("keep"));
+    assert_eq!(dimo["temperature"].as_float(), Some(0.2));
+
+    let state = read_native_grok_state(&grok_home).await.unwrap();
+    let model_json: Value = serde_json::from_str(&state.providers[0].model).unwrap();
+    assert_eq!(model_json["supports_backend_search"], true);
+    assert_eq!(model_json["max_retries"], 4);
+    assert_eq!(model_json["web_search"], true);
+
+    let disabled = bind_grok_provider(
+        temp.path(),
+        r#"{"id":"grok-4","api_backend":"responses","supports_backend_search":false,"max_retries":null,"models":["grok-4"]}"#,
+    )
+    .await;
+    assert!(disabled["models"].as_table().unwrap().get("web_search").is_none());
+    let dimo_after = disabled["model"]["dimo"].as_table().unwrap();
+    assert_eq!(dimo_after["supports_backend_search"].as_bool(), Some(false));
+    assert!(!dimo_after.contains_key("max_retries"));
+    assert_eq!(dimo_after["custom_flag"].as_str(), Some("keep"));
+
+    restore_grok_projection(&grok_home, &backup).await.unwrap();
+    let restored: toml::Table = toml::from_str(
+        &tokio::fs::read_to_string(grok_home.join("config.toml"))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(restored["models"]["default"].as_str(), Some("xai"));
+    assert_eq!(restored["models"]["web_search"].as_str(), Some("xai"));
+}
+
+#[tokio::test]
 async fn pi_draft_keeps_every_model_the_provider_lists() {
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join(".pi/agent");

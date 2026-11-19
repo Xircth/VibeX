@@ -784,6 +784,44 @@ export function shouldHideLifecycleTool(
   return event.bindingIds.some((id) => spawnBindingIds.has(id));
 }
 
+export const SUBAGENT_TEXT_MAX_CHARS = 12_000;
+export const SUBAGENT_TITLE_MAX_CHARS = 180;
+
+export function clampSubagentText(
+  value: string | null | undefined,
+  maxChars = SUBAGENT_TEXT_MAX_CHARS
+): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).trimEnd()}…`;
+}
+
+function meaningfulLiveFallback(
+  liveText: string | null | undefined,
+  description: string | null | undefined,
+  title: string
+): string | null {
+  const cleaned = clampSubagentText(liveText);
+  if (!cleaned) return null;
+  const compact = cleaned.replace(/\s+/g, ' ').trim();
+  const candidates = [description, title]
+    .map((item) => item?.replace(/\s+/g, ' ').trim())
+    .filter((item): item is string => Boolean(item));
+  for (const candidate of candidates) {
+    if (compact === candidate) return null;
+    if (
+      candidate.length > 0 &&
+      compact.length % candidate.length === 0 &&
+      candidate.repeat(compact.length / candidate.length) === compact
+    ) {
+      return null;
+    }
+  }
+  return cleaned;
+}
+
 export function applySubagentLifecycle(
   model: SubagentCardModel,
   lifecycle: SubagentLifecycleEvent[]
@@ -814,10 +852,16 @@ export function applySubagentLifecycle(
 
   const resultText =
     status === 'completed' || status === 'failed'
-      ? (lastWait?.resultText ??
-        lastClose?.resultText ??
-        model.resultText ??
-        model.liveText)
+      ? clampSubagentText(
+          lastWait?.resultText ??
+            lastClose?.resultText ??
+            model.resultText ??
+            meaningfulLiveFallback(
+              model.liveText,
+              model.description,
+              model.title
+            )
+        )
       : null;
 
   return {
@@ -1252,23 +1296,31 @@ export function buildSubagentCardModel(
     canonicalToolName(use.tool_name) === 'collabtoolcall'
       ? readString(input as JsonValue, ['tool', 'action'])
       : null;
-  const description =
+  const rawDescription =
     readString(input as JsonValue, ['description', 'title', 'name']) ??
     readString(claudeMeta as JsonValue, 'title') ??
     readString(airMeta as JsonValue, 'commandTitle') ??
     meaningfulToolNameDescription(use.tool_name) ??
     collabTool ??
     null;
-  const prompt = readString(input as JsonValue, ['prompt', 'task', 'input']);
+  const description = clampSubagentText(
+    rawDescription,
+    SUBAGENT_TITLE_MAX_CHARS
+  );
+  const prompt = clampSubagentText(
+    readString(input as JsonValue, ['prompt', 'task', 'input'])
+  );
   const progress = progressRecord(use, result);
   const subMeta = subagentMeta(use);
   const thinkingText = readString(subMeta as JsonValue, 'thinking') ?? null;
   const liveText = readString(subMeta as JsonValue, 'text') ?? null;
-  const title = subagentType
+  const rawTitle = subagentType
     ? description && description !== subagentType
       ? `${subagentType}: ${description}`
       : subagentType
     : (description ?? agentKind ?? use.tool_name);
+  const title =
+    clampSubagentText(rawTitle, SUBAGENT_TITLE_MAX_CHARS) ?? use.tool_name;
   const status = inferStatus(use, result);
   const toolCallCount =
     readNumber(progress, ['toolCallCount', 'tool_call_count']) ??
@@ -1297,8 +1349,10 @@ export function buildSubagentCardModel(
     liveText,
     resultText:
       status === 'completed' || status === 'failed'
-        ? (extractSubagentResultText(result?.output_preview ?? null) ??
-          liveText)
+        ? clampSubagentText(
+            extractSubagentResultText(result?.output_preview ?? null) ??
+              meaningfulLiveFallback(liveText, description, title)
+          )
         : null,
     children,
   };

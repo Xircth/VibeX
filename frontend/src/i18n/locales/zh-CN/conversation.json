@@ -54,6 +54,8 @@
     "keepLocal": "保留本机"
   },
   "children": {
+    "tabLabel": "子会话",
+    "dismiss": "关闭子会话面板",
     "title": "子会话（{{count}}）",
     "active": "{{count}} 个进行中",
     "waiting": "{{count}} 个等待处理",
@@ -271,7 +273,9 @@
       "otherActivities_other": "{{count}} 项其他活动",
       "separator": "、",
       "failed": "工具调用失败",
-      "commandExitCode": "命令退出码 {{code}}"
+      "commandExitCode": "命令退出码 {{code}}",
+      "permissionDenied": "权限被拒绝",
+      "timedOut": "执行超时"
     },
     "fileReadRange": "第 {{start}}–{{end}} 行",
     "fileReadFrom": "从第 {{start}} 行开始",
@@ -288,8 +292,8 @@
     "errorBadge": "Error",
     "warningBadge": "Warn",
     "infoBadge": "Notice",
-    "showDetails": "查看详细信息",
-    "showDetailsFor": "查看详细信息：{{title}}",
+    "showDetails": "查看详情",
+    "showDetailsFor": "查看详情：{{title}}",
     "newerEventTitle": "此会话包含较新版本的记录",
     "newerEventDescription": "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 Dimo 后可再次查看。",
     "unreadableEventTitle": "部分会话记录无法显示",
@@ -301,7 +305,15 @@
     "connectingTitle": "正在连接代理…",
     "initSessionTitle": "正在初始化会话…",
     "autoPermissionTitle": "已自动批准权限",
-    "autoPermissionDescription": "已自动批准 {{count}} 项权限请求"
+    "autoPermissionDescription": "已自动批准 {{count}} 项权限请求",
+    "queueTab": "消息队列",
+    "childrenTab": "子会话",
+    "asyncTasksTab": "后台任务",
+    "goalTab": "会话目标",
+    "noticeTab": "提示通知",
+    "collapsePanel": "收起",
+    "dismissTab": "关闭 {{label}}",
+    "regionLabel": "会话状态控制台"
   },
   "liveFeedback": {
     "placeholder": "给这一回合纠偏",
@@ -554,12 +566,15 @@
     "collapse": "收起智能体提问",
     "recommended": "推荐",
     "customAnswer": "输入回答",
-    "customPlaceholder": "请输入回答内容",
+    "customPlaceholder": "其他内容…",
     "previous": "上一个",
     "next": "下一个",
+    "skip": "跳过",
+    "continue": "继续",
     "submit": "提交回答",
     "decline": "拒绝回答",
     "answered": "已回答",
+    "sentMessage": "已发送回答",
     "justNow": "刚刚"
   },
   "backendNotice": {

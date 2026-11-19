@@ -114,6 +114,7 @@ const BUILTIN_TOOLBAR_TAB_KEYS: readonly string[] = [
 function ToolbarDivider() {
   return (
     <div
+      data-tauri-drag-region
       className="workspace-toolbar-divider mx-1 h-6 w-px"
       role="separator"
       aria-orientation="vertical"
@@ -124,6 +125,7 @@ function ToolbarDivider() {
 function WindowChromeLeadingRule() {
   return (
     <div
+      data-tauri-drag-region
       className="window-chrome-leading-rule workspace-toolbar-divider mx-1 h-6 w-px"
       role="separator"
       aria-orientation="vertical"
@@ -558,6 +560,7 @@ export function WorkspaceBranchControls({
 
   return (
     <div
+      data-tauri-drag-region
       className="flex min-w-0 shrink-0 items-center gap-1"
       role="group"
       aria-label={i18n.t('panels:shellA11y.workspaceBranches', {
@@ -566,6 +569,7 @@ export function WorkspaceBranchControls({
     >
       <HostSelector />
       <span
+        data-tauri-drag-region
         aria-hidden="true"
         className="select-none px-0.5 text-xs text-muted-foreground/45"
       >
@@ -1045,7 +1049,10 @@ export function Toolbar() {
             workspaceId={workspaceId}
           />
 
-          <div className="ml-auto flex items-center shrink-0 gap-0.5">
+          <div
+            data-tauri-drag-region
+            className="ml-auto flex items-center shrink-0 gap-0.5"
+          >
             {isCollaborationTab ? (
               <CollaborationLayoutToggles />
             ) : hasProject ? (

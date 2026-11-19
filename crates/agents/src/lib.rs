@@ -121,7 +121,8 @@ pub use async_tasks::{
 };
 pub use auth_mode::{
     BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
-    apply_built_in_launch_policy, apply_pi_native_launch_env, auth_mode_credential_env,
+    apply_built_in_launch_argument_policy_for_program, apply_built_in_launch_policy,
+    apply_built_in_launch_policy_for_program, apply_pi_native_launch_env, auth_mode_credential_env,
     auth_mode_kind, auto_approve_mode_for_launch, bind_pi_acp_pi_command,
     built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys,
     codex_uses_chatgpt_subscription, headless_account_env, is_non_official_api_url,
@@ -254,9 +255,11 @@ pub use local_detection::{npm_package_name, version_at_least};
 pub use managed_toolchain::{
     MANAGED_BUN_VERSION, MANAGED_NODE_VERSION, MANAGED_UV_VERSION, ManagedBunArtifact,
     ManagedNodeArtifact, ManagedUvArtifact, bun_verified_for_install, managed_bun_archive_name,
-    managed_bun_artifact, managed_bun_download_urls, managed_node_archive_name,
-    managed_node_artifact, managed_node_download_urls, managed_uv_artifact,
-    node_verified_for_install, uv_verified_for_install,
+    managed_bun_artifact, managed_bun_download_urls, managed_bun_download_urls_for_proxy,
+    managed_node_archive_name, managed_node_artifact, managed_node_download_urls,
+    managed_node_download_urls_for_proxy, managed_uv_archive_name, managed_uv_artifact,
+    managed_uv_download_urls, managed_uv_download_urls_for_proxy, node_verified_for_install,
+    uv_verified_for_install,
 };
 pub use management_boundary::{
     BoundaryError, Clock, InstallInvocation, InstallOutput, InstallRunner, NativeFileMetadata,
@@ -313,10 +316,12 @@ pub use profiles::{
     ProfileBinaryArtifact, ProfileBinaryEntry, ProfileComponent, ProfileDependency,
     ProfileExternalCandidate, ProfileIcon, ProfileInstallSource, ProfileManagementAction,
     ProfileManagementActionKind, ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology,
-    RegistryEntryIdentity, acp_adapter_relation, acp_launch_args, adapter_bundles_runtime,
-    bundled_adapter_runtime_env_keys, native_engine_extra_dirs, profile_delivers_session_mcp,
-    resolve_native_engine_cli, resolve_vendor_cli, resolve_vendor_cli_in_extra_dirs,
-    suppressed_registry_built_in_agent_id, suppressed_registry_ids_for_built_ins,
+    RegistryEntryIdentity, acp_adapter_relation, acp_launch_args, acp_launch_args_for_program,
+    adapter_bundles_runtime, bundled_adapter_runtime_env_keys, candidate_command_matches,
+    external_candidate_for_program, native_engine_extra_dirs,
+    normalize_acp_launch_args_for_program, profile_delivers_session_mcp, resolve_native_engine_cli,
+    resolve_vendor_cli, resolve_vendor_cli_in_extra_dirs, suppressed_registry_built_in_agent_id,
+    suppressed_registry_ids_for_built_ins, version_args_for_program,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,
@@ -363,7 +368,7 @@ pub use user_environment::{
     AgentUpdateCheckInput, ObservedUserComponent, PlannedPreflightUpdate,
     UserEnvironmentAdoptDecision, UserEnvironmentLayout, compose_agent_update_check,
     decide_user_environment_adopt, existing_path_satisfies_component, npm_global_install_args,
-    npm_install_permission_denied, npm_prefix_is_writable, npm_shim_candidates,
-    observed_satisfies_profile, plan_required_components, planned_preflight_updates,
-    profile_required_versions, resolve_npm_shim, uv_distribution_name,
+    npm_global_install_args_with_registry, npm_install_permission_denied, npm_prefix_is_writable,
+    npm_shim_candidates, observed_satisfies_profile, plan_required_components,
+    planned_preflight_updates, profile_required_versions, resolve_npm_shim, uv_distribution_name,
 };

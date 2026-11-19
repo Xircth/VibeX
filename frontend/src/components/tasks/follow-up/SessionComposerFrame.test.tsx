@@ -119,4 +119,41 @@ describe('SessionComposerFrame', () => {
     fireEvent.click(button);
     expect(document.activeElement).toBe(button);
   });
+
+  it('mounts tabs above and outside the intact rounded composer body without stealing tab clicks', () => {
+    render(
+      <SessionComposerFrame
+        tabs={
+          <div role="tablist" data-testid="cockpit-tabs">
+            <button type="button" role="tab" data-testid="cockpit-tab-btn">
+              消息队列
+            </button>
+          </div>
+        }
+      >
+        <div
+          data-testid="mock-editor"
+          contentEditable
+          suppressContentEditableWarning
+          tabIndex={0}
+        >
+          draft
+        </div>
+      </SessionComposerFrame>
+    );
+
+    const anchor = screen.getByTestId('session-composer-anchor');
+    const body = screen.getByTestId('session-composer-body');
+    const tabs = screen.getByTestId('cockpit-tabs');
+    const tabButton = screen.getByTestId('cockpit-tab-btn');
+
+    expect(body).toHaveClass('rounded-[var(--radius-composer,0.75rem)]');
+    expect(body).not.toContainElement(tabs);
+    expect(tabs.parentElement).toBe(anchor.parentElement);
+    expect(tabs.nextElementSibling).toBe(anchor);
+
+    tabButton.focus();
+    fireEvent.click(tabButton);
+    expect(document.activeElement).toBe(tabButton);
+  });
 });

@@ -189,6 +189,32 @@ describe('product option menus', () => {
     );
   });
 
+  it('tucks the composer cockpit dock behind the intact rounded composer body', () => {
+    const dock = declarationsFor('.composer-cockpit-dock');
+    const tabbar = declarationsFor('.composer-cockpit-tabbar');
+    const panel = declarationsFor('.composer-cockpit-panel');
+    const childrenList = declarationsFor('.composer-cockpit-children-list');
+
+    expect(dock.position?.value).toBe('relative');
+    expect(Number.parseInt(dock['z-index']?.value ?? '', 10)).toBeLessThan(10);
+    expect(dock['margin-bottom']?.value).toBe(
+      'calc(-1 * var(--radius-composer, var(--radius-container, var(--radius))))'
+    );
+    expect(dock['padding-bottom']?.value).toBe(
+      'var(--radius-composer, var(--radius-container, var(--radius)))'
+    );
+    expect(dock['border-radius']?.value).toBe(
+      'var(--radius-composer, var(--radius-container, var(--radius))) var(--radius-composer, var(--radius-container, var(--radius))) 0 0'
+    );
+    expect(dock.background?.value).toBe(
+      'color-mix(in srgb, var(--text-strong) 6%, var(--surface-card))'
+    );
+    expect(tabbar.background?.value).toBe('transparent');
+    expect(panel['max-height']?.value).toBe('176px');
+    expect(childrenList['max-height']?.value).toBe('139px');
+    expect(childrenList['overflow-y']?.value).toBe('auto');
+  });
+
   it('restores the composer send button fill over ghost button resets', () => {
     const button = declarationsFor(
       '.legacy-design button.composer-primary-action.astryx-button'

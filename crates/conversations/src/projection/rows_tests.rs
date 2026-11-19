@@ -425,6 +425,7 @@ async fn artifact_projection_rebuilds_a_v3_snapshot_that_skipped_artifacts() {
         side_row_turns: std::collections::BTreeMap::new(),
         last_sequence: record.sequence,
         auto_permission_approvals: 0,
+        denied_tool_calls: std::collections::BTreeSet::new(),
     })
     .expect("serialize v3 snapshot");
     ConversationProjectionSnapshotRecord::upsert(

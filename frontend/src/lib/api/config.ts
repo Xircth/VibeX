@@ -52,6 +52,9 @@ export interface AppReleaseStatus {
   body?: string | null;
   published_at?: string | null;
   checked_at?: string;
+  http_status?: number | null;
+  endpoint?: string | null;
+  proxy_source?: string | null;
 }
 
 export type AgentCapability =

@@ -32,11 +32,39 @@ impl GithubReleaseAsset {
 }
 
 pub(crate) fn candidate_urls(official: &str) -> Vec<(DownloadSource, String)> {
-    let mut urls = vec![(DownloadSource::Official, official.to_string())];
-    if is_github_hosted(official) {
+    candidate_urls_for_proxy(official, utils::mirror::proxy_is_active())
+}
+
+pub(crate) fn candidate_urls_for_proxy(
+    official: &str,
+    proxy_active: bool,
+) -> Vec<(DownloadSource, String)> {
+    if !is_github_hosted(official) {
+        return vec![(DownloadSource::Official, official.to_string())];
+    }
+    let mut urls = Vec::new();
+    if proxy_active {
+        urls.push((DownloadSource::Official, official.to_string()));
         for proxy in MAINLAND_GITHUB_PROXIES {
             urls.push((DownloadSource::Mainland, format!("{proxy}{official}")));
         }
+        if let Some(rest) = official.strip_prefix("https://github.com/") {
+            urls.push((
+                DownloadSource::Mainland,
+                format!("{}/dl/github/{rest}", utils::mirror::DIMO_MIRROR_ORIGIN),
+            ));
+        }
+    } else {
+        for proxy in MAINLAND_GITHUB_PROXIES {
+            urls.push((DownloadSource::Mainland, format!("{proxy}{official}")));
+        }
+        if let Some(rest) = official.strip_prefix("https://github.com/") {
+            urls.push((
+                DownloadSource::Mainland,
+                format!("{}/dl/github/{rest}", utils::mirror::DIMO_MIRROR_ORIGIN),
+            ));
+        }
+        urls.push((DownloadSource::Official, official.to_string()));
     }
     urls
 }
@@ -108,7 +136,7 @@ mod tests {
 
     #[test]
     fn github_urls_try_official_source_before_mainland_proxies() {
-        let urls = candidate_urls("https://github.com/cli/cli/releases/latest");
+        let urls = candidate_urls_for_proxy("https://github.com/cli/cli/releases/latest", true);
         assert_eq!(urls[0].0, DownloadSource::Official);
         assert_eq!(urls[0].1, "https://github.com/cli/cli/releases/latest");
         assert!(urls.iter().any(|(source, url)| {
@@ -119,6 +147,23 @@ mod tests {
             *source == DownloadSource::Mainland
                 && url == "https://ghproxy.net/https://github.com/cli/cli/releases/latest"
         }));
+        assert!(urls.iter().any(|(source, url)| {
+            *source == DownloadSource::Mainland
+                && url == "https://mirror.dimo-ai.com/dl/github/cli/cli/releases/latest"
+        }));
+
+        let no_proxy =
+            candidate_urls_for_proxy("https://github.com/cli/cli/releases/latest", false);
+        assert_eq!(no_proxy[0].0, DownloadSource::Mainland);
+        assert_eq!(
+            no_proxy[0].1,
+            "https://ghfast.top/https://github.com/cli/cli/releases/latest"
+        );
+        assert_eq!(
+            no_proxy[2].1,
+            "https://mirror.dimo-ai.com/dl/github/cli/cli/releases/latest"
+        );
+        assert_eq!(no_proxy.last().unwrap().0, DownloadSource::Official);
     }
 
     #[test]

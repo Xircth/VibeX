@@ -54,14 +54,17 @@ describe('desktop window chrome insets', () => {
     expect(windows.get('padding-right')).toBe('6.5rem');
   });
 
-  it('marks drag regions as Windows app-region drag and keeps controls no-drag', () => {
+  it('avoids CSS app-region declarations on drag regions while disabling image drag', () => {
     const drag = declarationsFor('[data-tauri-drag-region]');
-    expect(drag.get('-webkit-app-region')).toBe('drag');
-    expect(drag.get('app-region')).toBe('drag');
+    expect(drag.get('-webkit-app-region')).toBeUndefined();
+    expect(drag.get('app-region')).toBeUndefined();
+
+    const dragImg = declarationsFor('[data-tauri-drag-region] img');
+    expect(dragImg.get('-webkit-user-drag')).toBe('none');
 
     const noDrag = declarationsMatching('.window-chrome button');
-    expect(noDrag.get('-webkit-app-region')).toBe('no-drag');
-    expect(noDrag.get('app-region')).toBe('no-drag');
+    expect(noDrag.get('-webkit-app-region')).toBeUndefined();
+    expect(noDrag.get('app-region')).toBeUndefined();
   });
 
   it('hides the traffic-light divider except on the macOS desktop shell', () => {

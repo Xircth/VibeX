@@ -38,30 +38,14 @@ export function sessionGoalStatusDotClass(status: SessionGoalStatus): string {
   }
 }
 
-export interface SessionGoalBarProps {
-  sessionGoal: ConversationSessionGoal | null;
-  fallbackGoal?: CodexGoalState | null;
-  sessionBindReady?: boolean;
-  onGoalControl?: (action: 'pause' | 'clear') => Promise<GoalControlReceipt>;
-  onSelectGoal?: () => void;
-  className?: string;
-}
-
-export function SessionGoalBar({
-  sessionGoal,
-  fallbackGoal = null,
+export function resolveSessionGoal(
+  sessionGoal: ConversationSessionGoal | null,
+  fallbackGoal: CodexGoalState | null = null,
   sessionBindReady = true,
-  onGoalControl,
-  onSelectGoal,
-  className,
-}: SessionGoalBarProps) {
-  const { t } = useTranslation('conversation');
-  const [pendingAction, setPendingAction] = useState<'pause' | 'clear' | null>(
-    null
-  );
-
-  const canControl = sessionBindReady && Boolean(onGoalControl);
-  const parsed =
+  hasGoalControl = false
+) {
+  const canControl = sessionBindReady && hasGoalControl;
+  return (
     parseConversationSessionGoal(sessionGoal, {
       sessionBindReady: canControl,
     }) ??
@@ -77,7 +61,40 @@ export function SessionGoalBar({
             sessionBindReady: canControl,
           }
         )
-      : null);
+      : null)
+  );
+}
+
+export interface SessionGoalBarProps {
+  sessionGoal: ConversationSessionGoal | null;
+  fallbackGoal?: CodexGoalState | null;
+  sessionBindReady?: boolean;
+  embedded?: boolean;
+  onGoalControl?: (action: 'pause' | 'clear') => Promise<GoalControlReceipt>;
+  onSelectGoal?: () => void;
+  className?: string;
+}
+
+export function SessionGoalBar({
+  sessionGoal,
+  fallbackGoal = null,
+  sessionBindReady = true,
+  embedded = false,
+  onGoalControl,
+  onSelectGoal,
+  className,
+}: SessionGoalBarProps) {
+  const { t } = useTranslation('conversation');
+  const [pendingAction, setPendingAction] = useState<'pause' | 'clear' | null>(
+    null
+  );
+
+  const parsed = resolveSessionGoal(
+    sessionGoal,
+    fallbackGoal,
+    sessionBindReady,
+    Boolean(onGoalControl)
+  );
 
   const handleAction = useCallback(
     async (action: 'pause' | 'clear') => {
@@ -148,7 +165,9 @@ export function SessionGoalBar({
         data-testid="session-goal-bar"
         data-goal-status={parsed.status}
         className={cn(
-          'flex min-h-9 shrink-0 items-center justify-between gap-2.5 overflow-hidden rounded-lg border border-border bg-[var(--surface-card,hsl(var(--card)))] px-2.5 py-1.5 text-xs',
+          embedded
+            ? 'composer-cockpit-row justify-between text-xs'
+            : 'flex min-h-9 shrink-0 items-center justify-between gap-2.5 overflow-hidden rounded-lg border border-border bg-[var(--surface-card,hsl(var(--card)))] px-2.5 py-1.5 text-xs',
           className
         )}
       >

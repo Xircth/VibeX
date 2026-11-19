@@ -65,10 +65,14 @@ export interface PiModelSpec {
   raw: Record<string, unknown>;
 }
 
+export type GrokBackendSearchSetting = 'unset' | 'enabled' | 'disabled';
+
 export interface GrokModelSpec {
   id: string;
   api_backend: string;
   context_window: string;
+  supports_backend_search: GrokBackendSearchSetting;
+  max_retries: string;
   raw: Record<string, unknown>;
 }
 

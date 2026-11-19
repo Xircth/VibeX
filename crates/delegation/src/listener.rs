@@ -287,8 +287,15 @@ impl DelegationListener {
                                 .is_none()
                         {
                             json!({
-                                "error_code": "invalid_token",
-                                "message": "space tools are only available in a Space session",
+                                "error_code": "session_context_restricted",
+                                "reason_category": "session_context_restricted",
+                                "tool": req.name,
+                                "message": format!(
+                                    "tool `{}` is only available in a Space session (current session is not a Space session)",
+                                    req.name
+                                ),
+                                "recovery_hint": "Call `list_spaces` to check `is_space_session`, `supervisor_member_id`, `supervisor_direct_thread_id`, and `capabilities`; delegate to the workspace supervisor bot or use UI: 协作空间 → ＋ → 创建群聊",
+                                "ui_path": "协作空间 → ＋ → 创建群聊",
                             })
                         } else {
                             self.features
@@ -1166,12 +1173,21 @@ mod tests {
             &listener,
             BrokerMessage::Collaborate(BrokerCollaborateRequest {
                 token: "collab".to_string(),
-                name: "read_space_messages".to_string(),
+                name: "manage_group".to_string(),
                 arguments: json!({}),
             }),
         )
         .await;
-        assert_eq!(denied["error_code"], "invalid_token");
+        assert_eq!(denied["error_code"], "session_context_restricted");
+        assert_eq!(denied["reason_category"], "session_context_restricted");
+        assert_eq!(denied["tool"], "manage_group");
+        assert_eq!(denied["ui_path"], "协作空间 → ＋ → 创建群聊");
+        assert!(
+            denied["recovery_hint"]
+                .as_str()
+                .is_some_and(|hint| hint.contains("list_spaces")),
+            "expected recovery_hint to reference list_spaces, got {denied}"
+        );
 
         let workspace = round_trip(
             &listener,

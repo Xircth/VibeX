@@ -366,8 +366,23 @@ async fn configure_plugin_default_projections(
     state: &AppState,
     plugin: &plugins::InstalledPlugin,
 ) -> Result<(), AppError> {
-    configure_plugin_skill_projections(state, plugin).await?;
-    configure_plugin_default_mcp(state, plugin).await
+    let skill_result = configure_plugin_skill_projections(state, plugin).await;
+    let mcp_result = configure_plugin_default_mcp(state, plugin).await;
+    if let Err(ref error) = skill_result {
+        tracing::warn!(
+            plugin_id = plugin.id(),
+            %error,
+            "default skill projection failed"
+        );
+    }
+    if let Err(ref error) = mcp_result {
+        tracing::warn!(
+            plugin_id = plugin.id(),
+            %error,
+            "default MCP projection failed"
+        );
+    }
+    skill_result.and(mcp_result)
 }
 
 /// Re-materialize enabled plugin projections after Host startup.

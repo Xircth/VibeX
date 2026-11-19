@@ -1337,3 +1337,163 @@ async fn native_stream_assistant_message_dedup_and_tool_boundary_handling() {
         );
     }
 }
+
+#[tokio::test]
+async fn native_tool_results_preserve_structured_metadata_and_permission_correlation() {
+    use crate::{
+        engine::{CodexNativeDriver, EngineEvent, EngineHandle, NativeEngineDriver},
+        manager::runner::native_events::NativeTurnState,
+    };
+
+    let driver: Arc<dyn NativeEngineDriver> = Arc::new(CodexNativeDriver::new());
+    let handle = EngineHandle::for_engine(
+        uuid::Uuid::new_v4(),
+        "codex-native",
+        uuid::Uuid::nil(),
+        PathBuf::from("C:/workspace"),
+        true,
+        None,
+    );
+    let session_id = AgentSessionId::new();
+    let prompt_id = AgentPromptId::new();
+    let (tx, mut rx) = manager_event_channel();
+    let runner = dummy_runner(tx);
+    let mut char_acc = 0usize;
+    let mut state = NativeTurnState::default();
+
+    for ev in [
+        // 1. Non-zero exit code preserves exitCode + aggregatedOutput JSON envelope
+        EngineEvent::ToolCall {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            parent_tool_use_id: None,
+            tool_use_id: Some("cmd-exit-23".into()),
+            tool_name: "commandExecution".into(),
+            input: serde_json::json!({ "command": "exit 23" }),
+        },
+        EngineEvent::ToolResult {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            parent_tool_use_id: None,
+            tool_use_id: Some("cmd-exit-23".into()),
+            is_error: true,
+            content: serde_json::json!({
+                "type": "commandExecution",
+                "status": "failed",
+                "exitCode": 23,
+                "aggregatedOutput": "boom\n"
+            }),
+        },
+        // 2. Timed out command emits status="timed_out" and injects buffered output when empty
+        EngineEvent::ToolCall {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            parent_tool_use_id: None,
+            tool_use_id: Some("cmd-timeout".into()),
+            tool_name: "commandExecution".into(),
+            input: serde_json::json!({ "command": "sleep 60" }),
+        },
+        EngineEvent::TerminalOutputDelta {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            call_id: Some("cmd-timeout".into()),
+            delta: "partial out\n".into(),
+        },
+        EngineEvent::ToolResult {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            parent_tool_use_id: None,
+            tool_use_id: Some("cmd-timeout".into()),
+            is_error: true,
+            content: serde_json::json!({
+                "type": "commandExecution",
+                "status": "timedOut",
+                "timedOut": true,
+                "aggregatedOutput": ""
+            }),
+        },
+        // 3. Declined command emits status="denied"
+        EngineEvent::ToolCall {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            parent_tool_use_id: None,
+            tool_use_id: Some("cmd-declined".into()),
+            tool_name: "commandExecution".into(),
+            input: serde_json::json!({ "command": "rm -rf /" }),
+        },
+        EngineEvent::ToolResult {
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            parent_tool_use_id: None,
+            tool_use_id: Some("cmd-declined".into()),
+            is_error: true,
+            content: serde_json::json!({
+                "type": "commandExecution",
+                "status": "declined",
+                "aggregatedOutput": ""
+            }),
+        },
+        // 4. Permission request correlates itemId into details.toolCallId rather than permissionId
+        EngineEvent::PermissionRequested {
+            permission_id: "perm-approval-99".into(),
+            prompt_id: Some(prompt_id.0.to_string()),
+            session_id: None,
+            tool_name: "commandExecution".into(),
+            input: serde_json::json!({
+                "approvalId": "perm-approval-99",
+                "itemId": "cmd-item-99",
+                "command": ["rm", "x"]
+            }),
+            decision_reason: Some("Confirm delete".into()),
+            options: Vec::new(),
+        },
+    ] {
+        runner
+            .handle_native_stream_event(
+                &driver,
+                &handle,
+                false,
+                None,
+                session_id,
+                prompt_id,
+                ev,
+                &mut char_acc,
+                &mut state,
+            )
+            .await;
+    }
+
+    let mut updates = std::collections::HashMap::new();
+    let mut perm_tool_call_id = None;
+    while let Ok(ev) = rx.try_recv() {
+        match ev.event {
+            AgentEvent::ToolCallUpdate { update } if update.status.is_some() => {
+                updates.insert(update.id.clone(), (update.status, update.content));
+            }
+            AgentEvent::PermissionRequested { request } => {
+                perm_tool_call_id = request
+                    .details
+                    .and_then(|d| d.get("toolCallId").and_then(|v| v.as_str()).map(str::to_string));
+            }
+            _ => {}
+        }
+    }
+
+    let (status_23, content_23) = updates.get("cmd-exit-23").expect("cmd-exit-23 update");
+    assert_eq!(status_23.as_deref(), Some("failed"));
+    let json_23: serde_json::Value =
+        serde_json::from_str(content_23.as_deref().expect("content")).expect("json");
+    assert_eq!(json_23["exitCode"], 23);
+    assert_eq!(json_23["aggregatedOutput"], "boom\n");
+
+    let (status_to, content_to) = updates.get("cmd-timeout").expect("cmd-timeout update");
+    assert_eq!(status_to.as_deref(), Some("timed_out"));
+    let json_to: serde_json::Value =
+        serde_json::from_str(content_to.as_deref().expect("content")).expect("json");
+    assert_eq!(json_to["timedOut"], true);
+    assert_eq!(json_to["aggregatedOutput"], "partial out\n");
+
+    let (status_dec, _) = updates.get("cmd-declined").expect("cmd-declined update");
+    assert_eq!(status_dec.as_deref(), Some("denied"));
+    assert_eq!(perm_tool_call_id.as_deref(), Some("cmd-item-99"));
+}

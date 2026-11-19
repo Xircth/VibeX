@@ -140,15 +140,44 @@ pub fn managed_node_archive_name(artifact: &ManagedNodeArtifact) -> String {
 /// Host itself (a connected App cannot upload through SSH).
 pub fn managed_node_download_urls(artifact: &ManagedNodeArtifact) -> Vec<String> {
     let name = managed_node_archive_name(artifact);
-    vec![
-        format!("https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/{name}"),
-        format!("https://npmmirror.com/mirrors/node/v{MANAGED_NODE_VERSION}/{name}"),
-        format!("https://cdn.npmmirror.com/binaries/node/v{MANAGED_NODE_VERSION}/{name}"),
-    ]
+    workspace_utils::mirror::node_download_url_candidates(MANAGED_NODE_VERSION, &name)
+}
+
+pub fn managed_node_download_urls_for_proxy(
+    artifact: &ManagedNodeArtifact,
+    proxy_active: bool,
+) -> Vec<String> {
+    let name = managed_node_archive_name(artifact);
+    workspace_utils::mirror::node_download_url_candidates_for_proxy(
+        MANAGED_NODE_VERSION,
+        &name,
+        proxy_active,
+    )
 }
 
 pub fn managed_uv_artifact(platform: &str) -> Option<ManagedUvArtifact> {
     managed_uv_artifact_inner(platform)
+}
+
+pub fn managed_uv_archive_name(artifact: &ManagedUvArtifact) -> String {
+    format!("uv-{}.{}", artifact.target, artifact.extension)
+}
+
+pub fn managed_uv_download_urls(artifact: &ManagedUvArtifact) -> Vec<String> {
+    let name = managed_uv_archive_name(artifact);
+    workspace_utils::mirror::uv_download_url_candidates(MANAGED_UV_VERSION, &name)
+}
+
+pub fn managed_uv_download_urls_for_proxy(
+    artifact: &ManagedUvArtifact,
+    proxy_active: bool,
+) -> Vec<String> {
+    let name = managed_uv_archive_name(artifact);
+    workspace_utils::mirror::uv_download_url_candidates_for_proxy(
+        MANAGED_UV_VERSION,
+        &name,
+        proxy_active,
+    )
 }
 
 fn managed_uv_artifact_inner(platform: &str) -> Option<ManagedUvArtifact> {
@@ -239,9 +268,19 @@ pub fn managed_bun_archive_name(artifact: &ManagedBunArtifact) -> String {
 
 pub fn managed_bun_download_urls(artifact: &ManagedBunArtifact) -> Vec<String> {
     let name = managed_bun_archive_name(artifact);
-    vec![format!(
-        "https://github.com/oven-sh/bun/releases/download/bun-v{MANAGED_BUN_VERSION}/{name}"
-    )]
+    workspace_utils::mirror::bun_download_url_candidates(MANAGED_BUN_VERSION, &name)
+}
+
+pub fn managed_bun_download_urls_for_proxy(
+    artifact: &ManagedBunArtifact,
+    proxy_active: bool,
+) -> Vec<String> {
+    let name = managed_bun_archive_name(artifact);
+    workspace_utils::mirror::bun_download_url_candidates_for_proxy(
+        MANAGED_BUN_VERSION,
+        &name,
+        proxy_active,
+    )
 }
 
 /// Npx plans are installable when a system Node exists **or** Dimo can
@@ -774,17 +813,45 @@ mod tests {
         assert_eq!(artifact.target, "linux-x64");
         assert_eq!(artifact.extension, "tar.gz");
         assert_eq!(artifact.sha256.len(), 64);
-        let urls = managed_node_download_urls(&artifact);
+
+        let with_proxy = managed_node_download_urls_for_proxy(&artifact, true);
         assert_eq!(
-            urls[0],
+            with_proxy[0],
             format!(
                 "https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/node-v{MANAGED_NODE_VERSION}-linux-x64.tar.gz"
             )
         );
-        assert!(
-            urls.iter().any(|url| url.contains("npmmirror.com")),
-            "Host bootstrap must not depend on a single Node.js origin"
+        assert!(with_proxy.iter().any(|url| url.contains("npmmirror.com")));
+        assert!(with_proxy.iter().any(|url| url.contains("mirror.dimo-ai.com")));
+
+        let no_proxy = managed_node_download_urls_for_proxy(&artifact, false);
+        assert!(no_proxy[0].contains("npmmirror.com"));
+        assert_eq!(
+            no_proxy.last().unwrap(),
+            &format!(
+                "https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/node-v{MANAGED_NODE_VERSION}-linux-x64.tar.gz"
+            )
         );
+    }
+
+    #[test]
+    fn managed_uv_artifact_routes_between_official_and_mirror() {
+        let artifact = managed_uv_artifact("windows-x86_64").expect("windows uv");
+        let with_proxy = managed_uv_download_urls_for_proxy(&artifact, true);
+        assert_eq!(
+            with_proxy[0],
+            format!(
+                "https://github.com/astral-sh/uv/releases/download/{MANAGED_UV_VERSION}/uv-x86_64-pc-windows-msvc.zip"
+            )
+        );
+        let no_proxy = managed_uv_download_urls_for_proxy(&artifact, false);
+        assert_eq!(
+            no_proxy[0],
+            format!(
+                "https://mirror.dimo-ai.com/dl/github/astral-sh/uv/releases/download/{MANAGED_UV_VERSION}/uv-x86_64-pc-windows-msvc.zip"
+            )
+        );
+        assert_eq!(no_proxy[1], with_proxy[0]);
     }
 
     #[test]
@@ -793,13 +860,21 @@ mod tests {
         assert_eq!(artifact.target, "windows-x64");
         assert_eq!(artifact.extension, "zip");
         assert_eq!(artifact.sha256.len(), 64);
-        let urls = managed_bun_download_urls(&artifact);
+
+        let with_proxy = managed_bun_download_urls_for_proxy(&artifact, true);
         assert_eq!(
-            urls[0],
+            with_proxy[0],
             format!(
                 "https://github.com/oven-sh/bun/releases/download/bun-v{MANAGED_BUN_VERSION}/bun-windows-x64.zip"
             )
         );
+        assert!(with_proxy.iter().any(|url| url.contains("npmmirror.com")));
+        assert!(with_proxy.iter().any(|url| url.contains("mirror.dimo-ai.com")));
+
+        let no_proxy = managed_bun_download_urls_for_proxy(&artifact, false);
+        assert!(no_proxy[0].contains("npmmirror.com"));
+        assert!(no_proxy[1].contains("mirror.dimo-ai.com"));
+        assert_eq!(no_proxy[2], with_proxy[0]);
     }
 
     #[test]

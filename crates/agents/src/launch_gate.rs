@@ -6,7 +6,9 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
-use workspace_utils::process::{node_spawnable_runtime_path, prefer_direct_spawn_executable};
+use workspace_utils::process::{
+    first_spawnable_command, node_spawnable_runtime_path, prefer_direct_spawn_executable,
+};
 
 use crate::{
     AgentId, AgentLifecycleState, BuiltInProfileCatalog, ProfileComponent, SessionLaunchLock,
@@ -38,37 +40,44 @@ pub fn lifecycle_ready_for_path_acp(lifecycle: AgentLifecycleState) -> AgentLife
 pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<SessionLaunchLock> {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = catalog.profile(agent_id)?;
-    let candidate = profile.external_candidates.iter().find(|candidate| {
+    for candidate in profile.external_candidates.iter().filter(|candidate| {
         matches!(
             candidate.component,
             ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
         )
-    })?;
-    let executable =
-        match workspace_utils::shell::resolve_executable_path(candidate.executable).await {
-            Some(path) => path,
-            None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => {
-                let home = dirs::home_dir()?;
-                crate::resolve_native_engine_cli(agent_id.as_str(), &home)?
-            }
-            None => return None,
+    }) {
+        let executable =
+            match workspace_utils::shell::resolve_executable_path(candidate.executable).await {
+                Some(path) => Some(path),
+                None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => {
+                    dirs::home_dir().and_then(|home| {
+                        crate::resolve_native_engine_cli(agent_id.as_str(), &home)
+                    })
+                }
+                None => None,
+            };
+        let Some(executable) = executable else {
+            continue;
         };
-    let executable = prefer_direct_spawn_executable(executable);
-    if !launch_program_available(&executable)
-        || launch_program_is_vendor_cli(agent_id, &executable)
-        || launch_program_is_legacy_acp_shim(agent_id, &executable)
-    {
-        return None;
+        let executable = prefer_direct_spawn_executable(executable);
+        if !launch_program_available(&executable)
+            || launch_program_is_vendor_cli(agent_id, &executable)
+            || launch_program_is_legacy_acp_shim(agent_id, &executable)
+        {
+            continue;
+        }
+        let args =
+            crate::acp_launch_args_for_program(profile, candidate.component, Some(&executable));
+        return Some(SessionLaunchLock {
+            agent_id: agent_id.clone(),
+            absolute_acp_program: executable,
+            args,
+            env: BTreeMap::new(),
+            runtime_version: String::new(),
+            acp_version: String::new(),
+        });
     }
-    let args = crate::acp_launch_args(profile, candidate.component);
-    Some(SessionLaunchLock {
-        agent_id: agent_id.clone(),
-        absolute_acp_program: executable,
-        args,
-        env: BTreeMap::new(),
-        runtime_version: String::new(),
-        acp_version: String::new(),
-    })
+    None
 }
 
 /// Deterministic directory-scoped helper used to resolve a Profile's launch
@@ -81,50 +90,56 @@ pub fn discover_acp_launch_lock_in_dirs(
 ) -> Option<SessionLaunchLock> {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = catalog.profile(agent_id)?;
-    let candidate = profile.external_candidates.iter().find(|candidate| {
+    for candidate in profile.external_candidates.iter().filter(|candidate| {
         matches!(
             candidate.component,
             ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
         )
-    })?;
-    let direct = dirs.iter().find_map(|dir| {
-        #[cfg(windows)]
-        let names = [
-            format!("{}.exe", candidate.executable),
-            format!("{}.cmd", candidate.executable),
-            format!("{}.bat", candidate.executable),
-            candidate.executable.to_string(),
-        ];
-        #[cfg(not(windows))]
-        let names = [candidate.executable.to_string()];
-        names
-            .into_iter()
-            .map(|name| dir.join(name))
-            .find(|path| path.is_file())
-    });
-    let executable = match direct {
-        Some(path) => path,
-        None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => dirs
-            .iter()
-            .find_map(|dir| crate::resolve_native_engine_cli(agent_id.as_str(), dir))?,
-        None => return None,
-    };
-    let executable = prefer_direct_spawn_executable(executable);
-    if !launch_program_available(&executable)
-        || launch_program_is_vendor_cli(agent_id, &executable)
-        || launch_program_is_legacy_acp_shim(agent_id, &executable)
-    {
-        return None;
+    }) {
+        let direct = dirs.iter().find_map(|dir| {
+            #[cfg(windows)]
+            let names = [
+                format!("{}.exe", candidate.executable),
+                format!("{}.cmd", candidate.executable),
+                format!("{}.bat", candidate.executable),
+                candidate.executable.to_string(),
+            ];
+            #[cfg(not(windows))]
+            let names = [candidate.executable.to_string()];
+            names
+                .into_iter()
+                .map(|name| dir.join(name))
+                .find(|path| path.is_file())
+        });
+        let executable = match direct {
+            Some(path) => Some(path),
+            None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => dirs
+                .iter()
+                .find_map(|dir| crate::resolve_native_engine_cli(agent_id.as_str(), dir)),
+            None => None,
+        };
+        let Some(executable) = executable else {
+            continue;
+        };
+        let executable = prefer_direct_spawn_executable(executable);
+        if !launch_program_available(&executable)
+            || launch_program_is_vendor_cli(agent_id, &executable)
+            || launch_program_is_legacy_acp_shim(agent_id, &executable)
+        {
+            continue;
+        }
+        let args =
+            crate::acp_launch_args_for_program(profile, candidate.component, Some(&executable));
+        return Some(SessionLaunchLock {
+            agent_id: agent_id.clone(),
+            absolute_acp_program: executable,
+            args,
+            env: BTreeMap::new(),
+            runtime_version: String::new(),
+            acp_version: String::new(),
+        });
     }
-    let args = crate::acp_launch_args(profile, candidate.component);
-    Some(SessionLaunchLock {
-        agent_id: agent_id.clone(),
-        absolute_acp_program: executable,
-        args,
-        env: BTreeMap::new(),
-        runtime_version: String::new(),
-        acp_version: String::new(),
-    })
+    None
 }
 
 /// Whether `program` names a wrapper agent's native vendor CLI (`zcode`, `pi`)
@@ -189,10 +204,17 @@ pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
     let Some(name) = launch_command_name(&locked) else {
         return locked;
     };
-    which::which(name)
+    which::which_all(name)
         .ok()
-        .filter(|path| path.is_file())
-        .map(prefer_direct_spawn_executable)
+        .and_then(|paths| {
+            let collected = paths.collect::<Vec<_>>();
+            first_spawnable_command(collected.iter().cloned()).or_else(|| {
+                collected
+                    .into_iter()
+                    .find(|path| path.is_file())
+                    .map(prefer_direct_spawn_executable)
+            })
+        })
         .unwrap_or(locked)
 }
 
@@ -566,5 +588,33 @@ mod tests {
             &codex,
             Path::new("/usr/local/bin/codex")
         ));
+    }
+
+    #[test]
+    fn discover_acp_launch_lock_resolves_fallback_hermes_acp_without_acp_arg() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_name = if cfg!(windows) {
+            "hermes-acp.exe"
+        } else {
+            "hermes-acp"
+        };
+        let bin_path = dir.path().join(bin_name);
+        std::fs::write(&bin_path, b"hermes-acp").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&bin_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perms).unwrap();
+        }
+
+        let hermes = AgentId::parse("hermes").unwrap();
+        let lock = super::discover_acp_launch_lock_in_dirs(&hermes, &[dir.path().to_path_buf()])
+            .expect("hermes-acp fallback candidate must resolve");
+        assert_eq!(lock.absolute_acp_program, bin_path);
+        assert!(
+            lock.args.is_empty(),
+            "hermes-acp must not get `acp` subcommand"
+        );
     }
 }

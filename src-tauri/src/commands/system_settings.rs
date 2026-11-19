@@ -9,20 +9,6 @@ use crate::error::AppError;
 const SETTINGS_FILE_NAME: &str = "system-settings.json";
 const SETTINGS_SECTION: &str = "system";
 
-/// Env vars that carry the proxy URL. Setting these is what actually routes
-/// traffic through the proxy: reqwest reads them when a client is built, and the
-/// ACP agent child (e.g. codex-acp) inherits them so it too reaches the network
-/// through the proxy. Both upper- and lower-case forms are set because different
-/// HTTP stacks read different ones.
-const PROXY_URL_ENV_KEYS: [&str; 6] = [
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-];
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyMode {
@@ -137,18 +123,11 @@ async fn load_store() -> Result<SystemSettingsStore, AppError> {
 }
 
 fn apply_system_proxy_settings(settings: &PersistedProxy) {
-    match proxy_url_to_apply(settings, detect_proxy().as_ref()) {
-        Some(url) => {
-            for key in PROXY_URL_ENV_KEYS {
-                unsafe { std::env::set_var(key, &url) };
-            }
-        }
-        None => {
-            for key in PROXY_URL_ENV_KEYS {
-                unsafe { std::env::remove_var(key) };
-            }
-        }
-    }
+    let url = proxy_url_to_apply(settings, detect_proxy().as_ref());
+    utils::proxy::apply_process_proxy_env(
+        url.as_deref(),
+        matches!(settings.mode, ProxyMode::Manual),
+    );
 }
 
 fn proxy_url_to_apply(

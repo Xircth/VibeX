@@ -1170,10 +1170,12 @@ fn closed_tool_card(
 }
 
 fn tool_call_is_terminal(status: Option<&str>) -> bool {
-    matches!(
-        status,
-        Some("completed") | Some("failed") | Some("cancelled") | Some("canceled")
-    )
+    status.is_some_and(|s| {
+        matches!(
+            s.trim().to_ascii_lowercase().as_str(),
+            "completed" | "failed" | "cancelled" | "canceled" | "denied" | "declined" | "timed_out" | "timedout" | "error"
+        )
+    })
 }
 
 fn observe_tool_clock(
@@ -1275,7 +1277,50 @@ fn upsert_tool_call(
             .or_else(|| json_value_to_text(&raw_output.cloned()))
     };
     let images: Vec<ImageData> = extract_tool_call_images(content).unwrap_or_default();
-    let is_error = status == Some("failed");
+    let structured_status_override = raw_output.and_then(|v| v.as_object()).and_then(|obj| {
+        if obj
+            .get("timedOut")
+            .or_else(|| obj.get("timed_out"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            || obj
+                .get("error")
+                .and_then(|e| e.get("code"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|c| c.eq_ignore_ascii_case("ETIMEDOUT"))
+            || obj
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "timed_out" | "timedout"))
+        {
+            Some("timed_out")
+        } else if obj
+            .get("denied")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            || obj
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "denied" | "declined"))
+        {
+            Some("denied")
+        } else {
+            None
+        }
+    });
+    let normalized_status = status.map(|s| match s.trim().to_ascii_lowercase().as_str() {
+        "declined" => "denied",
+        "timedout" => "timed_out",
+        "failed" | "error" => structured_status_override.unwrap_or(s),
+        _ => s,
+    });
+    let status = normalized_status;
+    let is_error = status.is_some_and(|s| {
+        matches!(
+            s.trim().to_ascii_lowercase().as_str(),
+            "failed" | "error" | "denied" | "timed_out"
+        )
+    });
 
     match tool_use_index.get(id).copied() {
         Some(idx) => {
@@ -1945,5 +1990,92 @@ mod tests {
             ContentBlock::Text { text } => assert_eq!(text, "Parent reply"),
             other => panic!("expected parent Text block, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn acp_native_projects_denied_and_timed_out_statuses_as_terminal_errors() {
+        let entries = vec![
+            prompt(1_000, "run commands"),
+            TranscriptEntry {
+                t: 1_100,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call-denied",
+                    "title": "Bash",
+                    "kind": "execute",
+                    "status": "in_progress"
+                }),
+            },
+            TranscriptEntry {
+                t: 1_150,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call-denied",
+                    "status": "failed",
+                    "rawOutput": { "status": "declined", "reason": "User rejected" }
+                }),
+            },
+            TranscriptEntry {
+                t: 1_200,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call-timed-out",
+                    "title": "Bash",
+                    "kind": "execute",
+                    "status": "in_progress"
+                }),
+            },
+            TranscriptEntry {
+                t: 1_250,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call-timed-out",
+                    "status": "failed",
+                    "rawOutput": { "timedOut": true, "exitCode": 124 }
+                }),
+            },
+        ];
+        let turns = project_turns_for(&entries, None);
+        assert_eq!(turns.len(), 2);
+        let mut statuses = Vec::new();
+        let mut errors = Vec::new();
+        for block in &turns[1].blocks {
+            match block {
+                ContentBlock::ToolUse {
+                    tool_use_id: Some(id),
+                    status,
+                    ended_at,
+                    ..
+                } => {
+                    assert!(ended_at.is_some(), "{id} should have ended_at");
+                    statuses.push((id.as_str(), status.as_deref()));
+                }
+                ContentBlock::ToolResult {
+                    tool_use_id: Some(id),
+                    is_error,
+                    ..
+                } => errors.push((id.as_str(), *is_error)),
+                _ => {}
+            }
+        }
+        assert_eq!(
+            statuses,
+            vec![
+                ("call-denied", Some("denied")),
+                ("call-timed-out", Some("timed_out")),
+            ]
+        );
+        assert_eq!(
+            errors,
+            vec![("call-denied", true), ("call-timed-out", true)]
+        );
     }
 }

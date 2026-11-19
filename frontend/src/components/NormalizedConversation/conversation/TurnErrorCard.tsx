@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Badge } from '@astryxdesign/core/Badge';
 import {
   Ban,
@@ -17,7 +17,10 @@ import type {
 } from 'shared/types';
 import { describeReset } from '@/components/kanban/planUsageFormat';
 import { Button } from '@/components/ui/button';
-import { ConversationStatusDetails } from './ConversationStatusDetails';
+import {
+  ConversationStatusDetailsContent,
+  ConversationStatusDetailsTrigger,
+} from './ConversationStatusDetails';
 import { cn } from '@/lib/utils';
 
 /**
@@ -48,7 +51,14 @@ export function TurnErrorCard({
   const { t } = useTranslation(['conversation', 'common']);
   const [reloading, setReloading] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const detailsId = useId();
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const view = describeError(error, t);
+
+  useEffect(() => {
+    setDetailsExpanded(false);
+  }, [view.detail]);
+
   const showRebind = view.tone === 'error' && view.canRebind && onRebind;
   const showReload =
     view.tone === 'error' && !showRebind && view.canReload && onReload;
@@ -71,6 +81,9 @@ export function TurnErrorCard({
   const busy = reloading || retrying;
 
   if (placement === 'composer') {
+    const hasHeaderRight = Boolean(
+      view.detail || showRetry || showRebind || showReload || onDismiss
+    );
     return (
       <div
         role={view.tone === 'error' ? 'alert' : 'status'}
@@ -90,8 +103,20 @@ export function TurnErrorCard({
               }
             />
           </div>
-          {showRetry || showRebind || showReload || onDismiss ? (
+          {hasHeaderRight ? (
             <div className="composer-status-action-slot">
+              {view.detail ? (
+                <ConversationStatusDetailsTrigger
+                  title={view.title}
+                  label={t('statusDock.showDetails')}
+                  accessibleLabel={t('statusDock.showDetailsFor', {
+                    title: view.title,
+                  })}
+                  expanded={detailsExpanded}
+                  controlsId={detailsId}
+                  onToggle={() => setDetailsExpanded((current) => !current)}
+                />
+              ) : null}
               {showRetry ? (
                 <button
                   type="button"
@@ -129,18 +154,13 @@ export function TurnErrorCard({
             </div>
           ) : null}
         </div>
-        {view.detail ? (
-          <ConversationStatusDetails
-            key={view.detail}
-            title={view.title}
-            label={t('statusDock.showDetails')}
-            accessibleLabel={t('statusDock.showDetailsFor', {
-              title: view.title,
-            })}
+        {view.detail && detailsExpanded ? (
+          <ConversationStatusDetailsContent
+            id={detailsId}
             mono={view.tone === 'error'}
           >
             <div className="whitespace-pre-wrap break-words">{view.detail}</div>
-          </ConversationStatusDetails>
+          </ConversationStatusDetailsContent>
         ) : null}
         <PlanUsageAside usage={error.plan_usage} />
       </div>

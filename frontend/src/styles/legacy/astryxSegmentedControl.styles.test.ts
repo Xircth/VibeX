@@ -124,21 +124,15 @@ describe('Astryx SegmentedControl chrome', () => {
     expect(selectedDecls['box-shadow']).toBe('none');
   });
 
-  it('excludes SegmentedControl radiogroup and radio items from window-chrome drag regions', () => {
-    const dragExclusionSelectors: string[] = [];
+  it('does not declare CSS app-region rules that interfere with SegmentedControl or WebView2', () => {
+    const appRegionSelectors: string[] = [];
     parse(stylesheet).walkRules((rule) => {
-      let isNoDrag = false;
-      rule.walkDecls('app-region', (declaration) => {
-        if (declaration.value === 'no-drag') isNoDrag = true;
+      rule.walkDecls(/^(?:-webkit-)?app-region$/, () => {
+        appRegionSelectors.push(selectorOf(rule));
       });
-      if (isNoDrag) {
-        dragExclusionSelectors.push(selectorOf(rule));
-      }
     });
 
-    const combined = dragExclusionSelectors.join(' ');
-    expect(combined).toContain(".window-chrome [role='radiogroup']");
-    expect(combined).toContain(".window-chrome [role='radio']");
+    expect(appRegionSelectors).toEqual([]);
   });
 
   it('styles Agent auth mode tabs and submodes as capsule segmented controls', () => {

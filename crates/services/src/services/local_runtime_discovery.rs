@@ -160,44 +160,64 @@ async fn emit_progress(
 async fn discover_profile_acp_adapter(
     profile: &BuiltInProfile,
 ) -> anyhow::Result<LocalRuntimeEvidence> {
-    let candidate = profile
+    let mut last_error = None;
+    for candidate in profile
         .external_candidates
         .iter()
-        .find(|candidate| candidate.component == ProfileComponent::AcpAdapter)
-        .ok_or_else(|| anyhow::anyhow!("Profile does not declare an ACP adapter candidate"))?;
-    probe_candidate(candidate.executable, candidate.version_args).await
+        .filter(|candidate| candidate.component == ProfileComponent::AcpAdapter)
+    {
+        match probe_candidate(candidate.executable, candidate.version_args).await {
+            Ok(evidence) => return Ok(evidence),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error
+        .unwrap_or_else(|| anyhow::anyhow!("Profile does not declare an ACP adapter candidate")))
 }
 
 async fn discover_profile_local_runtime(
     _pool: &SqlitePool,
     profile: &BuiltInProfile,
 ) -> anyhow::Result<LocalRuntimeEvidence> {
-    let candidate = profile
+    let runtime_candidates = profile
         .external_candidates
         .iter()
-        .find(|candidate| {
+        .filter(|candidate| {
             matches!(
                 candidate.component,
                 ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
             )
         })
-        .ok_or_else(|| anyhow::anyhow!("Profile does not declare a local Runtime candidate"))?;
-    let mut candidates = agents::resolve_user_runtime_commands(candidate.executable).await;
-    if matches!(profile.topology, ProfileTopology::NativeEngine(_))
-        && let Some(home) = dirs::home_dir()
-        && let Some(extra_cli) = agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
-        && agents::published_cli_shim_agent(&extra_cli).is_none()
-        && !candidates.iter().any(|existing| existing == &extra_cli)
-    {
-        candidates.push(extra_cli);
+        .collect::<Vec<_>>();
+    if runtime_candidates.is_empty() {
+        anyhow::bail!("Profile does not declare a local Runtime candidate");
     }
-    if candidates.is_empty() {
-        anyhow::bail!(
-            "no user-installed Runtime `{}` was found on PATH",
-            candidate.executable
-        );
+    let mut last_error = None;
+    for candidate in runtime_candidates {
+        let mut candidates = agents::resolve_user_runtime_commands(candidate.executable).await;
+        if matches!(profile.topology, ProfileTopology::NativeEngine(_))
+            && let Some(home) = dirs::home_dir()
+            && let Some(extra_cli) =
+                agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
+            && agents::published_cli_shim_agent(&extra_cli).is_none()
+            && !candidates.iter().any(|existing| existing == &extra_cli)
+        {
+            candidates.push(extra_cli);
+        }
+        if candidates.is_empty() {
+            last_error = Some(anyhow::anyhow!(
+                "no user-installed Runtime `{}` was found on PATH",
+                candidate.executable
+            ));
+            continue;
+        }
+        match probe_resolved_candidates(candidates, candidate.version_args).await {
+            Ok(evidence) => return Ok(evidence),
+            Err(error) => last_error = Some(error),
+        }
     }
-    probe_resolved_candidates(candidates, candidate.version_args).await
+    Err(last_error
+        .unwrap_or_else(|| anyhow::anyhow!("no user-installed Runtime was found on PATH")))
 }
 
 async fn probe_candidate(
@@ -280,6 +300,150 @@ pub fn executable_file_revision(path: &std::path::Path) -> Option<String> {
     Some(format!("file:{secs}:{}", meta.len()))
 }
 
+fn precise_file_revision(path: &std::path::Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let modified = meta.modified().ok()?;
+    let duration = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!(
+        "{}.{}:{}",
+        duration.as_secs(),
+        duration.subsec_nanos(),
+        meta.len()
+    ))
+}
+
+fn is_script_wrapper_file(path: &std::path::Path) -> bool {
+    if utils::process::is_windows_batch_script(path) {
+        return true;
+    }
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "ps1" | "sh"))
+    {
+        return true;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    use std::io::Read;
+    let mut header = [0u8; 2];
+    matches!(file.read_exact(&mut header), Ok(()) if &header == b"#!")
+}
+
+fn extract_wrapper_target_paths(wrapper: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Some(base_dir) = wrapper.parent() else {
+        return Vec::new();
+    };
+    let Ok(bytes) = std::fs::read(wrapper) else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    const PREFIXES: &[&str] = &[
+        "%dp0%",
+        "%~dp0",
+        "$basedir",
+        "${basedir}",
+        "$(dirname \"$0\")",
+        "$(dirname '$0')",
+    ];
+    let mut targets = Vec::new();
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        for prefix in PREFIXES {
+            let mut start = 0;
+            while let Some(offset) = lower[start..].find(&prefix.to_ascii_lowercase()) {
+                let after = start + offset + prefix.len();
+                let rest = &line[after..];
+                let end = rest
+                    .find(['"', '\'', '\r', '\n', ' ', '\t'])
+                    .unwrap_or(rest.len());
+                let raw_rel = rest[..end].trim_start_matches(['\\', '/']);
+                if !raw_rel.is_empty() {
+                    let mut candidate = base_dir.to_path_buf();
+                    for component in raw_rel.split(['\\', '/']).filter(|s| !s.is_empty()) {
+                        candidate.push(component);
+                    }
+                    if candidate.is_file() && !targets.iter().any(|existing| existing == &candidate)
+                    {
+                        targets.push(candidate);
+                    }
+                }
+                start = after;
+            }
+        }
+    }
+    targets
+}
+
+fn nearest_package_json(target: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = target.parent()?;
+    for _ in 0..5 {
+        let pkg = dir.join("package.json");
+        if pkg.is_file() {
+            return Some(pkg);
+        }
+        if dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "node_modules")
+        {
+            break;
+        }
+        dir = dir.parent()?;
+    }
+    None
+}
+
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// Cache identity used by `--version` probing.
+///
+/// Direct native executables invalidate via high-resolution mtime + length.
+/// `.cmd`/`.bat`/shell shims keep their own mtime/length across npm or wrapper
+/// upgrades, so we track the referenced target files + `package.json` when
+/// statically discoverable, or bypass the cache (`None`) for opaque wrappers.
+fn version_probe_cache_revision(executable: &std::path::Path) -> Option<String> {
+    let self_rev = precise_file_revision(executable)?;
+    if !is_script_wrapper_file(executable) {
+        return Some(format!("bin:{self_rev}"));
+    }
+    let targets = extract_wrapper_target_paths(executable);
+    if targets.is_empty() {
+        return None;
+    }
+    let mut parts = vec![self_rev];
+    for target in targets {
+        if let Some(target_rev) = precise_file_revision(&target) {
+            parts.push(format!("{}:{target_rev}", target.to_string_lossy()));
+        }
+        if let Some(pkg) = nearest_package_json(&target)
+            && let Some(pkg_rev) = precise_file_revision(&pkg)
+        {
+            let digest = std::fs::read(&pkg)
+                .ok()
+                .filter(|bytes| bytes.len() <= 64 * 1024)
+                .map(|bytes| format!(":h{:016x}", fnv1a_64(&bytes)))
+                .unwrap_or_default();
+            parts.push(format!("{}:{pkg_rev}{digest}", pkg.to_string_lossy()));
+        }
+    }
+    if parts.len() <= 1 {
+        return None;
+    }
+    Some(format!("shim:{}", parts.join("|")))
+}
+
 fn probe_cache_path() -> std::path::PathBuf {
     utils::assets::host_data_dir().join("runtime-probe-cache.json")
 }
@@ -344,7 +508,7 @@ async fn probe_version(
 ) -> anyhow::Result<Option<String>> {
     use tokio::io::AsyncReadExt;
 
-    let revision = executable_file_revision(executable);
+    let revision = version_probe_cache_revision(executable);
     if let Some(revision) = revision.as_deref()
         && let Some(cached) = read_cached_probe_version(executable, revision)
     {
@@ -402,7 +566,10 @@ async fn probe_version(
 
 #[cfg(test)]
 mod tests {
-    use super::{canonicalize_spawnable, probe_resolved_candidates};
+    use super::{
+        canonicalize_spawnable, probe_resolved_candidates, probe_version,
+        version_probe_cache_revision,
+    };
 
     #[tokio::test]
     async fn keeps_a_spawnable_path_when_version_probe_fails() {
@@ -491,5 +658,63 @@ mod tests {
         let expected = canonicalize_spawnable(working).await.unwrap();
         assert_eq!(evidence.path, expected);
         assert_eq!(evidence.version.as_deref(), Some("2.1.220"));
+    }
+
+    #[tokio::test]
+    async fn wrapper_shim_invalidates_cached_version_when_target_package_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir
+            .path()
+            .join("node_modules")
+            .join("@openai")
+            .join("codex");
+        let bin_dir = pkg_dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let pkg_json = pkg_dir.join("package.json");
+        let entry = bin_dir.join("codex.js");
+        let version_file = pkg_dir.join("version.txt");
+
+        std::fs::write(&pkg_json, r#"{"name":"@openai/codex","version":"0.169.0"}"#).unwrap();
+        std::fs::write(&entry, "// entrypoint 0.169.0\n").unwrap();
+        std::fs::write(&version_file, "0.169.0").unwrap();
+
+        #[cfg(windows)]
+        let script = {
+            let script = dir.path().join("codex.cmd");
+            std::fs::write(
+                &script,
+                "@echo off\r\nrem \"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js\"\r\ntype \"%~dp0node_modules\\@openai\\codex\\version.txt\"\r\n",
+            )
+            .unwrap();
+            script
+        };
+        #[cfg(not(windows))]
+        let script = {
+            use std::os::unix::fs::PermissionsExt;
+            let script = dir.path().join("codex");
+            std::fs::write(
+                &script,
+                "#!/bin/sh\n# \"$basedir/node_modules/@openai/codex/bin/codex.js\"\ncat \"$(dirname \"$0\")/node_modules/@openai/codex/version.txt\"\n",
+            )
+            .unwrap();
+            let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+            script
+        };
+
+        let rev_before = version_probe_cache_revision(&script).expect("npm shim revision");
+        assert!(rev_before.starts_with("shim:"), "{rev_before}");
+        let v1 = probe_version(&script, &["--version"]).await.unwrap();
+        assert_eq!(v1.as_deref(), Some("0.169.0"));
+
+        // Update package files without touching the shim script itself.
+        std::fs::write(&pkg_json, r#"{"name":"@openai/codex","version":"0.169.1"}"#).unwrap();
+        std::fs::write(&version_file, "0.169.1").unwrap();
+
+        let rev_after = version_probe_cache_revision(&script).expect("updated npm shim revision");
+        assert_ne!(rev_before, rev_after);
+        let v2 = probe_version(&script, &["--version"]).await.unwrap();
+        assert_eq!(v2.as_deref(), Some("0.169.1"));
     }
 }

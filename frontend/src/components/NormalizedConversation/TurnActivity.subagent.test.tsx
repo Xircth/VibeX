@@ -479,12 +479,9 @@ describe('TurnActivity subagent expansion', () => {
         name: 'Explore: Inspect repository structure',
       })
     ).toBeInTheDocument();
-    const childTools = screen.getByTestId('subagent-child-tools');
-    expect(childTools).toHaveTextContent('Check git status');
-    expect(childTools).toHaveTextContent('git status --short');
-    expect(screen.getByTestId('subagent-thinking')).toHaveTextContent(
-      'Scanning directories...'
-    );
+    expect(screen.queryByTestId('subagent-child-tools')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('subagent-thinking')).not.toBeInTheDocument();
+    expect(screen.getByText('1 次工具调用')).toBeInTheDocument();
     expect(
       renderedChipRowTexts().some((name) =>
         /git status|Check git status/i.test(name)

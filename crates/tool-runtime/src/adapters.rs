@@ -193,7 +193,13 @@ fn validate_redirect_target(
             normalized_host.as_str(),
             "github.com" | "release-assets.githubusercontent.com"
         );
-    if !trusted_github_release {
+    let trusted_mirror_redirect = normalized_host == initial_host
+        || (initial_host == "npmmirror.com"
+            && matches!(
+                normalized_host.as_str(),
+                "npmmirror.com" | "cdn.npmmirror.com"
+            ));
+    if !trusted_github_release && !trusted_mirror_redirect {
         return Err(PortError::new("download redirect target is not allowed"));
     }
     Ok(())
@@ -207,7 +213,12 @@ fn is_allowed_download_address(host: &str, address: IpAddr) -> bool {
 fn is_trusted_proxy_download_host(host: &str) -> bool {
     matches!(
         host.trim_end_matches('.').to_ascii_lowercase().as_str(),
-        "github.com" | "release-assets.githubusercontent.com" | "nodejs.org"
+        "github.com"
+            | "release-assets.githubusercontent.com"
+            | "nodejs.org"
+            | "mirror.dimo-ai.com"
+            | "cdn.npmmirror.com"
+            | "npmmirror.com"
     )
 }
 

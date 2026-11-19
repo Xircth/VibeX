@@ -103,6 +103,18 @@ impl UserEnvironmentLayout {
 /// make a plain `npm install -g` fail with `EEXIST` even when Dimo is
 /// installing the locked version into the same prefix.
 pub fn npm_global_install_args(prefix: &Path, package: &str) -> Vec<String> {
+    npm_global_install_args_with_registry(
+        prefix,
+        package,
+        workspace_utils::mirror::OFFICIAL_NPM_REGISTRY,
+    )
+}
+
+pub fn npm_global_install_args_with_registry(
+    prefix: &Path,
+    package: &str,
+    registry: &str,
+) -> Vec<String> {
     vec![
         "install".to_string(),
         "-g".to_string(),
@@ -114,7 +126,7 @@ pub fn npm_global_install_args(prefix: &Path, package: &str) -> Vec<String> {
         "--no-fund".to_string(),
         "--save=false".to_string(),
         "--include=optional".to_string(),
-        "--registry=https://registry.npmjs.org".to_string(),
+        format!("--registry={registry}"),
         package.to_string(),
     ]
 }

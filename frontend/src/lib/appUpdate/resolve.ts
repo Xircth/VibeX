@@ -39,6 +39,16 @@ function mergeUpdate(
   };
 }
 
+const DEFAULT_RELEASES_URL = 'https://github.com/DimoADE/Dimo/releases/latest';
+
+function resolveFallbackReleaseUrl(github: GitHubReleaseCheck): string {
+  const direct = github.release_url?.trim();
+  if (direct) return direct;
+  const repo = github.repository?.trim();
+  if (repo) return `https://github.com/${repo}/releases/latest`;
+  return DEFAULT_RELEASES_URL;
+}
+
 export async function resolveAppUpdate(
   deps: AppUpdateDependencies
 ): Promise<AppUpdateSnapshot> {
@@ -70,9 +80,31 @@ export async function resolveAppUpdate(
   const signed = signedResult.update;
   const update = mergeUpdate(signed, github);
   const checked = Boolean(signed) || github.checked;
+  const signedError = signedResult.error?.trim() || null;
+  const githubError = github.error?.trim() || null;
   const error = checked
     ? null
-    : github.error || signedResult.error || 'Update check failed';
+    : signedError && githubError
+      ? `${githubError} (signed feed: ${signedError})`
+      : githubError || signedError || 'Update check failed';
+
+  const diagnostic = checked
+    ? null
+    : {
+        stage:
+          signedError && githubError
+            ? ('both' as const)
+            : signedError
+              ? ('signed_feed' as const)
+              : ('github_release' as const),
+        signedError,
+        githubError,
+        httpStatus: github.http_status ?? null,
+        endpoint: github.endpoint ?? null,
+        proxySource: github.proxy_source ?? null,
+        checkedAt: github.checked_at,
+        fallbackReleaseUrl: resolveFallbackReleaseUrl(github),
+      };
 
   return {
     currentVersion: currentVersion || github.current_version || '',
@@ -80,5 +112,6 @@ export async function resolveAppUpdate(
     lastCheckedAt: deps.now(),
     checked,
     error,
+    ...(diagnostic ? { diagnostic } : {}),
   };
 }

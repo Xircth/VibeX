@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DownloadCloud, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import {
+  Copy,
+  DownloadCloud,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
 
 import { ReleaseNotes } from '@/components/settings/ReleaseNotes';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -168,7 +175,56 @@ export function AppUpdaterSection({
 
   const currentVersion = snapshot?.currentVersion;
   const update = snapshot?.update;
+  const diagnostic = snapshot?.diagnostic ?? null;
+  const releaseUrl =
+    update?.releaseUrl ??
+    diagnostic?.fallbackReleaseUrl ??
+    (state === 'error' ? 'https://github.com/DimoADE/Dimo/releases/latest' : null);
   const busy = state === 'checking' || state === 'downloading';
+
+  const copyDiagnostics = useCallback(async () => {
+    const lines = [
+      '===== Dimo App Update Diagnostics =====',
+      `current_version: ${currentVersion || 'unknown'}`,
+      `state: ${state}`,
+      diagnostic ? `stage: ${diagnostic.stage}` : null,
+      diagnostic?.httpStatus != null
+        ? `http_status: ${diagnostic.httpStatus}`
+        : null,
+      diagnostic?.proxySource
+        ? `proxy_source: ${diagnostic.proxySource}`
+        : null,
+      diagnostic?.endpoint ? `endpoint: ${diagnostic.endpoint}` : null,
+      diagnostic?.signedError
+        ? `signed_feed_error: ${diagnostic.signedError}`
+        : null,
+      diagnostic?.githubError
+        ? `github_release_error: ${diagnostic.githubError}`
+        : null,
+      message ? `error: ${message}` : null,
+      diagnostic?.checkedAt
+        ? `checked_at: ${diagnostic.checkedAt}`
+        : snapshot?.lastCheckedAt
+          ? `checked_at: ${new Date(snapshot.lastCheckedAt).toISOString()}`
+          : null,
+      releaseUrl ? `release_url: ${releaseUrl}` : null,
+    ].filter((line): line is string => line !== null);
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast.success(t('appUpdater.diagnosticsCopied'));
+    } catch {
+      toast.error(t('appUpdater.diagnosticsCopyFailed'));
+    }
+  }, [
+    currentVersion,
+    diagnostic,
+    message,
+    releaseUrl,
+    snapshot?.lastCheckedAt,
+    state,
+    t,
+  ]);
 
   return (
     <SettingsSection
@@ -234,11 +290,11 @@ export function AppUpdaterSection({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {update?.releaseUrl ? (
+            {releaseUrl ? (
               <Button
                 variant="outline"
                 className="shrink-0"
-                onClick={() => void openInSystemBrowser(update.releaseUrl!)}
+                onClick={() => void openInSystemBrowser(releaseUrl)}
               >
                 <ExternalLink className="mr-1 h-3.5 w-3.5" />
                 {t('appUpdater.viewRelease')}
@@ -315,10 +371,46 @@ export function AppUpdaterSection({
         ) : null}
 
         {state === 'error' && message ? (
-          <div className="settings-row pb-3">
-            <p className="text-sm text-destructive">
-              {t('appUpdater.updateFailed', { error: message })}
-            </p>
+          <div className="settings-row settings-row--stacked pb-3">
+            <div className="flex w-full items-start justify-between gap-2">
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="break-words text-sm text-destructive">
+                  {t('appUpdater.updateFailed', { error: message })}
+                </p>
+                {diagnostic ? (
+                  <p className="settings-row__description flex flex-wrap items-center gap-x-2 gap-y-0.5 tabular-nums">
+                    <span>
+                      {t(`appUpdater.diagnosticStage.${diagnostic.stage}`, {
+                        defaultValue: diagnostic.stage,
+                      })}
+                    </span>
+                    {diagnostic.httpStatus != null ? (
+                      <span>
+                        {t('appUpdater.diagnosticHttpStatus', {
+                          status: diagnostic.httpStatus,
+                        })}
+                      </span>
+                    ) : null}
+                    {diagnostic.proxySource ? (
+                      <span>
+                        {t('appUpdater.diagnosticProxy', {
+                          source: diagnostic.proxySource,
+                        })}
+                      </span>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => void copyDiagnostics()}
+              >
+                <Copy className="mr-1 h-3.5 w-3.5" />
+                {t('appUpdater.copyDiagnostics')}
+              </Button>
+            </div>
           </div>
         ) : null}
       </div>

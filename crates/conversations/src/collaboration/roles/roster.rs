@@ -464,12 +464,21 @@ pub async fn require_workspace_supervisor(
     if is_caller_workspace_supervisor(pool, caller_id).await? {
         return Ok(());
     }
-    Err(CollaborationError::new(
-        "forbidden",
-        format!(
-            "only the supervisor bot (主管) can {action_label}; ask the supervisor or Person instead"
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    let supervisor =
+        crate::collaboration_sidebar::workspace_supervisor_member(pool, caller.workspace_id)
+            .await?;
+    let message = match supervisor {
+        Some((sup_id, sup_name)) => format!(
+            "only the supervisor bot (主管) `{sup_name}` (`{sup_id}`, direct thread `{}`) can {action_label}; ask the supervisor or Person instead, or use UI: 协作空间 → ＋",
+            identity::direct_thread_id(&sup_id)
         ),
-    ))
+        None => format!(
+            "only the supervisor bot (主管) can {action_label}, and no supervisor is assigned in workspace `{}`; ask Person to assign a supervisor or use UI: 协作空间 → ＋",
+            caller.workspace_id
+        ),
+    };
+    Err(CollaborationError::new("forbidden", message))
 }
 
 pub async fn require_supervisor_or_group_admin(

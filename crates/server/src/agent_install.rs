@@ -18,10 +18,11 @@ use agents::{
     decide_user_environment_adopt, existing_path_satisfies_component,
     export_managed_bun_to_user_environment, export_managed_node_to_user_environment,
     managed_bun_artifact, managed_bun_download_urls, managed_node_artifact,
-    managed_node_download_urls, managed_uv_artifact, node_verified_for_install,
-    npm_global_install_args, npm_install_permission_denied, npm_package_name as npm_spec_name,
-    overlay_npx_latest_from_npm, plan_required_components, registry_target_for_built_in_update,
-    resolve_npm_shim, uv_verified_for_install, version_at_least,
+    managed_node_download_urls, managed_uv_artifact, managed_uv_download_urls,
+    node_verified_for_install, npm_global_install_args_with_registry,
+    npm_install_permission_denied, npm_package_name as npm_spec_name, overlay_npx_latest_from_npm,
+    plan_required_components, registry_target_for_built_in_update, resolve_npm_shim,
+    uv_verified_for_install, verify_artifact_bytes, version_at_least,
 };
 use api_types::AgentSource;
 use chrono::Utc;
@@ -748,56 +749,69 @@ async fn try_adopt_with_options(
         return Ok(None);
     };
     let mut components = Vec::new();
-    for candidate in profile.external_candidates {
-        if candidate.component == ProfileComponent::AgentRuntime
-            && profile.adapter_bundles_runtime()
-        {
+    for kind in [
+        ProfileComponent::AgentRuntime,
+        ProfileComponent::AcpAdapter,
+        ProfileComponent::CombinedRuntime,
+    ] {
+        if kind == ProfileComponent::AgentRuntime && profile.adapter_bundles_runtime() {
             continue;
         }
-        if candidate.version_args.is_empty() {
-            if candidate.component == ProfileComponent::AgentRuntime {
+        let matching = profile
+            .external_candidates
+            .iter()
+            .filter(|candidate| candidate.component == kind)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            continue;
+        }
+        let mut resolved = None;
+        for candidate in matching {
+            if candidate.version_args.is_empty() {
                 continue;
             }
-            return Ok(None);
-        }
-        let path = if check_system_path {
-            resolve_local_candidate_executable(agent_id, candidate.executable, home).await
-        } else if is_native_engine_profile(agent_id) {
-            home.and_then(|home_dir| agents::resolve_native_engine_cli(agent_id.as_str(), home_dir))
-        } else {
-            None
-        };
-        let Some(path) = path else {
-            if candidate.component == ProfileComponent::AgentRuntime {
+            let path = if check_system_path {
+                resolve_local_candidate_executable(agent_id, candidate.executable, home).await
+            } else if is_native_engine_profile(agent_id) {
+                home.and_then(|home_dir| {
+                    agents::resolve_native_engine_cli(agent_id.as_str(), home_dir)
+                })
+            } else {
+                None
+            };
+            let Some(path) = path else {
+                continue;
+            };
+            let path = utils::process::prefer_direct_spawn_executable(
+                tokio::fs::canonicalize(&path).await?,
+            );
+            if agents::launch_program_is_legacy_acp_shim(agent_id, &path) {
+                return Ok(None);
+            }
+            let version = probe_version(&path, candidate.version_args)
+                .await
+                .unwrap_or_default();
+            if version.is_empty() {
                 continue;
             }
-            return Ok(None);
-        };
-        let path =
-            utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(&path).await?);
-        if agents::launch_program_is_legacy_acp_shim(agent_id, &path) {
-            return Ok(None);
+            resolved = Some(InstalledComponent {
+                kind: match candidate.component {
+                    ProfileComponent::AgentRuntime => "agent_runtime",
+                    ProfileComponent::AcpAdapter => "acp_adapter",
+                    ProfileComponent::CombinedRuntime => "combined_runtime",
+                }
+                .to_string(),
+                absolute_path: path,
+                version,
+                sha256: None,
+            });
+            break;
         }
-        let version = probe_version(&path, candidate.version_args)
-            .await
-            .unwrap_or_default();
-        if version.is_empty() {
-            if candidate.component == ProfileComponent::AgentRuntime {
-                continue;
-            }
-            return Ok(None);
+        match resolved {
+            Some(component) => components.push(component),
+            None if kind == ProfileComponent::AgentRuntime => continue,
+            None => return Ok(None),
         }
-        components.push(InstalledComponent {
-            kind: match candidate.component {
-                ProfileComponent::AgentRuntime => "agent_runtime",
-                ProfileComponent::AcpAdapter => "acp_adapter",
-                ProfileComponent::CombinedRuntime => "combined_runtime",
-            }
-            .to_string(),
-            absolute_path: path,
-            version,
-            sha256: None,
-        });
     }
     let observed = components
         .iter()
@@ -831,7 +845,11 @@ where
 {
     let mut components = Vec::new();
     for component in &plan.components {
-        let version_args = component_version_args(&plan.agent_id, &component.component_id);
+        let version_args = component_version_args(
+            &plan.agent_id,
+            &component.component_id,
+            &component.command,
+        );
         if let Some(existing) = existing_component(&plan.agent_id, component, version_args).await {
             println!(
                 "Reusing {} {} at {}",
@@ -928,12 +946,27 @@ fn build_installed_plan(
         .iter()
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
         .ok_or_else(|| anyhow::anyhow!("installation is missing the primary executable"))?;
-    let args = plan
+    let mut args = plan
         .components
         .iter()
         .find(|component| component.component_id == acp.kind)
         .map(|component| component.args.clone())
         .unwrap_or_default();
+    if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id)
+        && let Some(component_kind) = match acp.kind.as_str() {
+            "agent_runtime" => Some(ProfileComponent::AgentRuntime),
+            "acp_adapter" => Some(ProfileComponent::AcpAdapter),
+            "combined_runtime" => Some(ProfileComponent::CombinedRuntime),
+            _ => None,
+        }
+    {
+        agents::normalize_acp_launch_args_for_program(
+            profile,
+            component_kind,
+            Some(&acp.absolute_path),
+            &mut args,
+        );
+    }
     let mut env = BTreeMap::new();
     let mut path_entries = user_env.path_entries();
     path_entries.extend(
@@ -968,7 +1001,11 @@ fn build_installed_plan(
     })
 }
 
-fn component_version_args(agent_id: &AgentId, component_id: &str) -> &'static [&'static str] {
+fn component_version_args(
+    agent_id: &AgentId,
+    component_id: &str,
+    command: &str,
+) -> &'static [&'static str] {
     let catalog = BuiltInProfileCatalog::bundled();
     let Some(profile) = catalog.profile(agent_id) else {
         return &["--version"];
@@ -979,6 +1016,17 @@ fn component_version_args(agent_id: &AgentId, component_id: &str) -> &'static [&
         "combined_runtime" => ProfileComponent::CombinedRuntime,
         _ => return &["--version"],
     };
+    let command = command.trim();
+    if !command.is_empty()
+        && let Some(candidate) = profile
+            .external_candidates
+            .iter()
+            .find(|candidate| {
+                candidate.component == expected && candidate.executable.eq_ignore_ascii_case(command)
+            })
+    {
+        return candidate.version_args;
+    }
     profile
         .external_candidates
         .iter()
@@ -1236,17 +1284,38 @@ async fn install_bun_via_npm_fallback(
         )
         .ok_or_else(|| anyhow::anyhow!("npm is unavailable for Bun fallback install"))?;
     let spec = format!("bun@{MANAGED_BUN_VERSION}");
-    let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
-    if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
-        command.env("NODE_USE_ENV_PROXY", "1");
-    }
-    if let Some(runtime) = node {
-        prepend_command_path(&mut command, &runtime.bin_dir);
-        command.env("npm_config_prefix", &user_env.npm_prefix);
-    }
-    command.args(npm_global_install_args(&user_env.npm_prefix, &spec));
     let mut noop_progress = |_: u8, _: &str| {};
-    run_command_with_progress("npm install -g bun", command, 36, &mut noop_progress).await?;
+    let mut errors = Vec::new();
+    let mut installed = false;
+    for registry in utils::mirror::npm_registry_candidates() {
+        let mut command =
+            utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
+        if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
+            command.env("NODE_USE_ENV_PROXY", "1");
+        }
+        if let Some(runtime) = node {
+            prepend_command_path(&mut command, &runtime.bin_dir);
+            command.env("npm_config_prefix", &user_env.npm_prefix);
+        }
+        command.args(npm_global_install_args_with_registry(
+            &user_env.npm_prefix,
+            &spec,
+            registry,
+        ));
+        match run_command_with_progress("npm install -g bun", command, 36, &mut noop_progress).await
+        {
+            Ok(()) => {
+                installed = true;
+                break;
+            }
+            Err(error) => {
+                errors.push(format!("{registry}: {error}"));
+            }
+        }
+    }
+    if !installed {
+        anyhow::bail!("{}", errors.join("; "));
+    }
     #[cfg(windows)]
     {
         for candidate in [

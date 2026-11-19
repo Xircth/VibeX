@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConversationQuestionRequest } from 'shared/types';
 import { AgentQuestionCard } from './AgentQuestionCard';
@@ -50,40 +50,42 @@ function delegatedQuestion(): ConversationQuestionRequest {
 }
 
 describe('AgentQuestionCard', () => {
-  it('starts expanded above the composer with the recommended option selected', () => {
+  it('starts expanded above the composer with the recommended option selected and rolling step counter', () => {
     render(
       <AgentQuestionCard request={delegatedQuestion()} onRespond={vi.fn()} />
     );
 
     const card = screen.getByRole('group', { name: '智能体提问' });
     expect(card).toHaveAttribute('data-expanded', 'true');
-    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    const pos = screen.getByTestId('agent-question-position');
+    expect(pos).toHaveTextContent('1 / 2');
+    expect(pos).toHaveAttribute('aria-label', '1 / 2');
+    expect(pos).toHaveClass('tabular-nums');
     expect(screen.getByText('推荐')).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Focused patch/ })).toBeChecked();
-    expect(screen.getByRole('time')).toHaveAttribute(
-      'dateTime',
-      '2026-08-08T10:05:00+08:00'
-    );
-    expect(
-      screen.queryByRole('button', { name: '上一个' })
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下一个' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '上一个' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '下一个' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '跳过' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '继续' })).toBeEnabled();
   });
 
-  it('keeps tab changes explicit and submits option plus free-text answers', () => {
+  it('supports manual step navigation and submits option plus inline free-text answers', () => {
     const onRespond = vi.fn();
     render(
       <AgentQuestionCard request={delegatedQuestion()} onRespond={onRespond} />
     );
 
     fireEvent.click(screen.getByRole('radio', { name: /Broad refactor/ }));
-    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-question-position')).toHaveTextContent(
+      '1 / 2'
+    );
     fireEvent.click(screen.getByRole('radio', { name: /Focused patch/ }));
-    fireEvent.click(screen.getByRole('button', { name: '下一个' }));
-    expect(screen.getByText('2 / 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '继续' }));
+    expect(screen.getByTestId('agent-question-position')).toHaveTextContent(
+      '2 / 2'
+    );
     expect(screen.getByText('Add any constraints')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('radio', { name: '输入回答' }));
     fireEvent.change(screen.getByRole('textbox', { name: '输入回答' }), {
       target: { value: 'Keep tests at the public UI seam.' },
     });
@@ -104,10 +106,98 @@ describe('AgentQuestionCard', () => {
         ],
       },
     });
-    expect(screen.getByRole('button', { name: '上一个' })).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: '下一个' })
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '上一个' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '下一个' })).toBeDisabled();
+  });
+
+  it('auto-advances single-choice questions after 480ms and waits for multi-select questions', async () => {
+    vi.useFakeTimers();
+    const onRespond = vi.fn();
+    const multiRequest: ConversationQuestionRequest = {
+      question_id: 'multi-auto',
+      prompt: 'Pick one then pick many',
+      options: [],
+      schema: {
+        type: 'object',
+        'x-dimo-questions': [
+          {
+            id: 'q1',
+            header: 'Flavors',
+            question: 'How many flavors?',
+            multiSelect: false,
+            options: [{ label: 'Three' }, { label: 'Five' }],
+          },
+          {
+            id: 'q2',
+            header: 'Mix-ins',
+            question: 'Which mix-ins?',
+            multiSelect: true,
+            options: [{ label: 'Chocolate chips' }, { label: 'Sprinkles' }],
+          },
+        ],
+      },
+    };
+
+    try {
+      render(<AgentQuestionCard request={multiRequest} onRespond={onRespond} />);
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Three' }));
+      expect(screen.getByTestId('agent-question-position')).toHaveTextContent(
+        '1 / 2'
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(480);
+      });
+      expect(screen.getByTestId('agent-question-position')).toHaveTextContent(
+        '2 / 2'
+      );
+
+      fireEvent.click(
+        screen.getByRole('checkbox', { name: 'Chocolate chips' })
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(onRespond).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(onRespond).toHaveBeenCalledWith('multi-auto', {
+        action: 'accept',
+        content: {
+          answers: [
+            { questionId: 'q1', labels: ['Three'] },
+            { questionId: 'q2', labels: ['Chocolate chips'] },
+          ],
+        },
+      });
+      expect(screen.getByTestId('agent-question-sent')).toHaveTextContent(
+        '已发送回答'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('collapses to a compact reopen pill via top-right X and preserves state when reopened', () => {
+    render(
+      <AgentQuestionCard request={delegatedQuestion()} onRespond={vi.fn()} />
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: /Broad refactor/ }));
+    fireEvent.click(screen.getByRole('button', { name: '收起智能体提问' }));
+
+    expect(screen.queryByTestId('agent-question-card')).toBeNull();
+    const reopen = screen.getByTestId('agent-question-reopen');
+    expect(reopen).toHaveTextContent('Approach');
+
+    fireEvent.click(reopen);
+    expect(screen.getByTestId('agent-question-card')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Broad refactor/ })).toBeChecked();
   });
 
   it('maps a standard ACP form schema back to its property-keyed content', () => {
@@ -155,10 +245,15 @@ describe('AgentQuestionCard', () => {
     });
   });
 
-  it('lets the user dismiss the card without choosing', () => {
+  it('lets the user skip intermediate questions and decline on the final step without choosing', () => {
     const onRespond = vi.fn();
     render(
       <AgentQuestionCard request={delegatedQuestion()} onRespond={onRespond} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '跳过' }));
+    expect(screen.getByTestId('agent-question-position')).toHaveTextContent(
+      '2 / 2'
     );
 
     const decline = screen.getByRole('button', { name: '拒绝回答' });
@@ -204,13 +299,13 @@ describe('AgentQuestionCard', () => {
         <AgentQuestionCard request={claudeRequest()} onRespond={onRespond} />
       );
 
-      expect(screen.getByText('1 / 1')).toBeInTheDocument();
+      expect(screen.getByTestId('agent-question-position')).toHaveTextContent(
+        '1 / 1'
+      );
       expect(
         screen.getByText('Which approach should I take?')
       ).toBeInTheDocument();
-      expect(
-        screen.queryByRole('button', { name: '下一个' })
-      ).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '下一个' })).toBeDisabled();
 
       const submit = screen.getByRole('button', { name: '提交回答' });
       expect(submit).toBeDisabled();
@@ -230,7 +325,6 @@ describe('AgentQuestionCard', () => {
         <AgentQuestionCard request={claudeRequest()} onRespond={onRespond} />
       );
 
-      fireEvent.click(screen.getByRole('radio', { name: '输入回答' }));
       fireEvent.change(screen.getByRole('textbox', { name: '输入回答' }), {
         target: { value: 'Split it by module.' },
       });
@@ -361,6 +455,7 @@ describe('AgentQuestionCard', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: '跳过' }));
     fireEvent.click(screen.getByRole('button', { name: '拒绝回答' }));
 
     await vi.waitFor(() => {

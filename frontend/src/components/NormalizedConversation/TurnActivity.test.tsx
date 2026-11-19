@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ContentBlock } from 'shared/types';
 import i18n from '@/i18n';
 import { TurnActivity } from './TurnActivity';
@@ -23,16 +23,25 @@ vi.mock('./AstryxMarkdown', () => ({
   AstryxMarkdown: ({ value }: { value: string }) => <pre>{value}</pre>,
 }));
 
+const INITIAL_LANGUAGE = i18n.language;
+
+afterEach(async () => {
+  cleanup();
+  await i18n.changeLanguage(INITIAL_LANGUAGE);
+});
+
 function renderCommand({
   id,
   status = 'failed',
   code,
   backgrounded = false,
+  outputPreview,
 }: {
   id: string;
-  status?: 'failed' | 'completed' | 'in_progress';
+  status?: 'failed' | 'completed' | 'in_progress' | 'denied' | 'timed_out';
   code?: number;
   backgrounded?: boolean;
+  outputPreview?: string;
 }) {
   const blocks: ContentBlock[] = [
     {
@@ -49,12 +58,15 @@ function renderCommand({
     blocks.push({
       type: 'tool_result',
       tool_use_id: id,
-      is_error: status === 'failed',
-      output_preview: JSON.stringify({
-        stdout: 'original stdout',
-        stderr: 'original stderr',
-        ...(code !== undefined ? { exit_code: code } : {}),
-      }),
+      is_error:
+        status === 'failed' || status === 'denied' || status === 'timed_out',
+      output_preview:
+        outputPreview ??
+        JSON.stringify({
+          stdout: 'original stdout',
+          stderr: 'original stderr',
+          ...(code !== undefined ? { exit_code: code } : {}),
+        }),
     });
   }
   const view = render(
@@ -106,6 +118,51 @@ describe('terminal failure summaries in the timeline', () => {
     );
   });
 
+  it('shows timeout summary when collapsed even if killed with an exit code, and preserves output on expansion', async () => {
+    renderCommand({ id: 'timeout-124', status: 'timed_out', code: 124 });
+    expect(screen.getByText('执行超时')).toBeVisible();
+    expect(screen.queryByText('工具调用失败')).not.toBeInTheDocument();
+    const row = screen.getByTestId('turn-tool-chip-row');
+    expect(screen.getByTestId('turn-tool-chip-item')).toHaveAttribute(
+      'data-tool-status',
+      'error'
+    );
+    fireEvent.click(row);
+    expect(screen.getByText(/original stdout/)).toBeVisible();
+    expect(screen.getByText('exit 124')).toBeVisible();
+
+    cleanup();
+    await i18n.changeLanguage('en');
+    renderCommand({
+      id: 'timeout-en',
+      status: 'failed',
+      outputPreview: JSON.stringify({ timedOut: true, stdout: 'partial' }),
+    });
+    expect(screen.getByText('Timed out')).toBeVisible();
+  });
+
+  it('shows permission denied summary when collapsed and localizes in English', async () => {
+    renderCommand({ id: 'denied-zh', status: 'denied' });
+    expect(screen.getByText('权限被拒绝')).toBeVisible();
+    expect(screen.queryByText('工具调用失败')).not.toBeInTheDocument();
+    const row = screen.getByTestId('turn-tool-chip-row');
+    expect(screen.getByTestId('turn-tool-chip-item')).toHaveAttribute(
+      'data-tool-status',
+      'error'
+    );
+    fireEvent.click(row);
+    expect(screen.getByText(/original stdout/)).toBeVisible();
+
+    cleanup();
+    await i18n.changeLanguage('en');
+    renderCommand({
+      id: 'denied-en',
+      status: 'failed',
+      outputPreview: JSON.stringify({ status: 'declined', stdout: 'declined' }),
+    });
+    expect(screen.getByText('Permission denied')).toBeVisible();
+  });
+
   it.each([
     ['successful', 'completed', 0, false, 'complete'],
     ['running', 'in_progress', undefined, false, 'running'],
@@ -119,15 +176,18 @@ describe('terminal failure summaries in the timeline', () => {
         expected
       );
       expect(
-        screen.queryByText(/命令退出码|工具调用失败/)
+        screen.queryByText(/命令退出码|工具调用失败|执行超时|权限被拒绝/)
       ).not.toBeInTheDocument();
     }
   );
 
-  it('keeps an unknown failure generic instead of inventing an exit code', () => {
-    renderCommand({ id: 'unknown-failure' });
+  it('keeps an unknown failure generic instead of guessing from prose output or inventing an exit code', () => {
+    renderCommand({
+      id: 'unknown-failure',
+      outputPreview: 'Permission denied',
+    });
     expect(screen.getByText('工具调用失败')).toBeVisible();
-    expect(screen.queryByText(/命令退出码/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/命令退出码|权限被拒绝|执行超时/)).not.toBeInTheDocument();
   });
 
   it('localizes the reported exit code in English', async () => {

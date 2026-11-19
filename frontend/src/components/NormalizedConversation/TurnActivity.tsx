@@ -642,11 +642,15 @@ export function TurnActivity({
         action.action === 'command_run' ? action.result?.exit_status : null;
       const errorMessage =
         status === 'error'
-          ? exitStatus?.type === 'exit_code' && exitStatus.code !== 0
-            ? t('messageTurnView.toolSummary.commandExitCode', {
-                code: exitStatus.code,
-              })
-            : t('messageTurnView.toolSummary.failed')
+          ? toolEntry.status.status === 'denied'
+            ? t('messageTurnView.toolSummary.permissionDenied')
+            : toolEntry.status.status === 'timed_out'
+              ? t('messageTurnView.toolSummary.timedOut')
+              : exitStatus?.type === 'exit_code' && exitStatus.code !== 0
+                ? t('messageTurnView.toolSummary.commandExitCode', {
+                    code: exitStatus.code,
+                  })
+                : t('messageTurnView.toolSummary.failed')
           : undefined;
       callCategories.set(
         toolUseId || expansionKey,

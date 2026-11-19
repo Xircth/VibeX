@@ -662,29 +662,46 @@ pub(super) async fn build_environment_diagnostics(
     let app_path_entries = std::env::split_paths(&app_path)
         .filter(|path| !path.as_os_str().is_empty())
         .collect::<Vec<_>>();
-    let target_command = profile
+    let primary_candidates = profile
         .external_candidates
         .iter()
-        .find(|candidate| {
+        .filter(|candidate| {
             matches!(
                 candidate.component,
                 ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
             )
         })
+        .collect::<Vec<_>>();
+    let default_target_command = primary_candidates
+        .first()
+        .copied()
         .or_else(|| profile.external_candidates.first())
         .map(|candidate| candidate.executable)
         .unwrap_or(profile.agent_id.as_str());
-    let target_on_app_path = resolve_on_path(target_command)
-        .await
-        .filter(|path| !agents::launch_program_is_legacy_acp_shim(&agent_id, path))
-        .or_else(|| {
+    let mut matched_target = None;
+    for candidate in &primary_candidates {
+        if let Some(path) = resolve_on_path(candidate.executable)
+            .await
+            .filter(|path| !agents::launch_program_is_legacy_acp_shim(&agent_id, path))
+        {
+            matched_target = Some((candidate.executable, path));
+            break;
+        }
+    }
+    let (target_command, target_on_app_path) = match matched_target {
+        Some((command, path)) => (command, Some(path)),
+        None => (
+            default_target_command,
             native_engine
                 .then(dirs::home_dir)
                 .flatten()
-                .and_then(|home| agents::resolve_native_engine_cli(agent_id.as_str(), &home))
-        });
+                .and_then(|home| agents::resolve_native_engine_cli(agent_id.as_str(), &home)),
+        ),
+    };
     let terminal = terminal_path_probe(target_command, &app_path_entries).await;
 
+    let data_dir = utils::assets::host_data_dir();
+    let db_path = data_dir.join("db.sqlite");
     let mut runtime_checks = vec![
         check(
             "os_arch",
@@ -697,6 +714,20 @@ pub(super) async fn build_environment_diagnostics(
             "app_version",
             "agents.environmentDiagnosticAppVersion",
             env!("CARGO_PKG_VERSION").to_string(),
+            AgentEnvironmentDiagnosticLevel::Info,
+            None,
+        ),
+        check(
+            "data_dir",
+            "agents.environmentDiagnosticDataDir",
+            data_dir.display().to_string(),
+            AgentEnvironmentDiagnosticLevel::Info,
+            None,
+        ),
+        check(
+            "database_path",
+            "agents.environmentDiagnosticDatabasePath",
+            db_path.display().to_string(),
             AgentEnvironmentDiagnosticLevel::Info,
             None,
         ),

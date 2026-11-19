@@ -64,11 +64,17 @@ impl ConversationToolCallRecord {
     where
         E: Executor<'e, Database = Sqlite>,
     {
-        // The protocol uses in_progress; this table has a closed status vocabulary.
-        let status = input.status.map(|status| match status {
-            "pending" | "running" | "completed" | "failed" | "cancelled" => status,
-            _ => "running",
-        });
+        // The protocol uses in_progress/denied/timed_out; this table has a closed status vocabulary.
+        let status = input
+            .status
+            .map(|status| match status.trim().to_ascii_lowercase().as_str() {
+                "pending" => "pending",
+                "running" => "running",
+                "completed" => "completed",
+                "failed" | "denied" | "declined" | "timed_out" | "timedout" | "error" => "failed",
+                "cancelled" | "canceled" => "cancelled",
+                _ => "running",
+            });
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_tool_calls (
                    id, conversation_id, turn_id, tool_call_id, title, kind,

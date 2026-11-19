@@ -153,8 +153,16 @@ impl ServerApplicationDomains {
         &self,
         plugin: &InstalledPlugin,
     ) -> Result<(), ApplicationError> {
-        self.apply_default_plugin_skill_projections(plugin).await?;
-        self.apply_default_plugin_mcp_projections(plugin).await
+        let skill_result = self.apply_default_plugin_skill_projections(plugin).await;
+        let mcp_result = self.apply_default_plugin_mcp_projections(plugin).await;
+        if let Err(ref error) = skill_result {
+            tracing::warn!(
+                plugin_id = plugin.id(),
+                %error,
+                "default skill projection failed"
+            );
+        }
+        skill_result.and(mcp_result)
     }
 
     /// Refresh the existing bindings without opting new Agents into an update.
@@ -163,15 +171,18 @@ impl ServerApplicationDomains {
         previous: &InstalledPlugin,
         current: &InstalledPlugin,
     ) -> Result<(), ApplicationError> {
+        let mut skill_result = Ok(());
         let removed = previous
             .skills
             .iter()
             .filter(|old| !current.skills.iter().any(|new| new.id == old.id))
             .map(|skill| skill.id.clone())
             .collect::<Vec<_>>();
-        if !removed.is_empty() {
-            skills::remove_plugin_skill_projections(current.id(), &removed)
-                .map_err(internal_error)?;
+        if !removed.is_empty()
+            && let Err(error) =
+                skills::remove_plugin_skill_projections(current.id(), &removed).map_err(internal_error)
+        {
+            skill_result = Err(error);
         }
         let bindings: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM plugin_agent_bindings_v4 WHERE plugin_id = ?")
@@ -179,8 +190,12 @@ impl ServerApplicationDomains {
                 .fetch_one(&self.pool)
                 .await
                 .map_err(internal_error)?;
-        if bindings > 0 {
-            self.apply_default_plugin_skill_projections(current).await?;
+        if bindings > 0
+            && let Err(error) = self.apply_default_plugin_skill_projections(current).await
+        {
+            if skill_result.is_ok() {
+                skill_result = Err(error);
+            }
         }
         for id in plugin_mcp_server_ids(previous) {
             if !plugin_mcp_server_ids(current).contains(&id)
@@ -209,7 +224,7 @@ impl ServerApplicationDomains {
                 tracing::warn!(plugin_id = current.id(), %error, "MCP update projection failed");
             }
         }
-        Ok(())
+        skill_result
     }
 
     pub(crate) async fn remove_plugin_projections(

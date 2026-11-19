@@ -12,12 +12,24 @@ export interface CachedUpdateCheck {
   update: AppUpdateInfo | null;
 }
 
+export interface AppUpdateDiagnostic {
+  stage: 'signed_feed' | 'github_release' | 'both' | 'install';
+  signedError: string | null;
+  githubError: string | null;
+  httpStatus: number | null;
+  endpoint: string | null;
+  proxySource: string | null;
+  checkedAt: string;
+  fallbackReleaseUrl: string | null;
+}
+
 export interface AppUpdateSnapshot {
   currentVersion: string;
   update: AppUpdateInfo | null;
   lastCheckedAt: number;
   checked: boolean;
   error: string | null;
+  diagnostic?: AppUpdateDiagnostic | null;
 }
 
 export type AppUpdateLifecycleStatus =
@@ -53,6 +65,9 @@ export interface GitHubReleaseCheck {
   body: string | null;
   published_at: string | null;
   checked_at: string;
+  http_status?: number | null;
+  endpoint?: string | null;
+  proxy_source?: string | null;
 }
 
 export interface AppUpdateDependencies {

@@ -620,4 +620,61 @@ describe('toolBlockToNormalizedEntry', () => {
       },
     });
   });
+
+  it('distinguishes denied, timed_out, and generic failed tool statuses using structured fields only', () => {
+    const denied = toolBlockToNormalizedEntry(
+      { ...use('bash', { command: 'rm -rf tmp' }, 'execute'), status: 'denied' },
+      result(JSON.stringify({ status: 'declined', reason: 'User rejected' }), true),
+      null
+    );
+    expect(denied.entry_type).toMatchObject({
+      status: { status: 'denied', reason: 'User rejected' },
+      action_type: {
+        action: 'command_run',
+        result: { exit_status: null },
+      },
+    });
+
+    const timedOutWithCode = toolBlockToNormalizedEntry(
+      { ...use('bash', { command: 'sleep 120' }, 'execute'), status: 'failed' },
+      result(
+        JSON.stringify({
+          timedOut: true,
+          exitCode: 124,
+          aggregatedOutput: 'timed out after 10s\n',
+        }),
+        true
+      ),
+      null
+    );
+    expect(timedOutWithCode.entry_type).toMatchObject({
+      status: { status: 'timed_out' },
+      action_type: {
+        action: 'command_run',
+        result: {
+          output: 'timed out after 10s\n',
+          exit_status: { type: 'exit_code', code: 124 },
+        },
+      },
+    });
+
+    const cancelled = toolBlockToNormalizedEntry(
+      { ...use('bash', { command: 'echo hi' }, 'execute'), status: 'cancelled' },
+      null,
+      null
+    );
+    expect(cancelled.entry_type).toMatchObject({
+      status: { status: 'failed' },
+    });
+
+    // Plain prose "Permission denied" without structured denial flags must stay generic failed
+    const proseDenied = toolBlockToNormalizedEntry(
+      { ...use('bash', { command: 'cat /root/secret' }, 'execute'), status: 'failed' },
+      result('Permission denied', true),
+      null
+    );
+    expect(proseDenied.entry_type).toMatchObject({
+      status: { status: 'failed' },
+    });
+  });
 });

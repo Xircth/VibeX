@@ -581,6 +581,7 @@ pub(super) struct ProjectionFold {
     pub(crate) last_sequence: i64,
     auto_permission_approvals: u32,
     complete_antigravity_reads: bool,
+    pub(super) denied_tool_calls: std::collections::BTreeSet<String>,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -678,6 +679,8 @@ struct ProjectionSnapshotState {
     full_fold: bool,
     #[serde(default)]
     turn_metrics: BTreeMap<Uuid, TurnMetricsSummary>,
+    #[serde(default)]
+    denied_tool_calls: std::collections::BTreeSet<String>,
 }
 
 impl Default for ProjectionSnapshotState {
@@ -691,6 +694,7 @@ impl Default for ProjectionSnapshotState {
             auto_permission_approvals: 0,
             full_fold: true,
             turn_metrics: BTreeMap::new(),
+            denied_tool_calls: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -720,6 +724,7 @@ impl ProjectionFold {
             side_rows: state.side_rows,
             side_row_turns: state.side_row_turns,
             auto_permission_approvals: state.auto_permission_approvals,
+            denied_tool_calls: state.denied_tool_calls,
             ..ProjectionFold::default()
         };
         for turn in state.turns {
@@ -756,6 +761,7 @@ impl ProjectionFold {
             auto_permission_approvals: self.auto_permission_approvals,
             full_fold: true,
             turn_metrics: self.collect_turn_metrics(),
+            denied_tool_calls: self.denied_tool_calls.clone(),
         }
     }
 
@@ -772,6 +778,7 @@ impl ProjectionFold {
             auto_permission_approvals: self.auto_permission_approvals,
             full_fold: false,
             turn_metrics: turn_metrics.clone(),
+            denied_tool_calls: self.denied_tool_calls.clone(),
         }
     }
 

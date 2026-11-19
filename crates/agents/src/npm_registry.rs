@@ -356,23 +356,31 @@ async fn fetch_npm_metadata(
     fetcher: &dyn RegistryFetcher,
     package_name: &str,
 ) -> Result<NpmMetadata, String> {
-    let metadata_url = format!(
-        "https://registry.npmjs.org/{}",
-        package_name.replace('/', "%2f")
-    );
-    match fetcher.fetch(&metadata_url, None).await {
-        Ok(response) if response.status == 200 => {
-            serde_json::from_slice::<NpmMetadata>(&response.body)
-                .map_err(|error| format!("npm metadata for `{package_name}` is invalid: {error}"))
+    let encoded_name = package_name.replace('/', "%2f");
+    let mut errors = Vec::new();
+    for registry in workspace_utils::mirror::npm_registry_candidates() {
+        let metadata_url = format!("{registry}/{encoded_name}");
+        match fetcher.fetch(&metadata_url, None).await {
+            Ok(response) if response.status == 200 => {
+                match serde_json::from_slice::<NpmMetadata>(&response.body) {
+                    Ok(metadata) => return Ok(metadata),
+                    Err(error) => {
+                        errors.push(format!(
+                            "npm metadata from {registry} for `{package_name}` is invalid: {error}"
+                        ));
+                    }
+                }
+            }
+            Ok(response) => errors.push(format!(
+                "npm metadata from {registry} for `{package_name}` returned status {}",
+                response.status
+            )),
+            Err(error) => errors.push(format!(
+                "npm metadata fetch from {registry} for `{package_name}` failed: {error}"
+            )),
         }
-        Ok(response) => Err(format!(
-            "npm metadata for `{package_name}` returned status {}",
-            response.status
-        )),
-        Err(error) => Err(format!(
-            "npm metadata fetch for `{package_name}` failed: {error}"
-        )),
     }
+    Err(errors.join("; "))
 }
 
 async fn fetch_npm_version(
@@ -388,6 +396,28 @@ async fn fetch_npm_version(
         .ok_or_else(|| format!("npm package `{package_name}` has no version `{version}`"))
 }
 
+async fn fetch_npm_tarball(
+    fetcher: &dyn RegistryFetcher,
+    package_name: &str,
+    version: &str,
+    tarball_url: &str,
+) -> Result<Vec<u8>, String> {
+    let mut errors = Vec::new();
+    for candidate in workspace_utils::mirror::npm_tarball_url_candidates(tarball_url) {
+        match fetcher.fetch(&candidate, None).await {
+            Ok(response) if response.status == 200 => return Ok(response.body),
+            Ok(response) => errors.push(format!(
+                "npm tarball for `{package_name}@{version}` from {candidate} returned status {}",
+                response.status
+            )),
+            Err(error) => errors.push(format!(
+                "npm tarball fetch for `{package_name}@{version}` from {candidate} failed: {error}"
+            )),
+        }
+    }
+    Err(errors.join("; "))
+}
+
 async fn verify_npm_dist_file(
     fetcher: &dyn RegistryFetcher,
     package_name: &str,
@@ -395,19 +425,9 @@ async fn verify_npm_dist_file(
     dist: &NpmDist,
     disk_sha256: &str,
 ) -> NpmVerificationOutcome {
-    let tarball = match fetcher.fetch(&dist.tarball, None).await {
-        Ok(response) if response.status == 200 => response.body,
-        Ok(response) => {
-            return NpmVerificationOutcome::Unverifiable(format!(
-                "npm tarball for `{package_name}@{version}` returned status {}",
-                response.status
-            ));
-        }
-        Err(error) => {
-            return NpmVerificationOutcome::Unverifiable(format!(
-                "npm tarball fetch for `{package_name}@{version}` failed: {error}"
-            ));
-        }
+    let tarball = match fetch_npm_tarball(fetcher, package_name, version, &dist.tarball).await {
+        Ok(bytes) => bytes,
+        Err(error) => return NpmVerificationOutcome::Unverifiable(error),
     };
     let (algorithm, expected) = match dist.integrity.split_once('-') {
         Some((algorithm, digest)) => (algorithm, digest),

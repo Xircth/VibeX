@@ -19,7 +19,8 @@ pub mod workflow_queries;
 pub use conversation_repository::SqliteConversationRepository;
 pub use data_dir_migration::{
     DbContentSummary, checkpoint_and_remap_data_dir_paths, inspect_sqlite_content_summary,
-    remap_sqlite_data_dir_paths, remap_sqlite_file_data_dir_paths,
+    reconcile_migrated_data_dir_paths, remap_sqlite_data_dir_paths,
+    remap_sqlite_file_data_dir_paths,
 };
 pub use health::{
     DbHealthReport, DbOptimizeReport, check_db_service_health, check_health, optimize_wal,

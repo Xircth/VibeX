@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationRelationView } from 'shared/types';
 
@@ -122,30 +122,29 @@ export function summarizeConversationChildren(
   };
 }
 
-export function ConversationChildrenSummary({
-  conversationId,
-  onOpenChild,
-}: {
-  conversationId: string;
-  onOpenChild?: (conversationId: string, workspaceId?: string) => void;
-}) {
-  const { t } = useTranslation('conversation');
+export function useConversationChildrenSummary(conversationId: string | null | undefined) {
   const [relations, setRelations] = useState<ConversationRelationView[]>([]);
 
   const load = useCallback(
-    (isMounted: () => boolean) =>
-      fetchConversationRelationsDeduplicated(conversationId)
+    (isMounted: () => boolean) => {
+      if (!conversationId) return Promise.resolve();
+      return fetchConversationRelationsDeduplicated(conversationId)
         .then((next) => {
           if (!isMounted()) return;
           setRelations((prev) =>
             areConversationRelationsEqual(prev, next) ? prev : next
           );
         })
-        .catch(() => undefined),
+        .catch(() => undefined);
+    },
     [conversationId]
   );
 
   useEffect(() => {
+    if (!conversationId) {
+      setRelations([]);
+      return;
+    }
     let active = true;
     const isMounted = () => active;
     void load(isMounted);
@@ -174,13 +173,13 @@ export function ConversationChildrenSummary({
     };
   }, [conversationId, load]);
 
-  const { children, activeCount, waitingCount, budget } = useMemo(
+  const summary = useMemo(
     () => summarizeConversationChildren(relations),
     [relations]
   );
 
   useEffect(() => {
-    if (activeCount <= 0) return;
+    if (!conversationId || summary.activeCount <= 0) return;
     let active = true;
     const isMounted = () => active;
     const interval = window.setInterval(() => {
@@ -196,9 +195,137 @@ export function ConversationChildrenSummary({
       active = false;
       window.clearInterval(interval);
     };
-  }, [activeCount, load]);
+  }, [conversationId, load, summary.activeCount]);
 
-  if (children.length === 0) return null;
+  const signature = useMemo(
+    () => summary.children.map((relation) => relation.id).join('|'),
+    [summary.children]
+  );
+
+  return {
+    ...summary,
+    signature,
+  };
+}
+
+export function ConversationChildrenRows({
+  childrenList,
+  activeCount,
+  waitingCount,
+  budget,
+  onOpenChild,
+}: {
+  childrenList: ConversationRelationView[];
+  activeCount: number;
+  waitingCount: number;
+  budget: DelegationBudgetSummary | null;
+  onOpenChild?: (conversationId: string, workspaceId?: string) => void;
+}) {
+  const { t } = useTranslation('conversation');
+
+  return (
+    <>
+      {activeCount > 0 || waitingCount > 0 || budget ? (
+        <div className="composer-cockpit-subbar flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
+          <span className="flex items-center gap-2">
+            {activeCount > 0 ? (
+              <span>{t('children.active', { count: activeCount })}</span>
+            ) : null}
+            {waitingCount > 0 ? (
+              <span>{t('children.waiting', { count: waitingCount })}</span>
+            ) : null}
+          </span>
+          {budget ? (
+            <span>
+              {t('children.budget', {
+                callsUsed: budget.callsUsed,
+                maxCalls: budget.maxCalls,
+                active: budget.activeChildren,
+                maxActive: budget.maxActiveChildren,
+              })}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <div
+        className="composer-cockpit-children-list"
+        data-testid="composer-children-list"
+      >
+        {childrenList.map((relation) => {
+          const title = relation.child.title || t('children.untitled');
+          const isActive = ['pending', 'queued', 'running', 'blocked'].includes(
+            relation.child.activeTurnStatus ?? ''
+          );
+          const open = onOpenChild
+            ? () =>
+                onOpenChild(
+                  relation.childConversationId,
+                  relation.child.workspaceId
+                )
+            : undefined;
+          return (
+            <div key={relation.id} className="composer-cockpit-row">
+              <span
+                className={cn(
+                  'composer-cockpit-dot shrink-0',
+                  isActive ? 'is-live' : 'is-success'
+                )}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                {title}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {t(`children.status.${relation.child.status}`)}
+              </span>
+              {relation.child.queuedInputCount > 0n ? (
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                  {t('children.queued', {
+                    count: String(relation.child.queuedInputCount),
+                  })}
+                </span>
+              ) : null}
+              {open ? (
+                <button
+                  type="button"
+                  className="composer-cockpit-mini-btn"
+                  onClick={open}
+                  aria-label={`${t('children.open')}: ${title}`}
+                >
+                  <span>{t('children.open')}</span>
+                  <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+export function ConversationChildrenSummary({
+  conversationId,
+  onOpenChild,
+  onDismiss,
+}: {
+  conversationId: string;
+  onOpenChild?: (conversationId: string, workspaceId?: string) => void;
+  onDismiss?: () => void;
+}) {
+  const { t } = useTranslation('conversation');
+  const { children, activeCount, waitingCount, budget, signature } =
+    useConversationChildrenSummary(conversationId);
+  const [dismissedSignature, setDismissedSignature] = useState<string | null>(
+    null
+  );
+
+  if (children.length === 0 || dismissedSignature === signature) return null;
+
+  const handleDismiss = () => {
+    setDismissedSignature(signature);
+    onDismiss?.();
+  };
 
   return (
     <section
@@ -213,28 +340,42 @@ export function ConversationChildrenSummary({
             {t('children.title', { count: children.length })}
           </p>
           {activeCount > 0 ? (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[11px] tabular-nums text-muted-foreground">
               {t('children.active', { count: activeCount })}
             </span>
           ) : null}
           {waitingCount > 0 ? (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[11px] tabular-nums text-muted-foreground">
               {t('children.waiting', { count: waitingCount })}
             </span>
           ) : null}
         </div>
-        {budget ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {t('children.budget', {
-              callsUsed: budget.callsUsed,
-              maxCalls: budget.maxCalls,
-              active: budget.activeChildren,
-              maxActive: budget.maxActiveChildren,
-            })}
-          </span>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {budget ? (
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {t('children.budget', {
+                callsUsed: budget.callsUsed,
+                maxCalls: budget.maxCalls,
+                active: budget.activeChildren,
+                maxActive: budget.maxActiveChildren,
+              })}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="composer-status-dismiss"
+            onClick={handleDismiss}
+            title={t('children.dismiss')}
+            aria-label={t('children.dismiss')}
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
-      <div className="mt-1 space-y-0.5">
+      <div
+        className="mt-1 max-h-[102px] space-y-0.5 overflow-y-auto overscroll-contain"
+        data-testid="conversation-children-list"
+      >
         {children.map((relation) => {
           const title = relation.child.title || t('children.untitled');
           const open = onOpenChild
@@ -265,7 +406,7 @@ export function ConversationChildrenSummary({
                 {t(`children.status.${relation.child.status}`)}
               </span>
               {relation.child.queuedInputCount > 0n ? (
-                <span className="shrink-0 text-[11px] text-muted-foreground">
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                   {t('children.queued', {
                     count: String(relation.child.queuedInputCount),
                   })}

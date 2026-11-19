@@ -660,4 +660,28 @@ describe('subagent card model', () => {
     expect(model.status).toBe('completed');
     expect(model.resultText).toBe('Diff rendering verified');
   });
+
+  it('clamps oversized title/prompt/result and ignores echoed description in liveText', () => {
+    const model = buildSubagentCardModel(
+      use(
+        'Agent',
+        {
+          subagent_type: 'general-purpose',
+          description: 'AI 岗位样本检索',
+          prompt: 'P'.repeat(13_000),
+        },
+        {
+          subagent: {
+            status: 'completed',
+            text: 'AI 岗位样本检索AI 岗位样本检索',
+          },
+        }
+      ),
+      null
+    );
+
+    expect(model.resultText).toBeNull();
+    expect(model.prompt?.length).toBeLessThanOrEqual(12_001);
+    expect(model.prompt?.endsWith('…')).toBe(true);
+  });
 });

@@ -134,6 +134,9 @@ function toGitHubCheck(status: AppReleaseStatus): GitHubReleaseCheck {
     body: status.body ?? null,
     published_at: status.published_at ?? null,
     checked_at: status.checked_at ?? new Date().toISOString(),
+    http_status: status.http_status ?? null,
+    endpoint: status.endpoint ?? null,
+    proxy_source: status.proxy_source ?? null,
   };
 }
 

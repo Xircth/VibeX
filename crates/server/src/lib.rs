@@ -62,7 +62,7 @@ pub use config::{EmbeddedAsset, ListenPolicyError, ServerConfig, StaticAssetReso
 pub use conversations as dimo_conversations;
 pub use data_dir_adoption::{
     DataDirAdoptionOutcome, adopt_legacy_data_dir, evacuate_user_data_before_app_update,
-    log_data_dir_adoption,
+    log_data_dir_adoption, reconcile_migrated_data_dir_paths,
 };
 pub use delegation_runtime::{DimoDelegationInjector, SpaceSessionLookup};
 pub use domains::ServerApplicationDomains;

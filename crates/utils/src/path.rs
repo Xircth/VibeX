@@ -140,6 +140,97 @@ pub fn normalize_windows_extended_path_prefix<P: AsRef<Path>>(path: P) -> PathBu
     path.to_path_buf()
 }
 
+fn strip_windows_extended_prefix_str(raw: &str) -> std::borrow::Cow<'_, str> {
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return std::borrow::Cow::Owned(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        return std::borrow::Cow::Borrowed(rest);
+    }
+    if let Some(rest) = raw.strip_prefix(r"\?\") {
+        return std::borrow::Cow::Borrowed(rest);
+    }
+    std::borrow::Cow::Borrowed(raw)
+}
+
+/// Remap a stored path string from `old_dir` to `new_dir`, normalizing Windows
+/// verbatim prefixes (`\\?\`, `\\?\UNC\`), `/` and `\` separators, and Windows
+/// ASCII case differences.
+pub fn remap_path_string_prefix(value: &str, old_dir: &Path, new_dir: &Path) -> Option<String> {
+    let old_norm = normalize_windows_extended_path_prefix(old_dir);
+    let new_norm = normalize_windows_extended_path_prefix(new_dir);
+    let old_native = old_norm
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    let new_native = new_norm
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    if old_native.is_empty() {
+        return None;
+    }
+
+    let old_slash = old_native.replace('\\', "/");
+    let new_slash = new_native.replace('\\', "/");
+    let new_backslash = new_native.replace('/', "\\");
+    let same_dir = if cfg!(windows) {
+        old_slash.eq_ignore_ascii_case(&new_slash)
+    } else {
+        old_slash == new_slash
+    };
+    if same_dir {
+        return None;
+    }
+
+    let norm_value = strip_windows_extended_prefix_str(value);
+    let trimmed_value = norm_value.trim_end_matches(['\\', '/']);
+    let val_slash = norm_value.replace('\\', "/");
+    let trimmed_val_slash = trimmed_value.replace('\\', "/");
+
+    let prefix_matches = |candidate: &str| -> bool {
+        if cfg!(windows) {
+            candidate.eq_ignore_ascii_case(&old_slash)
+        } else {
+            candidate == old_slash
+        }
+    };
+
+    if prefix_matches(&trimmed_val_slash) {
+        let uses_forward_slash = norm_value.contains('/') && !norm_value.contains('\\');
+        let uses_backslash = norm_value.contains('\\') && !norm_value.contains('/');
+        let base = if uses_forward_slash {
+            &new_slash
+        } else if uses_backslash {
+            &new_backslash
+        } else {
+            &new_native
+        };
+        let trailing = &norm_value[trimmed_value.len()..];
+        return Some(format!("{base}{trailing}"));
+    }
+
+    let old_len = old_slash.len();
+    if val_slash.len() > old_len
+        && val_slash.is_char_boundary(old_len)
+        && prefix_matches(&val_slash[..old_len])
+    {
+        let sep = norm_value.as_bytes()[old_len];
+        if sep == b'/' || sep == b'\\' {
+            let sep_char = sep as char;
+            let rest = &norm_value[old_len + 1..];
+            let new_base = if sep_char == '/' {
+                &new_slash
+            } else {
+                &new_backslash
+            };
+            return Some(format!("{new_base}{sep_char}{rest}"));
+        }
+    }
+
+    None
+}
+
 pub fn is_user_home_directory(path: &Path) -> bool {
     let Some(home) = dirs::home_dir() else {
         return false;
@@ -499,5 +590,74 @@ mod tests {
         std::fs::write(present.join("nested/file.txt"), b"ok").unwrap();
         remove_dir_all_retrying(&present).await.unwrap();
         assert!(!present.exists());
+    }
+
+    #[test]
+    fn remap_path_string_prefix_handles_verbatim_separators_and_siblings() {
+        let old_dir = Path::new(r"C:\Users\18190\AppData\Local\Dimo\data");
+        let new_dir = Path::new(r"C:\Users\18190\AppData\Roaming\dimo\dimo\data");
+
+        // Windows verbatim canonical path (\\?\)
+        assert_eq!(
+            remap_path_string_prefix(
+                r"\\?\C:\Users\18190\AppData\Local\Dimo\data\plugins\runtimes\plugins\snapshots\dimo.browser",
+                old_dir,
+                new_dir,
+            )
+            .as_deref(),
+            Some(
+                r"C:\Users\18190\AppData\Roaming\dimo\dimo\data\plugins\runtimes\plugins\snapshots\dimo.browser"
+            )
+        );
+
+        // Forward-slash variant
+        assert_eq!(
+            remap_path_string_prefix(
+                "C:/Users/18190/AppData/Local/Dimo/data/worktrees/wt-1",
+                old_dir,
+                new_dir,
+            )
+            .as_deref(),
+            Some("C:/Users/18190/AppData/Roaming/dimo/dimo/data/worktrees/wt-1")
+        );
+
+        // Exact directory match
+        assert_eq!(
+            remap_path_string_prefix(r"\\?\C:\Users\18190\AppData\Local\Dimo\data", old_dir, new_dir)
+                .as_deref(),
+            Some(r"C:\Users\18190\AppData\Roaming\dimo\dimo\data")
+        );
+
+        // Sibling directory sharing a string prefix must NOT match
+        assert_eq!(
+            remap_path_string_prefix(
+                r"C:\Users\18190\AppData\Local\Dimo\data-backup\db.sqlite",
+                old_dir,
+                new_dir,
+            ),
+            None
+        );
+
+        // UNC verbatim path
+        assert_eq!(
+            remap_path_string_prefix(
+                r"\\?\UNC\server\share\old_data\plugins\p1",
+                Path::new(r"\\server\share\old_data"),
+                Path::new(r"\\server\share\new_data"),
+            )
+            .as_deref(),
+            Some(r"\\server\share\new_data\plugins\p1")
+        );
+
+        #[cfg(windows)]
+        assert_eq!(
+            remap_path_string_prefix(
+                r"\\?\c:\users\18190\appdata\local\dimo\data\plugins\dimo.browser",
+                old_dir,
+                new_dir,
+            )
+            .as_deref(),
+            Some(r"C:\Users\18190\AppData\Roaming\dimo\dimo\data\plugins\dimo.browser")
+        );
     }
 }

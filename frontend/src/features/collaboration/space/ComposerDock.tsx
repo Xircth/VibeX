@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Slot } from '@/components/plugins/Slot';
 import { ActionBarUtilityButtons } from '@/components/tasks/follow-up/ActionBarUtilityButtons';
 import { ComposerPrimaryActionButton } from '@/components/tasks/follow-up/ComposerPrimaryActionButton';
-import { MessageQueueIndicator } from '@/components/tasks/follow-up/MessageQueueIndicator';
+import { ComposerTabDock } from '@/components/tasks/follow-up/ComposerTabDock';
 import { SessionComposerFrame } from '@/components/tasks/follow-up/SessionComposerFrame';
 import {
   SessionComposerAttachmentDrawer,
@@ -376,9 +376,13 @@ export const ComposerDock = memo(function ComposerDock() {
               />
             </div>
           ) : null}
-          <div className="collaboration-composer-queue">
-            <div className="collaboration-composer-queue-inner">
-              <MessageQueueIndicator
+          <SessionComposerFrame
+            onFocus={markDraftTargetFocused}
+            tabs={
+              <ComposerTabDock
+                dismissalScope={
+                  activeDirectThreadId ?? selected.space_id ?? null
+                }
                 queuedMessages={spaceQueuedMessages}
                 delayedMessages={userDelayedSpaceMessages}
                 onEditQueuedMessage={handleEditSpaceQueuedMessage}
@@ -397,10 +401,7 @@ export const ComposerDock = memo(function ComposerDock() {
                       }
                 }
               />
-            </div>
-          </div>
-          <SessionComposerFrame
-            onFocus={markDraftTargetFocused}
+            }
             status={
               showBotSessionLoadingNotice ? (
                 <div

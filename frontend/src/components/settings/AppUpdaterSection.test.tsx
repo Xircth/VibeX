@@ -92,4 +92,57 @@ describe('AppUpdaterSection', () => {
       'https://github.com/DimoADE/Dimo/releases/tag/v0.1.3'
     );
   });
+
+  it('shows diagnostic details and manual release link when update check fails', async () => {
+    const failedSnapshot = {
+      currentVersion: '0.1.2',
+      lastCheckedAt: Date.parse('2026-08-18T08:30:00.000Z'),
+      checked: false,
+      error: 'GitHub returned 403 (signed feed: connection timed out)',
+      update: null,
+      diagnostic: {
+        stage: 'both' as const,
+        signedError: 'connection timed out',
+        githubError: 'GitHub returned 403',
+        httpStatus: 403,
+        endpoint: 'https://api.github.com/repos/DimoADE/Dimo/releases/latest',
+        proxySource: 'system',
+        checkedAt: '2026-08-18T08:30:00.000Z',
+        fallbackReleaseUrl: 'https://github.com/DimoADE/Dimo/releases/latest',
+      },
+    };
+    mocks.checkAppUpdate.mockResolvedValue(failedSnapshot);
+
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(
+      <AppUpdaterSection
+        autoUpdateEnabled
+        onAutoUpdateChange={() => undefined}
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: '检查更新' }));
+
+    expect(await screen.findByText(/GitHub returned 403/)).toBeVisible();
+    expect(screen.getByText('HTTP 403')).toBeVisible();
+    expect(screen.getByText('代理：system')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '发布页' }));
+    expect(open).toHaveBeenCalledWith(
+      'https://github.com/DimoADE/Dimo/releases/latest'
+    );
+
+    await user.click(screen.getByRole('button', { name: '复制诊断' }));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining('http_status: 403')
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining('proxy_source: system')
+    );
+  });
 });

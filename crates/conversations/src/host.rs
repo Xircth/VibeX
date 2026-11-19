@@ -425,7 +425,6 @@ pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
         .get("PI_ACP_PI_COMMAND")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    agents::apply_built_in_launch_policy(agent_id, &mut env, &mut args);
     let _ = utils::shell::refresh_process_path().await;
     let mut lock_env = authorization.env;
     agents::sanitize_runtime_executable_lock_env(agent_id, &mut lock_env);
@@ -443,9 +442,6 @@ pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
                 .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default()),
         );
     }
-    if agent_id.as_str() == "pi" {
-        bind_pi_acp_pi_command(&mut env, requested_pi_command.as_deref());
-    }
     // Prefer PATH over a stale lock path (ADR-0060 / CodeG connect).
     let absolute_acp_program =
         agents::prefer_path_launch_program(&authorization.absolute_acp_program);
@@ -453,6 +449,15 @@ pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
         return Err(ConversationServiceError::BadRequest(
             agents::missing_launch_program_error(&absolute_acp_program),
         ));
+    }
+    agents::apply_built_in_launch_policy_for_program(
+        agent_id,
+        Some(&absolute_acp_program),
+        &mut env,
+        &mut args,
+    );
+    if agent_id.as_str() == "pi" {
+        bind_pi_acp_pi_command(&mut env, requested_pi_command.as_deref());
     }
     Ok(AgentRuntimeLaunchSettings {
         auto_approve_mode: agents::auto_approve_mode_for_launch(agent_id, &env),

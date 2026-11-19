@@ -1984,7 +1984,18 @@
     "neverChecked": "尚未检查",
     "releaseNotes": "更新日志",
     "noReleaseNotes": "此版本没有更新说明",
-    "viewRelease": "发布页"
+    "viewRelease": "发布页",
+    "copyDiagnostics": "复制诊断",
+    "diagnosticsCopied": "已复制更新诊断信息。",
+    "diagnosticsCopyFailed": "无法复制更新诊断信息。",
+    "diagnosticHttpStatus": "HTTP {{status}}",
+    "diagnosticProxy": "代理：{{source}}",
+    "diagnosticStage": {
+      "signed_feed": "签名更新源",
+      "github_release": "GitHub 发布页",
+      "both": "签名源与 GitHub",
+      "install": "安装阶段"
+    }
   },
   "general": {
     "editorFinder": "访达（Finder）",
@@ -2150,6 +2161,8 @@
     "environmentDiagnosticTerminal": "登录 Shell 对照",
     "environmentDiagnosticOsArch": "系统 / 架构",
     "environmentDiagnosticAppVersion": "Dimo 版本",
+    "environmentDiagnosticDataDir": "当前数据目录",
+    "environmentDiagnosticDatabasePath": "数据库文件",
     "environmentDiagnosticShell": "已配置 Shell",
     "environmentDiagnosticAppPath": "应用 PATH 条目数",
     "environmentDiagnosticAppPathHint": "复制的本地诊断报告包含完整应用 PATH，便于排查。",
@@ -2584,6 +2597,11 @@
     "providerModelPlaceholder": "输入模型 ID（可选）…",
     "grokApiBackend": "协议",
     "grokContextWindow": "上下文长度",
+    "grokBackendSearch": "后端联网搜索",
+    "grokBackendSearchDefault": "默认（不覆盖）",
+    "grokBackendSearchEnabled": "开启",
+    "grokBackendSearchDisabled": "关闭",
+    "grokMaxRetries": "最大重试次数",
     "saveChanges": "保存修改",
     "providerCreate": "创建 Provider",
     "providerModelMapping": "模型映射（可选）",

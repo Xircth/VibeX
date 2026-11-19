@@ -68,4 +68,26 @@ describe('session status colors', () => {
     expect(collaborationCss).toContain('var(--session-status-inprogress)');
     expect(collaborationCss).toContain('var(--session-status-done)');
   });
+
+  it('animates canvas active status breathing via compositor-only opacity keyframes', () => {
+    const root = parse(legacyCss);
+    const keyframeNames: string[] = [];
+    const breatheProps: string[] = [];
+
+    root.walkAtRules('keyframes', (atRule) => {
+      keyframeNames.push(atRule.params);
+      if (atRule.params !== 'canvas-breathe-opacity') return;
+      atRule.walkDecls((declaration) => {
+        breatheProps.push(declaration.prop);
+      });
+    });
+
+    expect(keyframeNames).toContain('canvas-breathe-opacity');
+    expect(keyframeNames).not.toContain('canvas-running-breathe');
+    expect(keyframeNames).not.toContain('canvas-reviewing-breathe');
+    expect(keyframeNames).not.toContain('canvas-card-running-breathe');
+    expect(keyframeNames).not.toContain('canvas-card-reviewing-breathe');
+    expect(breatheProps.length).toBeGreaterThan(0);
+    expect(new Set(breatheProps)).toEqual(new Set(['opacity']));
+  });
 });

@@ -63,6 +63,8 @@ impl ProjectionFold {
         record: &ConversationEventRecord,
         event: ConversationEvent,
         deleted_rows: &mut Vec<ConversationRowOp>,
+        touched_turn_rows: &mut Option<super::cache::TouchedTurnRows>,
+        assistant_emit: &mut Option<super::cache::AssistantEmit>,
     ) {
         let latest_turn_id = record.turn_id.or_else(|| self.turn_order.last().copied());
         let side_rows = &mut self.side_rows;
@@ -95,6 +97,7 @@ impl ProjectionFold {
             } => {
                 let auto_allow = response.auto
                     && matches!(response.response, AgentPermissionResponse::Selected { .. });
+                let mut denied_tool_call_id: Option<String> = None;
                 if auto_allow {
                     let row_id = format!("perm:{permission_id}");
                     side_row_turns.remove(&row_id);
@@ -114,8 +117,24 @@ impl ProjectionFold {
                         {
                             request.status = "responded".into();
                             entry.revision = record.sequence;
+                            if permission_response_is_rejection(&response, &request.options) {
+                                denied_tool_call_id = extract_permission_tool_call_id(
+                                    request.details.as_ref(),
+                                    &permission_id,
+                                );
+                            }
                             break;
                         }
+                    }
+                }
+                if let Some(call_id) = denied_tool_call_id {
+                    self.denied_tool_calls.insert(call_id.clone());
+                    if let Some((turn_id, emit)) =
+                        self.apply_denied_status_to_existing_tool_call(&call_id, record)
+                    {
+                        *touched_turn_rows =
+                            Some(super::cache::TouchedTurnRows::AssistantOnly(turn_id));
+                        *assistant_emit = Some(emit);
                     }
                 }
             }
@@ -1074,6 +1093,158 @@ fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
         .get("requested")
         .and_then(serde_json::Value::as_str)?;
     Some(format!("{reason}: {requested}"))
+}
+
+fn permission_response_is_rejection(
+    response: &agents::conversation::ConversationPermissionResponse,
+    options: &[agents::AgentPermissionOption],
+) -> bool {
+    match &response.response {
+        AgentPermissionResponse::Selected { option_id, .. } => {
+            if let Some(opt) = options.iter().find(|opt| opt.id == *option_id) {
+                matches!(
+                    opt.kind,
+                    agents::AgentPermissionOptionKind::RejectOnce
+                        | agents::AgentPermissionOptionKind::RejectAlways
+                )
+            } else {
+                let lower = option_id.trim().to_ascii_lowercase();
+                matches!(
+                    lower.as_str(),
+                    "deny" | "decline" | "reject" | "reject_once" | "reject_always"
+                ) || lower.contains("reject")
+                    || lower.contains("decline")
+                    || lower.contains("deny")
+            }
+        }
+        AgentPermissionResponse::Cancelled => !response.auto,
+    }
+}
+
+fn extract_permission_tool_call_id(
+    details: Option<&serde_json::Value>,
+    permission_id: &str,
+) -> Option<String> {
+    let from_details = details
+        .and_then(|d| {
+            d.get("toolCallId")
+                .or_else(|| d.get("itemId"))
+                .or_else(|| d.get("callId"))
+                .or_else(|| d.get("toolUseId"))
+                .or_else(|| d.get("toolUseID"))
+                .or_else(|| d.get("tool_use_id"))
+        })
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    from_details.or_else(|| {
+        let trimmed = permission_id.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+impl ProjectionFold {
+    fn apply_denied_status_to_existing_tool_call(
+        &mut self,
+        call_id: &str,
+        record: &ConversationEventRecord,
+    ) -> Option<(Uuid, super::cache::AssistantEmit)> {
+        let mut updated_turn: Option<Uuid> = None;
+        for turn_id in self.turn_order.iter().rev() {
+            let Some(turn) = self.turns.get_mut(turn_id) else {
+                continue;
+            };
+            let mut matched = false;
+            for block in &mut turn.assistant.blocks {
+                if let agents::conversation::ContentBlock::ToolUse {
+                    tool_use_id: Some(id),
+                    status,
+                    ended_at,
+                    ..
+                } = block
+                    && id == call_id
+                {
+                    let can_override = match status.as_deref() {
+                        None => true,
+                        Some(s) => matches!(
+                            s.trim().to_ascii_lowercase().as_str(),
+                            "pending"
+                                | "running"
+                                | "in_progress"
+                                | "failed"
+                                | "error"
+                                | "cancelled"
+                                | "canceled"
+                        ),
+                    };
+                    if can_override {
+                        *status = Some("denied".to_string());
+                        if ended_at.is_none() {
+                            *ended_at = Some(record.created_at);
+                        }
+                        matched = true;
+                    }
+                    break;
+                }
+            }
+            if matched {
+                let mut has_result = false;
+                for block in &mut turn.assistant.blocks {
+                    if let agents::conversation::ContentBlock::ToolResult {
+                        tool_use_id: Some(id),
+                        is_error,
+                        ..
+                    } = block
+                        && id == call_id
+                    {
+                        *is_error = true;
+                        has_result = true;
+                        break;
+                    }
+                }
+                if !has_result {
+                    turn.assistant.blocks.push(
+                        agents::conversation::ContentBlock::ToolResult {
+                            tool_use_id: Some(call_id.to_string()),
+                            output_preview: None,
+                            is_error: true,
+                            agent_stats: None,
+                        },
+                    );
+                }
+                turn.revision = record.sequence;
+                updated_turn = Some(*turn_id);
+                break;
+            }
+        }
+        let turn_id = updated_turn?;
+        let turn = self.turns.get(&turn_id)?;
+        let blocks = turn
+            .assistant
+            .blocks
+            .iter()
+            .filter(|block| match block {
+                agents::conversation::ContentBlock::ToolUse {
+                    tool_use_id: Some(id),
+                    ..
+                }
+                | agents::conversation::ContentBlock::ToolResult {
+                    tool_use_id: Some(id),
+                    ..
+                } => id == call_id,
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        Some((
+            turn_id,
+            super::cache::AssistantEmit::Patch {
+                blocks,
+                usage: None,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]

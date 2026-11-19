@@ -50,7 +50,10 @@ import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { useParams } from 'react-router-dom';
 
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
-import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
+import {
+  ComposerTabDock,
+  splitConversationStatusNotices,
+} from './follow-up/ComposerTabDock';
 import { ActionBar } from './follow-up/ActionBar';
 import { useComposerEngineHandoff } from './follow-up/ComposerEngineHandoffControl';
 import type { SessionProviderInstanceConfig } from './follow-up/SessionSettingsSummary';
@@ -62,12 +65,9 @@ import {
 } from '@/lib/providerInstancesApi';
 import { canonicalSessionAgentId } from '@/lib/sessionQueryCache';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
-import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { RateLimitRecoveryBanner } from '@/components/NormalizedConversation/RateLimitRecoveryBanner';
-import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
-import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
 import { sanitizeDependentConfigValues } from './follow-up/SessionConfigOptionSelectors';
 import {
   SessionComposerAttachmentDrawer,
@@ -1259,6 +1259,10 @@ export function TaskFollowUpSection({
   );
 
   const hasDraft = Boolean(localMessage?.trim());
+  const { priorityNotices, tabNotices } = useMemo(
+    () => splitConversationStatusNotices(conversationStatusNotices),
+    [conversationStatusNotices]
+  );
 
   if (!workspaceId) return null;
 
@@ -1270,7 +1274,7 @@ export function TaskFollowUpSection({
           isRetryActive && 'opacity-50'
         )}
       >
-        {/* Scrollable content area */}
+        {/* Scrollable priority area (review comments, git conflicts, rate limit) */}
         <div className="min-h-0 overflow-y-auto px-3">
           <div
             className={cn('mx-auto w-full space-y-2', composerMaxWidthClass)}
@@ -1288,38 +1292,6 @@ export function TaskFollowUpSection({
               />
             )}
 
-            <SessionGoalBar
-              sessionGoal={storedSessionGoal}
-              fallbackGoal={codexGoalState}
-              sessionBindReady={sessionBindReady}
-              onGoalControl={sessionId ? handleGoalControl : undefined}
-              onSelectGoal={
-                sessionId
-                  ? () => requestConversationScrollToGoal(sessionId)
-                  : undefined
-              }
-            />
-
-            <SessionAsyncTaskBar
-              tasks={storedAsyncTasks}
-              sessionBindReady={sessionBindReady}
-              onStopTask={sessionId ? handleStopAsyncTask : undefined}
-            />
-
-            <MessageQueueIndicator
-              isQueued={queueIndicatorState.isQueued}
-              queuedMessages={queueIndicatorState.queuedMessages}
-              delayedMessages={queueIndicatorState.delayedMessages}
-              canSteerQueued={Boolean(queueSteerChannel)}
-              steerChannel={queueSteerChannel}
-              steeringQueued={isSteering}
-              onSteerQueuedMessage={handleSteerQueuedMessage}
-              onEditQueuedMessage={handleEditQueuedMessage}
-              onDeleteQueuedMessage={cancelQueue}
-              onMoveQueuedMessage={moveQueue}
-              onDelayQueuedMessage={delayQueue}
-            />
-
             {activeRateLimit ? (
               <RateLimitRecoveryBanner
                 conversationId={activeRateLimit.conversationId}
@@ -1335,18 +1307,39 @@ export function TaskFollowUpSection({
           widthClassName={composerMaxWidthClass}
           status={
             <ConversationStatusDock
-              notices={conversationStatusNotices}
+              notices={priorityNotices}
               localError={followUpError}
               onDismissLocalError={() => setFollowUpError(null)}
               dismissalScope={session?.id ?? null}
-              extra={
-                childrenDock ? (
-                  <ConversationChildrenSummary
-                    conversationId={childrenDock.conversationId}
-                    onOpenChild={childrenDock.onOpenChild}
-                  />
-                ) : null
+            />
+          }
+          tabs={
+            <ComposerTabDock
+              dismissalScope={session?.id ?? null}
+              isQueued={queueIndicatorState.isQueued}
+              queuedMessages={queueIndicatorState.queuedMessages}
+              delayedMessages={queueIndicatorState.delayedMessages}
+              canSteerQueued={Boolean(queueSteerChannel)}
+              steerChannel={queueSteerChannel}
+              steeringQueued={isSteering}
+              onSteerQueuedMessage={handleSteerQueuedMessage}
+              onEditQueuedMessage={handleEditQueuedMessage}
+              onDeleteQueuedMessage={cancelQueue}
+              onMoveQueuedMessage={moveQueue}
+              onDelayQueuedMessage={delayQueue}
+              childrenDock={childrenDock}
+              asyncTasks={storedAsyncTasks}
+              sessionBindReady={sessionBindReady}
+              onStopAsyncTask={sessionId ? handleStopAsyncTask : undefined}
+              sessionGoal={storedSessionGoal}
+              fallbackGoal={codexGoalState}
+              onGoalControl={sessionId ? handleGoalControl : undefined}
+              onSelectGoal={
+                sessionId
+                  ? () => requestConversationScrollToGoal(sessionId)
+                  : undefined
               }
+              notices={tabNotices}
             />
           }
           overlay={

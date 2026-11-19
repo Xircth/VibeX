@@ -903,6 +903,19 @@ async fn list_space_views_expose_space_lead_nickname() {
     let spaces_view = list_collaboration_spaces_for_caller(&pool, a)
         .await
         .unwrap();
+    assert_eq!(spaces_view["is_space_session"], true);
+    assert_eq!(
+        spaces_view["capabilities"]["manage_group"]["available_in_session"],
+        true
+    );
+    assert_eq!(
+        spaces_view["capabilities"]["manage_group"]["reason_code"],
+        "role_restricted"
+    );
+    assert_eq!(
+        spaces_view["capabilities"]["manage_group"]["ui_path"],
+        "协作空间 → ＋ → 创建群聊"
+    );
     let space_item = spaces_view["spaces"]
         .as_array()
         .unwrap()
@@ -918,6 +931,12 @@ async fn list_space_views_expose_space_lead_nickname() {
         .find(|row| row["nickname"] == "小B")
         .expect("小B in space overview");
     assert_eq!(listed_b["is_lead"], true);
+
+    let err = require_workspace_supervisor(&pool, a, "create groups")
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, "forbidden");
+    assert!(err.message.contains("协作空间 → ＋"), "{}", err.message);
 }
 
 #[tokio::test]

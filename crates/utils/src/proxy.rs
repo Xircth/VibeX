@@ -4,13 +4,28 @@
 use std::process::Command;
 use std::{
     net::{SocketAddr, TcpStream},
-    sync::OnceLock,
+    sync::{OnceLock, RwLock},
     time::Duration,
 };
 
 const PROXY_PROBE_TIMEOUT: Duration = Duration::from_millis(200);
 
 static INHERITED_PROXY: OnceLock<Option<String>> = OnceLock::new();
+static PROCESS_PROXY_MODE: OnceLock<RwLock<ProcessProxyMode>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ProcessProxyMode {
+    #[default]
+    Unmanaged,
+    Auto,
+    Manual {
+        active: bool,
+    },
+}
+
+fn process_proxy_mode_lock() -> &'static RwLock<ProcessProxyMode> {
+    PROCESS_PROXY_MODE.get_or_init(|| RwLock::new(ProcessProxyMode::Unmanaged))
+}
 
 /// How a proxy URL was observed. PAC is reported but not applied process-wide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +55,7 @@ pub struct DetectedProxy {
     pub source: ProxySource,
 }
 
-const ENV_PROXY_KEYS: [&str; 6] = [
+pub const ENV_PROXY_KEYS: [&str; 6] = [
     "HTTPS_PROXY",
     "https_proxy",
     "HTTP_PROXY",
@@ -52,6 +67,80 @@ const ENV_PROXY_KEYS: [&str; 6] = [
 /// Snapshot the process proxy env once, before Dimo overwrites it.
 pub fn capture_inherited_proxy() {
     let _ = INHERITED_PROXY.get_or_init(env_proxy_url);
+}
+
+/// Apply or clear process proxy environment variables and record whether Dimo
+/// is operating in manual proxy override mode or auto OS-detection mode.
+pub fn apply_process_proxy_env(url: Option<&str>, is_manual: bool) {
+    capture_inherited_proxy();
+    let trimmed = url.map(str::trim).filter(|value| !value.is_empty());
+    if let Ok(mut mode) = process_proxy_mode_lock().write() {
+        *mode = if is_manual {
+            ProcessProxyMode::Manual {
+                active: trimmed.is_some(),
+            }
+        } else {
+            ProcessProxyMode::Auto
+        };
+    }
+    sync_env_proxy_vars(trimmed);
+}
+
+/// Re-sync process proxy env vars from live OS/inherited detection when Dimo
+/// is running in `Auto` proxy mode (e.g. if user toggles VPN while running).
+pub fn refresh_auto_proxy_env() {
+    let is_auto = process_proxy_mode_lock()
+        .read()
+        .map(|mode| matches!(*mode, ProcessProxyMode::Auto))
+        .unwrap_or(false);
+    if !is_auto {
+        return;
+    }
+    let live_url = detect_proxy().and_then(|item| {
+        item.source
+            .applies_to_process()
+            .then(|| item.url.trim().to_string())
+            .filter(|url| !url.is_empty())
+    });
+    sync_env_proxy_vars(live_url.as_deref());
+}
+
+fn sync_env_proxy_vars(target: Option<&str>) {
+    match target {
+        Some(url) => {
+            for key in ENV_PROXY_KEYS {
+                let already_set = std::env::var(key).ok().as_deref() == Some(url);
+                if !already_set {
+                    unsafe { std::env::set_var(key, url) };
+                }
+            }
+        }
+        None => {
+            for key in ENV_PROXY_KEYS {
+                if std::env::var_os(key).is_some() {
+                    unsafe { std::env::remove_var(key) };
+                }
+            }
+        }
+    }
+}
+
+/// Whether an active, usable network proxy (manual proxy, OS proxy, or
+/// external process proxy env; excluding PAC-only auto-config) is in effect.
+pub fn has_active_proxy() -> bool {
+    let mode = process_proxy_mode_lock()
+        .read()
+        .map(|guard| *guard)
+        .unwrap_or(ProcessProxyMode::Unmanaged);
+    has_active_proxy_for_mode(mode, detect_proxy().as_ref())
+}
+
+fn has_active_proxy_for_mode(mode: ProcessProxyMode, detected: Option<&DetectedProxy>) -> bool {
+    match mode {
+        ProcessProxyMode::Manual { active } => active,
+        ProcessProxyMode::Auto | ProcessProxyMode::Unmanaged => detected
+            .is_some_and(|item| item.source.applies_to_process() && !item.url.trim().is_empty()),
+    }
 }
 
 /// Best proxy currently advertised by the OS or the launching environment.
@@ -66,11 +155,10 @@ pub fn detect_proxy() -> Option<DetectedProxy> {
 }
 
 fn inherited_proxy_url() -> Option<String> {
-    INHERITED_PROXY
-        .get()
-        .cloned()
-        .flatten()
-        .or_else(env_proxy_url)
+    if let Some(captured) = INHERITED_PROXY.get() {
+        return captured.clone();
+    }
+    env_proxy_url()
 }
 
 pub fn env_proxy_url() -> Option<String> {
@@ -479,5 +567,79 @@ mod tests {
         assert!(proxy_url_is_reachable(&url));
         drop(listener);
         assert!(!proxy_url_is_reachable(&url));
+    }
+
+    #[test]
+    fn active_proxy_respects_manual_override_and_ignores_pac() {
+        use super::{DetectedProxy, ProcessProxyMode, has_active_proxy_for_mode};
+
+        let pac = DetectedProxy {
+            url: "http://wpad.example/proxy.pac".to_string(),
+            source: ProxySource::Pac,
+        };
+        let system = DetectedProxy {
+            url: "http://127.0.0.1:7890".to_string(),
+            source: ProxySource::System,
+        };
+        let blank_env = DetectedProxy {
+            url: "   ".to_string(),
+            source: ProxySource::Env,
+        };
+
+        assert!(!has_active_proxy_for_mode(ProcessProxyMode::Auto, None));
+        assert!(!has_active_proxy_for_mode(
+            ProcessProxyMode::Auto,
+            Some(&pac)
+        ));
+        assert!(!has_active_proxy_for_mode(
+            ProcessProxyMode::Auto,
+            Some(&blank_env)
+        ));
+        assert!(has_active_proxy_for_mode(
+            ProcessProxyMode::Auto,
+            Some(&system)
+        ));
+        assert!(has_active_proxy_for_mode(
+            ProcessProxyMode::Manual { active: true },
+            None
+        ));
+        assert!(!has_active_proxy_for_mode(
+            ProcessProxyMode::Manual { active: false },
+            Some(&system)
+        ));
+    }
+
+    #[test]
+    fn apply_process_proxy_env_sets_and_clears_without_polluting_inherited_snapshot() {
+        use super::{
+            ENV_PROXY_KEYS, ProcessProxyMode, apply_process_proxy_env, has_active_proxy,
+            inherited_proxy_url, process_proxy_mode_lock,
+        };
+
+        // Capture snapshot before applying Dimo-managed env vars.
+        super::capture_inherited_proxy();
+        let expected_inherited = inherited_proxy_url();
+
+        apply_process_proxy_env(Some("http://127.0.0.1:7897"), true);
+        assert!(has_active_proxy());
+        for key in ENV_PROXY_KEYS {
+            assert_eq!(
+                std::env::var(key).ok().as_deref(),
+                Some("http://127.0.0.1:7897")
+            );
+        }
+        assert_eq!(inherited_proxy_url(), expected_inherited);
+
+        apply_process_proxy_env(None, true);
+        assert!(!has_active_proxy());
+        for key in ENV_PROXY_KEYS {
+            assert_eq!(std::env::var_os(key), None);
+        }
+
+        // Restore Unmanaged mode and any previously inherited env vars.
+        if let Ok(mut mode) = process_proxy_mode_lock().write() {
+            *mode = ProcessProxyMode::Unmanaged;
+        }
+        super::sync_env_proxy_vars(expected_inherited.as_deref());
     }
 }

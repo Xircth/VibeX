@@ -1,10 +1,13 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { RefreshCw, RotateCcw, X } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
-import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
+import {
+  ConversationStatusDetailsContent,
+  ConversationStatusDetailsTrigger,
+} from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import {
   rememberVisibleSessionAnnouncements,
@@ -78,6 +81,15 @@ export function ConversationStatusDock({
             role="alert"
             title={t('statusDock.localErrorTitle')}
             badgeLabel={t('statusDock.errorBadge')}
+            detailsLabel={t('statusDock.showDetails')}
+            detailsAccessibleLabel={t('statusDock.showDetailsFor', {
+              title: t('statusDock.localErrorTitle'),
+            })}
+            detailsKey={localError}
+            detailsMono
+            detailsContent={
+              <p className="whitespace-pre-wrap break-words">{localError}</p>
+            }
             action={
               onDismissLocalError ? (
                 <DismissButton
@@ -86,19 +98,7 @@ export function ConversationStatusDock({
                 />
               ) : null
             }
-          >
-            <ConversationStatusDetails
-              key={localError}
-              title={t('statusDock.localErrorTitle')}
-              label={t('statusDock.showDetails')}
-              accessibleLabel={t('statusDock.showDetailsFor', {
-                title: t('statusDock.localErrorTitle'),
-              })}
-              mono
-            >
-              <p className="whitespace-pre-wrap break-words">{localError}</p>
-            </ConversationStatusDetails>
-          </StatusSurface>
+          />
         ) : null}
 
         {visibleNotices.map((notice) => {
@@ -119,6 +119,7 @@ export function ConversationStatusDock({
 
           if (notice.kind === 'interrupted-turn') {
             const title = t('messageTurnView.interruptedTitle');
+            const detailText = t('messageTurnView.interruptedDescription');
             return (
               <StatusSurface
                 key={notice.id}
@@ -126,6 +127,12 @@ export function ConversationStatusDock({
                 role="status"
                 title={title}
                 badgeLabel={t('statusDock.warningBadge')}
+                detailsLabel={t('statusDock.showDetails')}
+                detailsAccessibleLabel={t('statusDock.showDetailsFor', {
+                  title,
+                })}
+                detailsKey={detailText}
+                detailsContent={<p className="break-words">{detailText}</p>}
                 action={
                   <div className="flex items-center gap-1">
                     {notice.onResend ? (
@@ -146,18 +153,7 @@ export function ConversationStatusDock({
                     />
                   </div>
                 }
-              >
-                <ConversationStatusDetails
-                  key={t('messageTurnView.interruptedDescription')}
-                  title={title}
-                  label={t('statusDock.showDetails')}
-                  accessibleLabel={t('statusDock.showDetailsFor', { title })}
-                >
-                  <p className="break-words">
-                    {t('messageTurnView.interruptedDescription')}
-                  </p>
-                </ConversationStatusDetails>
-              </StatusSurface>
+              />
             );
           }
 
@@ -187,6 +183,19 @@ export function ConversationStatusDock({
               role={tone === 'error' ? 'alert' : 'status'}
               title={copy.title}
               badgeLabel={t(`statusDock.${tone}Badge`)}
+              detailsLabel={t('statusDock.showDetails')}
+              detailsAccessibleLabel={t('statusDock.showDetailsFor', {
+                title: copy.title,
+              })}
+              detailsKey={copy.message ?? ''}
+              detailsMono={tone !== 'info'}
+              detailsContent={
+                copy.message ? (
+                  <p className="whitespace-pre-wrap break-words">
+                    {copy.message}
+                  </p>
+                ) : null
+              }
               action={
                 <div className="flex items-center gap-1">
                   {notice.notice.action ? (
@@ -229,23 +238,7 @@ export function ConversationStatusDock({
                   />
                 </div>
               }
-            >
-              {copy.message ? (
-                <ConversationStatusDetails
-                  key={copy.message}
-                  title={copy.title}
-                  label={t('statusDock.showDetails')}
-                  accessibleLabel={t('statusDock.showDetailsFor', {
-                    title: copy.title,
-                  })}
-                  mono={tone !== 'info'}
-                >
-                  <p className="whitespace-pre-wrap break-words">
-                    {copy.message}
-                  </p>
-                </ConversationStatusDetails>
-              ) : null}
-            </StatusSurface>
+            />
           );
         })}
       </div>
@@ -279,15 +272,31 @@ function StatusSurface({
   title,
   badgeLabel,
   action,
-  children,
+  detailsLabel,
+  detailsAccessibleLabel,
+  detailsKey,
+  detailsMono = false,
+  detailsContent,
 }: {
   tone: 'error' | 'warning' | 'info';
   role: 'alert' | 'status';
   title: string;
   badgeLabel: string;
   action?: React.ReactNode;
-  children: React.ReactNode;
+  detailsLabel?: string;
+  detailsAccessibleLabel?: string;
+  detailsKey?: string;
+  detailsMono?: boolean;
+  detailsContent?: React.ReactNode;
 }) {
+  const detailsId = useId();
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    setExpanded(false);
+  }, [detailsKey]);
+
+  const hasDetails = Boolean(detailsContent && detailsLabel);
+
   return (
     <div className="composer-status-row text-xs" data-tone={tone} role={role}>
       <div className="composer-status-header">
@@ -299,11 +308,27 @@ function StatusSurface({
             label={badgeLabel}
           />
         </div>
-        {action ? (
-          <div className="composer-status-action-slot">{action}</div>
+        {hasDetails || action ? (
+          <div className="composer-status-action-slot">
+            {hasDetails ? (
+              <ConversationStatusDetailsTrigger
+                title={title}
+                label={detailsLabel!}
+                accessibleLabel={detailsAccessibleLabel}
+                expanded={expanded}
+                controlsId={detailsId}
+                onToggle={() => setExpanded((current) => !current)}
+              />
+            ) : null}
+            {action}
+          </div>
         ) : null}
       </div>
-      {children}
+      {hasDetails && expanded ? (
+        <ConversationStatusDetailsContent id={detailsId} mono={detailsMono}>
+          {detailsContent}
+        </ConversationStatusDetailsContent>
+      ) : null}
     </div>
   );
 }

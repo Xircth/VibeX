@@ -18,13 +18,10 @@ pub(super) async fn ensure_managed_uv(managed_artifacts_dir: &Path) -> anyhow::R
     tokio::fs::create_dir_all(&base).await?;
     let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
     tokio::fs::create_dir_all(&staging).await?;
-    let filename = format!("uv-{}.{}", artifact.target, artifact.extension);
-    let url = format!(
-        "https://github.com/astral-sh/uv/releases/download/{MANAGED_UV_VERSION}/{filename}"
-    );
+    let urls = managed_uv_download_urls(&artifact);
     println!("Downloading managed uv {MANAGED_UV_VERSION} ({platform})");
     let result = async {
-        let bytes = download_archive(&url, MAX_MANAGED_TOOL_BYTES).await?;
+        let (url, bytes) = download_archive_from(&urls, MAX_MANAGED_TOOL_BYTES).await?;
         let actual = format!("{:x}", Sha256::digest(&bytes));
         if !actual.eq_ignore_ascii_case(artifact.sha256) {
             anyhow::bail!(
@@ -145,19 +142,32 @@ where
     );
     println!("{cmd_line}");
     on_progress(55, &cmd_line);
-    let mut command = utils::process::new_hidden_tokio_command(npm, std::iter::empty::<&str>());
-    if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
-        command.env("NODE_USE_ENV_PROXY", "1");
+    let mut errors = Vec::new();
+    for registry in utils::mirror::npm_registry_candidates() {
+        let mut command = utils::process::new_hidden_tokio_command(npm, std::iter::empty::<&str>());
+        if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
+            command.env("NODE_USE_ENV_PROXY", "1");
+        }
+        if let Some(runtime) = node {
+            prepend_command_path(&mut command, &runtime.bin_dir);
+            command.env("npm_config_prefix", &user_env.npm_prefix);
+        }
+        command.args(npm_global_install_args_with_registry(
+            &user_env.npm_prefix,
+            &component.resolved_source,
+            registry,
+        ));
+        match run_command_with_progress("npm install -g", command, 68, on_progress).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if npm_install_permission_denied(&error.to_string()) {
+                    return Err(error);
+                }
+                errors.push(format!("{registry}: {error}"));
+            }
+        }
     }
-    if let Some(runtime) = node {
-        prepend_command_path(&mut command, &runtime.bin_dir);
-        command.env("npm_config_prefix", &user_env.npm_prefix);
-    }
-    command.args(npm_global_install_args(
-        &user_env.npm_prefix,
-        &component.resolved_source,
-    ));
-    run_command_with_progress("npm install -g", command, 68, on_progress).await
+    anyhow::bail!("{}", errors.join("; "))
 }
 
 pub(super) async fn install_npm<F>(
@@ -191,8 +201,10 @@ where
         run_npm_global_install(&npm, component, user_env, node, on_progress).await?;
     }
     let package = npm_spec_name(&component.resolved_source);
-    let name = if command_is_placeholder(&component.command) {
-        package.rsplit('/').next().unwrap_or(package.as_str())
+    let resolved_bin = command_is_placeholder(&component.command)
+        .then(|| resolve_npm_package_bin_name(&user_env.npm_prefix, &package));
+    let name = if let Some(bin_name) = resolved_bin.as_deref() {
+        bin_name
     } else {
         Path::new(&component.command)
             .file_name()
@@ -209,6 +221,52 @@ where
     Ok(utils::process::prefer_direct_spawn_executable(
         tokio::fs::canonicalize(bin).await?,
     ))
+}
+
+pub(super) fn resolve_npm_package_bin_name(npm_prefix: &Path, package: &str) -> String {
+    let unscoped = package.rsplit('/').next().unwrap_or(package);
+    let mut pkg_rel = PathBuf::from("node_modules");
+    for segment in package.split('/') {
+        if !segment.is_empty() {
+            pkg_rel.push(segment);
+        }
+    }
+    pkg_rel.push("package.json");
+    let candidates = [
+        npm_prefix.join(&pkg_rel),
+        npm_prefix.join("lib").join(&pkg_rel),
+    ];
+    for package_json in candidates {
+        let Ok(bytes) = std::fs::read(&package_json) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        match parsed.get("bin") {
+            Some(serde_json::Value::String(_)) => {
+                if let Some(name) = parsed
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.rsplit('/').next().unwrap_or(value).trim())
+                    .filter(|value| !value.is_empty())
+                {
+                    return name.to_string();
+                }
+                return unscoped.to_string();
+            }
+            Some(serde_json::Value::Object(map)) if !map.is_empty() => {
+                if map.contains_key(unscoped) {
+                    return unscoped.to_string();
+                }
+                if let Some(first) = map.keys().next() {
+                    return first.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+    unscoped.to_string()
 }
 
 pub(super) fn command_is_placeholder(command: &str) -> bool {
@@ -242,6 +300,8 @@ pub(super) async fn live_npm_global_prefix(node: Option<&NodeRuntime>) -> Option
     }
 }
 
+const MAX_AGENT_BINARY_BYTES: usize = 512 * 1024 * 1024;
+
 pub(super) async fn install_uv<F>(
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
@@ -261,22 +321,44 @@ where
     );
     println!("$ uv tool install {}", component.resolved_source);
     on_progress(55, &cmd_line);
-    let mut command = utils::process::new_hidden_tokio_command(&uv, std::iter::empty::<&str>());
-    command
-        .arg("tool")
-        .arg("install")
-        .arg("--force")
-        .arg("--no-config");
-    if component.resolved_source.starts_with("hermes-agent[") {
-        command.arg("--python").arg("3.13");
+    let mut errors = Vec::new();
+    let mut installed = false;
+    for (pypi_index, python_mirror) in utils::mirror::uv_install_mirror_candidates() {
+        let mut command = utils::process::new_hidden_tokio_command(&uv, std::iter::empty::<&str>());
+        command
+            .arg("tool")
+            .arg("install")
+            .arg("--force")
+            .arg("--no-config")
+            .arg("--default-index")
+            .arg(pypi_index);
+        if component.resolved_source.starts_with("hermes-agent[") {
+            command.arg("--python").arg("3.13");
+        }
+        command
+            .arg(&component.resolved_source)
+            .env("UV_TOOL_DIR", &user_env.uv_tool_dir)
+            .env("UV_TOOL_BIN_DIR", &user_env.uv_tool_bin)
+            .env("UV_PYTHON_INSTALL_DIR", &user_env.uv_python_dir)
+            .env("UV_CACHE_DIR", &user_env.uv_cache_dir);
+        if let Some(mirror) = python_mirror {
+            command.env("UV_PYTHON_INSTALL_MIRROR", mirror);
+        } else {
+            command.env_remove("UV_PYTHON_INSTALL_MIRROR");
+        }
+        match run_command_with_progress("uv tool install", command, 68, on_progress).await {
+            Ok(()) => {
+                installed = true;
+                break;
+            }
+            Err(error) => {
+                errors.push(format!("{pypi_index}: {error}"));
+            }
+        }
     }
-    command
-        .arg(&component.resolved_source)
-        .env("UV_TOOL_DIR", &user_env.uv_tool_dir)
-        .env("UV_TOOL_BIN_DIR", &user_env.uv_tool_bin)
-        .env("UV_PYTHON_INSTALL_DIR", &user_env.uv_python_dir)
-        .env("UV_CACHE_DIR", &user_env.uv_cache_dir);
-    run_command_with_progress("uv tool install", command, 68, on_progress).await?;
+    if !installed {
+        anyhow::bail!("{}", errors.join("; "));
+    }
     let name = Path::new(&component.command)
         .file_name()
         .and_then(|name| name.to_str())
@@ -311,12 +393,21 @@ where
         "Downloading {} ({})",
         component.component_id, component.version
     );
-    on_progress(55, &format!("GET {}", component.resolved_source));
-    let bytes = reqwest::get(&component.resolved_source)
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let urls = utils::mirror::download_url_candidates(&component.resolved_source);
+    on_progress(
+        55,
+        &format!(
+            "GET {}",
+            urls.first()
+                .map(String::as_str)
+                .unwrap_or(&component.resolved_source)
+        ),
+    );
+    let (downloaded_url, bytes) = download_archive_from(&urls, MAX_AGENT_BINARY_BYTES).await?;
+    if let agents::ArtifactTrust::ExpectedSha256 { .. } = &component.trust {
+        verify_artifact_bytes(&component.trust, &bytes, None)
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+    }
     on_progress(
         65,
         &format!(
@@ -326,7 +417,7 @@ where
         ),
     );
     let staging = utils::path::unique_dimo_scratch_dir("agent")?;
-    let extract_result = extract_archive(&bytes, &component.resolved_source, &staging);
+    let extract_result = extract_archive(&bytes, &downloaded_url, &staging);
     let staged =
         match extract_result.and_then(|_| find_staged_executable(&staging, &component.command)) {
             Ok(path) => path,
@@ -533,9 +624,10 @@ pub(super) async fn install_kiro_windows_with_fallback(
             "Running Kiro official PowerShell installer: {}",
             component.resolved_source
         );
-        if let Ok(response) = reqwest::get(&component.resolved_source).await
-            && let Ok(response) = response.error_for_status()
-            && let Ok(script_text) = response.text().await
+        let ps1_urls = utils::mirror::download_url_candidates(&component.resolved_source);
+        if let Ok((_, script_bytes)) =
+            download_archive_from(&ps1_urls, MAX_MANAGED_TOOL_BYTES).await
+            && let Ok(script_text) = String::from_utf8(script_bytes)
         {
             let sanitized = sanitize_kiro_powershell_script(&script_text);
             let script_path = staging.join("install.ps1");
@@ -646,11 +738,10 @@ pub(super) async fn download_kiro_windows_msi(
     } else {
         const KIRO_MANIFEST_URL: &str =
             "https://prod.download.cli.kiro.dev/stable/latest/manifest.json";
-        let manifest: serde_json::Value = reqwest::get(KIRO_MANIFEST_URL)
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let manifest_urls = utils::mirror::download_url_candidates(KIRO_MANIFEST_URL);
+        let (_, manifest_bytes) =
+            download_archive_from(&manifest_urls, MAX_MANAGED_TOOL_BYTES).await?;
+        let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
         let pkg = manifest
             .get("packages")
             .and_then(serde_json::Value::as_array)
@@ -679,11 +770,12 @@ pub(super) async fn download_kiro_windows_msi(
         )
     };
     println!("Downloading Kiro Windows MSI: {msi_url}");
-    let bytes = reqwest::get(&msi_url)
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let msi_urls = utils::mirror::download_url_candidates(&msi_url);
+    let (_, bytes) = download_archive_from(&msi_urls, MAX_AGENT_BINARY_BYTES).await?;
+    if let agents::ArtifactTrust::ExpectedSha256 { .. } = &component.trust {
+        verify_artifact_bytes(&component.trust, &bytes, None)
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+    }
     if let Some(expected) = expected_sha256 {
         let actual = format!("{:x}", Sha256::digest(&bytes));
         if !actual.eq_ignore_ascii_case(&expected) {
@@ -704,11 +796,9 @@ pub(super) async fn install_kiro_unix_installer(
         "Running Kiro official installer: {}",
         component.resolved_source
     );
-    let script_bytes = reqwest::get(&component.resolved_source)
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let script_urls = utils::mirror::download_url_candidates(&component.resolved_source);
+    let (_, script_bytes) =
+        download_archive_from(&script_urls, MAX_MANAGED_TOOL_BYTES).await?;
     let script_path = staging.join("install.sh");
     tokio::fs::write(&script_path, &script_bytes).await?;
     let mut cmd = utils::process::new_hidden_tokio_command("bash", [&script_path]);

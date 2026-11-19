@@ -57,6 +57,7 @@ function handleComposerBodyClick(event: MouseEvent<HTMLDivElement>) {
 
 export function SessionComposerFrame({
   status,
+  tabs,
   drawer,
   overlay,
   widthClassName = 'max-w-3xl',
@@ -65,6 +66,7 @@ export function SessionComposerFrame({
   children,
 }: {
   status?: ReactNode;
+  tabs?: ReactNode;
   drawer?: ReactNode;
   overlay?: ReactNode;
   widthClassName?: string;
@@ -85,6 +87,7 @@ export function SessionComposerFrame({
       >
         {status}
         {overlay}
+        {tabs}
         {drawer}
         <div
           className="session-composer-anchor relative"

@@ -295,25 +295,33 @@ async fn migrate_legacy_native_engine_lock(
     let Some(profile) = catalog.profile(agent_id) else {
         return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
     };
-    let Some(candidate) = profile
+    let candidates = profile
         .external_candidates
         .iter()
-        .find(|candidate| candidate.component == ProfileComponent::CombinedRuntime)
-    else {
+        .filter(|candidate| candidate.component == ProfileComponent::CombinedRuntime)
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
         return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
-    };
-    let resolved = match utils::shell::resolve_executable_path(candidate.executable)
-        .await
-        .filter(|path| !agents::launch_program_is_legacy_acp_shim(agent_id, path))
-    {
-        Some(path) => Some(path),
-        None => app
-            .path()
-            .home_dir()
-            .ok()
-            .and_then(|home| agents::resolve_native_engine_cli(agent_id.as_str(), &home)),
-    };
-    let Some(raw_executable) = resolved else {
+    }
+    let mut matched_pair = None;
+    for candidate in candidates {
+        let resolved = match utils::shell::resolve_executable_path(candidate.executable)
+            .await
+            .filter(|path| !agents::launch_program_is_legacy_acp_shim(agent_id, path))
+        {
+            Some(path) => Some(path),
+            None => app
+                .path()
+                .home_dir()
+                .ok()
+                .and_then(|home| agents::resolve_native_engine_cli(agent_id.as_str(), &home)),
+        };
+        if let Some(raw) = resolved {
+            matched_pair = Some((candidate, raw));
+            break;
+        }
+    }
+    let Some((candidate, raw_executable)) = matched_pair else {
         return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
     };
     let executable = tokio::fs::canonicalize(&raw_executable)

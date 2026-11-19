@@ -59,6 +59,11 @@ impl AppState {
         let local_deployment = Arc::new(LocalDeployment::new().await?);
         let deployment: Arc<dyn Deployment> = local_deployment.clone();
         let pool = deployment.db().pool.clone();
+        if let Err(error) =
+            server::reconcile_migrated_data_dir_paths(&pool, &utils::assets::asset_dir()).await
+        {
+            tracing::warn!(%error, "could not reconcile migrated data directory paths");
+        }
         // The event-sourced `conversation_events` log is the single authoritative
         // record (批次D). The first-generation `agent_*` shadow tables are retired;
         // runtime events now flow through one lossless receiver into that log.

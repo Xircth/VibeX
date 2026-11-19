@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import {
   Bot,
   CheckCircle2,
@@ -16,7 +16,6 @@ import {
   applySubagentLifecycle,
   buildSubagentCardModel,
   formatTokenCount,
-  summarizeSubagentChildTool,
   type SubagentChildTool,
   type SubagentLifecycleEvent,
   type SubagentStatus,
@@ -75,9 +74,9 @@ export function SubagentCard({
     <div
       role="group"
       aria-label={model.title}
-      className="rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
+      className="overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex min-w-0 items-start gap-2.5">
         <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted text-muted-foreground">
           {model.agentKind ? (
             <AgentTypeIcon
@@ -90,7 +89,10 @@ export function SubagentCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-foreground">
+            <span
+              title={model.title}
+              className="min-w-0 flex-1 truncate font-medium text-foreground"
+            >
               {model.title}
             </span>
             {model.prompt || model.resultText || durationLabel ? null : (
@@ -99,7 +101,7 @@ export function SubagentCard({
           </div>
 
           {model.prompt || model.resultText || durationLabel ? (
-            <div className="mt-2">
+            <div className="mt-2 min-w-0">
               <div className="flex min-w-0 items-center gap-3">
                 {model.prompt ? (
                   <DisclosureToggle
@@ -125,66 +127,17 @@ export function SubagentCard({
                 <StatusPill status={model.status} />
               </div>
               {openSection === 'prompt' && model.prompt ? (
-                <div className="mt-1.5 text-xs text-foreground">
+                <SubagentDisclosurePanel>
                   <AstryxMarkdown value={model.prompt} />
-                </div>
+                </SubagentDisclosurePanel>
               ) : null}
               {openSection === 'result' && model.resultText ? (
-                <div className="mt-1.5 text-xs text-foreground">
+                <SubagentDisclosurePanel
+                  tone={model.status === 'failed' ? 'danger' : 'default'}
+                >
                   <AstryxMarkdown value={model.resultText} />
-                </div>
+                </SubagentDisclosurePanel>
               ) : null}
-            </div>
-          ) : null}
-
-          {model.thinkingText ? (
-            <div
-              data-testid="subagent-thinking"
-              className="mt-1.5 whitespace-pre-wrap text-xs text-muted-foreground"
-            >
-              {model.thinkingText}
-            </div>
-          ) : null}
-
-          {model.liveText && !model.resultText ? (
-            <div
-              data-testid="subagent-live-text"
-              className="mt-1.5 text-xs text-foreground"
-            >
-              <AstryxMarkdown value={model.liveText} />
-            </div>
-          ) : null}
-
-          {model.children.length > 0 ? (
-            <div
-              data-testid="subagent-child-tools"
-              className="mt-2 space-y-1 border-l-2 border-border/60 pl-2.5 text-xs text-muted-foreground"
-            >
-              {model.children.map((child, index) => {
-                const summary = summarizeSubagentChildTool(child);
-                return (
-                  <div
-                    key={`${summary.id}:${index}`}
-                    className="flex min-w-0 items-center gap-1.5"
-                  >
-                    {summary.status === 'running' ? (
-                      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
-                    ) : summary.status === 'failed' ? (
-                      <XCircle className="h-3 w-3 shrink-0 text-destructive" />
-                    ) : (
-                      <CheckCircle2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="shrink-0 font-medium text-foreground">
-                      {summary.label}
-                    </span>
-                    {summary.target ? (
-                      <span className="truncate font-mono text-[11px] text-muted-foreground">
-                        {summary.target}
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
             </div>
           ) : null}
 
@@ -201,6 +154,26 @@ export function SubagentCard({
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SubagentDisclosurePanel({
+  tone = 'default',
+  children,
+}: {
+  tone?: 'default' | 'danger';
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-testid="subagent-disclosure-panel"
+      className={cn(
+        'mt-2 max-h-[min(20rem,45vh)] overflow-y-auto overscroll-contain rounded-md bg-muted/40 px-3 py-2 text-xs break-words',
+        tone === 'danger' ? 'text-destructive' : 'text-foreground'
+      )}
+    >
+      {children}
     </div>
   );
 }

@@ -785,7 +785,16 @@ pub(crate) fn normalize_codex_notification(
                 }
             } else {
                 let status_str = str_any(item, &["status"]).unwrap_or_else(|| "completed".into());
-                let is_error = matches!(status_str.as_str(), "failed" | "error" | "declined");
+                let timed_out_flag = item
+                    .get("timedOut")
+                    .or_else(|| item.get("timed_out"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let is_error = timed_out_flag
+                    || matches!(
+                        status_str.trim().to_ascii_lowercase().as_str(),
+                        "failed" | "error" | "declined" | "denied" | "timedout" | "timed_out"
+                    );
                 out.push(EngineEvent::ToolResult {
                     prompt_id: prompt_id.clone(),
                     session_id: session_id.clone(),

@@ -1,5 +1,6 @@
 use agents::{
     LockedInstallSource, PlannedDistributionKind, PlannedInstallComponent,
+    managed_node_download_urls_for_proxy, managed_uv_download_urls_for_proxy,
     node_verified_for_install, uv_verified_for_install,
 };
 
@@ -37,15 +38,78 @@ fn host_install_plans_npx_without_a_system_node() {
 #[test]
 fn connected_app_host_install_downloads_node_with_mirrors() {
     let artifact = managed_node_artifact("linux-x86_64").expect("linux node");
-    let urls = managed_node_download_urls(&artifact);
+    let with_proxy = managed_node_download_urls_for_proxy(&artifact, true);
     assert!(
-        urls[0].starts_with("https://nodejs.org/dist/"),
+        with_proxy[0].starts_with("https://nodejs.org/dist/"),
         "{}",
-        urls[0]
+        with_proxy[0]
     );
     assert!(
-        urls.iter().any(|url| url.contains("npmmirror.com")),
+        with_proxy.iter().any(|url| url.contains("npmmirror.com")),
         "a self-hosted Host must be able to bootstrap Node without SSH upload"
+    );
+    assert!(
+        with_proxy
+            .iter()
+            .any(|url| url.contains("mirror.dimo-ai.com")),
+        "Dimo mirror must be included as fallback"
+    );
+
+    let no_proxy = managed_node_download_urls_for_proxy(&artifact, false);
+    assert!(
+        no_proxy[0].contains("npmmirror.com"),
+        "direct traffic must prefer public China mirror first: {}",
+        no_proxy[0]
+    );
+    assert!(no_proxy.iter().any(|url| url.contains("mirror.dimo-ai.com")));
+    assert!(no_proxy.last().unwrap().starts_with("https://nodejs.org/dist/"));
+}
+
+#[test]
+fn host_install_routes_uv_and_kiro_sources_by_proxy_state() {
+    let artifact = managed_uv_artifact("linux-x86_64").expect("linux uv");
+    let uv_proxy = managed_uv_download_urls_for_proxy(&artifact, true);
+    assert!(uv_proxy[0].starts_with("https://github.com/astral-sh/uv/releases/download/"));
+    assert!(uv_proxy[1].starts_with("https://mirror.dimo-ai.com/dl/github/astral-sh/uv/"));
+
+    let uv_direct = managed_uv_download_urls_for_proxy(&artifact, false);
+    assert!(uv_direct[0].starts_with("https://mirror.dimo-ai.com/dl/github/astral-sh/uv/"));
+    assert!(uv_direct[1].starts_with("https://github.com/astral-sh/uv/releases/download/"));
+
+    let pip_proxy = utils::mirror::uv_install_mirror_candidates_for_proxy(true);
+    assert_eq!(pip_proxy[0].0, utils::mirror::OFFICIAL_PYPI_INDEX);
+    assert_eq!(pip_proxy.last().unwrap().0, utils::mirror::DIMO_PYPI_INDEX);
+
+    let pip_direct = utils::mirror::uv_install_mirror_candidates_for_proxy(false);
+    assert_eq!(pip_direct[0].0, utils::mirror::PUBLIC_PYPI_TUNA_INDEX);
+    assert!(
+        pip_direct
+            .iter()
+            .any(|(idx, _)| *idx == utils::mirror::DIMO_PYPI_INDEX)
+    );
+    assert_eq!(pip_direct.last().unwrap().0, utils::mirror::OFFICIAL_PYPI_INDEX);
+
+    let kiro_direct = utils::mirror::download_url_candidates_for_proxy(
+        "https://prod.download.cli.kiro.dev/stable/latest/manifest.json",
+        false,
+    );
+    assert_eq!(
+        kiro_direct,
+        vec![
+            "https://mirror.dimo-ai.com/dl/kiro-prod/stable/latest/manifest.json",
+            "https://prod.download.cli.kiro.dev/stable/latest/manifest.json",
+        ]
+    );
+    let kiro_proxy = utils::mirror::download_url_candidates_for_proxy(
+        "https://cli.kiro.dev/install.ps1",
+        true,
+    );
+    assert_eq!(
+        kiro_proxy,
+        vec![
+            "https://cli.kiro.dev/install.ps1",
+            "https://mirror.dimo-ai.com/dl/kiro-cli/install.ps1",
+        ]
     );
 }
 
@@ -162,7 +226,7 @@ fn antigravity_component_version_args_remain_empty_so_install_does_not_spawn_blo
  {
     let antigravity = AgentId::parse("antigravity").unwrap();
     assert!(
-        component_version_args(&antigravity, "combined_runtime").is_empty(),
+        component_version_args(&antigravity, "combined_runtime", "").is_empty(),
         "Antigravity blocks on --version and must not be spawned for version probing"
     );
 }
@@ -418,4 +482,77 @@ async fn native_engine_try_adopt_discovers_standalone_claude_and_codex_extra_dir
         assert!(adopted.launch_lock.runtime_version.contains(version));
         assert!(adopted.launch_lock.acp_version.contains(version));
     }
+}
+
+#[test]
+fn resolve_npm_package_bin_name_reads_package_json_bin_map_and_string() {
+    let temp = tempfile::tempdir().unwrap();
+    let kimi_pkg = temp
+        .path()
+        .join("node_modules")
+        .join("@moonshot-ai")
+        .join("kimi-code");
+    std::fs::create_dir_all(&kimi_pkg).unwrap();
+    std::fs::write(
+        kimi_pkg.join("package.json"),
+        r#"{"name":"@moonshot-ai/kimi-code","bin":{"kimi":"dist/main.mjs"}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        installers::resolve_npm_package_bin_name(temp.path(), "@moonshot-ai/kimi-code"),
+        "kimi"
+    );
+
+    let unix_prefix = temp.path().join("unix");
+    let string_pkg = unix_prefix
+        .join("lib")
+        .join("node_modules")
+        .join("@scope")
+        .join("custom-cli");
+    std::fs::create_dir_all(&string_pkg).unwrap();
+    std::fs::write(
+        string_pkg.join("package.json"),
+        r#"{"name":"@scope/custom-cli","bin":"./dist/index.js"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        installers::resolve_npm_package_bin_name(&unix_prefix, "@scope/custom-cli"),
+        "custom-cli"
+    );
+}
+
+#[test]
+fn build_installed_plan_strips_acp_arg_for_hermes_acp() {
+    let temp = tempfile::tempdir().unwrap();
+    let hermes = AgentId::parse("hermes").unwrap();
+    let user_env = UserEnvironmentLayout::for_current_user(temp.path());
+    let plan = ResolvedInstallPlan {
+        agent_id: hermes.clone(),
+        source: LockedInstallSource::BuiltInProfile,
+        version: "0.22.2".into(),
+        platform: current_platform(),
+        components: vec![PlannedInstallComponent {
+            component_id: "combined_runtime".into(),
+            distribution_kind: PlannedDistributionKind::Uvx,
+            version: "0.22.2".into(),
+            resolved_source: "hermes-agent[acp]".into(),
+            command: "hermes".into(),
+            args: vec!["acp".into()],
+            env: Default::default(),
+            trust: agents::ArtifactTrust::EcosystemIntegrityRequired,
+        }],
+    };
+    let installed = build_installed_plan(
+        &hermes,
+        &plan,
+        &user_env,
+        vec![InstalledComponent {
+            kind: "combined_runtime".into(),
+            absolute_path: temp.path().join("hermes-acp"),
+            version: "0.22.2".into(),
+            sha256: None,
+        }],
+    )
+    .unwrap();
+    assert!(installed.launch_lock.args.is_empty());
 }

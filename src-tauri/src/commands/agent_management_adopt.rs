@@ -57,105 +57,156 @@ pub(super) async fn probe_one_built_in_external_installation(
     let configured_env = parse_agent_env(configured_env_json.as_deref())?;
     let native_engine = is_native_engine_profile(&profile.agent_id);
     let mut components = Vec::new();
-    for candidate in profile.external_candidates {
-        if candidate.component == ProfileComponent::AgentRuntime
-            && profile.adapter_bundles_runtime()
-        {
+    for component_kind in [
+        ProfileComponent::AgentRuntime,
+        ProfileComponent::AcpAdapter,
+        ProfileComponent::CombinedRuntime,
+    ] {
+        if component_kind == ProfileComponent::AgentRuntime && profile.adapter_bundles_runtime() {
+            continue;
+        }
+        let matching = profile
+            .external_candidates
+            .iter()
+            .filter(|candidate| candidate.component == component_kind)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
             continue;
         }
         let is_runtime_candidate = matches!(
-            candidate.component,
+            component_kind,
             ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
         );
-        let (executable, runtime_version) = if is_runtime_candidate {
-            let valid_local_runtime = local_runtime.filter(|evidence| {
+        let valid_local_runtime = is_runtime_candidate
+            .then_some(local_runtime)
+            .flatten()
+            .filter(|evidence| {
                 !agents::launch_program_is_legacy_acp_shim(&profile.agent_id, &evidence.path)
             });
-            if let Some(local_runtime) = valid_local_runtime {
-                (
-                    local_runtime.path.clone(),
-                    local_runtime.version.clone().unwrap_or_default(),
-                )
-            } else if native_engine {
-                let fallback_path =
-                    match utils::shell::resolve_executable_path(candidate.executable)
+        let mut adopted_component = None;
+        let mut last_error: Option<anyhow::Error> = None;
+        for candidate in matching {
+            let attempt = async {
+                let (executable, runtime_version) = if is_runtime_candidate {
+                    if let Some(local_runtime) = valid_local_runtime.filter(|evidence| {
+                        agents::candidate_command_matches(candidate.executable, &evidence.path)
+                    }) {
+                        (
+                            local_runtime.path.clone(),
+                            local_runtime.version.clone().unwrap_or_default(),
+                        )
+                    } else if native_engine {
+                        let fallback_path = match utils::shell::resolve_executable_path(
+                            candidate.executable,
+                        )
                         .await
                         .filter(|path| {
                             !agents::launch_program_is_legacy_acp_shim(&profile.agent_id, path)
                         }) {
-                        Some(path) => Some(path),
-                        None => app.path().home_dir().ok().and_then(|home| {
-                            agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
-                        }),
+                            Some(path) => Some(path),
+                            None => app.path().home_dir().ok().and_then(|home| {
+                                agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
+                            }),
+                        };
+                        let Some(path) = fallback_path else {
+                            anyhow::bail!("external local Runtime is missing");
+                        };
+                        (path, String::new())
+                    } else if let Some(path) =
+                        utils::shell::resolve_executable_path(candidate.executable)
+                            .await
+                            .filter(|path| {
+                                !agents::launch_program_is_legacy_acp_shim(&profile.agent_id, path)
+                            })
+                    {
+                        (path, String::new())
+                    } else {
+                        anyhow::bail!("external local Runtime is missing");
+                    }
+                } else {
+                    let Some(path) = utils::shell::resolve_executable_path(candidate.executable)
+                        .await
+                    else {
+                        anyhow::bail!(
+                            "external Agent candidate `{}` was not found",
+                            candidate.executable
+                        );
                     };
-                let Some(path) = fallback_path else {
-                    anyhow::bail!("external local Runtime is missing");
+                    (path, String::new())
                 };
-                (path, String::new())
-            } else {
-                if candidate.component == ProfileComponent::AgentRuntime {
-                    continue;
-                }
-                anyhow::bail!("external local Runtime is missing");
-            }
-        } else {
-            let Some(path) = utils::shell::resolve_executable_path(candidate.executable).await
-            else {
-                anyhow::bail!(
-                    "external Agent candidate `{}` was not found",
-                    candidate.executable
+                let executable = utils::process::prefer_direct_spawn_executable(
+                    tokio::fs::canonicalize(executable).await?,
                 );
-            };
-            (path, String::new())
-        };
-        let executable = utils::process::prefer_direct_spawn_executable(
-            tokio::fs::canonicalize(executable).await?,
-        );
-        if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
-            anyhow::bail!("external candidate is not an absolute executable file");
-        }
-        if agents::launch_program_is_legacy_acp_shim(&profile.agent_id, &executable) {
-            anyhow::bail!("legacy ACP adapter shim cannot satisfy NativeEngine profile");
-        }
-        let mut version = if is_runtime_candidate && !runtime_version.is_empty() {
-            runtime_version
-        } else {
-            let mut command = agent_process_command(&executable);
-            command.kill_on_drop(true);
-            command.args(candidate.version_args);
-            let output = tokio::time::timeout(EXTERNAL_COMPONENT_VERSION_TIMEOUT, command.output())
-                .await
-                .map_err(|_| anyhow::anyhow!("external Agent version probe timed out"))??;
-            ensure_success("external Agent version probe", &output)?;
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            [stdout, stderr]
-                .into_iter()
-                .find(|value| !value.is_empty())
-                .unwrap_or_default()
-        };
-        if version.is_empty() {
-            if candidate.version_args.is_empty() {
-                version = services::services::local_runtime_discovery::executable_file_revision(
-                    &executable,
-                )
-                .ok_or_else(|| {
-                    anyhow::anyhow!("external Agent binary revision could not be read")
-                })?;
-            } else {
-                anyhow::bail!("external Agent version probe returned no version");
+                if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file()
+                {
+                    anyhow::bail!("external candidate is not an absolute executable file");
+                }
+                if agents::launch_program_is_legacy_acp_shim(&profile.agent_id, &executable) {
+                    anyhow::bail!("legacy ACP adapter shim cannot satisfy NativeEngine profile");
+                }
+                let mut version = if is_runtime_candidate && !runtime_version.is_empty() {
+                    runtime_version
+                } else {
+                    let mut command = agent_process_command(&executable);
+                    command.kill_on_drop(true);
+                    command.args(candidate.version_args);
+                    let output =
+                        tokio::time::timeout(EXTERNAL_COMPONENT_VERSION_TIMEOUT, command.output())
+                            .await
+                            .map_err(|_| anyhow::anyhow!("external Agent version probe timed out"))??;
+                    ensure_success("external Agent version probe", &output)?;
+                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    [stdout, stderr]
+                        .into_iter()
+                        .find(|value| !value.is_empty())
+                        .unwrap_or_default()
+                };
+                if version.is_empty() {
+                    if candidate.version_args.is_empty() {
+                        version =
+                            services::services::local_runtime_discovery::executable_file_revision(
+                                &executable,
+                            )
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "external Agent binary revision could not be read"
+                                )
+                            })?;
+                    } else {
+                        anyhow::bail!("external Agent version probe returned no version");
+                    }
+                }
+                let sha256 =
+                    format!("{:x}", Sha256::digest(tokio::fs::read(&executable).await?));
+                Ok::<InstalledComponent, anyhow::Error>(InstalledComponent {
+                    kind: profile_component_key(candidate.component).to_string(),
+                    absolute_path: executable,
+                    version,
+                    sha256: Some(sha256),
+                    trust_state: "tofu".to_string(),
+                    ownership: "external".to_string(),
+                    shared_resource_key: None,
+                })
+            }
+            .await;
+            match attempt {
+                Ok(component) => {
+                    adopted_component = Some(component);
+                    break;
+                }
+                Err(error) => last_error = Some(error),
             }
         }
-        let sha256 = format!("{:x}", Sha256::digest(tokio::fs::read(&executable).await?));
-        components.push(InstalledComponent {
-            kind: profile_component_key(candidate.component).to_string(),
-            absolute_path: executable,
-            version,
-            sha256: Some(sha256),
-            trust_state: "tofu".to_string(),
-            ownership: "external".to_string(),
-            shared_resource_key: None,
-        });
+        match adopted_component {
+            Some(component) => components.push(component),
+            None if component_kind == ProfileComponent::AgentRuntime => continue,
+            None => {
+                if let Some(error) = last_error {
+                    return Err(error);
+                }
+            }
+        }
     }
     let required_components_present = match profile.topology {
         ProfileTopology::NativeAcp => components
@@ -197,7 +248,9 @@ pub(super) async fn probe_one_built_in_external_installation(
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
         .ok_or_else(|| anyhow::anyhow!("external ACP executable is missing"))?;
     let args = profile_component_from_key(&acp.kind)
-        .map(|component| agents::acp_launch_args(profile, component))
+        .map(|component| {
+            agents::acp_launch_args_for_program(profile, component, Some(&acp.absolute_path))
+        })
         .unwrap_or_default();
     let mut env = BTreeMap::new();
     if profile.agent_id.as_str() == "pi" {
@@ -394,7 +447,12 @@ pub(super) async fn record_post_install_probe(
     launch_env.extend(configured_env);
     launch_env.remove("PI_ACP_TRUST_WORKSPACE");
     let mut launch_args = payload.args;
-    agents::apply_built_in_launch_policy(agent_id, &mut launch_env, &mut launch_args);
+    agents::apply_built_in_launch_policy_for_program(
+        agent_id,
+        Some(&payload.absolute_acp_program),
+        &mut launch_env,
+        &mut launch_args,
+    );
     let launch_lock = SessionLaunchLock {
         agent_id: agent_id.clone(),
         absolute_acp_program: payload.absolute_acp_program,

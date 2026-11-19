@@ -419,7 +419,7 @@ pub(super) const KIMI_ACTIONS: &[ProfileManagementAction] = &[
         "退出登录",
         "注销 Kimi Code 本地账号",
         ProfileManagementActionKind::Logout,
-        &[program("kimi", &["logout"])],
+        &[program("kimi", &["acp"])],
     ),
 ];
 pub(super) const PI_ACTIONS: &[ProfileManagementAction] = &[terminal_action(

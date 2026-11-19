@@ -197,14 +197,15 @@ export function RateLimitRecoveryBanner({
     <div
       role="status"
       data-testid="rate-limit-recovery-banner"
+      data-tone="warning"
       className={cn(
-        'rounded-lg border border-warning/35 bg-warning/10 px-3 py-2.5 text-xs text-foreground',
+        'composer-priority-banner rounded-[var(--radius-composer,0.75rem)] border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-foreground',
         className
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Clock className="h-4 w-4 shrink-0 text-warning" />
+          <Clock className="h-3.5 w-3.5 shrink-0 text-warning" />
           <span
             data-testid="rate-limit-banner-title"
             className="font-medium tabular-nums"

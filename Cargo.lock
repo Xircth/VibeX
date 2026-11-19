@@ -1583,6 +1583,7 @@ dependencies = [
  "remote-protocol",
  "reqwest 0.12.28",
  "rustls",
+ "rustls-pki-types",
  "semver",
  "serde",
  "serde_json",
@@ -1606,6 +1607,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml 0.8.2",
@@ -1617,6 +1619,7 @@ dependencies = [
  "utils",
  "uuid",
  "webkit2gtk",
+ "webpki-roots 0.26.11",
  "webview2-com",
  "which",
  "windows 0.61.3",
@@ -5509,6 +5512,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",

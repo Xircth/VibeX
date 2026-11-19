@@ -944,18 +944,25 @@ impl HostCollaborationHost {
         if space_id.starts_with("direct:") {
             return self.list_direct_messages(&space_id, input, limit).await;
         }
-        let since = if truthy(input, &["latest"]) {
-            Some(latest_since(&self.pool, &space_id, limit.unwrap_or(200)).await?)
+        let latest = truthy(input, &["latest"]);
+        let before_seq = input
+            .get("beforeSeq")
+            .or_else(|| input.get("before_seq"))
+            .and_then(Value::as_i64);
+        let since_seq = if latest || before_seq.is_some() {
+            None
         } else {
             input
                 .get("sinceSeq")
                 .or_else(|| input.get("since_seq"))
                 .and_then(Value::as_i64)
         };
-        let messages = collaboration::list_space_messages(
+        let window = collaboration::list_space_messages_window(
             &self.pool,
             &space_id,
-            since,
+            since_seq,
+            before_seq,
+            latest,
             limit,
             MessageAudience::User,
         )
@@ -968,7 +975,13 @@ impl HostCollaborationHost {
             conversations::collaboration_cards::list_cards(&self.pool, Some(&space_id), false)
                 .await
                 .unwrap_or_default();
-        Ok(json!({ "messages": messages, "scheduled": scheduled, "cards": cards }))
+        Ok(json!({
+            "messages": window.messages,
+            "scheduled": scheduled,
+            "cards": cards,
+            "hasMoreBefore": window.has_more_before,
+            "oldestSeq": window.oldest_seq,
+        }))
     }
 
     async fn list_scheduled_messages(
@@ -1033,7 +1046,12 @@ impl HostCollaborationHost {
             .map_err(host_error)?
             .ok_or_else(|| CollaborationHostError::new("not_found", "direct thread not found"))?;
         let is_latest = truthy(input, &["latest"]);
-        let since = if is_latest {
+        let before_seq = input
+            .get("beforeSeq")
+            .or_else(|| input.get("before_seq"))
+            .and_then(Value::as_i64);
+        let before_id = optional_text(input, &["beforeId", "before_id"]);
+        let since = if is_latest || before_seq.is_some() {
             None
         } else {
             input
@@ -1041,14 +1059,24 @@ impl HostCollaborationHost {
                 .or_else(|| input.get("since_seq"))
                 .and_then(Value::as_i64)
         };
-        let effective_limit = if is_latest {
+        let effective_limit = if is_latest || before_seq.is_some() {
             Some(limit.unwrap_or(200))
         } else {
             limit
         };
-        let messages = sidebar::list_dm_messages(&self.pool, conversation, since, effective_limit)
-            .await
-            .map_err(host_error)?;
+        let dm_window = sidebar::list_dm_messages_window(
+            &self.pool,
+            conversation,
+            since,
+            before_seq,
+            before_id.as_deref(),
+            effective_limit,
+        )
+        .await
+        .map_err(host_error)?;
+        let has_more_before = dm_window.has_more_before;
+        let oldest_seq = dm_window.oldest_seq;
+        let messages = dm_window.messages;
         let message_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
         let receipts_by_msg = collaboration::list_message_receipts_batch(&self.pool, &message_ids)
             .await
@@ -1123,6 +1151,8 @@ impl HostCollaborationHost {
             "scheduled": [],
             "cards": cards,
             "conversationId": member.conversation_id,
+            "hasMoreBefore": has_more_before,
+            "oldestSeq": oldest_seq,
         }))
     }
 
@@ -2071,24 +2101,6 @@ fn truthy(input: &Value, keys: &[&str]) -> bool {
         Some(Value::String(value)) => value == "true" || value == "1",
         _ => false,
     })
-}
-
-async fn latest_since(
-    pool: &SqlitePool,
-    space_id: &str,
-    limit: i64,
-) -> Result<i64, CollaborationHostError> {
-    let max_seq: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(seq) FROM collaboration_space_messages WHERE space_id = ?")
-            .bind(space_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|error| {
-                CollaborationHostError::new("conversation_control_failed", error.to_string())
-            })?;
-    let max_seq = max_seq.unwrap_or(0);
-    let window = limit.clamp(1, 200);
-    Ok(max_seq.saturating_sub(window))
 }
 
 fn string_list(input: &Value, keys: &[&str]) -> Vec<String> {

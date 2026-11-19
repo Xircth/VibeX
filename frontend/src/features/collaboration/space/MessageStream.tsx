@@ -44,7 +44,7 @@ import { CollaborationThreadPermissionDock } from '../CollaborationThreadPermiss
 import { spaceMessageRefKey } from '../collaborationMessageNav';
 import { isCollabThreadLogAtBottom } from '../collaborationThreadLog';
 import { EMPTY_RECEIPTS } from './types';
-import { reactionsFromUnknown } from '../spaceReactions';
+import { reactionsFromUnknown, type SpaceReaction } from '../spaceReactions';
 import { showsClusterAvatar, showsClusterName } from '../messageCluster';
 import { DirectMessages } from './DirectMessages';
 import type { CollaborationSpaceRuntime } from './CollaborationSpaceRuntime';
@@ -62,6 +62,8 @@ type SpaceCardRecord = NonNullable<
 >[number];
 
 const EMPTY_GROUP_AVATARS: readonly MemberBotAvatarConfig[] = [];
+const EMPTY_CARDS: readonly SpaceCardRecord[] = [];
+const EMPTY_REACTIONS: readonly SpaceReaction[] = [];
 
 type CrossChatLookup = {
   memberAvatarFor: (peer: CrossChatPeer) => MemberBotAvatarConfig;
@@ -113,7 +115,7 @@ type SpaceMessageRowProps = {
   ) => MemberBotAvatarConfig;
   crossChatLookup: CrossChatLookup;
   receiptLabels: Record<string, string>;
-  threadCards: SpaceCardRecord[] | undefined;
+  threadCards: readonly SpaceCardRecord[] | undefined;
   workspacePath: string | undefined;
   workspaceId: string | undefined;
   messageItemRefs: MutableRefObject<Map<string, HTMLElement>>;
@@ -154,6 +156,12 @@ const SpaceMessageRow = memo(function SpaceMessageRow({
   openMemberAvatarMenu,
   selectMemberForPreview,
 }: SpaceMessageRowProps) {
+  const rawReactions = message.envelope.reactions;
+  const messageReactions = useMemo(() => {
+    if (!rawReactions) return EMPTY_REACTIONS;
+    const parsed = reactionsFromUnknown(rawReactions);
+    return parsed.length > 0 ? parsed : EMPTY_REACTIONS;
+  }, [rawReactions]);
   if (isCollaborationLimitNotice(message)) {
     return (
       <div
@@ -229,7 +237,6 @@ const SpaceMessageRow = memo(function SpaceMessageRow({
   const openAuthorPreview = () => {
     selectMemberForPreview(selectedSpaceId, authorMember);
   };
-  const messageReactions = reactionsFromUnknown(message.envelope.reactions);
 
   return (
     <article
@@ -378,10 +385,13 @@ const MESSAGE_STREAM_PICK_KEYS = [
   'handleAddSelectionToCollection',
   'handleQuoteSelection',
   'handleResolveApprovalCard',
+  'hasMoreEarlierServerMessages',
   'ignoreThreadScrollRef',
   'isDefaultVirtualSpaceSelected',
   'isPrivateChatActive',
   'leadConversationIds',
+  'loadEarlierThreadMessages',
+  'loadingEarlierMessages',
   'markSpaceInReviewMembersViewed',
   'memberAvatars',
   'members',
@@ -422,10 +432,13 @@ export const MessageStream = memo(function MessageStream() {
     getMemberAvatar,
     handleAddSelectionToCollection,
     handleQuoteSelection,
+    hasMoreEarlierServerMessages,
     ignoreThreadScrollRef,
     isDefaultVirtualSpaceSelected,
     isPrivateChatActive,
     leadConversationIds,
+    loadEarlierThreadMessages,
+    loadingEarlierMessages,
     markSpaceInReviewMembersViewed,
     members,
     membersBySpace,
@@ -484,6 +497,8 @@ export const MessageStream = memo(function MessageStream() {
     filteredMessages.length - effectiveVisibleCount
   );
   const hasHiddenEarlierMessages = visibleStartIndex > 0;
+  const canLoadEarlierMessages =
+    hasHiddenEarlierMessages || hasMoreEarlierServerMessages;
   const visibleMessages = useMemo(
     () =>
       visibleStartIndex > 0
@@ -494,7 +509,7 @@ export const MessageStream = memo(function MessageStream() {
 
   const revealEarlierMessages = useCallback(
     (step = COLLAB_VISIBLE_MESSAGE_STEP) => {
-      if (!hasHiddenEarlierMessages) return;
+      if (!hasHiddenEarlierMessages && !hasMoreEarlierServerMessages) return;
       const el = threadLogRef.current;
       if (el) {
         prependScrollSnapshotRef.current = {
@@ -502,22 +517,58 @@ export const MessageStream = memo(function MessageStream() {
           scrollTop: el.scrollTop,
         };
       }
-      setVisibleWindow((current) => {
-        const baseCount =
-          current.threadKey === activeThreadKey
-            ? current.count
-            : COLLAB_INITIAL_VISIBLE_MESSAGES;
-        return {
-          threadKey: activeThreadKey,
-          count: Math.min(filteredMessages.length, baseCount + step),
-        };
-      });
+      if (hasHiddenEarlierMessages) {
+        setVisibleWindow((current) => {
+          const baseCount =
+            current.threadKey === activeThreadKey
+              ? current.count
+              : COLLAB_INITIAL_VISIBLE_MESSAGES;
+          return {
+            threadKey: activeThreadKey,
+            count: Math.min(filteredMessages.length, baseCount + step),
+          };
+        });
+        if (
+          visibleStartIndex <= step &&
+          hasMoreEarlierServerMessages &&
+          !loadingEarlierMessages
+        ) {
+          void loadEarlierThreadMessages();
+        }
+        return;
+      }
+      if (hasMoreEarlierServerMessages && !loadingEarlierMessages) {
+        void loadEarlierThreadMessages().then((added) => {
+          if (added <= 0) return;
+          const nextEl = threadLogRef.current;
+          if (nextEl && !prependScrollSnapshotRef.current) {
+            prependScrollSnapshotRef.current = {
+              scrollHeight: nextEl.scrollHeight,
+              scrollTop: nextEl.scrollTop,
+            };
+          }
+          setVisibleWindow((current) => {
+            const baseCount =
+              current.threadKey === activeThreadKey
+                ? current.count
+                : filteredMessages.length;
+            return {
+              threadKey: activeThreadKey,
+              count: baseCount + Math.min(step, added),
+            };
+          });
+        });
+      }
     },
     [
       activeThreadKey,
       filteredMessages.length,
       hasHiddenEarlierMessages,
+      hasMoreEarlierServerMessages,
+      loadEarlierThreadMessages,
+      loadingEarlierMessages,
       threadLogRef,
+      visibleStartIndex,
     ]
   );
 
@@ -541,6 +592,7 @@ export const MessageStream = memo(function MessageStream() {
       }
     }
   }, [
+    filteredMessages.length,
     followThreadBottomRef,
     ignoreThreadScrollRef,
     threadLogRef,
@@ -685,7 +737,8 @@ export const MessageStream = memo(function MessageStream() {
           );
           if (
             !atBottom &&
-            hasHiddenEarlierMessages &&
+            canLoadEarlierMessages &&
+            !loadingEarlierMessages &&
             el.scrollTop < previousScrollTop &&
             el.scrollTop <= 160
           ) {
@@ -781,18 +834,26 @@ export const MessageStream = memo(function MessageStream() {
           >
             {selected && visibleMessages.length > 0 ? (
               <>
-                {hasHiddenEarlierMessages ? (
+                {canLoadEarlierMessages ? (
                   <div className="mb-3 flex justify-center">
                     <button
                       type="button"
-                      className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
+                      className="collaboration-load-earlier-btn"
+                      data-testid="collaboration-load-earlier-btn"
+                      disabled={
+                        !hasHiddenEarlierMessages && loadingEarlierMessages
+                      }
                       onClick={() => {
                         revealEarlierMessages();
                       }}
                     >
-                      {t('conversation:timeline.loadEarlier', {
-                        defaultValue: '更早的消息',
-                      })}
+                      {!hasHiddenEarlierMessages && loadingEarlierMessages
+                        ? t('conversation:timeline.loadingEarlier', {
+                            defaultValue: '加载更早消息中…',
+                          })
+                        : t('conversation:timeline.loadEarlier', {
+                            defaultValue: '更早的消息',
+                          })}
                     </button>
                   </div>
                 ) : null}
@@ -801,6 +862,10 @@ export const MessageStream = memo(function MessageStream() {
                   const messageKey = isCollaborationLimitNotice(message)
                     ? `space-notice-${message.seq}`
                     : spaceMessageRefKey(message);
+                  const rawMessageText = bubbleText(message.envelope);
+                  const rowCards = rawMessageText.includes('<card')
+                    ? threadCards
+                    : EMPTY_CARDS;
                   const author = messageAuthor(message.envelope);
                   const fromYou = author === COPY.you;
                   const name = fromYou
@@ -851,7 +916,7 @@ export const MessageStream = memo(function MessageStream() {
                       getMemberAvatar={getMemberAvatar}
                       crossChatLookup={crossChatLookup}
                       receiptLabels={receiptLabels}
-                      threadCards={threadCards}
+                      threadCards={rowCards}
                       workspacePath={workspacePath}
                       workspaceId={workspace || undefined}
                       messageItemRefs={messageItemRefs}

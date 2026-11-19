@@ -199,28 +199,57 @@ export async function resolveMemberSession(
   }
 }
 
-export type DirectMessagePage<M> = { messages: M[]; cards?: unknown[] };
+export type DirectMessagePage<M> = {
+  messages: M[];
+  cards?: unknown[];
+  hasMoreBefore?: boolean;
+  oldestSeq?: number | null;
+};
+
+export type LoadDirectMessagesOptions = {
+  limit?: number;
+  beforeSeq?: number;
+  beforeId?: string;
+};
 
 /** `space.listMessages` for a private chat (`direct:<id>`); null on failure.
- * Always a latest page: queued `conversation_input` rows and later
- * UserTurnCreated events must be grouped together or the IM duplicates
- * the user bubble / loses delivery receipts.
+ * Always a latest page unless `beforeSeq` is explicitly requested: queued
+ * `conversation_input` rows and later UserTurnCreated events must be grouped
+ * together or the IM duplicates the user bubble / loses delivery receipts.
  */
 export async function loadDirectMessages<M>(
   collab: CollaborationCaller,
   threadId: string,
-  _sinceSeq?: number
+  _sinceSeq?: number,
+  options?: LoadDirectMessagesOptions
 ): Promise<DirectMessagePage<M> | null> {
   try {
-    const page = await collab<{ messages?: M[]; cards?: unknown[] }>(
-      'collaboration',
-      'space.listMessages',
-      { spaceId: threadId, latest: true, limit: 200 }
-    );
+    const limit = options?.limit ?? 200;
+    const payload: Record<string, unknown> =
+      typeof options?.beforeSeq === 'number' && options.beforeSeq > 0
+        ? {
+            spaceId: threadId,
+            beforeSeq: options.beforeSeq,
+            ...(options.beforeId ? { beforeId: options.beforeId } : {}),
+            limit,
+          }
+        : { spaceId: threadId, latest: true, limit };
+    const page = await collab<{
+      messages?: M[];
+      cards?: unknown[];
+      hasMoreBefore?: boolean;
+      oldestSeq?: number | null;
+    }>('collaboration', 'space.listMessages', payload);
     return Array.isArray(page?.messages)
       ? {
           messages: page.messages,
           ...(Array.isArray(page?.cards) ? { cards: page.cards } : {}),
+          ...(typeof page?.hasMoreBefore === 'boolean'
+            ? { hasMoreBefore: page.hasMoreBefore }
+            : {}),
+          ...(page?.oldestSeq !== undefined
+            ? { oldestSeq: page.oldestSeq }
+            : {}),
         }
       : null;
   } catch {

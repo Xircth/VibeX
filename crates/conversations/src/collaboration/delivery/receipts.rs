@@ -433,6 +433,42 @@ pub async fn list_message_receipts_batch(
     }
     Ok(grouped)
 }
+#[derive(Debug, Clone)]
+pub struct SpaceMessageWindow {
+    pub messages: Vec<SpaceMessage>,
+    pub has_more_before: bool,
+    pub oldest_seq: Option<i64>,
+}
+
+fn project_visible_space_row(
+    seq: i64,
+    raw: &str,
+    origin: String,
+    id: String,
+    audience: MessageAudience,
+) -> Option<SpaceMessage> {
+    let stored: Value = serde_json::from_str(raw).ok()?;
+    let mut parsed = parse_space_envelope(&stored);
+    if origin == "agent" {
+        let stripped = strip_stray_pass_tokens(&parsed.content);
+        if is_pass_token(stripped) {
+            return None;
+        }
+        if stripped != parsed.content {
+            parsed.content = stripped.to_string();
+        }
+    }
+    let envelope = project_listed_envelope(stored, &parsed, audience);
+    Some(SpaceMessage {
+        id,
+        seq,
+        envelope,
+        origin,
+        in_reply_to: parsed.reply_to,
+        receipts: Vec::new(),
+    })
+}
+
 pub async fn list_space_messages(
     pool: &SqlitePool,
     space_id: &str,
@@ -440,6 +476,22 @@ pub async fn list_space_messages(
     limit: Option<i64>,
     audience: MessageAudience,
 ) -> Result<Vec<SpaceMessage>, CollaborationError> {
+    Ok(
+        list_space_messages_window(pool, space_id, since_seq, None, false, limit, audience)
+            .await?
+            .messages,
+    )
+}
+
+pub async fn list_space_messages_window(
+    pool: &SqlitePool,
+    space_id: &str,
+    since_seq: Option<i64>,
+    before_seq: Option<i64>,
+    latest: bool,
+    limit: Option<i64>,
+    audience: MessageAudience,
+) -> Result<SpaceMessageWindow, CollaborationError> {
     let space_id_trimmed = space_id.trim();
     if audience == MessageAudience::Agent
         && (parse_unassigned_space_id(space_id_trimmed).is_some()
@@ -457,49 +509,107 @@ pub async fn list_space_messages(
         .unwrap_or(SPACE_LIST_DEFAULT)
         .clamp(1, SPACE_LIST_HARD_CAP);
     let since = since_seq.unwrap_or(0);
-    let rows = sqlx::query_as::<_, (i64, String, String, String)>(
-        r#"SELECT seq, envelope_json, origin, id FROM collaboration_space_messages
-           WHERE space_id = ? AND seq > ?
-           ORDER BY seq ASC LIMIT ?"#,
-    )
-    .bind(space_id)
-    .bind(since)
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(db)?;
-    let mut receipts_by_message = if audience == MessageAudience::User && !rows.is_empty() {
-        let message_ids: Vec<String> = rows.iter().map(|(_, _, _, id)| id.clone()).collect();
-        list_message_receipts_batch(pool, &message_ids).await?
-    } else {
-        std::collections::HashMap::new()
-    };
-    let mut messages: Vec<SpaceMessage> = rows
-        .into_iter()
-        .filter_map(|(seq, raw, origin, id)| {
-            let stored: Value = serde_json::from_str(&raw).ok()?;
-            let mut parsed = parse_space_envelope(&stored);
-            if origin == "agent" {
-                let stripped = strip_stray_pass_tokens(&parsed.content);
-                if is_pass_token(stripped) {
-                    return None;
-                }
-                if stripped != parsed.content {
-                    parsed.content = stripped.to_string();
+    let use_backward_window = before_seq.is_some() || (since_seq.is_none() && latest);
+
+    let (mut messages, has_more_before) = if use_backward_window {
+        let target_len = usize::try_from(limit).unwrap_or(200);
+        let target_plus_one = target_len.saturating_add(1);
+        let batch_size = (target_plus_one.saturating_mul(2).max(64)) as i64;
+        let mut cursor_before = before_seq;
+        let mut collected_rev: Vec<SpaceMessage> = Vec::with_capacity(target_plus_one);
+
+        loop {
+            let rows = match cursor_before {
+                Some(upper) => sqlx::query_as::<_, (i64, String, String, String)>(
+                    r#"SELECT seq, envelope_json, origin, id
+                           FROM collaboration_space_messages
+                           WHERE space_id = ? AND seq < ?
+                           ORDER BY seq DESC LIMIT ?"#,
+                )
+                .bind(space_id)
+                .bind(upper)
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await
+                .map_err(db)?,
+                None => sqlx::query_as::<_, (i64, String, String, String)>(
+                    r#"SELECT seq, envelope_json, origin, id
+                           FROM collaboration_space_messages
+                           WHERE space_id = ?
+                           ORDER BY seq DESC LIMIT ?"#,
+                )
+                .bind(space_id)
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await
+                .map_err(db)?,
+            };
+            let fetched_count = rows.len();
+            let oldest_scanned_seq = rows.last().map(|r| r.0);
+            for (seq, raw, origin, id) in rows {
+                if let Some(msg) = project_visible_space_row(seq, &raw, origin, id, audience) {
+                    collected_rev.push(msg);
+                    if collected_rev.len() >= target_plus_one {
+                        break;
+                    }
                 }
             }
-            let envelope = project_listed_envelope(stored, &parsed, audience);
-            let receipts = receipts_by_message.remove(&id).unwrap_or_default();
-            Some(SpaceMessage {
-                id,
-                seq,
-                envelope,
-                origin,
-                in_reply_to: parsed.reply_to,
-                receipts,
+            if collected_rev.len() >= target_plus_one || fetched_count < batch_size as usize {
+                break;
+            }
+            match oldest_scanned_seq {
+                Some(seq) if seq > 1 => cursor_before = Some(seq),
+                _ => break,
+            }
+        }
+
+        let has_more = collected_rev.len() > target_len;
+        if has_more {
+            collected_rev.truncate(target_len);
+        }
+        collected_rev.reverse();
+        (collected_rev, has_more)
+    } else {
+        let rows = sqlx::query_as::<_, (i64, String, String, String)>(
+            r#"SELECT seq, envelope_json, origin, id FROM collaboration_space_messages
+               WHERE space_id = ? AND seq > ?
+               ORDER BY seq ASC LIMIT ?"#,
+        )
+        .bind(space_id)
+        .bind(since)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(db)?;
+        let forward_msgs: Vec<SpaceMessage> = rows
+            .into_iter()
+            .filter_map(|(seq, raw, origin, id)| {
+                project_visible_space_row(seq, &raw, origin, id, audience)
             })
-        })
-        .collect();
+            .collect();
+        let has_more = if since > 0 {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT EXISTS(SELECT 1 FROM collaboration_space_messages WHERE space_id = ? AND seq <= ?)",
+            )
+            .bind(space_id)
+            .bind(since)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0)
+                != 0
+        } else {
+            false
+        };
+        (forward_msgs, has_more)
+    };
+
+    if audience == MessageAudience::User && !messages.is_empty() {
+        let message_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+        let mut receipts_by_message = list_message_receipts_batch(pool, &message_ids).await?;
+        for message in &mut messages {
+            message.receipts = receipts_by_message.remove(&message.id).unwrap_or_default();
+        }
+    }
     let reaction_ids: Vec<String> = messages.iter().map(|message| message.id.clone()).collect();
     let reactions_by_message = list_space_reactions_batch(pool, space_id, &reaction_ids).await?;
     for message in &mut messages {
@@ -509,7 +619,9 @@ pub async fn list_space_messages(
             message.envelope["reactions"] = json!(reactions);
         }
     }
-    if audience == MessageAudience::User && space_tracks_turns(space_id) {
+    let oldest_seq = messages.first().map(|message| message.seq);
+
+    if before_seq.is_none() && audience == MessageAudience::User && space_tracks_turns(space_id) {
         let max_seq = messages.iter().map(|m| m.seq).max().unwrap_or(since).max(
             sqlx::query_scalar::<_, i64>(
                 "SELECT COALESCE(MAX(seq), 0) FROM collaboration_space_messages WHERE space_id = ?",
@@ -710,7 +822,11 @@ pub async fn list_space_messages(
             });
         }
     }
-    Ok(messages)
+    Ok(SpaceMessageWindow {
+        messages,
+        has_more_before,
+        oldest_seq,
+    })
 }
 
 pub(crate) async fn load_message_head(

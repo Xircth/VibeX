@@ -846,18 +846,27 @@ async fn dm_space_messages_since(
     Ok(out)
 }
 
-/// Fetch at most `limit` latest visible post-cutover DM messages in ascending `seq` order
-/// using descending tail-window queries instead of scanning all post-cutover rows from `seq > 0`.
+/// Fetch at most `limit` latest visible post-cutover DM messages (optionally strictly
+/// before `initial_before_seq`) in ascending `seq` order using descending queries.
 async fn dm_space_messages_tail(
     pool: &SqlitePool,
     thread_id: &str,
     limit: usize,
 ) -> Result<Vec<DmMessage>, CollaborationError> {
-    if limit == 0 {
+    dm_space_messages_window_before(pool, thread_id, None, limit).await
+}
+
+async fn dm_space_messages_window_before(
+    pool: &SqlitePool,
+    thread_id: &str,
+    initial_before_seq: Option<i64>,
+    limit: usize,
+) -> Result<Vec<DmMessage>, CollaborationError> {
+    if limit == 0 || initial_before_seq.is_some_and(|seq| seq <= 1) {
         return Ok(Vec::new());
     }
     let batch_size = (limit.saturating_mul(2).max(64)) as i64;
-    let mut before_seq: Option<i64> = None;
+    let mut before_seq: Option<i64> = initial_before_seq;
     let mut collected_rev = Vec::with_capacity(limit);
 
     loop {
@@ -1245,6 +1254,13 @@ async fn list_pre_cutover_dm_messages(
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DmMessageWindow {
+    pub messages: Vec<DmMessage>,
+    pub has_more_before: bool,
+    pub oldest_seq: Option<i64>,
+}
+
 /// DM history. `since_seq`: messages after that ordinal (oldest first);
 /// otherwise the latest `limit` messages.
 pub async fn list_dm_messages(
@@ -1253,12 +1269,150 @@ pub async fn list_dm_messages(
     since_seq: Option<i64>,
     limit: Option<i64>,
 ) -> Result<Vec<DmMessage>, CollaborationError> {
+    Ok(
+        list_dm_messages_window(pool, conversation_id, since_seq, None, None, limit)
+            .await?
+            .messages,
+    )
+}
+
+pub async fn list_dm_messages_window(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    since_seq: Option<i64>,
+    before_seq: Option<i64>,
+    before_id: Option<&str>,
+    limit: Option<i64>,
+) -> Result<DmMessageWindow, CollaborationError> {
     let limit = usize::try_from(limit.unwrap_or(200).clamp(1, 1000)).unwrap_or(200);
     let thread_id = conversation_thread_id(pool, conversation_id).await?;
     let cutover_seq = dm_cutover_info(pool, conversation_id, &thread_id).await?;
 
+    if let Some(before) = before_seq {
+        let target_plus_one = limit.saturating_add(1);
+        let mut combined = match cutover_seq {
+            None => {
+                if before <= 1 {
+                    Vec::new()
+                } else {
+                    list_pre_cutover_dm_messages(
+                        pool,
+                        conversation_id,
+                        None,
+                        target_plus_one,
+                        Some(before.saturating_sub(1)),
+                    )
+                    .await?
+                }
+            }
+            Some(c_seq) => {
+                let cursor_in_post = if let Some(bid) =
+                    before_id.map(str::trim).filter(|s| !s.is_empty())
+                {
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT EXISTS(SELECT 1 FROM collaboration_space_messages WHERE space_id = ? AND id = ?)",
+                    )
+                    .bind(&thread_id)
+                    .bind(bid)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(db_err)?
+                        != 0
+                } else {
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT EXISTS(SELECT 1 FROM collaboration_space_messages WHERE space_id = ? AND seq = ?)",
+                    )
+                    .bind(&thread_id)
+                    .bind(before)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(db_err)?
+                        != 0
+                };
+                if cursor_in_post {
+                    let post = dm_space_messages_window_before(
+                        pool,
+                        &thread_id,
+                        Some(before),
+                        target_plus_one,
+                    )
+                    .await?;
+                    let mut pre = if post.len() >= target_plus_one || c_seq <= 0 {
+                        Vec::new()
+                    } else {
+                        let pre_limit =
+                            target_plus_one.saturating_sub(post.len()).saturating_add(2);
+                        list_pre_cutover_dm_messages(
+                            pool,
+                            conversation_id,
+                            None,
+                            pre_limit,
+                            Some(c_seq),
+                        )
+                        .await?
+                    };
+                    let post_keys: HashSet<(String, String)> = post
+                        .iter()
+                        .map(|m| (m.origin.clone(), normalize_dm_text(&m.text)))
+                        .collect();
+                    pre.retain(|m| {
+                        !post_keys.contains(&(m.origin.clone(), normalize_dm_text(&m.text)))
+                    });
+                    pre.extend(post);
+                    pre
+                } else if before <= 1 || c_seq <= 0 {
+                    Vec::new()
+                } else {
+                    list_pre_cutover_dm_messages(
+                        pool,
+                        conversation_id,
+                        None,
+                        target_plus_one,
+                        Some(before.saturating_sub(1).min(c_seq)),
+                    )
+                    .await?
+                }
+            }
+        };
+        let has_more_before = combined.len() > limit;
+        if has_more_before {
+            let skip = combined.len().saturating_sub(limit);
+            combined = combined.into_iter().skip(skip).collect();
+        }
+        let oldest_seq = combined.first().map(|m| m.seq);
+        return Ok(DmMessageWindow {
+            messages: combined,
+            has_more_before,
+            oldest_seq,
+        });
+    }
+
+    let fetch_limit = if since_seq.is_none() {
+        limit.saturating_add(1)
+    } else {
+        limit
+    };
+
     let Some(cutover_seq) = cutover_seq else {
-        return list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, None).await;
+        let mut messages =
+            list_pre_cutover_dm_messages(pool, conversation_id, since_seq, fetch_limit, None)
+                .await?;
+        let has_more_before = if since_seq.is_none() {
+            let more = messages.len() > limit;
+            if more {
+                let skip = messages.len().saturating_sub(limit);
+                messages = messages.into_iter().skip(skip).collect();
+            }
+            more
+        } else {
+            false
+        };
+        let oldest_seq = messages.first().map(|m| m.seq);
+        return Ok(DmMessageWindow {
+            messages,
+            has_more_before,
+            oldest_seq,
+        });
     };
 
     let (mut pre, post) = match since_seq {
@@ -1279,14 +1433,14 @@ pub async fn list_dm_messages(
             (pre, post)
         }
         None => {
-            let post = dm_space_messages_tail(pool, &thread_id, limit).await?;
-            let mut pre = if post.len() >= limit {
+            let post = dm_space_messages_tail(pool, &thread_id, fetch_limit).await?;
+            let mut pre = if post.len() >= fetch_limit {
                 Vec::new()
             } else {
-                let pre_limit = limit
+                let pre_limit = fetch_limit
                     .saturating_sub(post.len())
                     .saturating_add(2)
-                    .min(limit);
+                    .min(fetch_limit.saturating_add(2));
                 list_pre_cutover_dm_messages(
                     pool,
                     conversation_id,
@@ -1297,8 +1451,8 @@ pub async fn list_dm_messages(
                 .await?
             };
             if pre.is_empty() && post.is_empty() && cutover_seq == 0 {
-                pre =
-                    list_pre_cutover_dm_messages(pool, conversation_id, None, limit, None).await?;
+                pre = list_pre_cutover_dm_messages(pool, conversation_id, None, fetch_limit, None)
+                    .await?;
             }
             (pre, post)
         }
@@ -1311,6 +1465,7 @@ pub async fn list_dm_messages(
         !post_keys.contains(&(message.origin.clone(), normalize_dm_text(&message.text)))
     });
     pre.extend(post);
+    let persisted_overflow = since_seq.is_none() && pre.len() > limit;
     if let Some(draft) = dm_streaming_draft(pool, conversation_id, &thread_id, cutover_seq).await? {
         let draft_key = (draft.origin.clone(), normalize_dm_text(&draft.text));
         if !pre
@@ -1323,11 +1478,26 @@ pub async fn list_dm_messages(
     match since_seq {
         Some(_) => {
             pre.truncate(limit);
-            Ok(pre)
+            let oldest_seq = pre.first().map(|m| m.seq);
+            Ok(DmMessageWindow {
+                messages: pre,
+                has_more_before: false,
+                oldest_seq,
+            })
         }
         None => {
             let skip = pre.len().saturating_sub(limit);
-            Ok(pre.into_iter().skip(skip).collect())
+            let messages: Vec<DmMessage> = pre.into_iter().skip(skip).collect();
+            let oldest_seq = messages
+                .iter()
+                .find(|m| m.streaming != Some(true))
+                .or_else(|| messages.first())
+                .map(|m| m.seq);
+            Ok(DmMessageWindow {
+                messages,
+                has_more_before: persisted_overflow || skip > 0,
+                oldest_seq,
+            })
         }
     }
 }

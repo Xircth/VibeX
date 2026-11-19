@@ -600,3 +600,118 @@ async fn list_sidebar_op_returns_supervisor_member_id_and_promotes_space_member(
         Some(supervisor_id.as_str())
     );
 }
+
+#[tokio::test]
+async fn space_and_dm_windows_paginate_backward_with_has_more_before() {
+    let pool = setup_test_pool().await;
+    let workspace = Uuid::new_v4();
+    let space_id = Uuid::new_v4().to_string();
+
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+        .bind(workspace)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO collaboration_spaces (id, workspace_id, name, created_at) VALUES (?, ?, 'LongChat', '2026-10-24T00:00:00.000Z')",
+    )
+    .bind(&space_id)
+    .bind(workspace.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert 5 visible messages mixed with [PASS] rows and sequence gaps.
+    let entries = [
+        (1_i64, "user", "msg 1"),
+        (3_i64, "agent", "[PASS]"),
+        (5_i64, "agent", "msg 2"),
+        (8_i64, "user", "msg 3"),
+        (11_i64, "agent", "[PASS]"),
+        (14_i64, "agent", "msg 4"),
+        (19_i64, "user", "msg 5"),
+    ];
+    for (seq, origin, text) in entries {
+        let msg_id = format!("m-{seq}");
+        let env = json!({
+            "id": msg_id,
+            "sender": if origin == "user" { "Person" } else { "BotA" },
+            "to": ["Person"],
+            "content": text,
+            "published": "2026-10-24T00:01:00.000Z"
+        });
+        sqlx::query(
+            r#"INSERT INTO collaboration_space_messages
+               (id, space_id, seq, envelope_json, created_at, origin, root_id, hop)
+               VALUES (?, ?, ?, ?, '2026-10-24T00:01:00.000Z', ?, ?, 0)"#,
+        )
+        .bind(&msg_id)
+        .bind(&space_id)
+        .bind(seq)
+        .bind(env.to_string())
+        .bind(origin)
+        .bind(&msg_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let page1 = crate::collaboration::list_space_messages_window(
+        &pool,
+        &space_id,
+        None,
+        None,
+        true,
+        Some(2),
+        crate::collaboration::MessageAudience::User,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page1.messages.len(), 2);
+    assert_eq!(page1.messages[0].seq, 14);
+    assert_eq!(page1.messages[1].seq, 19);
+    assert!(page1.has_more_before);
+    assert_eq!(page1.oldest_seq, Some(14));
+
+    let page2 = crate::collaboration::list_space_messages_window(
+        &pool,
+        &space_id,
+        None,
+        page1.oldest_seq,
+        false,
+        Some(2),
+        crate::collaboration::MessageAudience::User,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page2.messages.len(), 2);
+    assert_eq!(page2.messages[0].seq, 5);
+    assert_eq!(page2.messages[1].seq, 8);
+    assert!(page2.has_more_before);
+    assert_eq!(page2.oldest_seq, Some(5));
+
+    let page3 = crate::collaboration::list_space_messages_window(
+        &pool,
+        &space_id,
+        None,
+        page2.oldest_seq,
+        false,
+        Some(2),
+        crate::collaboration::MessageAudience::User,
+    )
+    .await
+    .unwrap();
+    assert_eq!(page3.messages.len(), 1);
+    assert_eq!(page3.messages[0].seq, 1);
+    assert!(!page3.has_more_before);
+    assert_eq!(page3.oldest_seq, Some(1));
+}

@@ -722,6 +722,40 @@ export const SPACE_MESSAGE_MAX_HEIGHT_PX = 240;
 export const SPACE_MESSAGE_OVERFLOW_LINE_THRESHOLD = 10;
 export const SPACE_MESSAGE_OVERFLOW_CHAR_THRESHOLD = 420;
 
+const sharedBubbleResizeCallbacks = new WeakMap<Element, () => void>();
+let sharedBubbleResizeObserver: ResizeObserver | null = null;
+let sharedBubbleResizeObserverCtor: typeof ResizeObserver | undefined;
+
+function observeBubbleResize(
+  element: Element,
+  onResize: () => void
+): (() => void) | undefined {
+  if (typeof ResizeObserver === 'undefined') return undefined;
+  if (
+    !sharedBubbleResizeObserver ||
+    sharedBubbleResizeObserverCtor !== ResizeObserver
+  ) {
+    sharedBubbleResizeObserverCtor = ResizeObserver;
+    sharedBubbleResizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        sharedBubbleResizeCallbacks.get(entry.target)?.();
+      }
+    });
+  }
+  sharedBubbleResizeCallbacks.set(element, onResize);
+  sharedBubbleResizeObserver.observe(element);
+  return () => {
+    sharedBubbleResizeCallbacks.delete(element);
+    sharedBubbleResizeObserver?.unobserve(element);
+  };
+}
+
+export function countSpaceMessageLines(text: string): number {
+  const normalized = text.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return 0;
+  return normalized.split('\n').length;
+}
+
 export function estimateSpaceMessageOverflows(text: string): boolean {
   const normalized = text.replace(/\r\n/g, '\n').trim();
   if (!normalized) return false;
@@ -740,11 +774,16 @@ function CollapsibleSpaceBubbleContent({
   streaming?: boolean;
   children: ReactNode;
 }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const wasStreamingRef = useRef(Boolean(streaming));
   const [needsCollapse, setNeedsCollapse] = useState(() =>
     estimateSpaceMessageOverflows(measureText)
+  );
+  const lineCount = useMemo(
+    () => countSpaceMessageLines(measureText),
+    [measureText]
   );
 
   useLayoutEffect(() => {
@@ -768,18 +807,18 @@ function CollapsibleSpaceBubbleContent({
 
     check();
 
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => {
-      check();
-    });
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-    };
+    return observeBubbleResize(element, check);
   }, [measureText]);
 
   const isCollapsed = !streaming && needsCollapse && !isExpanded;
   const expandLabel = i18n.t('panels:ui.spaceMessage.expandAll', '展开全部');
+  const expandLineHint =
+    lineCount > SPACE_MESSAGE_OVERFLOW_LINE_THRESHOLD
+      ? ` · ${i18n.t('panels:ui.spaceMessage.lineCount', {
+          count: lineCount,
+          defaultValue: `${lineCount} 行`,
+        })}`
+      : '';
   const collapseLabel = i18n.t(
     'panels:ui.spaceMessage.collapseAll',
     '收起全部'
@@ -787,6 +826,7 @@ function CollapsibleSpaceBubbleContent({
 
   return (
     <div
+      ref={wrapperRef}
       className="collaboration-bubble-collapsible"
       data-collapsed={isCollapsed ? 'true' : 'false'}
       data-testid="collaboration-bubble-collapsible"
@@ -813,7 +853,10 @@ function CollapsibleSpaceBubbleContent({
               setIsExpanded(true);
             }}
           >
-            <span>{expandLabel}</span>
+            <span>
+              {expandLabel}
+              {expandLineHint}
+            </span>
             <ChevronDown
               className="collaboration-bubble-expand-pill-icon"
               aria-hidden="true"
@@ -832,7 +875,28 @@ function CollapsibleSpaceBubbleContent({
             aria-label={collapseLabel}
             onClick={(event) => {
               event.stopPropagation();
+              const wrapperEl = wrapperRef.current;
+              const logEl = wrapperEl?.closest(
+                '.collaboration-thread-log'
+              ) as HTMLElement | null;
+              const topDeltaBeforeCollapse =
+                wrapperEl && logEl
+                  ? wrapperEl.getBoundingClientRect().top -
+                    logEl.getBoundingClientRect().top
+                  : 0;
               setIsExpanded(false);
+              if (logEl && topDeltaBeforeCollapse < 0) {
+                requestAnimationFrame(() => {
+                  const nextWrapper = wrapperRef.current;
+                  if (!nextWrapper) return;
+                  const delta =
+                    nextWrapper.getBoundingClientRect().top -
+                    logEl.getBoundingClientRect().top;
+                  if (delta < 12) {
+                    logEl.scrollTop = Math.max(0, logEl.scrollTop + delta - 16);
+                  }
+                });
+              }
             }}
           >
             <span>{collapseLabel}</span>

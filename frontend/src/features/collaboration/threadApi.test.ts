@@ -119,6 +119,31 @@ describe('threadApi', () => {
     );
   });
 
+  it('supports backward pagination options and returns hasMoreBefore/oldestSeq metadata', async () => {
+    const call = caller(() => ({
+      messages: [{ seq: 12, id: 'm12', envelope: {} }],
+      hasMoreBefore: true,
+      oldestSeq: 12,
+    }));
+    await expect(
+      loadDirectMessages(call, 'direct:m1', undefined, {
+        beforeSeq: 25,
+        beforeId: 'm25',
+        limit: 120,
+      })
+    ).resolves.toEqual({
+      messages: [{ seq: 12, id: 'm12', envelope: {} }],
+      hasMoreBefore: true,
+      oldestSeq: 12,
+    });
+    expect(call).toHaveBeenCalledWith('collaboration', 'space.listMessages', {
+      spaceId: 'direct:m1',
+      beforeSeq: 25,
+      beforeId: 'm25',
+      limit: 120,
+    });
+  });
+
   it('returns null when DM listMessages fails', async () => {
     const call = caller(() => {
       throw new Error('boom');

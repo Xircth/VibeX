@@ -52,6 +52,16 @@ export const ACCOUNT_HOST_CONFIGS_STORAGE_KEY = 'dimo.account.hostConfigs.v1';
 export const DESKTOP_SHARED_HOST_CONFIGS_KEY = '__account_host_configs_v1';
 const ACCOUNT_HOST_CONFIGS_EVENT = 'dimo:account-host-configs-changed';
 const AUTO_SYNC_DEBOUNCE_MS = 800;
+/** Leases last 30 days; renewing on a timer keeps the relay up without relying on window focus. */
+const RELAY_LEASE_RENEW_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const RELAY_LEASE_MIN_REMAINING_SECONDS = 900;
+/** Lease errors that mean the account or host can no longer use the relay; others are transient. */
+const RELAY_LEASE_TERMINAL_ERRORS = new Set([
+  'signed_out',
+  'account_disabled',
+  'host_id_conflict',
+  'invalid_host_id',
+]);
 
 export type AccountHostKind = 'local' | 'ssh' | 'remote' | 'web';
 
@@ -178,6 +188,11 @@ let storeState: AccountHostConfigStoreState = {
 let importingDepth = 0;
 let activeSyncPromise: Promise<AccountHostConfigSnapshot[]> | null = null;
 let activeSyncAccountKey: string | null = null;
+let lastIssuedRelayLease: {
+  accountKey: string;
+  hostId: string;
+  expiresAt: number;
+} | null = null;
 const storeListeners = new Set<() => void>();
 
 function emitStore(next: Partial<AccountHostConfigStoreState>): void {
@@ -906,14 +921,46 @@ export async function reconcileRemoteHostAccount(
   return { syncedToRemote: true, differentAccount: null };
 }
 
-async function issueAndApplyLocalRelayLease(input: {
-  hostId: string;
-  hostName?: string;
-  osType?: string;
-  osArch?: string;
-}): Promise<boolean> {
+function hasFreshIssuedRelayLease(
+  accountKey: string | null,
+  hostId: string
+): boolean {
+  if (!accountKey || !lastIssuedRelayLease) return false;
+  const accountMatches =
+    lastIssuedRelayLease.accountKey === accountKey ||
+    lastIssuedRelayLease.accountKey === '__active_token__';
+  if (!accountMatches || lastIssuedRelayLease.hostId !== hostId) {
+    return false;
+  }
+  if (lastIssuedRelayLease.accountKey === '__active_token__') {
+    lastIssuedRelayLease = { ...lastIssuedRelayLease, accountKey };
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  return (
+    lastIssuedRelayLease.expiresAt - nowSec > RELAY_LEASE_MIN_REMAINING_SECONDS
+  );
+}
+
+async function issueAndApplyLocalRelayLease(
+  input: {
+    hostId: string;
+    hostName?: string;
+    osType?: string;
+    osArch?: string;
+  },
+  accountKey?: string | null
+): Promise<boolean> {
   try {
     const lease = await accountApi.issueRelayLease(input);
+    const resolvedAccountKey =
+      accountKey ?? storeState.accountKey ?? '__active_token__';
+    if (Number.isFinite(lease.expiresAt)) {
+      lastIssuedRelayLease = {
+        accountKey: resolvedAccountKey,
+        hostId: input.hostId,
+        expiresAt: lease.expiresAt,
+      };
+    }
     await hostTunnelApi
       .setAccountLease({
         lease_token: lease.leaseToken,
@@ -931,22 +978,44 @@ async function issueAndApplyLocalRelayLease(input: {
       window.dispatchEvent(new Event('dimo:host-tunnel-updated'));
     }
     return true;
-  } catch {
-    await hostTunnelApi.setAccountLease(null).catch(() => undefined);
+  } catch (cause) {
+    // A network blip must not tear down a working relay; the stored lease stays valid.
+    if (
+      cause instanceof AccountError &&
+      RELAY_LEASE_TERMINAL_ERRORS.has(cause.code)
+    ) {
+      lastIssuedRelayLease = null;
+      await hostTunnelApi.setAccountLease(null).catch(() => undefined);
+    }
     return false;
   }
 }
 
-export async function syncCurrentHostRelayLease(): Promise<boolean> {
+export async function syncCurrentHostRelayLease(options?: {
+  force?: boolean;
+}): Promise<boolean> {
   if (!accountToken()) return false;
   const identity = await resolveCurrentHostIdentity().catch(() => null);
   if (!identity || identity.kind !== 'local' || !identity.hostId) {
     return false;
   }
-  return issueAndApplyLocalRelayLease({
-    hostId: identity.hostId,
-    hostName: identity.hostName,
-  });
+  const force = options?.force ?? true;
+  if (
+    !force &&
+    hasFreshIssuedRelayLease(
+      storeState.accountKey ?? '__active_token__',
+      identity.hostId
+    )
+  ) {
+    return true;
+  }
+  return issueAndApplyLocalRelayLease(
+    {
+      hostId: identity.hostId,
+      hostName: identity.hostName,
+    },
+    storeState.accountKey
+  );
 }
 
 export async function syncAccountHostConfigs(
@@ -955,6 +1024,7 @@ export async function syncAccountHostConfigs(
 ): Promise<AccountHostConfigSnapshot[]> {
   const accountKey = resolveAccountStorageKey(user);
   if (!accountKey) {
+    lastIssuedRelayLease = null;
     emitStore({
       accountKey: null,
       currentHostId: null,
@@ -1123,13 +1193,20 @@ export async function syncAccountHostConfigs(
         });
       }
 
-      if (captured.kind === 'local' && captured.hostId) {
-        await issueAndApplyLocalRelayLease({
-          hostId: captured.hostId,
-          hostName: captured.hostName,
-          osType: captured.osType || undefined,
-          osArch: captured.osArch || undefined,
-        });
+      if (
+        captured.kind === 'local' &&
+        captured.hostId &&
+        !hasFreshIssuedRelayLease(accountKey, captured.hostId)
+      ) {
+        await issueAndApplyLocalRelayLease(
+          {
+            hostId: captured.hostId,
+            hostName: captured.hostName,
+            osType: captured.osType || undefined,
+            osArch: captured.osArch || undefined,
+          },
+          accountKey
+        );
       }
 
       const ordered = sortHostSnapshots(
@@ -1336,6 +1413,7 @@ export function resetAccountHostConfigsForTests(): void {
   importingDepth = 0;
   activeSyncPromise = null;
   activeSyncAccountKey = null;
+  lastIssuedRelayLease = null;
   emitStore({
     accountKey: null,
     currentHostId: null,
@@ -1489,20 +1567,28 @@ export function AccountHostConfigSyncBridge(): null {
   // Immediate sync upon login / account identity resolution, and debounced sync when Config changes.
   const hasInitialSyncForAccountRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!accountKey || !user || loading || !config) {
-      if (!accountKey) {
-        hasInitialSyncForAccountRef.current = null;
-        resetStoreOnSignOut();
-      }
+    if (!isSignedIn) {
+      hasInitialSyncForAccountRef.current = null;
+      resetStoreOnSignOut();
       return;
     }
+    // While the account profile is still loading the relay lease stays in place.
+    if (!accountKey || !user || loading || !config) return;
     if (hasInitialSyncForAccountRef.current !== accountKey) {
       hasInitialSyncForAccountRef.current = accountKey;
       void syncAccountHostConfigs(user);
       return;
     }
     scheduleAutoSync();
-  }, [accountKey, config, loading, scheduleAutoSync, user]);
+  }, [accountKey, config, isSignedIn, loading, scheduleAutoSync, user]);
+
+  useEffect(() => {
+    if (!accountKey) return;
+    const timer = window.setInterval(() => {
+      void syncCurrentHostRelayLease();
+    }, RELAY_LEASE_RENEW_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [accountKey]);
 
   // Listen for frontend preference changes & Agent enablement/reorder events on the current Host.
   useEffect(() => {
@@ -1557,6 +1643,7 @@ export function AccountHostConfigSyncBridge(): null {
 }
 
 function resetStoreOnSignOut(): void {
+  lastIssuedRelayLease = null;
   void hostTunnelApi.setAccountLease(null).catch(() => undefined);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('dimo:host-tunnel-updated'));

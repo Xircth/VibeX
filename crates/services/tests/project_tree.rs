@@ -49,14 +49,13 @@ async fn creates_non_git_project_without_initializing_git() {
 #[tokio::test]
 async fn ensure_home_project_is_idempotent_non_git_folder() {
     let pool = pool().await;
-    let first = ProjectService::new()
-        .ensure_home_project(&pool, &RepoService::new())
-        .await
-        .unwrap();
-    let second = ProjectService::new()
-        .ensure_home_project(&pool, &RepoService::new())
-        .await
-        .unwrap();
+    let projects = ProjectService::new();
+    let repos = RepoService::new();
+    let (first, second) = tokio::try_join!(
+        projects.ensure_home_project(&pool, &repos),
+        projects.ensure_home_project(&pool, &repos),
+    )
+    .unwrap();
 
     assert_eq!(first.id, second.id);
     assert!(!first.is_git);

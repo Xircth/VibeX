@@ -146,9 +146,28 @@ impl ProjectService {
         };
 
         let id = Uuid::new_v4();
-        let mut project = Project::create(pool, &payload, id)
-            .await
-            .map_err(|e| ProjectServiceError::Project(ProjectError::CreateFailed(e.to_string())))?;
+        let mut project = match Project::create(pool, &payload, id).await {
+            Ok(project) => project,
+            Err(error) => {
+                // Concurrent folder imports can both miss the initial root-path lookup.
+                if normalized_repos.is_empty()
+                    && error.as_database_error().is_some_and(|e| e.is_unique_violation())
+                    && let Some(existing) =
+                        Project::find_any_by_root_path(pool, &payload.root_path).await?
+                {
+                    return self
+                        .reuse_existing_project(
+                            pool,
+                            existing,
+                            payload.name,
+                            payload.parent_project_id,
+                            &normalized_repos,
+                        )
+                        .await;
+                }
+                return Err(ProjectError::CreateFailed(error.to_string()).into());
+            }
+        };
 
         for repo in &normalized_repos {
             let repo_entity =

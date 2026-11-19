@@ -468,6 +468,10 @@ export interface PendingDeviceConnectRequest {
   sas_code: string;
   created_at: string;
   expires_at: string;
+  /** Present when the host verified the request comes from its own Dimo account. */
+  account_display_name?: string | null;
+  status?: 'pending' | 'approved' | 'rejected' | 'expired';
+  issued_device_id?: string | null;
 }
 
 export interface PortProbeResult {
@@ -779,6 +783,10 @@ export const webServiceApi = {
     await desktopShellCall('revoke_host_device', {
       request: { device_id: deviceId },
     });
+  },
+  /** Revokes every phone that connected through the account signed in on this computer. */
+  revokeAccountLinkedDevices: async (): Promise<number> => {
+    return desktopShellCall<number>('revoke_account_linked_devices');
   },
 };
 

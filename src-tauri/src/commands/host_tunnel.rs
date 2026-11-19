@@ -467,6 +467,106 @@ fn decide_relay_sync_mode(store: &HostTunnelStore) -> RelaySyncMode {
     RelaySyncMode::Idle
 }
 
+fn sha256_hex(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
+}
+
+async fn post_relay_beacon_topics(
+    relay_host: &str,
+    relay_port: u16,
+    topics: &[&str],
+    payload: &serde_json::Value,
+) {
+    let is_domain = relay_host.parse::<std::net::IpAddr>().is_err()
+        && !relay_host.eq_ignore_ascii_case("localhost");
+    let (base_url, target_port) = if is_domain && (relay_port == 80 || relay_port == 443) {
+        (format!("https://{relay_host}/v1/beacon"), 443u16)
+    } else {
+        (
+            format!("http://{relay_host}:{relay_port}/v1/beacon"),
+            relay_port,
+        )
+    };
+
+    let host_owned = relay_host.to_string();
+    let resolved = tokio::task::spawn_blocking(move || {
+        utils::net::resolve_host_ipv4_direct(&host_owned, target_port)
+    })
+    .await
+    .ok()
+    .flatten();
+
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(4))
+        .no_proxy();
+    if let Some(addr) = resolved {
+        builder = builder.resolve(relay_host, addr);
+    }
+    if let Ok(client) = builder.build() {
+        for topic in topics {
+            let _ = client
+                .post(format!("{base_url}/{topic}"))
+                .json(payload)
+                .send()
+                .await;
+        }
+    }
+}
+
+pub async fn publish_pairing_code_beacon(connection_code: &str, host_id: &str) {
+    let clean_code: String = connection_code
+        .trim()
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if clean_code.is_empty() || host_id.trim().is_empty() {
+        return;
+    }
+    let Ok(store) = load_store().await else {
+        return;
+    };
+    let Some((relay_host, relay_port, origin)) = (match decide_relay_sync_mode(&store) {
+        RelaySyncMode::OfficialQuickTunnel => valid_account_lease(&store)
+            .zip(default_official_quick_origin(&store))
+            .map(|(lease, origin)| {
+                (
+                    lease.relay_host.trim().to_string(),
+                    lease.relay_port,
+                    origin,
+                )
+            }),
+        RelaySyncMode::SavedCustomRelay { host, port, .. } => store
+            .saved
+            .iter()
+            .find(|item| {
+                Some(item.id.as_str()) == store.active_id.as_deref() && item.kind == "relay"
+            })
+            .map(|custom| (host.trim().to_string(), port, custom.origin.clone())),
+        RelaySyncMode::PendingCustom { .. } | RelaySyncMode::Idle => None,
+    }) else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "v": 2,
+        "host_id": host_id,
+        "origin": origin,
+        "ts": Utc::now().timestamp(),
+    });
+    let code_hash = &sha256_hex(&format!("vibex-pair-code-v1:{clean_code}"))[..32];
+    let topic = format!("vbx-p-{code_hash}");
+    post_relay_beacon_topics(&relay_host, relay_port, &[topic.as_str()], &payload).await;
+}
+
 pub async fn sync_relay() {
     let store = load_store().await.unwrap_or_default();
     publish_browser_origins(&store);

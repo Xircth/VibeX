@@ -458,7 +458,7 @@ pub fn host_family_product(spec: &Value) -> Option<&'static str> {
     match (managed.get("product").and_then(Value::as_str), binary_id) {
         (Some("session"), _) => Some("session"),
         (Some("delegation"), _) => Some("delegation"),
-        (Some("workflow"), _) | (_, "dimo-workflow-mcp") => Some("workflow"),
+        (Some("workflow"), _) | (_, "dimo-workflow-mcp" | "vibex-workflow-mcp") => Some("workflow"),
         _ => None,
     }
 }
@@ -1062,6 +1062,17 @@ mod tests {
             legacy_projected_mcp_server_id("acme.connector", "mcp", &json!({})),
             "acme.connector.mcp"
         );
+    }
+
+    #[test]
+    fn workflow_snapshots_project_to_the_current_product_name() {
+        for binary_id in ["vibex-workflow-mcp", "dimo-workflow-mcp"] {
+            let spec = json!({
+                "managedRuntime": { "kind": "hostFamilyBinary", "binaryId": binary_id }
+            });
+            assert_eq!(host_family_product(&spec), Some("workflow"));
+            assert_eq!(official_product_mcp_name(&spec), Some(WORKFLOW_MCP_NAME));
+        }
     }
 
     #[test]

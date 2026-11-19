@@ -217,6 +217,11 @@ pub fn remap_path_string_prefix(value: &str, old_dir: &Path, new_dir: &Path) -> 
     {
         let sep = norm_value.as_bytes()[old_len];
         if sep == b'/' || sep == b'\\' {
+            let is_posix_new = new_slash.starts_with('/') && !new_slash.starts_with("//");
+            if is_posix_new {
+                let rest = norm_value[old_len + 1..].replace('\\', "/");
+                return Some(format!("{new_slash}/{rest}"));
+            }
             let sep_char = sep as char;
             let rest = &norm_value[old_len + 1..];
             let new_base = if sep_char == '/' {
@@ -662,6 +667,17 @@ mod tests {
             )
             .as_deref(),
             Some(r"C:\Users\18190\AppData\Roaming\dimo\dimo\data\plugins\dimo.browser")
+        );
+
+        // POSIX target must keep forward slashes even if stored suffix had backslashes
+        assert_eq!(
+            remap_path_string_prefix(
+                r"\\?\/tmp/.tmpABC/Local/Dimo/data\plugins\runtimes\dimo.browser",
+                Path::new("/tmp/.tmpABC/Local/Dimo/data"),
+                Path::new("/tmp/.tmpABC/Roaming/dimo/dimo/data"),
+            )
+            .as_deref(),
+            Some("/tmp/.tmpABC/Roaming/dimo/dimo/data/plugins/runtimes/dimo.browser")
         );
     }
 }

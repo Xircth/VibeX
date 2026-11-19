@@ -600,7 +600,12 @@ pub fn acp_launch_args(profile: &BuiltInProfile, component: ProfileComponent) ->
 }
 
 fn normalized_program_command_name(program: &std::path::Path) -> Option<String> {
-    let name = program.file_name().and_then(|value| value.to_str())?;
+    let raw = program.to_string_lossy();
+    let trimmed_path = raw.trim_end_matches(['/', '\\']);
+    let name = trimmed_path
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|value| !value.is_empty())?;
     let trimmed = name
         .strip_suffix(".exe")
         .or_else(|| name.strip_suffix(".EXE"))

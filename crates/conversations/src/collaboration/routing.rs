@@ -513,7 +513,9 @@ pub(crate) async fn resolve_seat_targets(
             continue;
         }
         if let Some(member) = members.iter().find(|member| {
-            member.nickname == nickname || member.conversation_id.as_deref() == Some(nickname)
+            member.member_id == nickname
+                || member.nickname == nickname
+                || member.conversation_id.as_deref() == Some(nickname)
         }) {
             let conversation_id = member
                 .conversation_id
@@ -1373,6 +1375,27 @@ mod tests {
         assert_eq!(from_agent.will_wake, 2);
         // Preview never delivers.
         assert!(inputs_of(&pool, b).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn explicit_space_seat_id_resolves_to_its_current_conversation() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let owner = Uuid::new_v4();
+        let bot = Uuid::new_v4();
+        create_session(&pool, owner, workspace, Some("Owner")).await;
+        create_session(&pool, bot, workspace, Some("Writer")).await;
+        let space = space_of(&pool, owner).await;
+        let seat = add_space_member(&pool, owner, &space, bot, "Writer", Uuid::new_v4())
+            .await
+            .unwrap();
+        let expected = Uuid::parse_str(seat.conversation_id.as_deref().unwrap()).unwrap();
+        let targets = resolve_seat_targets(&pool, &space, None, &[seat.member_id], "check in")
+            .await
+            .unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].conversation_id, Some(expected));
+        assert_eq!(targets[0].nickname, "Writer");
     }
 
     #[tokio::test]

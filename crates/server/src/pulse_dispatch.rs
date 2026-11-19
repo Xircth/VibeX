@@ -358,7 +358,8 @@ impl ServerApplicationDomains {
                     GroupDispatchMode::ModeratorTriage {
                         moderator_member_id,
                     } => vec![moderator_member_id.clone()],
-                    GroupDispatchMode::BroadcastLogOnly => Vec::new(),
+                    // An empty audience routes a user post to the default agent.
+                    GroupDispatchMode::BroadcastLogOnly => vec!["User".to_string()],
                 };
                 collaboration::post_to_space_delayed_with(
                     &self.pool,
@@ -372,7 +373,8 @@ impl ServerApplicationDomains {
                         operation_id: Uuid::new_v4(),
                     },
                     None,
-                    &collaboration::DeliveryContext::default(),
+                    &conversations::ScopedConversationControl::new(self.conversations.clone())
+                        .delivery_context(),
                 )
                 .await
                 .map_err(|err| err.to_string())?;

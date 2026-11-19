@@ -50,9 +50,8 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
             match workspace_utils::shell::resolve_executable_path(candidate.executable).await {
                 Some(path) => Some(path),
                 None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => {
-                    dirs::home_dir().and_then(|home| {
-                        crate::resolve_native_engine_cli(agent_id.as_str(), &home)
-                    })
+                    dirs::home_dir()
+                        .and_then(|home| crate::resolve_native_engine_cli(agent_id.as_str(), &home))
                 }
                 None => None,
             };

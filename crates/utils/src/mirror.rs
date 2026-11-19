@@ -182,7 +182,8 @@ pub fn node_download_url_candidates_for_proxy(
     proxy_active: bool,
 ) -> Vec<String> {
     let official = format!("https://nodejs.org/dist/v{version}/{archive_name}");
-    let cdn_npmmirror = format!("https://cdn.npmmirror.com/binaries/node/v{version}/{archive_name}");
+    let cdn_npmmirror =
+        format!("https://cdn.npmmirror.com/binaries/node/v{version}/{archive_name}");
     let npmmirror = format!("https://npmmirror.com/mirrors/node/v{version}/{archive_name}");
     let dimo_mirror = format!("{DIMO_MIRROR_ORIGIN}/dl/nodejs/dist/v{version}/{archive_name}");
     if proxy_active {
@@ -259,7 +260,10 @@ pub fn uv_install_mirror_candidates_for_proxy(
                 PUBLIC_PYPI_TUNA_INDEX,
                 Some(PUBLIC_PYTHON_STANDALONE_MIRROR),
             ),
-            (PUBLIC_PYPI_ALIYUN_INDEX, Some(DIMO_PYTHON_STANDALONE_MIRROR)),
+            (
+                PUBLIC_PYPI_ALIYUN_INDEX,
+                Some(DIMO_PYTHON_STANDALONE_MIRROR),
+            ),
             (DIMO_PYPI_INDEX, Some(DIMO_PYTHON_STANDALONE_MIRROR)),
             (OFFICIAL_PYPI_INDEX, None),
         ]
@@ -325,8 +329,11 @@ mod tests {
 
     #[test]
     fn node_urls_order_official_first_when_proxy_active_and_mirrors_first_otherwise() {
-        let with_proxy =
-            node_download_url_candidates_for_proxy("22.22.3", "node-v22.22.3-linux-x64.tar.gz", true);
+        let with_proxy = node_download_url_candidates_for_proxy(
+            "22.22.3",
+            "node-v22.22.3-linux-x64.tar.gz",
+            true,
+        );
         assert_eq!(
             with_proxy[0],
             "https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-x64.tar.gz"

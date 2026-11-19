@@ -1471,9 +1471,11 @@ async fn native_tool_results_preserve_structured_metadata_and_permission_correla
                 updates.insert(update.id.clone(), (update.status, update.content));
             }
             AgentEvent::PermissionRequested { request } => {
-                perm_tool_call_id = request
-                    .details
-                    .and_then(|d| d.get("toolCallId").and_then(|v| v.as_str()).map(str::to_string));
+                perm_tool_call_id = request.details.and_then(|d| {
+                    d.get("toolCallId")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                });
             }
             _ => {}
         }

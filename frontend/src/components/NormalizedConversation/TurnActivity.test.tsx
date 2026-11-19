@@ -187,7 +187,9 @@ describe('terminal failure summaries in the timeline', () => {
       outputPreview: 'Permission denied',
     });
     expect(screen.getByText('工具调用失败')).toBeVisible();
-    expect(screen.queryByText(/命令退出码|权限被拒绝|执行超时/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/命令退出码|权限被拒绝|执行超时/)
+    ).not.toBeInTheDocument();
   });
 
   it('localizes the reported exit code in English', async () => {

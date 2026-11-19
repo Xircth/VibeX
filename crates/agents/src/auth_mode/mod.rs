@@ -856,7 +856,8 @@ fn kimi_config_model_name(env: &HashMap<String, String>) -> Option<String> {
         .filter(|value| !value.is_empty())
     {
         dirs.push(PathBuf::from(home));
-    } else if let Some(home) = std::env::var_os("KIMI_CODE_HOME").filter(|value| !value.is_empty()) {
+    } else if let Some(home) = std::env::var_os("KIMI_CODE_HOME").filter(|value| !value.is_empty())
+    {
         dirs.push(PathBuf::from(home));
     }
     if let Some(home) = env
@@ -1476,7 +1477,6 @@ fn grok_cli_permission_mode(mode: Option<&str>) -> Option<&'static str> {
         _ => None,
     }
 }
-
 
 #[cfg(test)]
 mod tests;

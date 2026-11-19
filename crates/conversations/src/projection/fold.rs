@@ -199,10 +199,11 @@ impl ProjectionFold {
                         normalized_incoming_status
                     };
                     if !settle_read
-                        && let Some(raw_obj) = tool_call.raw_output.as_ref().and_then(|v| v.as_object())
-                        && reported_status
-                            .as_deref()
-                            .is_none_or(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "failed" | "error"))
+                        && let Some(raw_obj) =
+                            tool_call.raw_output.as_ref().and_then(|v| v.as_object())
+                        && reported_status.as_deref().is_none_or(|s| {
+                            matches!(s.trim().to_ascii_lowercase().as_str(), "failed" | "error")
+                        })
                     {
                         if raw_obj
                             .get("timedOut")
@@ -217,7 +218,12 @@ impl ProjectionFold {
                             || raw_obj
                                 .get("status")
                                 .and_then(serde_json::Value::as_str)
-                                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "timed_out" | "timedout"))
+                                .is_some_and(|s| {
+                                    matches!(
+                                        s.trim().to_ascii_lowercase().as_str(),
+                                        "timed_out" | "timedout"
+                                    )
+                                })
                         {
                             reported_status = Some("timed_out".to_string());
                         } else if raw_obj
@@ -227,7 +233,12 @@ impl ProjectionFold {
                             || raw_obj
                                 .get("status")
                                 .and_then(serde_json::Value::as_str)
-                                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "denied" | "declined"))
+                                .is_some_and(|s| {
+                                    matches!(
+                                        s.trim().to_ascii_lowercase().as_str(),
+                                        "denied" | "declined"
+                                    )
+                                })
                         {
                             reported_status = Some("denied".to_string());
                         }

@@ -623,8 +623,12 @@ mod tests {
 
         // Exact directory match
         assert_eq!(
-            remap_path_string_prefix(r"\\?\C:\Users\18190\AppData\Local\Dimo\data", old_dir, new_dir)
-                .as_deref(),
+            remap_path_string_prefix(
+                r"\\?\C:\Users\18190\AppData\Local\Dimo\data",
+                old_dir,
+                new_dir
+            )
+            .as_deref(),
             Some(r"C:\Users\18190\AppData\Roaming\dimo\dimo\data")
         );
 

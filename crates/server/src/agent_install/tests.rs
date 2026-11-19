@@ -61,8 +61,17 @@ fn connected_app_host_install_downloads_node_with_mirrors() {
         "direct traffic must prefer public China mirror first: {}",
         no_proxy[0]
     );
-    assert!(no_proxy.iter().any(|url| url.contains("mirror.dimo-ai.com")));
-    assert!(no_proxy.last().unwrap().starts_with("https://nodejs.org/dist/"));
+    assert!(
+        no_proxy
+            .iter()
+            .any(|url| url.contains("mirror.dimo-ai.com"))
+    );
+    assert!(
+        no_proxy
+            .last()
+            .unwrap()
+            .starts_with("https://nodejs.org/dist/")
+    );
 }
 
 #[test]
@@ -87,7 +96,10 @@ fn host_install_routes_uv_and_kiro_sources_by_proxy_state() {
             .iter()
             .any(|(idx, _)| *idx == utils::mirror::DIMO_PYPI_INDEX)
     );
-    assert_eq!(pip_direct.last().unwrap().0, utils::mirror::OFFICIAL_PYPI_INDEX);
+    assert_eq!(
+        pip_direct.last().unwrap().0,
+        utils::mirror::OFFICIAL_PYPI_INDEX
+    );
 
     let kiro_direct = utils::mirror::download_url_candidates_for_proxy(
         "https://prod.download.cli.kiro.dev/stable/latest/manifest.json",
@@ -100,10 +112,8 @@ fn host_install_routes_uv_and_kiro_sources_by_proxy_state() {
             "https://prod.download.cli.kiro.dev/stable/latest/manifest.json",
         ]
     );
-    let kiro_proxy = utils::mirror::download_url_candidates_for_proxy(
-        "https://cli.kiro.dev/install.ps1",
-        true,
-    );
+    let kiro_proxy =
+        utils::mirror::download_url_candidates_for_proxy("https://cli.kiro.dev/install.ps1", true);
     assert_eq!(
         kiro_proxy,
         vec![

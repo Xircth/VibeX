@@ -797,8 +797,7 @@ pub(super) async fn install_kiro_unix_installer(
         component.resolved_source
     );
     let script_urls = utils::mirror::download_url_candidates(&component.resolved_source);
-    let (_, script_bytes) =
-        download_archive_from(&script_urls, MAX_MANAGED_TOOL_BYTES).await?;
+    let (_, script_bytes) = download_archive_from(&script_urls, MAX_MANAGED_TOOL_BYTES).await?;
     let script_path = staging.join("install.sh");
     tokio::fs::write(&script_path, &script_bytes).await?;
     let mut cmd = utils::process::new_hidden_tokio_command("bash", [&script_path]);

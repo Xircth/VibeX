@@ -160,9 +160,7 @@ export function MessageQueueIndicator({
                   autoFocus
                   data-testid={`delay-minutes-input-${message.id}`}
                   value={delayMinutesInput}
-                  onChange={(event) =>
-                    setDelayMinutesInput(event.target.value)
-                  }
+                  onChange={(event) => setDelayMinutesInput(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault();
@@ -202,9 +200,7 @@ export function MessageQueueIndicator({
                           defaultValue: 'Steer',
                         })
                   }
-                  disabled={
-                    claimed || steeringQueued || !onSteerQueuedMessage
-                  }
+                  disabled={claimed || steeringQueued || !onSteerQueuedMessage}
                   onClick={() => onSteerQueuedMessage?.(message)}
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
@@ -377,7 +373,9 @@ export function MessageQueueIndicator({
           </button>
 
           {delayedExpanded
-            ? renderDelayedItems('divide-y divide-border border-t border-border')
+            ? renderDelayedItems(
+                'divide-y divide-border border-t border-border'
+              )
             : null}
         </div>
       ) : null}

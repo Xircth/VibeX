@@ -371,7 +371,10 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   );
 
   const refreshUnnamedDraftFile = useCallback(async () => {
-    const starter = createStarterWorkflow(defaultAgentIdRef.current, tRef.current);
+    const starter = createStarterWorkflow(
+      defaultAgentIdRef.current,
+      tRef.current
+    );
     try {
       await writeWorkflowSourceFile(
         sourceApi,

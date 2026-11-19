@@ -2619,7 +2619,13 @@ custom_flag = "keep"
         r#"{"id":"grok-4","api_backend":"responses","supports_backend_search":false,"max_retries":null,"models":["grok-4"]}"#,
     )
     .await;
-    assert!(disabled["models"].as_table().unwrap().get("web_search").is_none());
+    assert!(
+        disabled["models"]
+            .as_table()
+            .unwrap()
+            .get("web_search")
+            .is_none()
+    );
     let dimo_after = disabled["model"]["dimo"].as_table().unwrap();
     assert_eq!(dimo_after["supports_backend_search"].as_bool(), Some(false));
     assert!(!dimo_after.contains_key("max_retries"));

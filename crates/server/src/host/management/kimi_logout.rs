@@ -86,7 +86,10 @@ async fn send_acp_logout(
             "clientInfo": { "name": "dimo", "version": env!("CARGO_PKG_VERSION") }
         }
     });
-    if write_json_line(&mut stdin, &init_request, deadline).await.is_err() {
+    if write_json_line(&mut stdin, &init_request, deadline)
+        .await
+        .is_err()
+    {
         return;
     }
     let _ = wait_for_json_rpc_id(&mut reader, 1, deadline).await;
@@ -97,7 +100,10 @@ async fn send_acp_logout(
         "method": "logout",
         "params": {}
     });
-    if write_json_line(&mut stdin, &logout_request, deadline).await.is_ok() {
+    if write_json_line(&mut stdin, &logout_request, deadline)
+        .await
+        .is_ok()
+    {
         let _ = wait_for_json_rpc_id(&mut reader, 2, deadline).await;
     }
     drop(stdin);
@@ -157,7 +163,9 @@ fn resolve_kimi_home_candidates(
         .filter(|value| !value.is_empty())
     {
         dirs.push(PathBuf::from(custom));
-    } else if let Some(custom) = std::env::var_os("KIMI_CODE_HOME").filter(|value| !value.is_empty()) {
+    } else if let Some(custom) =
+        std::env::var_os("KIMI_CODE_HOME").filter(|value| !value.is_empty())
+    {
         dirs.push(PathBuf::from(custom));
     }
     let resolved_user_home = environment
@@ -185,15 +193,11 @@ async fn cleanup_kimi_local_auth(kimi_home: &Path) -> Result<(), String> {
         let keep_synthetic = serde_json::from_slice::<Value>(&bytes)
             .ok()
             .is_some_and(|value| model_providers::kimi_credential_is_synthetic(&value));
-        if !keep_synthetic {
-            if let Err(error) = tokio::fs::remove_file(&credential_path).await
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                return Err(format!(
-                    "移除 {} 失败：{error}",
-                    credential_path.display()
-                ));
-            }
+        if !keep_synthetic
+            && let Err(error) = tokio::fs::remove_file(&credential_path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(format!("移除 {} 失败：{error}", credential_path.display()));
         }
     }
 
@@ -205,11 +209,17 @@ async fn cleanup_kimi_local_auth(kimi_home: &Path) -> Result<(), String> {
         return Ok(());
     };
     let mut changed = false;
-    if let Some(providers) = document.get_mut("providers").and_then(toml::Value::as_table_mut) {
+    if let Some(providers) = document
+        .get_mut("providers")
+        .and_then(toml::Value::as_table_mut)
+    {
         changed |= providers.remove("managed:kimi-code").is_some();
     }
     let mut removed_models = Vec::new();
-    if let Some(models) = document.get_mut("models").and_then(toml::Value::as_table_mut) {
+    if let Some(models) = document
+        .get_mut("models")
+        .and_then(toml::Value::as_table_mut)
+    {
         let keys_to_remove = models
             .iter()
             .filter_map(|(key, entry)| {
@@ -247,8 +257,9 @@ async fn cleanup_kimi_local_auth(kimi_home: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uuid::Uuid;
+
+    use super::*;
 
     #[tokio::test]
     async fn cleanup_removes_real_oauth_and_managed_models_but_keeps_synthetic_gate() {

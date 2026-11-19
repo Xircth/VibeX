@@ -122,7 +122,9 @@ export function summarizeConversationChildren(
   };
 }
 
-export function useConversationChildrenSummary(conversationId: string | null | undefined) {
+export function useConversationChildrenSummary(
+  conversationId: string | null | undefined
+) {
   const [relations, setRelations] = useState<ConversationRelationView[]>([]);
 
   const load = useCallback(

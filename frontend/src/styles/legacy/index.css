@@ -7867,7 +7867,7 @@ html.dark {
     gap: 3px;
     padding: 0 2px;
     border: 0;
-    border-radius: calc(var(--radius) - 2px);
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     font-size: 0.75rem;
@@ -7937,7 +7937,7 @@ html.dark {
     align-items: center;
     gap: 4px;
     border: 1px solid var(--border-subtle);
-    border-radius: calc(var(--radius) - 2px);
+    border-radius: var(--radius-inner);
     background: var(--surface-card-strong);
     padding: 0 8px;
     color: var(--text-strong);
@@ -7970,7 +7970,7 @@ html.dark {
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: calc(var(--radius) - 2px);
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     transition:
@@ -8067,7 +8067,7 @@ html.dark {
     align-items: center;
     height: 24px;
     border: 1px solid transparent;
-    border-radius: 7px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     transition:
@@ -8085,7 +8085,7 @@ html.dark {
     border-color: var(--border-subtle);
     background: var(--surface-card-strong);
     color: var(--text-strong);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+    box-shadow: 0 1px 2px hsl(var(--shadow-ink) / 0.05);
   }
 
   .composer-cockpit-tab {
@@ -8103,7 +8103,8 @@ html.dark {
     cursor: pointer;
   }
 
-  .composer-cockpit-tab-wrap:has(.composer-cockpit-tab-x) .composer-cockpit-tab {
+  .composer-cockpit-tab-wrap:has(.composer-cockpit-tab-x)
+    .composer-cockpit-tab {
     padding-right: 4px;
   }
 
@@ -8178,7 +8179,7 @@ html.dark {
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-none);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -8200,7 +8201,7 @@ html.dark {
     gap: 3px;
     padding: 0 7px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     font-size: 11px;
@@ -8231,8 +8232,10 @@ html.dark {
   }
 
   .composer-cockpit-subbar {
-    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 75%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 75%, transparent);
+    border-top: 1px solid
+      color-mix(in srgb, var(--border-subtle) 75%, transparent);
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--border-subtle) 75%, transparent);
     background: color-mix(in srgb, var(--surface-control) 50%, transparent);
   }
 
@@ -8247,7 +8250,8 @@ html.dark {
     gap: 8px;
     padding: 6px 12px;
     font-size: 12px;
-    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
+    border-top: 1px solid
+      color-mix(in srgb, var(--border-subtle) 65%, transparent);
   }
 
   .composer-cockpit-row:first-child {
@@ -8262,7 +8266,7 @@ html.dark {
     gap: 4px;
     padding: 0 8px;
     border: 1px solid var(--border-subtle);
-    border-radius: 6px;
+    border-radius: var(--radius-inner);
     background: var(--surface-card-strong);
     color: var(--text-primary);
     font-size: 11px;
@@ -8287,7 +8291,7 @@ html.dark {
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-inner);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;

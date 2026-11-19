@@ -589,17 +589,18 @@ async fn registry_refresh_falls_back_between_mirror_and_official_and_guards_etag
 
     // Next refresh on matching source sends its ETag.
     let _ = client.refresh(&mut cache).await;
-    let seen = fetcher.seen.lock().unwrap();
-    let expected_etag = if active_source == RegistrySnapshotClient::MIRROR_REGISTRY_URL {
-        "\"mirror-etag\""
-    } else {
-        "\"official-etag\""
-    };
-    assert_eq!(
-        seen.last().unwrap(),
-        &(active_source.clone(), Some(expected_etag.to_string()))
-    );
-    drop(seen);
+    {
+        let seen = fetcher.seen.lock().unwrap();
+        let expected_etag = if active_source == RegistrySnapshotClient::MIRROR_REGISTRY_URL {
+            "\"mirror-etag\""
+        } else {
+            "\"official-etag\""
+        };
+        assert_eq!(
+            seen.last().unwrap(),
+            &(active_source.clone(), Some(expected_etag.to_string()))
+        );
+    }
 
     // If the preferred source fails, refresh falls back to the alternate source cleanly.
     let mirror_only = Arc::new(EtagRecordingFetcher {

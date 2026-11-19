@@ -179,7 +179,9 @@ export function AppUpdaterSection({
   const releaseUrl =
     update?.releaseUrl ??
     diagnostic?.fallbackReleaseUrl ??
-    (state === 'error' ? 'https://github.com/DimoADE/Dimo/releases/latest' : null);
+    (state === 'error'
+      ? 'https://github.com/DimoADE/Dimo/releases/latest'
+      : null);
   const busy = state === 'checking' || state === 'downloading';
 
   const copyDiagnostics = useCallback(async () => {

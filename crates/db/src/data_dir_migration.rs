@@ -146,8 +146,7 @@ fn remap_plugin_package_json(raw: &str, old_dir: &Path, new_dir: &Path) -> Optio
     if let Some(Value::String(source_path)) = root
         .get_mut("source")
         .and_then(|source| source.get_mut("path"))
-        && let Some(remapped) =
-            utils::path::remap_path_string_prefix(source_path, old_dir, new_dir)
+        && let Some(remapped) = utils::path::remap_path_string_prefix(source_path, old_dir, new_dir)
         && remapped != *source_path
     {
         *source_path = remapped;
@@ -252,11 +251,13 @@ pub async fn remap_sqlite_data_dir_paths(
                 .await?;
         for (plugin_id, package_json) in rows {
             if let Some(updated_json) = remap_plugin_package_json(&package_json, old_dir, new_dir) {
-                sqlx::query("UPDATE plugin_control_registry SET package_json = ?1 WHERE plugin_id = ?2")
-                    .bind(&updated_json)
-                    .bind(&plugin_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "UPDATE plugin_control_registry SET package_json = ?1 WHERE plugin_id = ?2",
+                )
+                .bind(&updated_json)
+                .bind(&plugin_id)
+                .execute(&mut *tx)
+                .await?;
             }
         }
     }
@@ -334,7 +335,8 @@ pub async fn reconcile_migrated_data_dir_paths(
                 .fetch_all(&mut *conn)
                 .await?;
         for (source_path, package_json) in rows {
-            if let Some(old_dir) = infer_old_data_dir_from_plugin_source_path(&source_path, data_dir)
+            if let Some(old_dir) =
+                infer_old_data_dir_from_plugin_source_path(&source_path, data_dir)
             {
                 push_candidate(old_dir);
             }
@@ -360,12 +362,14 @@ pub async fn reconcile_migrated_data_dir_paths(
 
     let legacy_cols = table_columns(&mut conn, "plugin_control_registry").await?;
     if table_has_all_columns(&legacy_cols, &["source_path", "package_json"]) {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT DISTINCT source_path, package_json FROM plugin_control_registry")
-                .fetch_all(&mut *conn)
-                .await?;
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT DISTINCT source_path, package_json FROM plugin_control_registry",
+        )
+        .fetch_all(&mut *conn)
+        .await?;
         for (source_path, package_json) in rows {
-            if let Some(old_dir) = infer_old_data_dir_from_plugin_source_path(&source_path, data_dir)
+            if let Some(old_dir) =
+                infer_old_data_dir_from_plugin_source_path(&source_path, data_dir)
             {
                 push_candidate(old_dir);
             }
@@ -582,7 +586,12 @@ mod tests {
     async fn remap_sqlite_rewrites_plugin_v4_verbatim_paths_and_runtime_locks() {
         let temp = tempfile::tempdir().expect("tempdir");
         let old_dir = temp.path().join("Local").join("Dimo").join("data");
-        let new_dir = temp.path().join("Roaming").join("dimo").join("dimo").join("data");
+        let new_dir = temp
+            .path()
+            .join("Roaming")
+            .join("dimo")
+            .join("dimo")
+            .join("data");
         std::fs::create_dir_all(&new_dir).expect("mkdir new_dir");
 
         let db_path = new_dir.join("db.sqlite");
@@ -713,7 +722,10 @@ mod tests {
             .into_owned();
         assert_eq!(remapped_col, expected_snapshot);
         let parsed: Value = serde_json::from_str(&remapped_json).unwrap();
-        assert_eq!(parsed["source"]["path"].as_str(), Some(expected_snapshot.as_str()));
+        assert_eq!(
+            parsed["source"]["path"].as_str(),
+            Some(expected_snapshot.as_str())
+        );
         assert_eq!(
             parsed["executionRoot"].as_str(),
             Some(expected_snapshot.as_str())
@@ -724,8 +736,15 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert!(artifact_entry.starts_with(&*new_dir.to_string_lossy()));
-        assert!(!artifact_entry.contains("Local"));
+        let expected_runtime_entry = new_dir
+            .join("plugins")
+            .join("runtimes")
+            .join("node")
+            .join("node.exe")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(artifact_entry, expected_runtime_entry);
+        assert!(!artifact_entry.starts_with(&*old_dir.to_string_lossy()));
 
         let lock_entry: String =
             sqlx::query_scalar("SELECT absolute_entrypoint FROM plugin_runtime_locks_v4")
@@ -741,7 +760,12 @@ mod tests {
     async fn reconcile_migrated_data_dir_paths_heals_via_snapshot_inference_without_marker() {
         let temp = tempfile::tempdir().expect("tempdir");
         let old_dir = temp.path().join("Local").join("Dimo").join("data");
-        let new_dir = temp.path().join("Roaming").join("dimo").join("dimo").join("data");
+        let new_dir = temp
+            .path()
+            .join("Roaming")
+            .join("dimo")
+            .join("dimo")
+            .join("data");
         let live_snapshot = new_dir
             .join("plugins")
             .join("runtimes")

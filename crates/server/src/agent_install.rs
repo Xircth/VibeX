@@ -845,11 +845,8 @@ where
 {
     let mut components = Vec::new();
     for component in &plan.components {
-        let version_args = component_version_args(
-            &plan.agent_id,
-            &component.component_id,
-            &component.command,
-        );
+        let version_args =
+            component_version_args(&plan.agent_id, &component.component_id, &component.command);
         if let Some(existing) = existing_component(&plan.agent_id, component, version_args).await {
             println!(
                 "Reusing {} {} at {}",
@@ -1018,12 +1015,9 @@ fn component_version_args(
     };
     let command = command.trim();
     if !command.is_empty()
-        && let Some(candidate) = profile
-            .external_candidates
-            .iter()
-            .find(|candidate| {
-                candidate.component == expected && candidate.executable.eq_ignore_ascii_case(command)
-            })
+        && let Some(candidate) = profile.external_candidates.iter().find(|candidate| {
+            candidate.component == expected && candidate.executable.eq_ignore_ascii_case(command)
+        })
     {
         return candidate.version_args;
     }

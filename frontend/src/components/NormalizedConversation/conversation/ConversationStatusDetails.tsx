@@ -45,10 +45,7 @@ export function ConversationStatusDetailsContent({
   children: ReactNode;
 }) {
   return (
-    <div
-      id={id}
-      className={cn('composer-status-details', mono && 'font-mono')}
-    >
+    <div id={id} className={cn('composer-status-details', mono && 'font-mono')}>
       {children}
     </div>
   );

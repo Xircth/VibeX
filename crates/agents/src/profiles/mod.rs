@@ -624,10 +624,9 @@ pub fn external_candidate_for_program<'a>(
     component: ProfileComponent,
     program: &std::path::Path,
 ) -> Option<&'a ProfileExternalCandidate> {
-    profile
-        .external_candidates
-        .iter()
-        .find(|candidate| candidate.component == component && candidate_command_matches(candidate.executable, program))
+    profile.external_candidates.iter().find(|candidate| {
+        candidate.component == component && candidate_command_matches(candidate.executable, program)
+    })
 }
 
 pub fn acp_launch_args_for_program(

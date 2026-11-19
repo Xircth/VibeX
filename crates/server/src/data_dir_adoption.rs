@@ -1187,10 +1187,12 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("CREATE TABLE projects (id TEXT PRIMARY KEY, root_path TEXT NOT NULL DEFAULT '')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "CREATE TABLE projects (id TEXT PRIMARY KEY, root_path TEXT NOT NULL DEFAULT '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("INSERT INTO conversations (id) VALUES ('c1')")
             .execute(&pool)
             .await
@@ -1290,17 +1292,23 @@ mod tests {
             .await
             .unwrap();
 
-        let healed_path: String =
-            sqlx::query_scalar("SELECT source_path FROM plugin_packages_v4 WHERE plugin_id = 'dimo.browser'")
-                .fetch_one(&check_pool)
-                .await
-                .unwrap();
+        let healed_path: String = sqlx::query_scalar(
+            "SELECT source_path FROM plugin_packages_v4 WHERE plugin_id = 'dimo.browser'",
+        )
+        .fetch_one(&check_pool)
+        .await
+        .unwrap();
         assert_eq!(Path::new(&healed_path), target_snapshot.as_path());
         let settings: Value = serde_json::from_str(
             &std::fs::read_to_string(dirs.target_dir.join("settings.json")).unwrap(),
         )
         .unwrap();
-        assert!(!settings["workspace_dir"].as_str().unwrap().contains("roaming"));
+        assert!(
+            !settings["workspace_dir"]
+                .as_str()
+                .unwrap()
+                .contains("roaming")
+        );
 
         check_pool.close().await;
     }

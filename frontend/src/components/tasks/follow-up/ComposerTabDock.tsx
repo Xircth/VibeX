@@ -1,6 +1,13 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { ChevronDown, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AsyncTaskRecord,
@@ -368,10 +375,10 @@ export function ComposerTabDock({
   const resolvedActiveTab = tabs.find((tab) => tab.id === activeTab) ?? null;
   const isPanelOpen = resolvedActiveTab !== null;
   useEffect(() => {
-    if (activeTab && !tabs.some((tab) => tab.id === activeTab)) {
+    if (activeTab && !isPanelOpen) {
       setActiveTab(null);
     }
-  }, [activeTab, tabs]);
+  }, [activeTab, isPanelOpen]);
 
   // Collapse when clicking outside the dock card without shifting layout before the click completes.
   useEffect(() => {
@@ -560,10 +567,7 @@ function ComposerCockpitNoticeRow({
         </div>
       </div>
       {message && expanded ? (
-        <ConversationStatusDetailsContent
-          id={detailsId}
-          mono={tone !== 'info'}
-        >
+        <ConversationStatusDetailsContent id={detailsId} mono={tone !== 'info'}>
           <p className="whitespace-pre-wrap break-words">{message}</p>
         </ConversationStatusDetailsContent>
       ) : null}

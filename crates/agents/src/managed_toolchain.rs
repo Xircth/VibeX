@@ -822,7 +822,11 @@ mod tests {
             )
         );
         assert!(with_proxy.iter().any(|url| url.contains("npmmirror.com")));
-        assert!(with_proxy.iter().any(|url| url.contains("mirror.dimo-ai.com")));
+        assert!(
+            with_proxy
+                .iter()
+                .any(|url| url.contains("mirror.dimo-ai.com"))
+        );
 
         let no_proxy = managed_node_download_urls_for_proxy(&artifact, false);
         assert!(no_proxy[0].contains("npmmirror.com"));
@@ -869,7 +873,11 @@ mod tests {
             )
         );
         assert!(with_proxy.iter().any(|url| url.contains("npmmirror.com")));
-        assert!(with_proxy.iter().any(|url| url.contains("mirror.dimo-ai.com")));
+        assert!(
+            with_proxy
+                .iter()
+                .any(|url| url.contains("mirror.dimo-ai.com"))
+        );
 
         let no_proxy = managed_bun_download_urls_for_proxy(&artifact, false);
         assert!(no_proxy[0].contains("npmmirror.com"));

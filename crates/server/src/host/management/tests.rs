@@ -192,14 +192,10 @@ async fn management_action_falls_back_to_the_adapter_entry_point() {
     let pool = lock_pool("dimo_test_agent", &[("acp_adapter", &adapter)]).await;
     let agent_id = AgentId::parse("dimo_test_agent").unwrap();
 
-    let resolved = resolve_management_action_program(
-        &pool,
-        &agent_id,
-        &two_entry_action(),
-        &HashMap::new(),
-    )
-    .await
-    .expect("the adapter entry point resolves");
+    let resolved =
+        resolve_management_action_program(&pool, &agent_id, &two_entry_action(), &HashMap::new())
+            .await
+            .expect("the adapter entry point resolves");
 
     assert_eq!(resolved.path, adapter);
     assert_eq!(resolved.args, vec!["--cli", "adapter-login"]);
@@ -213,14 +209,10 @@ async fn management_action_prefers_the_standalone_cli_entry_point() {
     let pool = lock_pool("dimo_test_agent", &[("agent_runtime", &cli)]).await;
     let agent_id = AgentId::parse("dimo_test_agent").unwrap();
 
-    let resolved = resolve_management_action_program(
-        &pool,
-        &agent_id,
-        &two_entry_action(),
-        &HashMap::new(),
-    )
-    .await
-    .expect("the standalone entry point resolves");
+    let resolved =
+        resolve_management_action_program(&pool, &agent_id, &two_entry_action(), &HashMap::new())
+            .await
+            .expect("the standalone entry point resolves");
 
     assert_eq!(resolved.path, cli);
     assert_eq!(resolved.args, vec!["cli-login"]);

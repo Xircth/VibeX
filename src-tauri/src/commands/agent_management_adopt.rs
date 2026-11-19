@@ -96,18 +96,23 @@ pub(super) async fn probe_one_built_in_external_installation(
                             local_runtime.version.clone().unwrap_or_default(),
                         )
                     } else if native_engine {
-                        let fallback_path = match utils::shell::resolve_executable_path(
-                            candidate.executable,
-                        )
-                        .await
-                        .filter(|path| {
-                            !agents::launch_program_is_legacy_acp_shim(&profile.agent_id, path)
-                        }) {
-                            Some(path) => Some(path),
-                            None => app.path().home_dir().ok().and_then(|home| {
-                                agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
-                            }),
-                        };
+                        let fallback_path =
+                            match utils::shell::resolve_executable_path(candidate.executable)
+                                .await
+                                .filter(|path| {
+                                    !agents::launch_program_is_legacy_acp_shim(
+                                        &profile.agent_id,
+                                        path,
+                                    )
+                                }) {
+                                Some(path) => Some(path),
+                                None => app.path().home_dir().ok().and_then(|home| {
+                                    agents::resolve_native_engine_cli(
+                                        profile.agent_id.as_str(),
+                                        &home,
+                                    )
+                                }),
+                            };
                         let Some(path) = fallback_path else {
                             anyhow::bail!("external local Runtime is missing");
                         };
@@ -124,8 +129,8 @@ pub(super) async fn probe_one_built_in_external_installation(
                         anyhow::bail!("external local Runtime is missing");
                     }
                 } else {
-                    let Some(path) = utils::shell::resolve_executable_path(candidate.executable)
-                        .await
+                    let Some(path) =
+                        utils::shell::resolve_executable_path(candidate.executable).await
                     else {
                         anyhow::bail!(
                             "external Agent candidate `{}` was not found",
@@ -137,8 +142,7 @@ pub(super) async fn probe_one_built_in_external_installation(
                 let executable = utils::process::prefer_direct_spawn_executable(
                     tokio::fs::canonicalize(executable).await?,
                 );
-                if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file()
-                {
+                if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
                     anyhow::bail!("external candidate is not an absolute executable file");
                 }
                 if agents::launch_program_is_legacy_acp_shim(&profile.agent_id, &executable) {
@@ -153,7 +157,9 @@ pub(super) async fn probe_one_built_in_external_installation(
                     let output =
                         tokio::time::timeout(EXTERNAL_COMPONENT_VERSION_TIMEOUT, command.output())
                             .await
-                            .map_err(|_| anyhow::anyhow!("external Agent version probe timed out"))??;
+                            .map_err(|_| {
+                                anyhow::anyhow!("external Agent version probe timed out")
+                            })??;
                     ensure_success("external Agent version probe", &output)?;
                     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -169,16 +175,13 @@ pub(super) async fn probe_one_built_in_external_installation(
                                 &executable,
                             )
                             .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "external Agent binary revision could not be read"
-                                )
+                                anyhow::anyhow!("external Agent binary revision could not be read")
                             })?;
                     } else {
                         anyhow::bail!("external Agent version probe returned no version");
                     }
                 }
-                let sha256 =
-                    format!("{:x}", Sha256::digest(tokio::fs::read(&executable).await?));
+                let sha256 = format!("{:x}", Sha256::digest(tokio::fs::read(&executable).await?));
                 Ok::<InstalledComponent, anyhow::Error>(InstalledComponent {
                     kind: profile_component_key(candidate.component).to_string(),
                     absolute_path: executable,

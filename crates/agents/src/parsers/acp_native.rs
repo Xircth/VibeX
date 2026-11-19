@@ -1173,7 +1173,15 @@ fn tool_call_is_terminal(status: Option<&str>) -> bool {
     status.is_some_and(|s| {
         matches!(
             s.trim().to_ascii_lowercase().as_str(),
-            "completed" | "failed" | "cancelled" | "canceled" | "denied" | "declined" | "timed_out" | "timedout" | "error"
+            "completed"
+                | "failed"
+                | "cancelled"
+                | "canceled"
+                | "denied"
+                | "declined"
+                | "timed_out"
+                | "timedout"
+                | "error"
         )
     })
 }
@@ -1291,7 +1299,12 @@ fn upsert_tool_call(
             || obj
                 .get("status")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "timed_out" | "timedout"))
+                .is_some_and(|s| {
+                    matches!(
+                        s.trim().to_ascii_lowercase().as_str(),
+                        "timed_out" | "timedout"
+                    )
+                })
         {
             Some("timed_out")
         } else if obj
@@ -1301,7 +1314,12 @@ fn upsert_tool_call(
             || obj
                 .get("status")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "denied" | "declined"))
+                .is_some_and(|s| {
+                    matches!(
+                        s.trim().to_ascii_lowercase().as_str(),
+                        "denied" | "declined"
+                    )
+                })
         {
             Some("denied")
         } else {

@@ -203,7 +203,9 @@ describe('SubagentCard', () => {
 
     expect(screen.queryByTestId('subagent-thinking')).not.toBeInTheDocument();
     expect(screen.queryByTestId('subagent-live-text')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('subagent-child-tools')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('subagent-child-tools')
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/cargo test -p agents/)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/Verify crates\/agentsVerify crates\/agents/)

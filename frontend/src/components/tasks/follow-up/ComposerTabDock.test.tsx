@@ -10,7 +10,10 @@ import type { AsyncTaskRecord, ConversationRelationView } from 'shared/types';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
-import { ComposerTabDock, splitConversationStatusNotices } from './ComposerTabDock';
+import {
+  ComposerTabDock,
+  splitConversationStatusNotices,
+} from './ComposerTabDock';
 import type { QueuedMessage } from './sessionComposerQueue';
 
 const { mockListenToConversationEvents } = vi.hoisted(() => ({
@@ -283,8 +286,9 @@ describe('ComposerTabDock', () => {
     vi.mocked(conversationApi.listRelations).mockImplementation(
       async () => relations
     );
-    let eventHandler: ((batch: { conversation_id: string; ops: unknown[] }) => void) | null =
-      null;
+    let eventHandler:
+      | ((batch: { conversation_id: string; ops: unknown[] }) => void)
+      | null = null;
     mockListenToConversationEvents.mockImplementation(async (cb) => {
       eventHandler = cb;
       return () => undefined;
@@ -495,7 +499,9 @@ describe('ComposerTabDock', () => {
       />
     );
 
-    const standaloneList = await screen.findByTestId('conversation-children-list');
+    const standaloneList = await screen.findByTestId(
+      'conversation-children-list'
+    );
     expect(standaloneList).toHaveClass('max-h-[102px]', 'overflow-y-auto');
     expect(standaloneList.querySelectorAll('button')).toHaveLength(6);
   });

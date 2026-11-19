@@ -1058,7 +1058,9 @@ function resolveStructuredFailureStatus(
 ): ToolStatus {
   const resultRecord = asRecord(rawToolResult?.value);
   const metaRecord = asRecord(use.meta);
-  const resultStatus = firstString(resultRecord, 'status')?.trim().toLowerCase();
+  const resultStatus = firstString(resultRecord, 'status')
+    ?.trim()
+    .toLowerCase();
   const metaStatus = firstString(metaRecord, 'status')?.trim().toLowerCase();
   const exitStatusRecord = asRecord(
     resultRecord.exit_status ?? resultRecord.exitStatus

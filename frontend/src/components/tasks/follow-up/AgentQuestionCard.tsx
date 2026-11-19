@@ -226,7 +226,16 @@ export function AgentQuestionCard({
     measured.current = true;
     syncViewport(activeIndex, withAnim);
     setReady(true);
-  }, [activeIndex, answerState, open, sent, localDismissed, mode, questions, syncViewport]);
+  }, [
+    activeIndex,
+    answerState,
+    open,
+    sent,
+    localDismissed,
+    mode,
+    questions,
+    syncViewport,
+  ]);
 
   useEffect(() => {
     if (mode === 'readonly' || localDismissed || !open || sent) return;
@@ -394,7 +403,10 @@ export function AgentQuestionCard({
     }
   };
 
-  const handleCustomTextChange = (question: QuestionTab, customText: string) => {
+  const handleCustomTextChange = (
+    question: QuestionTab,
+    customText: string
+  ) => {
     if (responding) return;
     if (!question.multiSelect) {
       clearAdvanceTimer();
@@ -450,8 +462,8 @@ export function AgentQuestionCard({
             : 'agent-question-pop-in 260ms cubic-bezier(0.23,1,0.32,1) both',
         }}
       >
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 py-1 pl-1 pr-3 text-[12.5px] font-medium text-emerald-600 dark:text-emerald-400">
-          <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-emerald-600 text-white dark:bg-emerald-500">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--success)/0.14)] py-1 pl-1 pr-3 text-[12.5px] font-medium text-[var(--status-success-text)]">
+          <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--status-success-text)] text-[var(--surface-dialog)]">
             <Check className="h-3 w-3" strokeWidth={3} />
           </span>
           {t('questionRequestCard.sentMessage')}
@@ -579,7 +591,7 @@ export function AgentQuestionCard({
                                 className={cn(
                                   'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center transition-colors duration-200',
                                   question.multiSelect
-                                    ? 'rounded-[5px]'
+                                    ? 'rounded-sm'
                                     : 'rounded-full',
                                   selected
                                     ? 'bg-[var(--text-primary)] text-[var(--surface-dialog)]'
@@ -705,7 +717,7 @@ export function AgentQuestionCard({
               aria-label={t('questionRequestCard.previous')}
               disabled={activeIndex <= 0 || responding}
               onClick={() => goTo(activeIndex - 1)}
-              className="flex h-[20px] w-[20px] items-center justify-center rounded-[5px] transition-colors duration-100 enabled:hover:text-[var(--text-primary)] disabled:opacity-30"
+              className="flex h-[20px] w-[20px] items-center justify-center rounded-sm transition-colors duration-100 enabled:hover:text-[var(--text-primary)] disabled:opacity-30"
             >
               <ChevronUp className="h-3.5 w-3.5" aria-hidden />
             </button>
@@ -715,14 +727,16 @@ export function AgentQuestionCard({
               className="agent-question-card-position inline-flex items-center text-[12px] font-medium tabular-nums"
               style={{ letterSpacing: '-0.1px', lineHeight: 1 }}
             >
-              <RollingDigits value={`${activeIndex + 1} / ${questions.length}`} />
+              <RollingDigits
+                value={`${activeIndex + 1} / ${questions.length}`}
+              />
             </span>
             <button
               type="button"
               aria-label={t('questionRequestCard.next')}
               disabled={isLast || responding}
               onClick={() => goTo(activeIndex + 1)}
-              className="flex h-[20px] w-[20px] items-center justify-center rounded-[5px] transition-colors duration-100 enabled:hover:text-[var(--text-primary)] disabled:opacity-30"
+              className="flex h-[20px] w-[20px] items-center justify-center rounded-sm transition-colors duration-100 enabled:hover:text-[var(--text-primary)] disabled:opacity-30"
             >
               <ChevronDown className="h-3.5 w-3.5" aria-hidden />
             </button>
@@ -798,10 +812,7 @@ function ReadonlyQuestionFields({
             <label
               key={`${choiceIndex}-${choice.label}`}
               htmlFor={controlId}
-              className={cn(
-                'agent-question-option',
-                selected && 'is-answered'
-              )}
+              className={cn('agent-question-option', selected && 'is-answered')}
             >
               <input
                 id={controlId}

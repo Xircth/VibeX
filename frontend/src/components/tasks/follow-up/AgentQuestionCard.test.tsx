@@ -139,7 +139,9 @@ describe('AgentQuestionCard', () => {
     };
 
     try {
-      render(<AgentQuestionCard request={multiRequest} onRespond={onRespond} />);
+      render(
+        <AgentQuestionCard request={multiRequest} onRespond={onRespond} />
+      );
 
       fireEvent.click(screen.getByRole('radio', { name: 'Three' }));
       expect(screen.getByTestId('agent-question-position')).toHaveTextContent(

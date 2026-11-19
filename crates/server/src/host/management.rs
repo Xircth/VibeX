@@ -1333,6 +1333,5 @@ async fn bound_provider_id(
     Ok(view.bound_provider_id)
 }
 
-
 #[cfg(test)]
 mod tests;

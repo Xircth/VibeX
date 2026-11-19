@@ -1204,14 +1204,14 @@ impl ProjectionFold {
                     }
                 }
                 if !has_result {
-                    turn.assistant.blocks.push(
-                        agents::conversation::ContentBlock::ToolResult {
+                    turn.assistant
+                        .blocks
+                        .push(agents::conversation::ContentBlock::ToolResult {
                             tool_use_id: Some(call_id.to_string()),
                             output_preview: None,
                             is_error: true,
                             agent_stats: None,
-                        },
-                    );
+                        });
                 }
                 turn.revision = record.sequence;
                 updated_turn = Some(*turn_id);

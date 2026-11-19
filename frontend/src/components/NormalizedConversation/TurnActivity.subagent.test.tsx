@@ -479,7 +479,9 @@ describe('TurnActivity subagent expansion', () => {
         name: 'Explore: Inspect repository structure',
       })
     ).toBeInTheDocument();
-    expect(screen.queryByTestId('subagent-child-tools')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('subagent-child-tools')
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId('subagent-thinking')).not.toBeInTheDocument();
     expect(screen.getByText('1 次工具调用')).toBeInTheDocument();
     expect(

@@ -226,9 +226,7 @@ describe('ConversationStatusDock', () => {
       screen.queryByText('此回合在生成过程中因应用重启而中断，未能完成。')
     ).not.toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: '查看详情：操作失败' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: '查看详情：操作失败' }));
     fireEvent.click(
       screen.getByRole('button', { name: '查看详情：连接已断开' })
     );

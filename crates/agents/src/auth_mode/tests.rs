@@ -55,8 +55,7 @@ fn codex_initial_agent_mode_maps_sandbox_and_approval() {
         Some("agent-full-access")
     );
     assert_eq!(
-        codex_initial_agent_mode_from_toml("sandbox_mode = \"danger-full-access\"\n")
-            .as_deref(),
+        codex_initial_agent_mode_from_toml("sandbox_mode = \"danger-full-access\"\n").as_deref(),
         Some("workspace-write")
     );
     assert_eq!(
@@ -705,8 +704,7 @@ fn a_bound_provider_outranks_a_stale_dimo_mode() {
     let claude_policy = built_in_auth_mode_policy(&claude).unwrap();
     let grok_policy = built_in_auth_mode_policy(&grok).unwrap();
 
-    for (bound_provider, native_custom_endpoint) in [(true, false), (false, true), (true, true)]
-    {
+    for (bound_provider, native_custom_endpoint) in [(true, false), (false, true), (true, true)] {
         assert_eq!(
             resolve_built_in_auth_mode(
                 &claude,
@@ -864,8 +862,7 @@ fn omp_launch_auto_approve_mode_reflects_config_yml_yolo() {
 }
 
 #[test]
-fn grok_custom_auth_mode_preserves_xai_api_key_while_subscription_and_model_provider_scrub_it()
-{
+fn grok_custom_auth_mode_preserves_xai_api_key_while_subscription_and_model_provider_scrub_it() {
     let grok = AgentId::parse("grok").unwrap();
 
     let mut custom_env = HashMap::from([
@@ -967,7 +964,10 @@ fn kimi_official_api_projects_model_env_and_non_api_modes_scrub_keys() {
     let mut configured_env = HashMap::from([
         ("KIMI_AUTH_MODE".to_string(), "official_api".to_string()),
         ("KIMI_API_KEY".to_string(), "sk-kimi-test".to_string()),
-        ("KIMI_MODEL_NAME".to_string(), "custom-kimi-model".to_string()),
+        (
+            "KIMI_MODEL_NAME".to_string(),
+            "custom-kimi-model".to_string(),
+        ),
     ]);
     apply_built_in_launch_policy(&kimi, &mut configured_env, &mut args);
     assert_eq!(

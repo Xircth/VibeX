@@ -300,9 +300,7 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
         attach_grok_entry_model_fields(
             &mut model,
             entry,
-            web_search_target
-                .as_deref()
-                .is_some_and(is_dimo_grok_table),
+            web_search_target.as_deref().is_some_and(is_dimo_grok_table),
         );
         providers.insert(
             0,
@@ -406,7 +404,9 @@ pub(super) async fn capture_grok_toml(
     let models_table = table.get("models").and_then(toml::Value::as_table);
     backup.toml_values.insert(
         GROK_DEFAULT_BACKUP_KEY.to_string(),
-        models_table.and_then(|models| models.get("default")).cloned(),
+        models_table
+            .and_then(|models| models.get("default"))
+            .cloned(),
     );
     backup.toml_values.insert(
         GROK_WEB_SEARCH_BACKUP_KEY.to_string(),
@@ -435,10 +435,7 @@ fn restore_grok_models_entry(
         });
     if let Some(value) = restored {
         let models = toml_table_entry(table, "models")?;
-        models.insert(
-            toml_key.to_string(),
-            toml::Value::String(value.to_string()),
-        );
+        models.insert(toml_key.to_string(), toml::Value::String(value.to_string()));
     } else if let Some(models) = table.get_mut("models").and_then(toml::Value::as_table_mut) {
         let current = models
             .get(toml_key)

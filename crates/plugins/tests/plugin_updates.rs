@@ -404,7 +404,11 @@ async fn official_marketplace_404_falls_back_to_github_and_resolves_or_reports_c
         version: "4.0.0".into(),
         package_digest: "old".into(),
     };
-    let candidate = resolver.resolve(&office_source, None).await.unwrap().unwrap();
+    let candidate = resolver
+        .resolve(&office_source, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(candidate.source.source_kind, "github");
     assert_eq!(
         candidate.source.origin,

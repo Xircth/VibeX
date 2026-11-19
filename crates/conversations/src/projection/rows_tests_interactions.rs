@@ -986,7 +986,8 @@ async fn canceled_delegation_remains_canceled_after_projection_rebuild() {
 }
 
 #[tokio::test]
-async fn rejected_permission_correlates_to_denied_tool_status_in_both_orderings_and_timed_out_survives_rebuild() {
+async fn rejected_permission_correlates_to_denied_tool_status_in_both_orderings_and_timed_out_survives_rebuild()
+ {
     let pool = setup_pool().await;
     let (conversation_id, turn_id) = seed_turn(&pool).await;
 
@@ -1072,7 +1073,11 @@ async fn rejected_permission_correlates_to_denied_tool_status_in_both_orderings_
         conversation_id,
         Some(turn_id),
         "acp",
-        make_tool_patch("tool-deny-before", "failed", Some(serde_json::json!("User declined"))),
+        make_tool_patch(
+            "tool-deny-before",
+            "failed",
+            Some(serde_json::json!("User declined")),
+        ),
         None,
     )
     .await;
@@ -1179,10 +1184,19 @@ async fn rejected_permission_correlates_to_denied_tool_status_in_both_orderings_
         }
     }
 
-    assert_eq!(statuses.get("tool-deny-before").and_then(|s| s.as_deref()), Some("denied"));
+    assert_eq!(
+        statuses.get("tool-deny-before").and_then(|s| s.as_deref()),
+        Some("denied")
+    );
     assert_eq!(errors.get("tool-deny-before").copied(), Some(true));
-    assert_eq!(statuses.get("tool-deny-after").and_then(|s| s.as_deref()), Some("denied"));
+    assert_eq!(
+        statuses.get("tool-deny-after").and_then(|s| s.as_deref()),
+        Some("denied")
+    );
     assert_eq!(errors.get("tool-deny-after").copied(), Some(true));
-    assert_eq!(statuses.get("tool-timed-out").and_then(|s| s.as_deref()), Some("timed_out"));
+    assert_eq!(
+        statuses.get("tool-timed-out").and_then(|s| s.as_deref()),
+        Some("timed_out")
+    );
     assert_eq!(errors.get("tool-timed-out").copied(), Some(true));
 }

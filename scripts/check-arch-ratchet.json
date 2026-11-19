@@ -28,9 +28,14 @@
       "reason": "本地历史导入的批量写入 SQL（含 master 合并新增索引列），属于 J6 历史迁移范围"
     },
     "crates/server/src/host/management.rs": {
-      "sqlx": 20,
+      "sqlx": 10,
       "pool": 0,
       "reason": "Agent/进程管理等目录 SQL，待 J3 目录端口化"
+    },
+    "crates/server/src/host/management/tests.rs": {
+      "sqlx": 10,
+      "pool": 0,
+      "reason": "从 management.rs 拆出的 #[cfg(test)] 测试模块中的内存测试库 SQL，待随 J3 目录端口化一并清理"
     },
     "crates/server/src/host/native/model_provider_import.rs": {
       "sqlx": 3,

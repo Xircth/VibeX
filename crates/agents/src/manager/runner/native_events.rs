@@ -102,13 +102,20 @@ fn has_structured_tool_result_metadata(obj: &Map<String, Value>) -> bool {
 }
 
 fn has_non_empty_output_text(obj: &Map<String, Value>) -> bool {
-    ["aggregatedOutput", "aggregated_output", "stdout", "stderr", "output", "text"]
-        .into_iter()
-        .any(|key| {
-            obj.get(key)
-                .and_then(Value::as_str)
-                .is_some_and(|s| !s.is_empty())
-        })
+    [
+        "aggregatedOutput",
+        "aggregated_output",
+        "stdout",
+        "stderr",
+        "output",
+        "text",
+    ]
+    .into_iter()
+    .any(|key| {
+        obj.get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+    })
 }
 
 fn derive_native_tool_result_status(is_error: bool, content: &Value) -> String {

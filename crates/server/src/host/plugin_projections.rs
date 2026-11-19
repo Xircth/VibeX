@@ -179,8 +179,8 @@ impl ServerApplicationDomains {
             .map(|skill| skill.id.clone())
             .collect::<Vec<_>>();
         if !removed.is_empty()
-            && let Err(error) =
-                skills::remove_plugin_skill_projections(current.id(), &removed).map_err(internal_error)
+            && let Err(error) = skills::remove_plugin_skill_projections(current.id(), &removed)
+                .map_err(internal_error)
         {
             skill_result = Err(error);
         }
@@ -192,10 +192,9 @@ impl ServerApplicationDomains {
                 .map_err(internal_error)?;
         if bindings > 0
             && let Err(error) = self.apply_default_plugin_skill_projections(current).await
+            && skill_result.is_ok()
         {
-            if skill_result.is_ok() {
-                skill_result = Err(error);
-            }
+            skill_result = Err(error);
         }
         for id in plugin_mcp_server_ids(previous) {
             if !plugin_mcp_server_ids(current).contains(&id)

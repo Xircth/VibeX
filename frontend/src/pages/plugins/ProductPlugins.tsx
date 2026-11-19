@@ -824,13 +824,6 @@ export function PluginCatalogPage() {
       </header>
 
       {updateError ? <p role="alert">{updateError}</p> : null}
-      {updates
-        .filter((item) => item.error)
-        .map((item) => (
-          <p key={item.pluginId} role="status">
-            {item.pluginId}: {item.error}
-          </p>
-        ))}
       {catalogMode === 'marketplace' ? (
         <section
           className="product-plugin-catalog-body"

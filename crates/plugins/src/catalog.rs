@@ -261,6 +261,53 @@ pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<Strin
     Vec::new()
 }
 
+/// Canonical GitHub repository URL (`https://github.com/<owner>/<repo>`) for an
+/// official plugin listed in `dimo-plugin.json`, including migrated legacy `vibex` owners.
+pub fn official_github_repository_url(owner: &str, plugin_name: &str) -> Option<String> {
+    if is_authoring_sample_plugin_id(plugin_name)
+        || is_authoring_sample_plugin_id(&format!("{owner}.{plugin_name}"))
+    {
+        return None;
+    }
+    let owner_trimmed = owner.trim();
+    if !owner_trimmed.is_empty()
+        && !owner_trimmed.eq_ignore_ascii_case("dimo")
+        && !owner_trimmed.eq_ignore_ascii_case("vibex")
+    {
+        return None;
+    }
+    let mut candidates = marketplace_plugin_ids(owner, plugin_name);
+    if let Some(suffix) = plugin_name
+        .trim()
+        .strip_prefix("vibex.")
+        .or_else(|| plugin_name.trim().strip_prefix("VIBEX."))
+    {
+        candidates.push(suffix.to_owned());
+    }
+    for candidate in candidates {
+        if let Some(plugin) = crate::official_catalog::official_plugin_record(&candidate) {
+            return canonical_github_repository_url(&plugin.repository);
+        }
+    }
+    None
+}
+
+fn canonical_github_repository_url(repository: &str) -> Option<String> {
+    let trimmed = repository
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches(".git");
+    let (_, path) = trimmed.split_once("github.com/")?;
+    let slug = path.split("/tree/").next()?.trim_matches('/');
+    let mut parts = slug.split('/').filter(|part| !part.is_empty());
+    let gh_owner = parts.next()?;
+    let gh_repo = parts.next()?;
+    if parts.next().is_some() || gh_owner.contains("..") || gh_repo.contains("..") {
+        return None;
+    }
+    Some(format!("https://github.com/{gh_owner}/{gh_repo}"))
+}
+
 pub fn plugin_ids_match(id: &str, canonical: &str) -> bool {
     let id = id.trim();
     if id.eq_ignore_ascii_case(canonical) {
@@ -1410,5 +1457,33 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["notes"]
         );
+    }
+
+    #[test]
+    fn official_github_repository_url_maps_official_and_legacy_owners() {
+        assert_eq!(
+            official_github_repository_url("dimo", "browser").as_deref(),
+            Some("https://github.com/DimoADE/Dimo-plugin-browser")
+        );
+        assert_eq!(
+            official_github_repository_url("dimo", "dimo.browser").as_deref(),
+            Some("https://github.com/DimoADE/Dimo-plugin-browser")
+        );
+        assert_eq!(
+            official_github_repository_url("vibex", "browser").as_deref(),
+            Some("https://github.com/DimoADE/Dimo-plugin-browser")
+        );
+        assert_eq!(
+            official_github_repository_url("vibex", "vibex.browser").as_deref(),
+            Some("https://github.com/DimoADE/Dimo-plugin-browser")
+        );
+        assert_eq!(
+            official_github_repository_url("", "browser").as_deref(),
+            Some("https://github.com/DimoADE/Dimo-plugin-browser")
+        );
+        assert!(official_github_repository_url("dimo", "host-chrome").is_none());
+        assert!(official_github_repository_url("dimo", "dimo.host-chrome").is_none());
+        assert!(official_github_repository_url("acme", "notes").is_none());
+        assert!(official_github_repository_url("acme", "browser").is_none());
     }
 }

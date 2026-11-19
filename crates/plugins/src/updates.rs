@@ -141,6 +141,25 @@ impl PluginUpdateResolver {
             .map_err(|e| PluginError::io("plugin release metadata", e))
     }
 
+    async fn json_or_not_found(&self, url: &str) -> Result<Option<Value>, PluginError> {
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| PluginError::io("check plugin update", e))?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        response
+            .error_for_status()
+            .map_err(|e| PluginError::io("check plugin update", e))?
+            .json()
+            .await
+            .map(Some)
+            .map_err(|e| PluginError::io("plugin release metadata", e))
+    }
+
     pub async fn resolve(
         &self,
         source: &PluginSourceLock,
@@ -297,15 +316,42 @@ impl PluginUpdateResolver {
         source: &PluginSourceLock,
         requested: Option<&str>,
     ) -> Result<Option<PluginUpdateCandidate>, PluginError> {
-        let origin = url::Url::parse(&source.origin)
-            .map_err(|e| PluginError::io("marketplace source", e))?;
+        let origin = normalize_marketplace_origin(&source.origin)?;
         let base = origin.origin().ascii_serialization();
-        let listing = format!(
-            "{base}/api/marketplace/v1/listing/{}/{}",
-            segment(&source.owner),
-            segment(&source.plugin_name)
-        );
-        let versions = self.json(&format!("{listing}/versions")).await?;
+        let mut resolved: Option<(String, String, Value)> = None;
+        for owner_candidate in marketplace_candidate_owners(&source.owner) {
+            for plugin_candidate in
+                marketplace_candidate_plugins(&source.owner, &owner_candidate, &source.plugin_name)
+            {
+                let versions_url = format!(
+                    "{base}/api/marketplace/v1/listing/{}/{}/versions",
+                    segment(&owner_candidate),
+                    segment(&plugin_candidate)
+                );
+                if let Some(versions) = self.json_or_not_found(&versions_url).await? {
+                    resolved = Some((owner_candidate, plugin_candidate, versions));
+                    break;
+                }
+            }
+            if resolved.is_some() {
+                break;
+            }
+        }
+        let Some((resolved_owner, resolved_name, versions)) = resolved else {
+            if let Some(repo_url) =
+                crate::catalog::official_github_repository_url(&source.owner, &source.plugin_name)
+                && let Some(github_lock) = official_github_source_lock(source, &repo_url)
+            {
+                return self.github(&github_lock, requested).await;
+            }
+            return Err(PluginError::io(
+                "check plugin update",
+                format!(
+                    "marketplace listing {}/{} not found (404 Not Found)",
+                    source.owner, source.plugin_name
+                ),
+            ));
+        };
         let mut versions: Vec<_> = versions
             .as_array()
             .ok_or_else(|| PluginError::invalid_manifest("marketplace versions must be an array"))?
@@ -334,8 +380,8 @@ impl PluginUpdateResolver {
         let artifact = self
             .json(&format!(
                 "{base}/api/marketplace/v1/artifact/{}/{}?tag={}",
-                segment(&source.owner),
-                segment(&source.plugin_name),
+                segment(&resolved_owner),
+                segment(&resolved_name),
                 segment(&tag)
             ))
             .await?;
@@ -350,6 +396,9 @@ impl PluginUpdateResolver {
             ));
         }
         let mut lock = source.clone();
+        lock.origin = origin.to_string();
+        lock.owner = resolved_owner;
+        lock.plugin_name = resolved_name;
         lock.tag = tag;
         lock.version = version.to_string();
         lock.package_digest = artifact["packageDigest"]
@@ -461,6 +510,77 @@ pub fn validate_update_package(
     Ok(())
 }
 
+fn normalize_marketplace_origin(raw: &str) -> Result<url::Url, PluginError> {
+    normalize_marketplace_origin_with(raw, &crate::catalog::marketplace_origin())
+}
+
+fn normalize_marketplace_origin_with(
+    raw: &str,
+    canonical_origin: &str,
+) -> Result<url::Url, PluginError> {
+    let mut parsed = url::Url::parse(raw).map_err(|e| PluginError::io("marketplace origin", e))?;
+    if parsed.host_str() == Some("vibex.xforever.xin")
+        && let Ok(canonical) = url::Url::parse(canonical_origin)
+        && canonical.host_str().is_some()
+        && canonical.host_str() != parsed.host_str()
+    {
+        let _ = parsed.set_scheme(canonical.scheme());
+        let _ = parsed.set_host(canonical.host_str());
+        let _ = parsed.set_port(canonical.port());
+    }
+    Ok(parsed)
+}
+
+fn marketplace_candidate_owners(owner: &str) -> Vec<String> {
+    let trimmed = owner.trim();
+    let mut owners = Vec::new();
+    if !trimmed.is_empty() {
+        owners.push(trimmed.to_owned());
+    }
+    if trimmed.eq_ignore_ascii_case("vibex") {
+        owners.push("dimo".to_owned());
+    }
+    owners
+}
+
+fn marketplace_candidate_plugins(
+    source_owner: &str,
+    candidate_owner: &str,
+    plugin_name: &str,
+) -> Vec<String> {
+    let mut names = crate::catalog::marketplace_plugin_ids(candidate_owner, plugin_name);
+    if source_owner.eq_ignore_ascii_case("vibex") && candidate_owner.eq_ignore_ascii_case("dimo") {
+        let stripped = plugin_name
+            .trim()
+            .strip_prefix("vibex.")
+            .or_else(|| plugin_name.trim().strip_prefix("VIBEX."))
+            .unwrap_or(plugin_name.trim());
+        for extra in crate::catalog::marketplace_plugin_ids(candidate_owner, stripped) {
+            if !names
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&extra))
+            {
+                names.push(extra);
+            }
+        }
+    }
+    names
+}
+
+fn official_github_source_lock(
+    source: &PluginSourceLock,
+    repo_url: &str,
+) -> Option<PluginSourceLock> {
+    let synthetic = PluginSource::new(crate::PluginSourceKind::Snapshot, std::path::PathBuf::new())
+        .with_lock(
+            Some(repo_url.to_owned()),
+            Some(source.tag.clone()),
+            None,
+            true,
+        );
+    PluginSourceLock::from_source(&synthetic, &source.version, &source.package_digest)
+}
+
 fn segment(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
@@ -471,5 +591,33 @@ fn newer(current: &str, candidate: &str) -> bool {
     ) {
         (Ok(current), Ok(candidate)) => candidate > current,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_legacy_vibex_marketplace_origin_only_when_canonical_differs() {
+        let rewritten = normalize_marketplace_origin_with(
+            "https://vibex.xforever.xin/marketplace/dimo/browser",
+            "https://dimo-ai.com",
+        )
+        .unwrap();
+        assert_eq!(
+            rewritten.as_str(),
+            "https://dimo-ai.com/marketplace/dimo/browser"
+        );
+
+        let local = normalize_marketplace_origin_with(
+            "http://127.0.0.1:8080/marketplace/acme/notes",
+            "https://dimo-ai.com",
+        )
+        .unwrap();
+        assert_eq!(
+            local.as_str(),
+            "http://127.0.0.1:8080/marketplace/acme/notes"
+        );
     }
 }

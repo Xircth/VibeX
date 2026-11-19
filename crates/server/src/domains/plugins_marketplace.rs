@@ -121,6 +121,7 @@ impl ServerApplicationDomains {
         let mut import_error: Option<ApplicationError> = None;
         let conflict_decision = args.conflict.clone().unwrap_or_else(|| "reject".into());
         let origin_url = plugins::marketplace_listing_url(&args.owner, &args.plugin_name);
+        let github_origin = plugins::official_github_repository_url(&args.owner, &args.plugin_name);
         let monorepo_root =
             plugins::monorepo_official_plugin_root(&args.plugin_name).or_else(|| {
                 plugins::monorepo_official_plugin_root(&format!(
@@ -159,7 +160,7 @@ impl ServerApplicationDomains {
                             "path": archive.to_string_lossy(),
                             "developerLink": false,
                             "conflictDecision": conflict_decision,
-                            "origin": origin_url,
+                            "origin": github_origin.as_deref().unwrap_or(&origin_url),
                             "gitRef": args.tag.clone().or_else(|| Some("main".to_owned())),
                             "locked": true,
                         }))

@@ -24,6 +24,8 @@ struct UpdateObservations {
     statuses: Vec<PluginUpdateStatus>,
     #[serde(default)]
     notified: BTreeMap<String, String>,
+    #[serde(default)]
+    host_version: String,
 }
 
 pub(crate) struct PreparedPluginUpdate {
@@ -55,10 +57,14 @@ struct UpdateRequest {
 
 impl PluginUpdates {
     pub(crate) fn load(root: &Path) -> Self {
-        let observations = std::fs::read(cache_path(root))
+        let mut observations: UpdateObservations = std::fs::read(cache_path(root))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        if observations.host_version != env!("CARGO_PKG_VERSION") {
+            observations.statuses.retain(|item| item.status != "failed");
+            observations.host_version = env!("CARGO_PKG_VERSION").to_owned();
+        }
         Self {
             observations: Mutex::new(observations),
             ..Self::default()
@@ -76,8 +82,9 @@ fn now() -> u64 {
         .as_secs()
 }
 
-fn save_cache(root: &Path, observations: &UpdateObservations) -> Result<(), ApplicationError> {
+fn save_cache(root: &Path, observations: &mut UpdateObservations) -> Result<(), ApplicationError> {
     use std::io::Write;
+    observations.host_version = env!("CARGO_PKG_VERSION").to_owned();
     let path = cache_path(root);
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent).map_err(internal_error)?;
@@ -212,7 +219,7 @@ impl ServerApplicationDomains {
             }
         }
         observations.statuses = statuses;
-        if let Err(error) = save_cache(&self.runtime_root, &observations) {
+        if let Err(error) = save_cache(&self.runtime_root, &mut observations) {
             tracing::warn!(?error, "could not persist plugin update observations");
         }
         self.events
@@ -324,7 +331,7 @@ impl ServerApplicationDomains {
             observations
                 .statuses
                 .retain(|item| item.plugin_id != result.id());
-            if let Err(error) = save_cache(&self.runtime_root, &observations) {
+            if let Err(error) = save_cache(&self.runtime_root, &mut observations) {
                 tracing::warn!(?error, "could not persist plugin update observations");
             }
             self.events
@@ -365,6 +372,11 @@ impl ServerApplicationDomains {
         let digest = plugins::package_content_digest(&package.source.path).map_err(plugin_error)?;
         let mut source_lock = candidate.source.clone();
         source_lock.package_digest = digest.clone();
+        package.source.kind = match source_lock.source_kind.as_str() {
+            "github" => plugins::PluginSourceKind::Snapshot,
+            "marketplace" => plugins::PluginSourceKind::Marketplace,
+            _ => package.source.kind,
+        };
         package.source.origin = Some(source_lock.origin.clone());
         package.source.git_ref = Some(source_lock.tag.clone());
         package.source.git_sha = candidate.sha256.clone();
@@ -408,19 +420,64 @@ mod tests {
     #[tokio::test]
     async fn observations_and_notification_deduplication_survive_restart() {
         let root = tempfile::tempdir().unwrap();
-        let observations = UpdateObservations {
+        let mut observations = UpdateObservations {
             statuses: vec![PluginUpdateStatus::failed(
                 "acme.notes".into(),
                 "offline".into(),
                 None,
             )],
             notified: BTreeMap::from([("acme.notes".into(), "2.0.0".into())]),
+            host_version: env!("CARGO_PKG_VERSION").to_owned(),
         };
-        save_cache(root.path(), &observations).unwrap();
+        save_cache(root.path(), &mut observations).unwrap();
         let restored = PluginUpdates::load(root.path());
         let observations = restored.observations.lock().await;
         assert_eq!(observations.statuses[0].status, "failed");
         assert_eq!(observations.statuses[0].error.as_deref(), Some("offline"));
+        assert_eq!(
+            observations.notified.get("acme.notes").map(String::as_str),
+            Some("2.0.0")
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_failed_observations_from_older_host_are_cleared_on_load() {
+        let root = tempfile::tempdir().unwrap();
+        let path = cache_path(root.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let legacy = json!({
+            "statuses": [
+                {
+                    "pluginId": "dimo.browser",
+                    "updateAvailable": false,
+                    "status": "failed",
+                    "checkedAt": 100,
+                    "lastSuccessfulAt": null,
+                    "availableTag": null,
+                    "availableVersion": null,
+                    "error": "check plugin update: HTTP status client error (404 Not Found)",
+                    "candidate": null
+                },
+                {
+                    "pluginId": "acme.notes",
+                    "updateAvailable": true,
+                    "status": "available",
+                    "checkedAt": 100,
+                    "lastSuccessfulAt": 100,
+                    "availableTag": "v2.0.0",
+                    "availableVersion": "2.0.0",
+                    "error": null,
+                    "candidate": null
+                }
+            ],
+            "notified": { "acme.notes": "2.0.0" }
+        });
+        std::fs::write(&path, legacy.to_string()).unwrap();
+        let restored = PluginUpdates::load(root.path());
+        let observations = restored.observations.lock().await;
+        assert_eq!(observations.host_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(observations.statuses.len(), 1);
+        assert_eq!(observations.statuses[0].plugin_id, "acme.notes");
         assert_eq!(
             observations.notified.get("acme.notes").map(String::as_str),
             Some("2.0.0")

@@ -1847,4 +1847,51 @@ describe('product plugin experience', () => {
     expect(screen.getByText('devtools-mcp')).toBeVisible();
     expect(screen.getByText('pre-tool-guard')).toBeVisible();
   });
+
+  it('does not dump passive background update check errors across the top of the plugins page', async () => {
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [plugin], runtimes: [] };
+      }
+      if (command === 'plugin_check_updates') {
+        return [
+          {
+            pluginId: 'dimo.browser',
+            updateAvailable: false,
+            status: 'failed',
+            checkedAt: 100,
+            lastSuccessfulAt: null,
+            availableTag: null,
+            availableVersion: null,
+            error:
+              'check plugin update: HTTP status client error (404 Not Found) for url (https://vibex.xforever.xin/api/marketplace/v1/listing/dimo/browser/versions)',
+            candidate: null,
+          },
+        ];
+      }
+      if (command === 'plugin_marketplace_catalog') {
+        return {
+          official: [],
+          community: [],
+          communityLimit: 50,
+          query: '',
+          remote: true,
+        };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins?tab=marketplace', call);
+
+    expect(
+      await screen.findByText(/没有可安装的包|No installable packages/i)
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('plugin_check_updates', {
+        cached: true,
+      })
+    );
+    expect(
+      screen.queryByText(/dimo\.browser: check plugin update/i)
+    ).not.toBeInTheDocument();
+  });
 });

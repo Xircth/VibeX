@@ -63,8 +63,8 @@ pub use catalog::{
     listings_from_official_index, marketplace_archive_suffix, marketplace_listing_url,
     marketplace_origin, marketplace_plugin_ids, marketplace_plugin_slug,
     merge_bundled_official_index, merge_offline_official, official_github_archive_urls,
-    origin_kind, origin_owner_name, package_matches_marketplace, prepare_marketplace_page,
-    source_allows_remote_update, successor_plugin_id,
+    official_github_repository_url, origin_kind, origin_owner_name, package_matches_marketplace,
+    prepare_marketplace_page, source_allows_remote_update, successor_plugin_id,
 };
 pub use collaboration_host::{
     CollaborationHost, CollaborationHostError, UnavailableCollaborationHost,

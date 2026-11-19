@@ -344,3 +344,119 @@ async fn failed_enabled_candidate_keeps_old_files_activation_and_user_data() {
         Some(json!("user data"))
     );
 }
+
+#[tokio::test]
+async fn official_marketplace_404_falls_back_to_github_and_resolves_or_reports_current() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let office_releases = json!([
+        {
+            "tag_name": "v5.0.0",
+            "draft": false,
+            "prerelease": false,
+            "body": "Office update",
+            "assets": [{
+                "name": "office.vxp",
+                "browser_download_url": format!("{origin}/office.vxp")
+            }]
+        }
+    ]);
+    let app = Router::new()
+        .route(
+            "/repos/DimoADE/Dimo-plugin-browser/releases",
+            get(|| async { Json(json!([])) }),
+        )
+        .route(
+            "/repos/DimoADE/Dimo-plugin-browser/tags",
+            get(|| async { Json(json!([])) }),
+        )
+        .route(
+            "/repos/DimoADE/Dimo-plugin-office/releases",
+            get(move || {
+                let data = office_releases.clone();
+                async move { Json(data) }
+            }),
+        );
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let resolver = PluginUpdateResolver::with_github_api(&origin).unwrap();
+
+    for (owner, plugin_name) in [("dimo", "browser"), ("vibex", "vibex.browser")] {
+        let source = PluginSourceLock {
+            source_kind: "marketplace".into(),
+            origin: format!("{origin}/marketplace/{owner}/{plugin_name}"),
+            owner: owner.into(),
+            plugin_name: plugin_name.into(),
+            tag: "2.0.0".into(),
+            version: "2.0.0".into(),
+            package_digest: "old".into(),
+        };
+        assert!(resolver.resolve(&source, None).await.unwrap().is_none());
+    }
+
+    let office_source = PluginSourceLock {
+        source_kind: "marketplace".into(),
+        origin: format!("{origin}/marketplace/dimo/office"),
+        owner: "dimo".into(),
+        plugin_name: "office".into(),
+        tag: "4.0.0".into(),
+        version: "4.0.0".into(),
+        package_digest: "old".into(),
+    };
+    let candidate = resolver.resolve(&office_source, None).await.unwrap().unwrap();
+    assert_eq!(candidate.source.source_kind, "github");
+    assert_eq!(
+        candidate.source.origin,
+        "https://github.com/DimoADE/Dimo-plugin-office"
+    );
+    assert_eq!(candidate.source.tag, "v5.0.0");
+    assert_eq!(candidate.source.version, "5.0.0");
+    task.abort();
+}
+
+#[tokio::test]
+async fn non_official_marketplace_404_and_server_outage_still_fail() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route(
+            "/api/marketplace/v1/listing/dimo/browser/versions",
+            get(|| async { axum::http::StatusCode::SERVICE_UNAVAILABLE }),
+        )
+        .route(
+            "/repos/DimoADE/Dimo-plugin-browser/releases",
+            get(|| async { Json(json!([])) }),
+        )
+        .route(
+            "/repos/DimoADE/Dimo-plugin-browser/tags",
+            get(|| async { Json(json!([])) }),
+        );
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let resolver = PluginUpdateResolver::with_github_api(&origin).unwrap();
+
+    let non_official = PluginSourceLock {
+        source_kind: "marketplace".into(),
+        origin: format!("{origin}/marketplace/acme/notes"),
+        owner: "acme".into(),
+        plugin_name: "notes".into(),
+        tag: "1.0.0".into(),
+        version: "1.0.0".into(),
+        package_digest: "old".into(),
+    };
+    assert!(resolver.resolve(&non_official, None).await.is_err());
+
+    let outage = PluginSourceLock {
+        source_kind: "marketplace".into(),
+        origin: format!("{origin}/marketplace/dimo/browser"),
+        owner: "dimo".into(),
+        plugin_name: "browser".into(),
+        tag: "2.0.0".into(),
+        version: "2.0.0".into(),
+        package_digest: "old".into(),
+    };
+    assert!(resolver.resolve(&outage, None).await.is_err());
+    task.abort();
+}

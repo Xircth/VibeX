@@ -176,7 +176,11 @@ export function DevicePairingPanel({
     }
     try {
       const requests = await webServiceApi.listConnectRequests();
-      setPendingRequests(Array.isArray(requests) ? requests : []);
+      setPendingRequests(
+        Array.isArray(requests)
+          ? requests.filter((entry) => entry.status !== 'approved')
+          : []
+      );
     } catch {
       setPendingRequests([]);
     }
@@ -530,7 +534,7 @@ export function DevicePairingPanel({
                       {req.device_name}
                     </span>
                     <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-medium tabular-nums text-foreground">
-                      核对码 {req.sas_code}
+                      连接码 {req.sas_code}
                     </span>
                     {req.ip_address ? (
                       <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">

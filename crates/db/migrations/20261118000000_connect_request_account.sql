@@ -1,0 +1,1 @@
+ALTER TABLE server_device_connect_requests ADD COLUMN account_display_name TEXT;

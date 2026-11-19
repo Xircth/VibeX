@@ -1,19 +1,23 @@
 import { Check, Smartphone, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { settingsWindowApi } from '@/lib/api/settingsWindow';
 import {
   type HostPairedDevice,
   type PendingDeviceConnectRequest,
   webServiceApi,
 } from '@/lib/api/config';
+import { settingsWindowApi } from '@/lib/api/settingsWindow';
 import { isLocalDesktopHost } from '@/lib/desktopShell';
+import { writeDesktopSharedPreferenceSection } from '@/lib/frontendPreferences';
 import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
-const POLL_INTERVAL_MS = 2500;
-const CONNECTED_FEEDBACK_MS = 2400;
+const POLL_INTERVAL_MS = 1800;
+const CONNECTED_FEEDBACK_MS = 3000;
+const AUTO_CONNECT_BANNER_MS = 5000;
 export const CONNECT_REQUESTS_CHANGED_EVENT = 'dimo:connect-requests-changed';
 export const REMOTE_AUTO_CONNECT_KEY = 'dimo:remote-auto-connect';
+export const HOST_SAME_ACCOUNT_AUTO_CONNECT_KEY =
+  '__same_account_auto_connect_v1';
 export const MOBILE_IDLE_REMINDER_KEY = 'dimo:mobile-idle-reminder';
 /** How long a shown or dismissed offline reminder stays quiet for that device. */
 export const MOBILE_IDLE_REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -25,11 +29,11 @@ export const MOBILE_IDLE_REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const MOBILE_IDLE_REMINDER_ARM_MS = 1000;
 
 export function getRemoteAutoConnect(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') return true;
   try {
-    return window.localStorage.getItem(REMOTE_AUTO_CONNECT_KEY) === 'true';
+    return window.localStorage.getItem(REMOTE_AUTO_CONNECT_KEY) !== 'false';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -39,6 +43,10 @@ export function setRemoteAutoConnect(enabled: boolean): void {
     window.localStorage.setItem(
       REMOTE_AUTO_CONNECT_KEY,
       enabled ? 'true' : 'false'
+    );
+    void writeDesktopSharedPreferenceSection(
+      HOST_SAME_ACCOUNT_AUTO_CONNECT_KEY,
+      enabled
     );
     notifyConnectRequestsChanged();
   } catch {
@@ -142,17 +150,25 @@ function selectIdleReminderDevice(
   );
 }
 
+interface ConnectedMobileNotice {
+  deviceName: string;
+  sasCode?: string | null;
+  accountDisplayName?: string | null;
+  issuedDeviceId?: string | null;
+}
+
 export function MobileDeviceConnectBanner() {
   const [requests, setRequests] = useState<PendingDeviceConnectRequest[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [connectedDeviceName, setConnectedDeviceName] = useState<string | null>(
-    null
-  );
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+  const [connectedNotice, setConnectedNotice] =
+    useState<ConnectedMobileNotice | null>(null);
   const [idleDevice, setIdleDevice] = useState<HostPairedDevice | null>(null);
   const sessionStartMsRef = useRef<number>(Date.now());
   const shownIdleDeviceIdRef = useRef<string | null>(null);
   const clearFeedbackTimerRef = useRef<number | null>(null);
   const respondedIdsRef = useRef<Set<string>>(new Set());
+  const seenAutoApprovedIdsRef = useRef<Set<string>>(new Set());
 
   const dismissIdleReminder = useCallback(() => {
     const deviceId = shownIdleDeviceIdRef.current;
@@ -162,6 +178,21 @@ export function MobileDeviceConnectBanner() {
     shownIdleDeviceIdRef.current = null;
     setIdleDevice(null);
   }, []);
+
+  const showConnectedNotice = useCallback(
+    (notice: ConnectedMobileNotice, durationMs: number) => {
+      dismissIdleReminder();
+      setConnectedNotice(notice);
+      if (clearFeedbackTimerRef.current !== null) {
+        window.clearTimeout(clearFeedbackTimerRef.current);
+      }
+      clearFeedbackTimerRef.current = window.setTimeout(() => {
+        setConnectedNotice(null);
+        clearFeedbackTimerRef.current = null;
+      }, durationMs);
+    },
+    [dismissIdleReminder]
+  );
 
   const handleRespond = useCallback(
     async (item: PendingDeviceConnectRequest, approve: boolean) => {
@@ -174,15 +205,14 @@ export function MobileDeviceConnectBanner() {
         );
         notifyConnectRequestsChanged();
         if (approve) {
-          dismissIdleReminder();
-          setConnectedDeviceName(item.device_name);
-          if (clearFeedbackTimerRef.current !== null) {
-            window.clearTimeout(clearFeedbackTimerRef.current);
-          }
-          clearFeedbackTimerRef.current = window.setTimeout(() => {
-            setConnectedDeviceName(null);
-            clearFeedbackTimerRef.current = null;
-          }, CONNECTED_FEEDBACK_MS);
+          showConnectedNotice(
+            {
+              deviceName: item.device_name,
+              sasCode: item.sas_code,
+              accountDisplayName: item.account_display_name ?? null,
+            },
+            CONNECTED_FEEDBACK_MS
+          );
         }
       } catch (err) {
         console.warn('Failed to respond to mobile connect request:', err);
@@ -190,8 +220,25 @@ export function MobileDeviceConnectBanner() {
         setBusyId(null);
       }
     },
-    [dismissIdleReminder]
+    [showConnectedNotice]
   );
+
+  const handleDisconnectIssued = useCallback(async (deviceId: string) => {
+    setRevokingDeviceId(deviceId);
+    try {
+      await webServiceApi.revokeDevice(deviceId);
+      if (clearFeedbackTimerRef.current !== null) {
+        window.clearTimeout(clearFeedbackTimerRef.current);
+        clearFeedbackTimerRef.current = null;
+      }
+      setConnectedNotice(null);
+      notifyConnectRequestsChanged();
+    } catch (err) {
+      console.warn('Failed to revoke auto-connected mobile device:', err);
+    } finally {
+      setRevokingDeviceId(null);
+    }
+  }, []);
 
   const refreshRequests = useCallback(async () => {
     if (!isLocalDesktopHost()) {
@@ -215,11 +262,30 @@ export function MobileDeviceConnectBanner() {
         current?.device_id === nextIdle?.device_id ? current : nextIdle
       );
 
-      const filtered = Array.isArray(nextRequests)
-        ? nextRequests.filter(
-            (entry) => !respondedIdsRef.current.has(entry.request_id)
-          )
-        : [];
+      const allItems = Array.isArray(nextRequests) ? nextRequests : [];
+      const freshAutoApproved = allItems.find(
+        (entry) =>
+          entry.status === 'approved' &&
+          !seenAutoApprovedIdsRef.current.has(entry.request_id)
+      );
+      if (freshAutoApproved) {
+        seenAutoApprovedIdsRef.current.add(freshAutoApproved.request_id);
+        showConnectedNotice(
+          {
+            deviceName: freshAutoApproved.device_name,
+            sasCode: freshAutoApproved.sas_code,
+            accountDisplayName: freshAutoApproved.account_display_name ?? null,
+            issuedDeviceId: freshAutoApproved.issued_device_id ?? null,
+          },
+          AUTO_CONNECT_BANNER_MS
+        );
+      }
+
+      const filtered = allItems.filter(
+        (entry) =>
+          entry.status !== 'approved' &&
+          !respondedIdsRef.current.has(entry.request_id)
+      );
 
       // If auto-connect is enabled and an already-paired mobile device with a matching Ed25519 public key is requesting connection, auto-approve.
       // Never auto-approve based on device_name alone or for non-mobile client_kind (which grants Workstation scopes).
@@ -251,7 +317,7 @@ export function MobileDeviceConnectBanner() {
     } catch {
       // Ignore in non-host windows or before backend is ready
     }
-  }, [handleRespond]);
+  }, [handleRespond, showConnectedNotice]);
 
   useEffect(() => {
     void refreshRequests();
@@ -284,7 +350,7 @@ export function MobileDeviceConnectBanner() {
   // it has been on screen briefly, or the user dismisses it, that device stays
   // silent until the cooldown ends.
   const active = requests[0] ?? null;
-  if (!active && !connectedDeviceName && !idleDevice) {
+  if (!active && !connectedNotice && !idleDevice) {
     return null;
   }
 
@@ -298,14 +364,41 @@ export function MobileDeviceConnectBanner() {
         aria-label="可用移动设备连接请求"
         className="pointer-events-auto inline-flex min-h-11 max-w-full items-center gap-3 rounded-full border border-border bg-secondary/95 px-4 py-2 text-sm text-foreground shadow-lg backdrop-blur-md transition-all duration-150"
       >
-        {connectedDeviceName && !active ? (
+        {connectedNotice && !active ? (
           <>
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
+            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
               <Check className="h-4 w-4" />
             </span>
             <span className="truncate font-semibold">
-              已连接移动设备「{connectedDeviceName}」
+              已连接移动设备「{connectedNotice.deviceName}」
             </span>
+            {connectedNotice.accountDisplayName ? (
+              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                同账号 · {connectedNotice.accountDisplayName}
+              </span>
+            ) : null}
+            {connectedNotice.sasCode ? (
+              <span
+                className="shrink-0 rounded-md border border-border/70 bg-card px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-foreground"
+                title="可与手机端显示的 4 位连接码对比核验"
+              >
+                连接码 {connectedNotice.sasCode}
+              </span>
+            ) : null}
+            {connectedNotice.issuedDeviceId ? (
+              <button
+                type="button"
+                disabled={revokingDeviceId === connectedNotice.issuedDeviceId}
+                onClick={() => {
+                  if (connectedNotice.issuedDeviceId) {
+                    void handleDisconnectIssued(connectedNotice.issuedDeviceId);
+                  }
+                }}
+                className="ml-1 inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-destructive disabled:opacity-50"
+              >
+                断开
+              </button>
+            ) : null}
           </>
         ) : active ? (
           <>
@@ -319,11 +412,16 @@ export function MobileDeviceConnectBanner() {
             <span className="truncate text-sm font-semibold text-foreground">
               发现可用移动设备「{active.device_name}」
             </span>
+            {active.account_display_name ? (
+              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                同账号 · {active.account_display_name}
+              </span>
+            ) : null}
             <span
               className="shrink-0 rounded-md border border-border/70 bg-card px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-foreground"
-              title="请核对手机端显示的 4 位安全码"
+              title="请对比手机端显示的 4 位连接码"
             >
-              核对码 {active.sas_code}
+              连接码 {active.sas_code}
             </span>
             {requests.length > 1 ? (
               <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">

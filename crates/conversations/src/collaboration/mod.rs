@@ -43,16 +43,16 @@ pub use collection::{
 };
 pub use delivery::{
     DeliveryReceipt, MISSED_CONTEXT_VERBATIM, MessageAudience, MessageReceipt, PostDirectMessage,
-    PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpacePostResult, SpaceTurnInterrupt,
-    SpaceTurnStreamingStep, advance_round, advance_space_turn_streaming_step,
+    PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpaceMessageWindow, SpacePostResult,
+    SpaceTurnInterrupt, SpaceTurnStreamingStep, advance_round, advance_space_turn_streaming_step,
     append_space_turn_streaming_text, cancel_space_turn, cancel_space_turn_with,
     clear_space_turn_flushing_step, clear_space_turn_tool_started, finalize_space_turn_deliveries,
     interrupt_space_member_turn, list_message_receipts, list_message_receipts_batch,
-    list_space_messages, mark_space_turn_tool_started, notify_space_turn_streaming,
-    on_space_turn_tool_call, post_direct_message, post_direct_message_with, post_to_space,
-    post_to_space_with, prepare_steer, redeliver_deferred, reset_space_turn_streaming_step,
-    send_session_input, send_session_input_with, send_user_text_to_conversation,
-    space_turn_streaming_step,
+    list_space_messages, list_space_messages_window, mark_space_turn_tool_started,
+    notify_space_turn_streaming, on_space_turn_tool_call, post_direct_message,
+    post_direct_message_with, post_to_space, post_to_space_with, prepare_steer, redeliver_deferred,
+    reset_space_turn_streaming_step, send_session_input, send_session_input_with,
+    send_user_text_to_conversation, space_turn_streaming_step,
 };
 pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,

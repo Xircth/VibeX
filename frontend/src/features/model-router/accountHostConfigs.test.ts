@@ -9,7 +9,12 @@ import {
 } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
-import { configApi, frontendPreferencesApi, webServiceApi } from '@/lib/api';
+import {
+  configApi,
+  frontendPreferencesApi,
+  hostTunnelApi,
+  webServiceApi,
+} from '@/lib/api';
 import { getBackendTransport } from '@/lib/transport';
 
 import {
@@ -29,6 +34,7 @@ import {
   removeSavedAccountHostConfig,
   resetAccountHostConfigsForTests,
   syncAccountHostConfigs,
+  syncCurrentHostRelayLease,
   type AccountHostConfigSnapshot,
 } from './accountHostConfigs';
 
@@ -559,5 +565,87 @@ describe('accountHostConfigs', () => {
       displayName: 'Bob Smith',
       avatarUrl: 'https://vibex.dev/bob.png',
     });
+  });
+
+  it('skips redundant relay lease minting on repeated syncs while >15m remain and renews on explicit syncCurrentHostRelayLease or near-expiry', async () => {
+    window.localStorage.setItem(ACCOUNT_TOKEN_STORAGE_KEY, 'vbx_user_token_1');
+    vi.spyOn(webServiceApi, 'getStatus').mockResolvedValue({
+      running: true,
+      port: 17891,
+      address: '127.0.0.1:17891',
+      token_configured: true,
+      started_at: '2026-11-19T00:00:00Z',
+      message: null,
+      host_id: 'mac-studio-01',
+    });
+    vi.spyOn(configApi, 'getConfig').mockResolvedValue({
+      config: makeConfig(),
+      environment: makeEnvironment({
+        os_type: 'macOS',
+        os_architecture: 'aarch64',
+      }),
+      capabilities: {},
+      executors: {},
+    });
+    vi.spyOn(agentManagementApi, 'bar').mockResolvedValue([]);
+    vi.spyOn(accountApi, 'listHostConfigs').mockRejectedValue(
+      new AccountError('unsupported')
+    );
+    vi.spyOn(accountApi, 'saveHostConfig').mockRejectedValue(
+      new AccountError('unsupported')
+    );
+    const setLeaseSpy = vi
+      .spyOn(hostTunnelApi, 'setAccountLease')
+      .mockResolvedValue({
+        enabled: true,
+        saved: [],
+        active_id: 'auto-quick-tunnel',
+        pending: null,
+        relay_state: 'connected',
+        last_error: null,
+      });
+
+    let nowSeconds = Math.floor(Date.now() / 1000);
+    const issueLeaseSpy = vi
+      .spyOn(accountApi, 'issueRelayLease')
+      .mockImplementation(async () => ({
+        leaseToken: 'vbx_rly_v1.payload.sig',
+        expiresAt: nowSeconds + 3600,
+        relayHost: 'dimo-ai.com',
+        relayPort: 443,
+        tenantOrigin: 'https://dimo-ai.com/t/mac-studio-01',
+        hostId: 'mac-studio-01',
+        leaseVersion: 1,
+      }));
+
+    await syncAccountHostConfigs(testUser);
+    expect(issueLeaseSpy).toHaveBeenCalledTimes(1);
+    expect(setLeaseSpy).toHaveBeenCalledTimes(1);
+
+    // Subsequent window-focus / preference syncs within the >15m window must NOT re-mint
+    await syncAccountHostConfigs(testUser);
+    await syncAccountHostConfigs(testUser);
+    expect(issueLeaseSpy).toHaveBeenCalledTimes(1);
+
+    // Explicit renewal (6-hour timer or HostTunnelPanel toggle) forces refresh
+    await syncCurrentHostRelayLease();
+    expect(issueLeaseSpy).toHaveBeenCalledTimes(2);
+
+    // When <=15 minutes remain, syncAccountHostConfigs renews automatically
+    issueLeaseSpy.mockResolvedValueOnce({
+      leaseToken: 'vbx_rly_v1.short.sig',
+      expiresAt: Math.floor(Date.now() / 1000) + 600,
+      relayHost: 'dimo-ai.com',
+      relayPort: 443,
+      tenantOrigin: 'https://dimo-ai.com/t/mac-studio-01',
+      hostId: 'mac-studio-01',
+      leaseVersion: 2,
+    });
+    await syncCurrentHostRelayLease();
+    expect(issueLeaseSpy).toHaveBeenCalledTimes(3);
+
+    nowSeconds = Math.floor(Date.now() / 1000);
+    await syncAccountHostConfigs(testUser);
+    expect(issueLeaseSpy).toHaveBeenCalledTimes(4);
   });
 });

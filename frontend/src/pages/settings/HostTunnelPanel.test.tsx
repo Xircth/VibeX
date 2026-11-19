@@ -70,7 +70,7 @@ describe('HostTunnelPanel', () => {
         host: '203.0.113.10',
         port: 17891,
         command:
-          'curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok -p 17891 -h 203.0.113.10',
+          'curl -fsSL https://dimo-ai.com/tunnel.sh | sh -s -- -t tok -p 17891 -h 203.0.113.10',
       },
       relay_state: 'idle',
       last_error: null,
@@ -196,7 +196,7 @@ describe('HostTunnelPanel', () => {
     );
     expect(
       await screen.findByDisplayValue(
-        /curl -fsSL https:\/\/vibex\.xforever\.xin\/tunnel.sh/
+        /curl -fsSL https:\/\/dimo-ai\.com\/tunnel.sh/
       )
     ).toBeVisible();
 
@@ -303,8 +303,8 @@ describe('HostTunnelPanel', () => {
     const officialNode = {
       id: 'auto-quick-tunnel',
       name: '香港 1 号中继',
-      origin: 'https://vibex.xforever.xin/t/win-host-1',
-      host: 'vibex.xforever.xin',
+      origin: 'https://dimo-ai.com/t/win-host-1',
+      host: 'dimo-ai.com',
       port: 443,
       kind: 'relay',
       created_at: '2026-11-12T00:00:00Z',
@@ -324,11 +324,9 @@ describe('HostTunnelPanel', () => {
 
     expect(await screen.findByText('香港 1 号中继')).toBeVisible();
     expect(
-      screen.queryByText('https://vibex.xforever.xin/t/win-host-1')
+      screen.queryByText('https://dimo-ai.com/t/win-host-1')
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText('vibex.xforever.xin:443')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('dimo-ai.com:443')).not.toBeInTheDocument();
     expect(screen.getByTestId('tunnel-usage-badge')).toHaveAttribute(
       'data-state',
       'in-use'

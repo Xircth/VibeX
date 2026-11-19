@@ -112,6 +112,8 @@ export type ThreadMessagesPage = {
   messages: SpaceMessage[];
   scheduled: ScheduledSpaceMessage[];
   cards?: SpaceCardRecord[];
+  hasMoreBefore?: boolean;
+  oldestSeq?: number | null;
 };
 
 export interface SpaceInitialTarget {

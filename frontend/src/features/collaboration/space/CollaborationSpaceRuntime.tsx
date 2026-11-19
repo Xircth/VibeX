@@ -1108,8 +1108,40 @@ export function useCollaborationSpaceRuntime(
   const messages = threadQuery.data?.messages ?? EMPTY_MESSAGES;
   const scheduledMessages = threadQuery.data?.scheduled ?? EMPTY_SCHEDULED;
   const threadCards = threadQuery.data?.cards;
+  const hasMoreEarlierServerMessages = Boolean(threadQuery.data?.hasMoreBefore);
+  const [loadingEarlierByThread, setLoadingEarlierByThread] = useState<
+    Record<string, boolean>
+  >({});
+  const loadingEarlierInFlightRef = useRef<Set<string>>(new Set());
+  const loadingEarlierMessages = Boolean(
+    threadQueryId && loadingEarlierByThread[threadQueryId]
+  );
   const messagesRef = useRef<SpaceMessage[]>([]);
   messagesRef.current = messages;
+  const setThreadPaginationFor = useCallback(
+    (
+      targetThreadId: string,
+      hasMoreBefore: boolean | undefined,
+      oldestSeq?: number | null
+    ) => {
+      if (!targetThreadId || typeof hasMoreBefore !== 'boolean') return;
+      queryClient.setQueryData<ThreadMessagesPage>(
+        collabQueryKeys.thread(targetThreadId),
+        (current) => {
+          const prev = current ?? {
+            messages: EMPTY_MESSAGES,
+            scheduled: EMPTY_SCHEDULED,
+          };
+          return {
+            ...prev,
+            hasMoreBefore,
+            ...(oldestSeq !== undefined ? { oldestSeq } : {}),
+          };
+        }
+      );
+    },
+    [queryClient]
+  );
   const setThreadCardsFor = useCallback(
     (targetThreadId: string, cards: SpaceCardRecord[] | undefined) => {
       if (!targetThreadId || !Array.isArray(cards)) return;
@@ -1187,6 +1219,114 @@ export function useCollaborationSpaceRuntime(
       setThreadScheduledFor(threadQueryId, updater);
     },
     [setThreadScheduledFor, threadQueryId]
+  );
+  const loadEarlierThreadMessages = useStableCallback(
+    async (): Promise<number> => {
+      const targetThreadId = activeDirectThreadId || selectedId;
+      if (!targetThreadId || targetThreadId === VIRTUAL_DEFAULT_SPACE_ID) {
+        return 0;
+      }
+      if (loadingEarlierInFlightRef.current.has(targetThreadId)) {
+        return 0;
+      }
+      const existingPage = queryClient.getQueryData<ThreadMessagesPage>(
+        collabQueryKeys.thread(targetThreadId)
+      );
+      if (!existingPage?.hasMoreBefore) {
+        return 0;
+      }
+      const currentMessages = existingPage.messages ?? [];
+      const firstPersisted = currentMessages.find(
+        (msg) =>
+          msg.seq > 0 &&
+          !String(msg.id ?? msg.envelope?.id ?? '').startsWith('draft:')
+      );
+      const beforeSeq =
+        (typeof existingPage.oldestSeq === 'number' &&
+        existingPage.oldestSeq > 0
+          ? existingPage.oldestSeq
+          : firstPersisted?.seq) ?? 0;
+      if (beforeSeq <= 1) {
+        setThreadPaginationFor(targetThreadId, false, beforeSeq || null);
+        return 0;
+      }
+      const beforeId = String(
+        firstPersisted?.id ?? firstPersisted?.envelope?.id ?? ''
+      ).trim();
+
+      loadingEarlierInFlightRef.current.add(targetThreadId);
+      setLoadingEarlierByThread((prev) => ({
+        ...prev,
+        [targetThreadId]: true,
+      }));
+      try {
+        if (targetThreadId.startsWith('direct:')) {
+          const page = await loadDirectMessages<SpaceMessage>(
+            collaborationCall,
+            targetThreadId,
+            undefined,
+            {
+              beforeSeq,
+              ...(beforeId ? { beforeId } : {}),
+              limit: 120,
+            }
+          );
+          if (!page) return 0;
+          const incoming = page.messages ?? [];
+          let added = 0;
+          setThreadMessagesFor(targetThreadId, (current) => {
+            const next = mergeDirectSpaceMessages(incoming, current, true);
+            added = Math.max(0, next.length - current.length);
+            setMessagesBySpace((bySpace) => ({
+              ...bySpace,
+              [targetThreadId]: next,
+            }));
+            return next;
+          });
+          setThreadPaginationFor(
+            targetThreadId,
+            Boolean(page.hasMoreBefore) && incoming.length > 0,
+            page.oldestSeq ?? incoming[0]?.seq ?? null
+          );
+          return added;
+        }
+
+        const page = await collaborationCall<{
+          messages?: SpaceMessage[];
+          hasMoreBefore?: boolean;
+          oldestSeq?: number | null;
+        }>('collaboration', 'space.listMessages', {
+          spaceId: targetThreadId,
+          beforeSeq,
+          limit: 120,
+        });
+        const incoming = page.messages ?? [];
+        let added = 0;
+        setThreadMessagesFor(targetThreadId, (current) => {
+          const next = mergeSpaceMessages(current, incoming);
+          added = Math.max(0, next.length - current.length);
+          setMessagesBySpace((bySpace) => ({
+            ...bySpace,
+            [targetThreadId]: next,
+          }));
+          return next;
+        });
+        setThreadPaginationFor(
+          targetThreadId,
+          Boolean(page.hasMoreBefore) && incoming.length > 0,
+          page.oldestSeq ?? incoming[0]?.seq ?? null
+        );
+        return added;
+      } catch {
+        return 0;
+      } finally {
+        loadingEarlierInFlightRef.current.delete(targetThreadId);
+        setLoadingEarlierByThread((prev) => ({
+          ...prev,
+          [targetThreadId]: false,
+        }));
+      }
+    }
   );
   const directThreadRef = useRef<string | null>(null);
   directThreadRef.current = activeDirectThreadId;
@@ -2676,6 +2816,13 @@ export function useCollaborationSpaceRuntime(
           if (Array.isArray(page.cards)) {
             setThreadCardsFor(directThreadId, page.cards as SpaceCardRecord[]);
           }
+          if (typeof page.hasMoreBefore === 'boolean') {
+            setThreadPaginationFor(
+              directThreadId,
+              page.hasMoreBefore,
+              page.oldestSeq
+            );
+          }
           return;
         }
         if (targetSpaceId.startsWith('direct:')) return;
@@ -2686,6 +2833,8 @@ export function useCollaborationSpaceRuntime(
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
         cards?: SpaceCardRecord[];
+        hasMoreBefore?: boolean;
+        oldestSeq?: number | null;
       }>('collaboration', 'space.listMessages', {
         spaceId: targetSpaceId,
         latest: true,
@@ -2694,6 +2843,13 @@ export function useCollaborationSpaceRuntime(
       if (cancelled) return;
       const nextMessages = mergeSpaceMessages([], messagePage.messages ?? []);
       setThreadMessagesFor(targetSpaceId, nextMessages);
+      if (typeof messagePage.hasMoreBefore === 'boolean') {
+        setThreadPaginationFor(
+          targetSpaceId,
+          messagePage.hasMoreBefore,
+          messagePage.oldestSeq
+        );
+      }
       if (Array.isArray(messagePage.scheduled)) {
         setThreadScheduledFor(targetSpaceId, messagePage.scheduled);
       }
@@ -2731,6 +2887,7 @@ export function useCollaborationSpaceRuntime(
     setMessagesBySpace,
     setThreadCardsFor,
     setThreadMessagesFor,
+    setThreadPaginationFor,
     setThreadScheduledFor,
     spaces,
     unassignedId,
@@ -2789,17 +2946,35 @@ export function useCollaborationSpaceRuntime(
         directThreadId &&
         (spaceId === directThreadId || spaceId === selectedIdRef.current)
       ) {
+        const directExisting =
+          queryClient.getQueryData<ThreadMessagesPage>(
+            collabQueryKeys.thread(directThreadId)
+          )?.messages ?? [];
+        const incrementalDirect = !forceFullReload && directExisting.length > 0;
         const direct = await loadDirectMessages<SpaceMessage>(
           collaborationCall,
-          directThreadId
+          directThreadId,
+          undefined,
+          incrementalDirect ? { limit: 60 } : undefined
         );
         if (cancelled) return;
         if (direct) {
-          applyDirectMessages(directThreadId, direct.messages, false);
+          applyDirectMessages(
+            directThreadId,
+            direct.messages,
+            incrementalDirect
+          );
           if (Array.isArray(direct.cards)) {
             setThreadCardsFor(
               directThreadId,
               direct.cards as SpaceCardRecord[]
+            );
+          }
+          if (!incrementalDirect && typeof direct.hasMoreBefore === 'boolean') {
+            setThreadPaginationFor(
+              directThreadId,
+              direct.hasMoreBefore,
+              direct.oldestSeq
             );
           }
           return;
@@ -2811,6 +2986,8 @@ export function useCollaborationSpaceRuntime(
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
         cards?: SpaceCardRecord[];
+        hasMoreBefore?: boolean;
+        oldestSeq?: number | null;
       }>(
         'collaboration',
         'space.listMessages',
@@ -2819,6 +2996,9 @@ export function useCollaborationSpaceRuntime(
           : { spaceId, latest: true, limit: 200 }
       );
       if (cancelled) return;
+      if (sinceSeq <= 0 && typeof page.hasMoreBefore === 'boolean') {
+        setThreadPaginationFor(spaceId, page.hasMoreBefore, page.oldestSeq);
+      }
       if (Array.isArray(page.scheduled)) {
         setThreadScheduledFor(spaceId, page.scheduled);
       }
@@ -3262,6 +3442,7 @@ export function useCollaborationSpaceRuntime(
     setSpaces,
     setThreadCardsFor,
     setThreadMessagesFor,
+    setThreadPaginationFor,
     setThreadScheduledFor,
     unassignedId,
     workspace,
@@ -5284,12 +5465,22 @@ export function useCollaborationSpaceRuntime(
         finishSuccessfulSend();
         void loadConversations();
         void refreshSidebar();
+        const existingDmCount =
+          queryClient.getQueryData<ThreadMessagesPage>(
+            collabQueryKeys.thread(directThreadId)
+          )?.messages?.length ?? 0;
         const page = await loadDirectMessages<SpaceMessage>(
           collaborationCall,
-          directThreadId
+          directThreadId,
+          undefined,
+          existingDmCount > 0 ? { limit: 60 } : undefined
         );
         if (page) {
-          applyDirectMessages(directThreadId, page.messages, false);
+          applyDirectMessages(
+            directThreadId,
+            page.messages,
+            existingDmCount > 0
+          );
         }
         return;
       }
@@ -9026,6 +9217,9 @@ export function useCollaborationSpaceRuntime(
     suppressNextMemberClickRef,
     syncingDockviewRef,
     t,
+    hasMoreEarlierServerMessages,
+    loadingEarlierMessages,
+    loadEarlierThreadMessages,
     threadCards,
     threadLogRef,
     threadOrder,

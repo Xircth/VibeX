@@ -34,6 +34,9 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 notify = "8.2.0"
 rustls = { workspace = true }
+rustls-pki-types = "1"
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
 base64 = "0.22"
 futures = { workspace = true }
 ignore = "0.4"

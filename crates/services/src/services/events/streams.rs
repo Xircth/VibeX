@@ -143,17 +143,11 @@ impl EventService {
             let writer_pool = self.db.pool.clone();
             let mut ensure_task = tokio::spawn(async move {
                 crate::services::project::ProjectService::new()
-                    .ensure_home_project(
-                        &writer_pool,
-                        &crate::services::repo::RepoService::new(),
-                    )
+                    .ensure_home_project(&writer_pool, &crate::services::repo::RepoService::new())
                     .await
             });
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(500),
-                &mut ensure_task,
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_millis(500), &mut ensure_task)
+                .await
             {
                 Ok(Ok(Ok(_))) => {
                     projects = Project::find_all(&read_pool).await?;
@@ -355,27 +349,22 @@ impl EventService {
         let receiver = self.msg_store.get_receiver();
         // Propagate transient database lock/pool errors so subscribers retry, while
         // treating corrupted/malformed scratch payloads the same as "scratch not found".
-        let scratch = match Scratch::find_by_id(
-            self.db.reader().as_pool(),
-            scratch_id,
-            scratch_type,
-        )
-        .await
-        {
-            Ok(scratch) => scratch,
-            Err(db::models::scratch::ScratchError::Database(sqlx_err)) => {
-                return Err(EventError::Sqlx(sqlx_err));
-            }
-            Err(e) => {
-                tracing::warn!(
-                    scratch_id = %scratch_id,
-                    scratch_type = %scratch_type,
-                    error = %e,
-                    "Failed to load scratch, treating as empty"
-                );
-                None
-            }
-        };
+        let scratch =
+            match Scratch::find_by_id(self.db.reader().as_pool(), scratch_id, scratch_type).await {
+                Ok(scratch) => scratch,
+                Err(db::models::scratch::ScratchError::Database(sqlx_err)) => {
+                    return Err(EventError::Sqlx(sqlx_err));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        scratch_id = %scratch_id,
+                        scratch_type = %scratch_type,
+                        error = %e,
+                        "Failed to load scratch, treating as empty"
+                    );
+                    None
+                }
+            };
 
         let initial_patch = json!([{
             "op": "replace",

@@ -136,9 +136,7 @@ export async function prepareOnboardingHistoryImport(
       );
     }
     const scannedWorkspace =
-      !override && folder.project_id === projectId
-        ? folder.workspace_id
-        : null;
+      !override && folder.project_id === projectId ? folder.workspace_id : null;
     const workspaceId = scannedWorkspace || (await resolveWorkspace(projectId));
     for (const session of folder.sessions) {
       const sessionKey = localHistorySessionKey(session);

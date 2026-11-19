@@ -21,7 +21,10 @@ pub mod tokio;
 pub mod tunnel;
 pub mod version;
 
-pub const DEFAULT_SITE_ORIGIN: &str = "https://vibex.xforever.xin";
+pub const DEFAULT_SITE_ORIGIN: &str = "https://dimo-ai.com";
+/// Previous public site. Installed marketplace sources and saved tunnel
+/// origins on this host stay valid; new defaults use `DEFAULT_SITE_ORIGIN`.
+pub const LEGACY_SITE_ORIGIN: &str = "https://vibex.xforever.xin";
 pub const DEFAULT_DEV_SITE_ORIGIN: &str = "http://localhost:3100";
 
 fn default_site_origin() -> &'static str {
@@ -74,8 +77,14 @@ pub fn cache_dir() -> std::path::PathBuf {
 }
 
 #[cfg(test)]
+pub(crate) fn lock_site_env() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().expect("site env lock")
+}
+
+#[cfg(test)]
 mod tests {
-    use super::cache_dir;
+    use super::{DEFAULT_SITE_ORIGIN, cache_dir, lock_site_env, site_origin};
 
     #[test]
     fn cache_dir_uses_the_dimo_project_identity() {
@@ -89,5 +98,27 @@ mod tests {
             !rendered.to_ascii_lowercase().contains("bloop"),
             "cache directory still uses the leftover bloop identity: {rendered}"
         );
+    }
+
+    #[test]
+    fn site_origin_defaults_to_the_public_site_and_keeps_an_env_override() {
+        let _lock = lock_site_env();
+        let previous = std::env::var("DIMO_SITE_URL").ok();
+        unsafe {
+            std::env::remove_var("DIMO_SITE_URL");
+        }
+        let default_origin = site_origin();
+        unsafe {
+            std::env::set_var("DIMO_SITE_URL", "https://site.example.test/");
+        }
+        let overridden = site_origin();
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("DIMO_SITE_URL", value),
+                None => std::env::remove_var("DIMO_SITE_URL"),
+            }
+        }
+        assert_eq!(default_origin, DEFAULT_SITE_ORIGIN);
+        assert_eq!(overridden, "https://site.example.test");
     }
 }

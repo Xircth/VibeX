@@ -53,4 +53,22 @@ ipaddr="$(PATH="${stubdir}:${PATH}" public_ip)"
 help_text="$(sh "${ROOT}/tunnel.sh" --help 2>&1 || true)"
 printf '%s\n' "${help_text}" | grep -q '\[-h <public-host>\]' || fail "usage should mention -h public-host"
 
+default_site="$(
+  unset DIMO_SITE_URL
+  TUNNEL_SH_LIB=1
+  # shellcheck disable=SC1091
+  . "${ROOT}/tunnel.sh"
+  printf '%s' "${SITE_URL}"
+)"
+[ "${default_site}" = "https://dimo-ai.com" ] || fail "default site should be https://dimo-ai.com, got ${default_site}"
+
+override_site="$(
+  DIMO_SITE_URL="https://override.example/"
+  TUNNEL_SH_LIB=1
+  # shellcheck disable=SC1091
+  . "${ROOT}/tunnel.sh"
+  printf '%s' "${SITE_URL}"
+)"
+[ "${override_site}" = "https://override.example" ] || fail "DIMO_SITE_URL should override the site, got ${override_site}"
+
 echo "ok"

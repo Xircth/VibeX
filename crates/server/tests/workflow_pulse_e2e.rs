@@ -838,7 +838,6 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
     assert_eq!(step1_err.0, "failed");
     let evidence1: Value = serde_json::from_str(step1_err.1.as_deref().unwrap_or("{}"))
         .expect("parse run 1 evidence json");
-    assert_eq!(evidence1["workspace"]["isolated"], true);
     let step_failed_events: Vec<String> = sqlx::query_scalar(
         "SELECT payload_json FROM workflow_events WHERE run_id = ? AND event_kind = 'step_failed'",
     )
@@ -846,6 +845,10 @@ async fn github_ci_webhook_triggers_isolated_session_workflow_and_posts_pr_and_c
     .fetch_all(pool)
     .await
     .expect("query step_failed events");
+    assert_eq!(
+        evidence1["workspace"]["isolated"], true,
+        "run 1 evidence missing isolation: {evidence1}; step_failed: {step_failed_events:?}"
+    );
     assert!(
         step_failed_events
             .iter()

@@ -145,13 +145,19 @@ describe('PluginMarketplaceLogo', () => {
     vi.unstubAllEnvs();
   });
 
-  it('respects DIMO_SITE_URL for allowlisted marketplace icon host', () => {
+  it('respects DIMO_SITE_URL and still allows the legacy marketplace host', () => {
+    expect(allowedMarketplaceIconUrl('https://dimo-ai.com/foo.png')).toBe(
+      'https://dimo-ai.com/foo.png'
+    );
     vi.stubEnv('DIMO_SITE_URL', 'https://site.example.com/');
     expect(allowedMarketplaceIconUrl('https://site.example.com/foo.png')).toBe(
       'https://site.example.com/foo.png'
     );
     expect(
       allowedMarketplaceIconUrl('https://vibex.xforever.xin/foo.png')
+    ).toBe('https://vibex.xforever.xin/foo.png');
+    expect(
+      allowedMarketplaceIconUrl('https://evil.example/foo.png')
     ).toBeNull();
   });
 });

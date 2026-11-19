@@ -393,8 +393,7 @@ fn is_sender_authorized(kind: &str, config: &Value, sender_id: &str, chat_id: &s
 
     let explicit_senders = explicit_authorized_senders(config);
     if !explicit_senders.is_empty() {
-        return explicit_senders.contains(trimmed_sender)
-            || explicit_senders.contains(sender_base);
+        return explicit_senders.contains(trimmed_sender) || explicit_senders.contains(sender_base);
     }
 
     let trimmed_chat = chat_id.trim();

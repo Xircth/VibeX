@@ -34,9 +34,12 @@ const HOTKEY_INSTALL: &str = r#"
 })();
 "#;
 
+#[cfg(any(windows, test))]
 const VK_F12: u32 = 0x7B;
+#[cfg(any(windows, test))]
 const VK_I: u32 = 0x49;
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InspectShortcut {
     Ignore,
@@ -48,6 +51,8 @@ pub enum InspectShortcut {
 /// Release WebView2 keeps its own F12 shortcut after `AreDevToolsEnabled` was
 /// turned on. Closing developer mode must swallow that key, not only skip our
 /// open call.
+#[cfg(any(windows, test))]
+#[allow(clippy::too_many_arguments)]
 pub fn inspect_shortcut_action(
     enabled: bool,
     key: u32,

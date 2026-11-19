@@ -1167,7 +1167,9 @@ impl AgentConnectionManager {
 
     /// Collect `(connection_id, session_id)` pairs whose Anthropic Prompt Cache
     /// is ready for `/compact` warm-preservation while the connection is idle.
-    pub async fn collect_idle_compaction_targets(&self) -> Vec<(AgentConnectionId, AgentSessionId)> {
+    pub async fn collect_idle_compaction_targets(
+        &self,
+    ) -> Vec<(AgentConnectionId, AgentSessionId)> {
         let candidates = {
             let connections = self.connections.lock().await;
             connections
@@ -1187,14 +1189,8 @@ impl AgentConnectionManager {
 
         let now = Utc::now();
         let mut targets = Vec::new();
-        for (
-            id,
-            status,
-            active_prompt,
-            pending_permissions,
-            pending_elicitations,
-            session_map,
-        ) in candidates
+        for (id, status, active_prompt, pending_permissions, pending_elicitations, session_map) in
+            candidates
         {
             if *status.lock().await != AgentConnectionStatus::Ready {
                 continue;

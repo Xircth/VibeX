@@ -1396,7 +1396,14 @@ impl GitCli {
         // --diff-filter to get status, --numstat for additions/deletions
         let name_status = self.git(
             worktree_path,
-            ["diff-tree", "--no-commit-id", "-r", "--name-status", sha, "--"],
+            [
+                "diff-tree",
+                "--no-commit-id",
+                "-r",
+                "--name-status",
+                sha,
+                "--",
+            ],
         )?;
         let numstat = self.git(
             worktree_path,
@@ -1978,8 +1985,12 @@ mod tests {
         let git = GitCli::new();
 
         assert!(
-            git.add_remote(repo.path(), "--upload-pack=evil", "https://example.com/r.git")
-                .is_err()
+            git.add_remote(
+                repo.path(),
+                "--upload-pack=evil",
+                "https://example.com/r.git"
+            )
+            .is_err()
         );
         assert!(
             git.add_remote(repo.path(), "origin", "ext::sh -c evil")
@@ -1989,19 +2000,10 @@ mod tests {
             git.add_remote(repo.path(), "origin", "--upload-pack=evil")
                 .is_err()
         );
-        assert!(
-            git.checkout_branch(repo.path(), "--orphan=evil")
-                .is_err()
-        );
-        assert!(
-            git.delete_branch(repo.path(), "--force").is_err()
-        );
-        assert!(
-            git.reset_to(repo.path(), "HEAD", "hard --merge").is_err()
-        );
-        assert!(
-            git.cherry_pick(repo.path(), "--strategy=evil").is_err()
-        );
+        assert!(git.checkout_branch(repo.path(), "--orphan=evil").is_err());
+        assert!(git.delete_branch(repo.path(), "--force").is_err());
+        assert!(git.reset_to(repo.path(), "HEAD", "hard --merge").is_err());
+        assert!(git.cherry_pick(repo.path(), "--strategy=evil").is_err());
 
         git.add_remote(repo.path(), "origin", "https://example.com/repo.git")
             .expect("valid remote should be added");

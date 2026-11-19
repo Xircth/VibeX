@@ -165,7 +165,7 @@ dimo-plugin pack [--output file.vxp]
 dimo plugin add --profile file.vxp -y
 ```
 
-Git 源：`dimo plugin add --web <git>#tag -y`。市场页：`dimo plugin add --web https://vibex.xforever.xin/marketplace/<owner>/<name> -y`。
+Git 源：`dimo plugin add --web <git>#tag -y`。市场页：`dimo plugin add --web https://dimo-ai.com/marketplace/<owner>/<name> -y`。
 
 用户明确要求上架时：
 

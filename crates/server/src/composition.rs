@@ -491,9 +491,7 @@ impl HeadlessServer {
                 app_surfaces,
                 preview_proxy: preview_proxy.clone(),
                 automation: automation_runtime.clone(),
-                automation_ownership: crate::AutomationOwnership::fixed(
-                    automation_owner.is_some(),
-                ),
+                automation_ownership: crate::AutomationOwnership::fixed(automation_owner.is_some()),
                 deployment: deployment.clone(),
                 runtime_root: config.data_dir.join("plugins/runtimes"),
                 worker_runtime,

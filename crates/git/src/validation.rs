@@ -63,9 +63,7 @@ pub(crate) fn validate_remote_name(remote: &str) -> Result<&str, GitCliError> {
 pub(crate) fn validate_remote_url(url: &str) -> Result<&str, GitCliError> {
     let trimmed = validate_cli_arg(url, "remote URL")?;
     let lower = trimmed.to_ascii_lowercase();
-    if lower.starts_with("ext::")
-        || lower.starts_with("fd::")
-        || lower.starts_with("remote-ext::")
+    if lower.starts_with("ext::") || lower.starts_with("fd::") || lower.starts_with("remote-ext::")
     {
         return Err(GitCliError::CommandFailed(format!(
             "unsafe git remote transport is not allowed: {trimmed}"

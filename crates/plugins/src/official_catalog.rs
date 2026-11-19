@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn catalog_lists_official_plugins_with_repositories() {
         let catalog = official_plugin_catalog();
-        assert_eq!(catalog.marketplace.origin, "https://vibex.xforever.xin");
+        assert_eq!(catalog.marketplace.origin, "https://dimo-ai.com");
         assert!(
             catalog
                 .official

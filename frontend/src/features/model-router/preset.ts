@@ -43,6 +43,60 @@ export function supportsModelRouter(agentId: string) {
 export const ROUTER_PROVIDER_NAME = 'Dimo ModelRouter';
 export const ROUTER_OPENCODE_PROVIDER_ID = 'dimo-modelrouter';
 
+/**
+ * Public model gateway. Matches the site `baseUrlForAgentImport` contract:
+ * Claude Code, Gemini CLI, and Antigravity use the root because those clients
+ * append their own version path. OpenAI-compatible clients need `/v1`.
+ */
+export const MODEL_GATEWAY_ORIGIN = 'https://model.dimo-ai.com';
+const LEGACY_MODEL_HOST = 'model.xforever.xin';
+const MODEL_GATEWAY_HOST = 'model.dimo-ai.com';
+const MODEL_GATEWAY_ROOT_AGENTS = new Set([
+  'claude_code',
+  'gemini',
+  'antigravity',
+]);
+
+function isOfficialModelGateway(url: URL): boolean {
+  if (url.username || url.password) return false;
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+  if (url.port && url.port !== '443') return false;
+  const host = url.hostname.toLowerCase();
+  if (host === LEGACY_MODEL_HOST || host === MODEL_GATEWAY_HOST) return true;
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+  const siteRouter = path === '/api/router' || path.startsWith('/api/router/');
+  return (
+    siteRouter &&
+    (host === 'vibex.xforever.xin' ||
+      host === 'dimo-ai.com' ||
+      host === 'www.dimo-ai.com')
+  );
+}
+
+/**
+ * Rewrites only the official model gateway onto the current host and the path
+ * that agent's client expects. Any other URL, including a provider the user
+ * typed, is returned unchanged.
+ */
+export function officialModelBaseUrl(agentId: string, issued: string): string {
+  const trimmed = issued.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+  if (!isOfficialModelGateway(url)) return trimmed;
+  return MODEL_GATEWAY_ROOT_AGENTS.has(agentId)
+    ? MODEL_GATEWAY_ORIGIN
+    : `${MODEL_GATEWAY_ORIGIN}/v1`;
+}
+
+function withOpenAiVersion(base: string): string {
+  const trimmed = base.replace(/\/+$/, '');
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+}
+
 /** The chosen model first, then the rest the key can reach. */
 function orderedModels(provision: RouterProvision) {
   return [
@@ -93,7 +147,7 @@ export function providerSaveRequest(
     id: existingId,
     name: ROUTER_PROVIDER_NAME,
     agent_id: provision.agentId,
-    api_url: provision.baseUrl,
+    api_url: officialModelBaseUrl(provision.agentId, provision.baseUrl),
     api_key: provision.apiKey,
     model: modelField(provision),
   };
@@ -104,14 +158,15 @@ export function openCodeConnectRequest(
   enabled = true
 ): OpenCodeProviderConnectRequest {
   const anthropic = provision.protocol === 'anthropic';
+  const issued = officialModelBaseUrl(provision.agentId, provision.baseUrl);
   return {
     provider_id: ROUTER_OPENCODE_PROVIDER_ID,
     name: ROUTER_PROVIDER_NAME,
     npm: anthropic ? '@ai-sdk/anthropic' : '@ai-sdk/openai-compatible',
     api: null,
-    // The Anthropic SDK package expects the versioned root; the gateway's
-    // Anthropic base is unversioned because Claude Code appends /v1 itself.
-    base_url: anthropic ? `${provision.baseUrl}/v1` : provision.baseUrl,
+    // The Anthropic SDK package expects the versioned root. Claude Code keeps
+    // the unversioned gateway root and appends /v1 itself.
+    base_url: anthropic ? withOpenAiVersion(issued) : issued,
     api_key: provision.apiKey,
     models: orderedModels(provision).map((model) => ({
       id: model.id,
@@ -130,7 +185,7 @@ export function dshProviderSaveRequest(
     display_name: ROUTER_PROVIDER_NAME,
     notes: null,
     api: 'openai-completions',
-    base_url: provision.baseUrl,
+    base_url: officialModelBaseUrl(provision.agentId, provision.baseUrl),
     api_key: provision.apiKey,
     models: orderedModels(provision).map((model) => ({
       id: model.id,

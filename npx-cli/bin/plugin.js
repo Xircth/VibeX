@@ -438,7 +438,7 @@ async function addDevPlugin(source, flags) {
   }
 }
 
-const DEFAULT_SITE_URL = "https://vibex.xforever.xin";
+const DEFAULT_SITE_URL = "https://dimo-ai.com";
 
 function marketplaceOrigin(flag) {
   return String(

@@ -56,6 +56,7 @@ import { createBackendAppSurfaceTransport } from '@/lib/api/appSurfaceTransport'
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { backendListen } from '@/lib/backendTransport';
 import { DesktopCapabilityError, isTauriClient } from '@/lib/desktopShell';
+import { getSiteUrl } from '@/lib/branding';
 import { getErrorMessage } from '@/lib/modals';
 import { tauriBackendTransport, useBackendTransport } from '@/lib/transport';
 import { cn } from '@/lib/utils';
@@ -173,8 +174,7 @@ function ConnectHostDialog({
   const isSshProfile =
     savedHostSource(matchedProfile?.provision_kind) === 'ssh';
   const relayPublicOrigin =
-    overview?.assignedRelayServer?.publicOrigin?.trim() ||
-    'https://vibex.xforever.xin';
+    overview?.assignedRelayServer?.publicOrigin?.trim() || getSiteUrl();
   const canUseCloudRelay = Boolean(
     isSignedIn && overview?.relayPermission !== false && !isSshProfile
   );

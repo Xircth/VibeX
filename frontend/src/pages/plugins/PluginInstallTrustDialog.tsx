@@ -12,7 +12,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { CatalogListing } from '@/lib/api/plugins';
-import { getMarketplaceHost, getSiteHost } from '@/lib/branding';
+import {
+  LEGACY_SITE_HOST,
+  getMarketplaceHost,
+  getSiteHost,
+} from '@/lib/branding';
 import { officialListingName } from './officialPlugins';
 
 export function listingSourceLabel(
@@ -40,7 +44,8 @@ export function listingSourceLabel(
   if (
     rawLower.includes('marketplace') ||
     (marketplaceHost && rawLower.includes(marketplaceHost)) ||
-    (siteHost && rawLower.includes(siteHost))
+    (siteHost && rawLower.includes(siteHost)) ||
+    rawLower.includes(LEGACY_SITE_HOST)
   ) {
     return t('plugins.installPreviewSourceOfficial');
   }

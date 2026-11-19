@@ -177,7 +177,7 @@ describe('onboarding appearance', () => {
       })
     ).toEqual([
       'https://cdn.example.com/onboarding/free-tabs.mp4',
-      'https://vibex.xforever.xin/videos/onboarding/free-tabs.mp4',
+      'https://dimo-ai.com/videos/onboarding/free-tabs.mp4',
     ]);
     expect(resolveOnboardingVideoSources('canvas', { devLocal: true })[0]).toBe(
       '/__dev/onboarding-videos/infinite-canvas.mp4'

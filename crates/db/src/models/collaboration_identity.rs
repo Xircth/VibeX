@@ -367,7 +367,14 @@ pub async fn resolve_session_in(
     member_id: &str,
     thread_id: &str,
 ) -> Result<ResolvedSession, IdentityError> {
-    if let Some(existing) = bound_conversation_in(&mut *conn, thread_id, member_id).await? {
+    let bound = bound_conversation_in(&mut *conn, thread_id, member_id).await?;
+    if let Some(existing) = bound
+        && sqlx::query_scalar::<_, i64>("SELECT 1 FROM sessions WHERE id = ?")
+            .bind(existing)
+            .fetch_optional(&mut *conn)
+            .await?
+            .is_some()
+    {
         return Ok(ResolvedSession {
             conversation_id: existing,
             created: false,
@@ -381,8 +388,9 @@ pub async fn resolve_session_in(
         .await?
         .ok_or(IdentityError::NotFound("thread"))?;
     let template = sqlx::query_scalar::<_, String>(
-        "SELECT conversation_id FROM collaboration_thread_members
-         WHERE member_id = ? ORDER BY joined_at, thread_id LIMIT 1",
+        "SELECT tm.conversation_id FROM collaboration_thread_members tm
+         JOIN sessions s ON lower(hex(s.id)) = replace(tm.conversation_id, '-', '')
+         WHERE tm.member_id = ? ORDER BY tm.joined_at, tm.thread_id LIMIT 1",
     )
     .bind(member_id)
     .fetch_optional(&mut *conn)
@@ -410,14 +418,14 @@ pub async fn resolve_session_in(
             .map(|session| session.0)
             .ok_or(IdentityError::NotFound("workspace"))?,
     };
-    let new_id = thread_session_id(member_id, thread_id);
+    let new_id = bound.unwrap_or_else(|| thread_session_id(member_id, thread_id));
     let executor = template_session.as_ref().and_then(|s| s.1.clone());
     let agent = member
         .agent
         .clone()
         .or_else(|| template_session.as_ref().and_then(|s| s.2.clone()));
     let mut tx = sqlx::Connection::begin(&mut *conn).await?;
-    sqlx::query(
+    let session_inserted = sqlx::query(
         "INSERT INTO sessions (id, workspace_id, name, executor, agent_id)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING",
@@ -428,7 +436,8 @@ pub async fn resolve_session_in(
     .bind(executor)
     .bind(&agent)
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
     let copied = match template {
         Some(template) => sqlx::query(
             "INSERT INTO conversation_personas
@@ -504,7 +513,7 @@ pub async fn resolve_session_in(
         .ok_or(IdentityError::NotFound("conversation"))?;
     Ok(ResolvedSession {
         conversation_id,
-        created: inserted > 0 && conversation_id == new_id,
+        created: (inserted > 0 || session_inserted > 0) && conversation_id == new_id,
         template_conversation_id: template,
     })
 }
@@ -1052,6 +1061,26 @@ mod tests {
         assert_eq!(thread.kind, "direct");
         assert_eq!(thread.workspace_id, Some(workspace.to_string()));
         assert_eq!(seat_conversation(&pool, &undecided, "小B").await, conv);
+    }
+
+    #[tokio::test]
+    async fn resolving_a_dangling_seat_restores_its_original_conversation() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let original = Uuid::new_v4();
+        session(&pool, original, workspace, "assistant").await;
+        space(&pool, "space-a", workspace).await;
+        let (member, thread, _) = bind_seat(&pool, "space-a", original, None).await.unwrap();
+        sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(original)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let restored = resolve_session(&pool, &member, &thread).await.unwrap();
+        assert_eq!(restored.conversation_id, original);
+        assert!(restored.created);
+        let again = resolve_session(&pool, &member, &thread).await.unwrap();
+        assert!(!again.created);
     }
 
     #[tokio::test]

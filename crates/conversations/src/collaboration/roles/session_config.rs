@@ -295,7 +295,7 @@ pub async fn resolve_thread_session(
         && parse_unassigned_space_id(raw_thread_id).is_none()
     {
         let already_bound: Option<String> = sqlx::query_scalar(
-            r#"SELECT sm.conversation_id
+            r#"SELECT tm.member_id
                FROM collaboration_space_members sm
                JOIN collaboration_thread_members tm
                  ON tm.thread_id = sm.space_id
@@ -312,8 +312,8 @@ pub async fn resolve_thread_session(
         .fetch_optional(pool)
         .await
         .map_err(db)?;
-        if let Some(conv_id) = already_bound.and_then(|raw| Uuid::parse_str(&raw).ok()) {
-            return Ok(conv_id);
+        if let Some(member_id) = already_bound {
+            return resolve_session(pool, &member_id, raw_thread_id).await;
         }
     }
     let member_id = identity_id_for_member_ref(pool, raw_member_ref, raw_thread_id).await?;

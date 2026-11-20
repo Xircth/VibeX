@@ -1079,7 +1079,8 @@ mod tests {
         let restored = resolve_session(&pool, &member, &thread).await.unwrap();
         assert_eq!(restored.conversation_id, original);
         assert!(restored.created);
-        assert!(!resolve_session(&pool, &member, &thread).await.unwrap().created);
+        let again = resolve_session(&pool, &member, &thread).await.unwrap();
+        assert!(!again.created);
     }
 
     #[tokio::test]
